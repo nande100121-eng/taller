@@ -22,6 +22,12 @@ export interface SiteTheme {
   font_style: string;
 }
 
+export interface FooterColumn {
+  id: string;
+  title: string;
+  items: string[];
+}
+
 export interface SiteContent {
   theme: SiteTheme;
   navbar: {
@@ -92,8 +98,12 @@ export interface SiteContent {
     title_services: string;
     title_contact: string;
     title_modules: string;
+    show_services_col?: boolean;
+    show_contact_col?: boolean;
+    show_modules_col?: boolean;
     featured_services: string[];
     modules: string[];
+    custom_columns?: FooterColumn[];
     copyright_text: string;
     tagline: string;
   };
@@ -418,6 +428,9 @@ export const useAppStore = create<AppState>()(
           title_services: "SERVICIOS DESTACADOS",
           title_contact: "CONTACTO TALLER",
           title_modules: "MÓDULOS DEL TALLER",
+          show_services_col: true,
+          show_contact_col: true,
+          show_modules_col: true,
           featured_services: [
             "Conversiones GNV 5ta Generación",
             "Conversiones GLP 5ta Generación",
@@ -432,6 +445,7 @@ export const useAppStore = create<AppState>()(
             "Caja & Facturación",
             "Certificaciones",
           ],
+          custom_columns: [],
           copyright_text: "Todos los derechos reservados.",
           tagline: "Sistema Dinámico ERP & CMS Automotriz",
         },

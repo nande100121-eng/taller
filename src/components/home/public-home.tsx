@@ -31,7 +31,9 @@ import {
   CheckCircle2,
   Lock,
   Cpu,
-  Gauge
+  Gauge,
+  Eye,
+  EyeOff
 } from "lucide-react";
 
 interface PublicHomeProps {
@@ -114,6 +116,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     title_services: "SERVICIOS DESTACADOS",
     title_contact: "CONTACTO TALLER",
     title_modules: "MÓDULOS DEL TALLER",
+    show_services_col: true,
+    show_contact_col: true,
+    show_modules_col: true,
     featured_services: [
       "Conversiones GNV 5ta Generación",
       "Conversiones GLP 5ta Generación",
@@ -128,6 +133,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       "Caja & Facturación",
       "Certificaciones",
     ],
+    custom_columns: [],
     copyright_text: "Todos los derechos reservados.",
     tagline: "Sistema Dinámico ERP & CMS Automotriz",
   };
@@ -211,6 +217,48 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   const handleDeleteModuleFooter = (index: number) => {
     const updated = (safeFooter.modules || []).filter((_, i) => i !== index);
     updateSiteContent("footer", { modules: updated });
+    showSaveSuccess();
+  };
+
+  // Custom Column Management
+  const handleAddCustomColumnFooter = () => {
+    const newCol = {
+      id: `col-${Date.now()}`,
+      title: "NUEVA SECCIÓN TALLER",
+      items: ["Primer Ítem de Sección", "Segundo Ítem de Sección"],
+    };
+    const updatedCols = [...(safeFooter.custom_columns || []), newCol];
+    updateSiteContent("footer", { custom_columns: updatedCols });
+    showSaveSuccess();
+  };
+
+  const handleDeleteCustomColumnFooter = (colId: string) => {
+    if (confirm("¿Estás seguro de eliminar esta sección de columna completa?")) {
+      const updatedCols = (safeFooter.custom_columns || []).filter((c) => c.id !== colId);
+      updateSiteContent("footer", { custom_columns: updatedCols });
+      showSaveSuccess();
+    }
+  };
+
+  const handleAddCustomItemToCol = (colId: string) => {
+    const updatedCols = (safeFooter.custom_columns || []).map((col) => {
+      if (col.id === colId) {
+        return { ...col, items: [...col.items, "Nuevo Ítem Personalizado"] };
+      }
+      return col;
+    });
+    updateSiteContent("footer", { custom_columns: updatedCols });
+    showSaveSuccess();
+  };
+
+  const handleDeleteCustomItemFromCol = (colId: string, itemIdx: number) => {
+    const updatedCols = (safeFooter.custom_columns || []).map((col) => {
+      if (col.id === colId) {
+        return { ...col, items: col.items.filter((_, i) => i !== itemIdx) };
+      }
+      return col;
+    });
+    updateSiteContent("footer", { custom_columns: updatedCols });
     showSaveSuccess();
   };
 
@@ -1016,12 +1064,61 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 5. FOOTER SECTION (100% EDITABLE EVERYTHING + ADD/DELETE ITEMS & MODULES) */}
+      {/* 5. FOOTER SECTION (FULL COLUMN CREATION, DELETION & INLINE EDITING) */}
       {/* ========================================================================= */}
-      <footer className="bg-reygas-dark border-t border-white/10 text-gray-300 pt-16 pb-8">
+      <footer className="bg-reygas-dark border-t border-white/10 text-gray-300 pt-16 pb-8 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Admin Toolbar to Add New Column Sections */}
+          {isEditing && (
+            <div className="mb-8 p-4 bg-reygas-surface/80 rounded-2xl border border-reygas-red/40 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <Edit3 className="w-4 h-4 text-reygas-red" />
+                <span>Gestión de Secciones y Columnas del Pie de Página (Footer):</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleAddCustomColumnFooter}
+                  className="px-4 py-2 bg-reygas-red hover:bg-reygas-redDark text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Añadir Nueva Sección / Columna</span>
+                </button>
+
+                {/* Restores for hidden columns */}
+                {safeFooter.show_services_col === false && (
+                  <button
+                    onClick={() => updateSiteContent("footer", { show_services_col: true })}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded-lg flex items-center gap-1"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Mostrar {safeFooter.title_services || "Servicios"}</span>
+                  </button>
+                )}
+                {safeFooter.show_contact_col === false && (
+                  <button
+                    onClick={() => updateSiteContent("footer", { show_contact_col: true })}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded-lg flex items-center gap-1"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Mostrar {safeFooter.title_contact || "Contacto"}</span>
+                  </button>
+                )}
+                {safeFooter.show_modules_col === false && (
+                  <button
+                    onClick={() => updateSiteContent("footer", { show_modules_col: true })}
+                    className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded-lg flex items-center gap-1"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Mostrar {safeFooter.title_modules || "Módulos"}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-            {/* Brand Info */}
+            {/* Column 1: Brand Info */}
             <div className="space-y-4">
               <ReyGasLogo size="lg" isEditingEnabled={isEditing} />
               <p className="text-sm text-gray-400 leading-relaxed">
@@ -1050,176 +1147,295 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               </div>
             </div>
 
-            {/* Featured Services (100% Editable Column Title, Items + Add/Delete) */}
-            <div>
-              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
-                <EditableText
-                  value={safeFooter.title_services || "SERVICIOS DESTACADOS"}
-                  isEditingEnabled={isEditing}
-                  onSave={(val) => {
-                    updateSiteContent("footer", { title_services: val });
-                    showSaveSuccess();
-                  }}
-                />
-                {isEditing && (
-                  <button
-                    onClick={handleAddFeaturedServiceFooter}
-                    className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs flex items-center gap-1"
-                    title="Añadir Ítem de Servicio al Footer"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                )}
-              </h4>
-              <ul className="space-y-2 text-sm text-gray-400">
-                {(safeFooter.featured_services || [
-                  "Conversiones GNV 5ta Generación",
-                  "Conversiones GLP 5ta Generación",
-                  "Mantenimiento de Inyectores & Reductores",
-                  "Certificación Anual & Prueba Hidrostática",
-                ]).map((servItem, idx) => (
-                  <li key={idx} className="flex items-center justify-between gap-2 group">
-                    <div className="flex items-center gap-2 flex-grow">
-                      <Flame className="w-3.5 h-3.5 text-reygas-red shrink-0" />
-                      <EditableText
-                        value={servItem}
-                        isEditingEnabled={isEditing}
-                        onSave={(val) => {
-                          const updated = [...(safeFooter.featured_services || [])];
-                          updated[idx] = val;
-                          updateSiteContent("footer", { featured_services: updated });
-                          showSaveSuccess();
-                        }}
-                      />
-                    </div>
-                    {isEditing && (
+            {/* Column 2: Featured Services (With Section Delete) */}
+            {safeFooter.show_services_col !== false && (
+              <div className="relative group">
+                <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
+                  <EditableText
+                    value={safeFooter.title_services || "SERVICIOS DESTACADOS"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("footer", { title_services: val });
+                      showSaveSuccess();
+                    }}
+                  />
+                  {isEditing && (
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => handleDeleteFeaturedServiceFooter(idx)}
-                        className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity"
-                        title="Eliminar este ítem del footer"
+                        onClick={handleAddFeaturedServiceFooter}
+                        className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs"
+                        title="Añadir Ítem de Servicio"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <Plus className="w-3 h-3" />
                       </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
+                      <button
+                        onClick={() => {
+                          if (confirm("¿Ocultar/Eliminar esta sección de Servicios Destacados?")) {
+                            updateSiteContent("footer", { show_services_col: false });
+                            showSaveSuccess();
+                          }
+                        }}
+                        className="p-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs"
+                        title="Eliminar / Ocultar esta Sección Completa"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </h4>
+                <ul className="space-y-2 text-sm text-gray-400">
+                  {(safeFooter.featured_services || [
+                    "Conversiones GNV 5ta Generación",
+                    "Conversiones GLP 5ta Generación",
+                    "Mantenimiento de Inyectores & Reductores",
+                    "Certificación Anual & Prueba Hidrostática",
+                  ]).map((servItem, idx) => (
+                    <li key={idx} className="flex items-center justify-between gap-2 group/item">
+                      <div className="flex items-center gap-2 flex-grow">
+                        <Flame className="w-3.5 h-3.5 text-reygas-red shrink-0" />
+                        <EditableText
+                          value={servItem}
+                          isEditingEnabled={isEditing}
+                          onSave={(val) => {
+                            const updated = [...(safeFooter.featured_services || [])];
+                            updated[idx] = val;
+                            updateSiteContent("footer", { featured_services: updated });
+                            showSaveSuccess();
+                          }}
+                        />
+                      </div>
+                      {isEditing && (
+                        <button
+                          onClick={() => handleDeleteFeaturedServiceFooter(idx)}
+                          className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity"
+                          title="Eliminar este ítem"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
-            {/* Contact Info (100% Editable Column Title & Items) */}
-            <div>
-              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3">
-                <EditableText
-                  value={safeFooter.title_contact || "CONTACTO TALLER"}
-                  isEditingEnabled={isEditing}
-                  onSave={(val) => {
-                    updateSiteContent("footer", { title_contact: val });
-                    showSaveSuccess();
-                  }}
-                />
-              </h4>
-              <ul className="space-y-3 text-sm text-gray-400">
-                <li className="flex items-center gap-3">
-                  <Phone className="w-4 h-4 text-reygas-red shrink-0" />
+            {/* Column 3: Contact Info (With Section Delete) */}
+            {safeFooter.show_contact_col !== false && (
+              <div className="relative group">
+                <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
                   <EditableText
-                    value={contact.phone}
+                    value={safeFooter.title_contact || "CONTACTO TALLER"}
                     isEditingEnabled={isEditing}
                     onSave={(val) => {
-                      updateSiteContent("contact", { phone: val });
+                      updateSiteContent("footer", { title_contact: val });
                       showSaveSuccess();
                     }}
                   />
-                </li>
-                <li className="flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-reygas-red shrink-0" />
-                  <EditableText
-                    value={contact.email}
-                    isEditingEnabled={isEditing}
-                    onSave={(val) => {
-                      updateSiteContent("contact", { email: val });
-                      showSaveSuccess();
-                    }}
-                  />
-                </li>
-                <li className="flex items-center gap-3">
-                  <MapPin className="w-4 h-4 text-reygas-red shrink-0" />
-                  <EditableText
-                    value={contact.address}
-                    isEditingEnabled={isEditing}
-                    onSave={(val) => {
-                      updateSiteContent("contact", { address: val });
-                      showSaveSuccess();
-                    }}
-                  />
-                </li>
-                <li className="flex items-center gap-3">
-                  <Clock className="w-4 h-4 text-reygas-red shrink-0" />
-                  <EditableText
-                    value={contact.schedule}
-                    isEditingEnabled={isEditing}
-                    onSave={(val) => {
-                      updateSiteContent("contact", { schedule: val });
-                      showSaveSuccess();
-                    }}
-                  />
-                </li>
-              </ul>
-            </div>
-
-            {/* Workshop Modules (100% Editable Column Title, Items + Add/Delete) */}
-            <div>
-              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
-                <EditableText
-                  value={safeFooter.title_modules || "MÓDULOS DEL TALLER"}
-                  isEditingEnabled={isEditing}
-                  onSave={(val) => {
-                    updateSiteContent("footer", { title_modules: val });
-                    showSaveSuccess();
-                  }}
-                />
-                {isEditing && (
-                  <button
-                    onClick={handleAddModuleFooter}
-                    className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs flex items-center gap-1"
-                    title="Añadir Módulo al Footer"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                )}
-              </h4>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {(safeFooter.modules || [
-                  "Portería & Semáforo",
-                  "Recepción & Citas",
-                  "Taller Kanban",
-                  "Almacén & Insumos",
-                  "Caja & Facturación",
-                  "Certificaciones",
-                ]).map((modItem, idx) => (
-                  <div key={idx} className="p-2 rounded bg-reygas-card text-gray-300 flex items-center justify-between group">
+                  {isEditing && (
+                    <button
+                      onClick={() => {
+                        if (confirm("¿Ocultar/Eliminar esta sección de Contacto?")) {
+                          updateSiteContent("footer", { show_contact_col: false });
+                          showSaveSuccess();
+                        }
+                      }}
+                      className="p-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs"
+                      title="Eliminar / Ocultar esta Sección Completa"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </h4>
+                <ul className="space-y-3 text-sm text-gray-400">
+                  <li className="flex items-center gap-3">
+                    <Phone className="w-4 h-4 text-reygas-red shrink-0" />
                     <EditableText
-                      value={modItem}
+                      value={contact.phone}
                       isEditingEnabled={isEditing}
                       onSave={(val) => {
-                        const updated = [...(safeFooter.modules || [])];
-                        updated[idx] = val;
-                        updateSiteContent("footer", { modules: updated });
+                        updateSiteContent("contact", { phone: val });
                         showSaveSuccess();
                       }}
                     />
-                    {isEditing && (
-                      <button
-                        onClick={() => handleDeleteModuleFooter(idx)}
-                        className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity ml-1"
-                        title="Eliminar este módulo"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <Mail className="w-4 h-4 text-reygas-red shrink-0" />
+                    <EditableText
+                      value={contact.email}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("contact", { email: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <MapPin className="w-4 h-4 text-reygas-red shrink-0" />
+                    <EditableText
+                      value={contact.address}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("contact", { address: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </li>
+                  <li className="flex items-center gap-3">
+                    <Clock className="w-4 h-4 text-reygas-red shrink-0" />
+                    <EditableText
+                      value={contact.schedule}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("contact", { schedule: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </li>
+                </ul>
               </div>
-            </div>
+            )}
+
+            {/* Column 4: Workshop Modules (With Section Delete) */}
+            {safeFooter.show_modules_col !== false && (
+              <div className="relative group">
+                <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
+                  <EditableText
+                    value={safeFooter.title_modules || "MÓDULOS DEL TALLER"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("footer", { title_modules: val });
+                      showSaveSuccess();
+                    }}
+                  />
+                  {isEditing && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={handleAddModuleFooter}
+                        className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs"
+                        title="Añadir Módulo"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm("¿Ocultar/Eliminar esta sección de Módulos del Taller?")) {
+                            updateSiteContent("footer", { show_modules_col: false });
+                            showSaveSuccess();
+                          }
+                        }}
+                        className="p-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs"
+                        title="Eliminar / Ocultar esta Sección Completa"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {(safeFooter.modules || [
+                    "Portería & Semáforo",
+                    "Recepción & Citas",
+                    "Taller Kanban",
+                    "Almacén & Insumos",
+                    "Caja & Facturación",
+                    "Certificaciones",
+                  ]).map((modItem, idx) => (
+                    <div key={idx} className="p-2 rounded bg-reygas-card text-gray-300 flex items-center justify-between group/mod">
+                      <EditableText
+                        value={modItem}
+                        isEditingEnabled={isEditing}
+                        onSave={(val) => {
+                          const updated = [...(safeFooter.modules || [])];
+                          updated[idx] = val;
+                          updateSiteContent("footer", { modules: updated });
+                          showSaveSuccess();
+                        }}
+                      />
+                      {isEditing && (
+                        <button
+                          onClick={() => handleDeleteModuleFooter(idx)}
+                          className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity ml-1"
+                          title="Eliminar este módulo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* DYNAMIC CUSTOM COLUMNS (CREATED BY ADMIN) */}
+            {(safeFooter.custom_columns || []).map((col) => (
+              <div key={col.id} className="relative group border border-reygas-red/30 p-3 rounded-xl bg-reygas-card/50">
+                <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
+                  <EditableText
+                    value={col.title}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      const updated = (safeFooter.custom_columns || []).map((c) =>
+                        c.id === col.id ? { ...c, title: val } : c
+                      );
+                      updateSiteContent("footer", { custom_columns: updated });
+                      showSaveSuccess();
+                    }}
+                  />
+                  {isEditing && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleAddCustomItemToCol(col.id)}
+                        className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs"
+                        title="Añadir Ítem a esta Columna"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCustomColumnFooter(col.id)}
+                        className="p-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs"
+                        title="Eliminar esta Sección Personalizada"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </h4>
+                <ul className="space-y-2 text-sm text-gray-400">
+                  {col.items.map((itemStr, iIdx) => (
+                    <li key={iIdx} className="flex items-center justify-between gap-2 group/citem">
+                      <div className="flex items-center gap-2 flex-grow">
+                        <span className="w-1.5 h-1.5 rounded-full bg-reygas-red shrink-0" />
+                        <EditableText
+                          value={itemStr}
+                          isEditingEnabled={isEditing}
+                          onSave={(val) => {
+                            const updated = (safeFooter.custom_columns || []).map((c) => {
+                              if (c.id === col.id) {
+                                const newItems = [...c.items];
+                                newItems[iIdx] = val;
+                                return { ...c, items: newItems };
+                              }
+                              return c;
+                            });
+                            updateSiteContent("footer", { custom_columns: updated });
+                            showSaveSuccess();
+                          }}
+                        />
+                      </div>
+                      {isEditing && (
+                        <button
+                          onClick={() => handleDeleteCustomItemFromCol(col.id, iIdx)}
+                          className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity"
+                          title="Eliminar este ítem"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
 
           <div className="mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between text-xs text-gray-500">
