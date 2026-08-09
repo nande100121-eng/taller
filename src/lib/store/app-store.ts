@@ -50,6 +50,18 @@ export interface SiteContent {
     badge_text: string;
     title: string;
     subtitle: string;
+    km_slider_title: string;
+    km_label_min: string;
+    km_label_mid: string;
+    km_label_max: string;
+    gnv_badge_text: string;
+    gnv_monthly_label: string;
+    gnv_annual_label: string;
+    gnv_btn_text: string;
+    glp_badge_text: string;
+    glp_monthly_label: string;
+    glp_annual_label: string;
+    glp_btn_text: string;
     gasoline_price_gal: number;
     gnv_price_m3: number;
     glp_price_gal: number;
@@ -364,6 +376,18 @@ export const useAppStore = create<AppState>()(
           badge_text: "Calculadora de Economía Automotriz",
           title: "¿Cuánto Dinero Dejas de Gastar al Mes?",
           subtitle: "Simule su ahorro estimado utilizando las tarifas oficiales actualizadas de combustible.",
+          km_slider_title: "Kilómetros recorridos al mes:",
+          km_label_min: "500 KM (Particular)",
+          km_label_mid: "4,000 KM (Taxi/App)",
+          km_label_max: "8,000 KM (Ruta)",
+          gnv_badge_text: "Opción GNV (Máximo Ahorro)",
+          gnv_monthly_label: "Ahorro Estimado Mensual",
+          gnv_annual_label: "Ahorro Anual:",
+          gnv_btn_text: "Reservar GNV",
+          glp_badge_text: "Opción GLP (Mayor Autonomía)",
+          glp_monthly_label: "Ahorro Estimado Mensual",
+          glp_annual_label: "Ahorro Anual:",
+          glp_btn_text: "Reservar GLP",
           gasoline_price_gal: 19.5,
           gnv_price_m3: 1.45,
           glp_price_gal: 7.5,

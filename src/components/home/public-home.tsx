@@ -21,6 +21,7 @@ import {
   TrendingDown,
   X,
   Plus,
+  Trash2,
   Palette,
   Phone,
   Mail,
@@ -75,6 +76,18 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     badge_text: "Calculadora de Economía Automotriz",
     title: "¿Cuánto Dinero Dejas de Gastar al Mes?",
     subtitle: "Simule su ahorro estimado utilizando las tarifas oficiales actualizadas de combustible.",
+    km_slider_title: "Kilómetros recorridos al mes:",
+    km_label_min: "500 KM (Particular)",
+    km_label_mid: "4,000 KM (Taxi/App)",
+    km_label_max: "8,000 KM (Ruta)",
+    gnv_badge_text: "Opción GNV (Máximo Ahorro)",
+    gnv_monthly_label: "Ahorro Estimado Mensual",
+    gnv_annual_label: "Ahorro Anual:",
+    gnv_btn_text: "Reservar GNV",
+    glp_badge_text: "Opción GLP (Mayor Autonomía)",
+    glp_monthly_label: "Ahorro Estimado Mensual",
+    glp_annual_label: "Ahorro Anual:",
+    glp_btn_text: "Reservar GLP",
     gasoline_price_gal: 19.5,
     gnv_price_m3: 1.45,
     glp_price_gal: 7.5,
@@ -154,6 +167,27 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   const showSaveSuccess = () => {
     setSavedBadge(true);
     setTimeout(() => setSavedBadge(false), 2000);
+  };
+
+  const handleAddServiceCard = () => {
+    const newService = {
+      id: `serv-${Date.now()}`,
+      title: "Nuevo Servicio Automotriz",
+      description: "Descripción detallada de la nueva prestación o servicio del taller.",
+      price: 150,
+      icon: "Wrench",
+    };
+    const updated = [...services, newService];
+    updateSiteContent("services", updated);
+    showSaveSuccess();
+  };
+
+  const handleDeleteServiceCard = (id: string) => {
+    if (confirm("¿Estás seguro de eliminar esta tarjeta de servicio?")) {
+      const updated = services.filter((s) => s.id !== id);
+      updateSiteContent("services", updated);
+      showSaveSuccess();
+    }
   };
 
   const handleBookSubmit = (e: React.FormEvent) => {
@@ -410,7 +444,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 2. CALCULATOR SECTION WITH EDITABLE BADGE, TITLE & SUBTITLE */}
+      {/* 2. CALCULATOR SECTION WITH 100% EDITABLE CARDS & KM LABELS */}
       {/* ========================================================================= */}
       <section id="calculadora" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden">
@@ -455,7 +489,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm font-bold text-gray-300">
-                    Kilómetros recorridos al mes:
+                    <EditableText
+                      value={safeCalc.km_slider_title || "Kilómetros recorridos al mes:"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { km_slider_title: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </label>
                   <span className="text-xl font-black text-reygas-red">
                     {monthlyKm.toLocaleString()} KM
@@ -471,9 +512,36 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   className="w-full h-3 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-reygas-red"
                 />
                 <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>500 KM (Particular)</span>
-                  <span>4,000 KM (Taxi/App)</span>
-                  <span>8,000 KM (Ruta)</span>
+                  <span>
+                    <EditableText
+                      value={safeCalc.km_label_min || "500 KM (Particular)"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { km_label_min: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
+                  <span>
+                    <EditableText
+                      value={safeCalc.km_label_mid || "4,000 KM (Taxi/App)"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { km_label_mid: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
+                  <span>
+                    <EditableText
+                      value={safeCalc.km_label_max || "8,000 KM (Ruta)"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { km_label_max: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
                 </div>
               </div>
 
@@ -524,26 +592,51 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               </div>
             </div>
 
-            {/* Results Display */}
+            {/* Results Display (100% EDITABLE TEXTS ON CALCULATOR CARDS) */}
             <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* GNV Card */}
               <div className="glass-card p-6 rounded-2xl border-2 border-emerald-500/40 relative overflow-hidden space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold">
-                    Opción GNV (Máximo Ahorro)
+                    <EditableText
+                      value={safeCalc.gnv_badge_text || "Opción GNV (Máximo Ahorro)"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { gnv_badge_text: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </span>
-                  <Flame className="w-5 h-5 text-emerald-400" />
+                  <Flame className="w-5 h-5 text-emerald-400 shrink-0" />
                 </div>
 
                 <div>
-                  <span className="text-xs text-gray-400">Ahorro Estimado Mensual</span>
+                  <span className="text-xs text-gray-400 block">
+                    <EditableText
+                      value={safeCalc.gnv_monthly_label || "Ahorro Estimado Mensual"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { gnv_monthly_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
                   <div className="text-3xl font-black text-emerald-400">
                     S/ {monthlySavingsGNV.toFixed(0)}
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-white/10 flex justify-between items-center text-xs text-gray-300">
-                  <span>Ahorro Anual:</span>
+                  <span>
+                    <EditableText
+                      value={safeCalc.gnv_annual_label || "Ahorro Anual:"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { gnv_annual_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
                   <span className="font-extrabold text-white">S/ {annualSavingsGNV.toFixed(0)}</span>
                 </div>
 
@@ -554,8 +647,15 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   }}
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-2"
                 >
-                  <span>Reservar GNV</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <EditableText
+                    value={safeCalc.gnv_btn_text || "Reservar GNV"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("calculator", { gnv_btn_text: val });
+                      showSaveSuccess();
+                    }}
+                  />
+                  <ArrowRight className="w-4 h-4 shrink-0" />
                 </button>
               </div>
 
@@ -563,20 +663,45 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               <div className="glass-card p-6 rounded-2xl border-2 border-amber-500/40 relative overflow-hidden space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold">
-                    Opción GLP (Mayor Autonomía)
+                    <EditableText
+                      value={safeCalc.glp_badge_text || "Opción GLP (Mayor Autonomía)"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { glp_badge_text: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </span>
-                  <Zap className="w-5 h-5 text-amber-400" />
+                  <Zap className="w-5 h-5 text-amber-400 shrink-0" />
                 </div>
 
                 <div>
-                  <span className="text-xs text-gray-400">Ahorro Estimado Mensual</span>
+                  <span className="text-xs text-gray-400 block">
+                    <EditableText
+                      value={safeCalc.glp_monthly_label || "Ahorro Estimado Mensual"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { glp_monthly_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
                   <div className="text-3xl font-black text-amber-400">
                     S/ {monthlySavingsGLP.toFixed(0)}
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-white/10 flex justify-between items-center text-xs text-gray-300">
-                  <span>Ahorro Anual:</span>
+                  <span>
+                    <EditableText
+                      value={safeCalc.glp_annual_label || "Ahorro Anual:"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("calculator", { glp_annual_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </span>
                   <span className="font-extrabold text-white">S/ {annualSavingsGLP.toFixed(0)}</span>
                 </div>
 
@@ -587,8 +712,15 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   }}
                   className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-2"
                 >
-                  <span>Reservar GLP</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <EditableText
+                    value={safeCalc.glp_btn_text || "Reservar GLP"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("calculator", { glp_btn_text: val });
+                      showSaveSuccess();
+                    }}
+                  />
+                  <ArrowRight className="w-4 h-4 shrink-0" />
                 </button>
               </div>
             </div>
@@ -597,9 +729,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 3. SERVICES CATALOG SECTION WITH EDITABLE HEADER & EDITABLE ICONS */}
+      {/* 3. SERVICES CATALOG SECTION WITH DYNAMIC ADD/DELETE CARDS */}
       {/* ========================================================================= */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
+      <section id="servicios" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
         <div className="text-center max-w-3xl mx-auto space-y-3">
           {/* EDITABLE SERVICES MAIN HEADER & SUBTITLE */}
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
@@ -623,6 +755,19 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               }}
             />
           </p>
+
+          {/* DYNAMIC ADD SERVICE CARD BUTTON (VISIBLE IN ADMIN EDIT MODE) */}
+          {isEditing && (
+            <div className="pt-4">
+              <button
+                onClick={handleAddServiceCard}
+                className="px-6 py-2.5 bg-reygas-red hover:bg-reygas-redDark text-white font-bold text-xs rounded-xl shadow-xl flex items-center gap-2 mx-auto transition-transform hover:scale-105"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Añadir Nueva Tarjeta de Servicio</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -631,6 +776,17 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               key={serv.id}
               className="glass-panel p-6 rounded-2xl border border-white/10 hover:border-reygas-red/50 transition-all flex flex-col justify-between group relative"
             >
+              {/* DELETE CARD BUTTON IN EDIT MODE */}
+              {isEditing && (
+                <button
+                  onClick={() => handleDeleteServiceCard(serv.id)}
+                  className="absolute -top-2 -right-2 p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-xl transition-all z-20"
+                  title="Eliminar esta Tarjeta de Servicio"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               <div className="space-y-4">
                 {/* EDITABLE SERVICE ICON SELECTOR */}
                 <div className="flex items-center justify-between">
