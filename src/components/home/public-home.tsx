@@ -1117,7 +1117,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
+          <div className="grid grid-cols-1 gap-10 w-full" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
             {/* Column 1: Brand Info */}
             <div className="space-y-4">
               <ReyGasLogo size="lg" isEditingEnabled={isEditing} />
