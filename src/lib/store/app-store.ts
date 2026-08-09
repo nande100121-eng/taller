@@ -92,6 +92,16 @@ export interface SiteContent {
     schedule: string;
     whatsapp: string;
   };
+  booking_modal: {
+    title: string;
+    subtitle: string;
+    client_name_label: string;
+    phone_label: string;
+    plate_label: string;
+    service_label: string;
+    date_label: string;
+    btn_submit_text: string;
+  };
   footer: {
     brand_description: string;
     certification_label: string;
@@ -421,6 +431,16 @@ export const useAppStore = create<AppState>()(
           address: "Av. Principal Automotriz 123, Lima",
           schedule: "Lun - Sáb: 8:00 AM - 6:00 PM",
           whatsapp: "51987654321",
+        },
+        booking_modal: {
+          title: "Reservar Cita Online",
+          subtitle: "Complete el formulario y nuestro equipo alistará su recepción.",
+          client_name_label: "Nombre Completo del Propietario *",
+          phone_label: "Teléfono WhatsApp *",
+          plate_label: "Placa Vehículo *",
+          service_label: "Tipo de Servicio Solicitado",
+          date_label: "Fecha y Hora Preferida",
+          btn_submit_text: "Confirmar Reserva de Cita",
         },
         footer: {
           brand_description: "Taller de precisión especializado en conversión y mantenimiento de equipos automotrices a GNV y GLP de 5ta Generación.",

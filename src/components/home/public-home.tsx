@@ -59,7 +59,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     syncFromSupabase();
   }, []);
 
-  const { theme, navbar, hero, metrics, calculator, services_header, about, contact, footer, services, gallery } = siteContent;
+  const { theme, navbar, hero, metrics, calculator, services_header, about, contact, booking_modal, footer, services, gallery } = siteContent;
 
   // Editing is STRICTLY enabled only inside the Admin CMS Station (/dashboard/admin/cms) where forceEditing is true
   const isEditing = forceEditing === true;
@@ -108,6 +108,17 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     experience_years: 15,
     conversions_count: 8500,
     image_url: "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80",
+  };
+
+  const safeBookingModal = booking_modal || {
+    title: "Reservar Cita Online",
+    subtitle: "Complete el formulario y nuestro equipo alistará su recepción.",
+    client_name_label: "Nombre Completo del Propietario *",
+    phone_label: "Teléfono WhatsApp *",
+    plate_label: "Placa Vehículo *",
+    service_label: "Tipo de Servicio Solicitado",
+    date_label: "Fecha y Hora Preferida",
+    btn_submit_text: "Confirmar Reserva de Cita",
   };
 
   const safeFooter = footer || {
@@ -319,6 +330,19 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
         </div>
       )}
 
+      {/* ADMIN FLOATING MODAL EDIT BUTTON TRIGGER */}
+      {isEditing && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            onClick={() => setBookingOpen(true)}
+            className="px-5 py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-extrabold text-xs rounded-2xl shadow-2xl border-2 border-white/20 flex items-center gap-2 transition-transform hover:scale-105"
+          >
+            <Calendar className="w-4 h-4" />
+            <span>✏️ Editar Textos de la Ventana Flotante de Reserva</span>
+          </button>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* 1. HERO SECTION - EXACT PUBLIC RENDER WITH 100% INLINE EDITING */}
       {/* ========================================================================= */}
@@ -380,12 +404,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <button
               onClick={() => {
-                setBookingService("Conversión a GNV 5ta Gen");
-                setBookingOpen(true);
+                if (!isEditing) {
+                  setBookingService("Conversión a GNV 5ta Gen");
+                  setBookingOpen(true);
+                }
               }}
               className="w-full sm:w-auto px-8 py-4 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl shadow-xl shadow-reygas-red/40 flex items-center justify-center gap-3 transition-transform hover:scale-105"
             >
-              <Calendar className="w-5 h-5" />
+              <Calendar className="w-5 h-5 shrink-0" />
               <EditableText
                 value={hero.btn_primary_text || "Reservar Cita de Conversión"}
                 isEditingEnabled={isEditing}
@@ -399,7 +425,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               href="#calculadora"
               className="w-full sm:w-auto px-8 py-4 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl border border-white/10 flex items-center justify-center gap-3 transition-colors"
             >
-              <Calculator className="w-5 h-5 text-reygas-red" />
+              <Calculator className="w-5 h-5 text-reygas-red shrink-0" />
               <EditableText
                 value={hero.btn_secondary_text || "Calcular Mi Ahorro Mensual"}
                 isEditingEnabled={isEditing}
@@ -714,8 +740,10 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
                 <button
                   onClick={() => {
-                    setBookingService("Conversión a GNV 5ta Gen");
-                    setBookingOpen(true);
+                    if (!isEditing) {
+                      setBookingService("Conversión a GNV 5ta Gen");
+                      setBookingOpen(true);
+                    }
                   }}
                   className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-2"
                 >
@@ -779,8 +807,10 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
                 <button
                   onClick={() => {
-                    setBookingService("Conversión a GLP 5ta Gen");
-                    setBookingOpen(true);
+                    if (!isEditing) {
+                      setBookingService("Conversión a GLP 5ta Gen");
+                      setBookingOpen(true);
+                    }
                   }}
                   className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center justify-center gap-2"
                 >
@@ -947,8 +977,10 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                 </div>
                 <button
                   onClick={() => {
-                    setBookingService(serv.title);
-                    setBookingOpen(true);
+                    if (!isEditing) {
+                      setBookingService(serv.title);
+                      setBookingOpen(true);
+                    }
                   }}
                   className="px-4 py-2 bg-reygas-surface hover:bg-reygas-red text-white text-xs font-bold rounded-lg transition-colors"
                 >
@@ -1464,7 +1496,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
         </div>
       </footer>
 
-      {/* ONLINE BOOKING MODAL */}
+      {/* ONLINE BOOKING FLOATING MODAL WITH 100% INLINE EDITABLE LABELS & TEXTS */}
       {bookingOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="glass-panel max-w-md w-full p-6 rounded-2xl border border-white/20 space-y-4 relative">
@@ -1477,11 +1509,26 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
             <div className="space-y-1">
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-reygas-red" />
-                <span>Reservar Cita Online</span>
+                <Calendar className="w-5 h-5 text-reygas-red shrink-0" />
+                <EditableText
+                  value={safeBookingModal.title || "Reservar Cita Online"}
+                  isEditingEnabled={isEditing}
+                  onSave={(val) => {
+                    updateSiteContent("booking_modal", { title: val });
+                    showSaveSuccess();
+                  }}
+                />
               </h3>
               <p className="text-xs text-gray-400">
-                Complete el formulario y nuestro equipo alistará su recepción.
+                <EditableText
+                  value={safeBookingModal.subtitle || "Complete el formulario y nuestro equipo alistará su recepción."}
+                  isEditingEnabled={isEditing}
+                  multiline
+                  onSave={(val) => {
+                    updateSiteContent("booking_modal", { subtitle: val });
+                    showSaveSuccess();
+                  }}
+                />
               </p>
             </div>
 
@@ -1497,7 +1544,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               <form onSubmit={handleBookSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Nombre Completo del Propietario *
+                    <EditableText
+                      value={safeBookingModal.client_name_label || "Nombre Completo del Propietario *"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("booking_modal", { client_name_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </label>
                   <input
                     type="text"
@@ -1512,7 +1566,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">
-                      Teléfono WhatsApp *
+                      <EditableText
+                        value={safeBookingModal.phone_label || "Teléfono WhatsApp *"}
+                        isEditingEnabled={isEditing}
+                        onSave={(val) => {
+                          updateSiteContent("booking_modal", { phone_label: val });
+                          showSaveSuccess();
+                        }}
+                      />
                     </label>
                     <input
                       type="tel"
@@ -1525,7 +1586,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-1">
-                      Placa Vehículo *
+                      <EditableText
+                        value={safeBookingModal.plate_label || "Placa Vehículo *"}
+                        isEditingEnabled={isEditing}
+                        onSave={(val) => {
+                          updateSiteContent("booking_modal", { plate_label: val });
+                          showSaveSuccess();
+                        }}
+                      />
                     </label>
                     <input
                       type="text"
@@ -1540,7 +1608,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Tipo de Servicio Solicitado
+                    <EditableText
+                      value={safeBookingModal.service_label || "Tipo de Servicio Solicitado"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("booking_modal", { service_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </label>
                   <select
                     value={bookingForm.service_type}
@@ -1557,7 +1632,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Fecha y Hora Preferida
+                    <EditableText
+                      value={safeBookingModal.date_label || "Fecha y Hora Preferida"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("booking_modal", { date_label: val });
+                        showSaveSuccess();
+                      }}
+                    />
                   </label>
                   <input
                     type="datetime-local"
@@ -1570,9 +1652,16 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-reygas-red/30"
+                  className="w-full py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-reygas-red/30 flex items-center justify-center"
                 >
-                  Confirmar Reserva de Cita
+                  <EditableText
+                    value={safeBookingModal.btn_submit_text || "Confirmar Reserva de Cita"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("booking_modal", { btn_submit_text: val });
+                      showSaveSuccess();
+                    }}
+                  />
                 </button>
               </form>
             )}
