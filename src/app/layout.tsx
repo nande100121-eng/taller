@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Navbar } from "@/components/navigation/navbar";
-import { Footer } from "@/components/navigation/footer";
 
 export const metadata: Metadata = {
   title: "REYGAS AUTOGAS EQUIPMENT | Conversiones y Mantenimiento GNV/GLP",
@@ -18,7 +17,6 @@ export default function RootLayout({
       <body className="bg-reygas-dark text-white min-h-screen flex flex-col antialiased">
         <Navbar />
         <main className="flex-1">{children}</main>
-        <Footer />
       </body>
     </html>
   );
