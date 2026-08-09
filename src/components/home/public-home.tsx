@@ -58,8 +58,8 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
 
   const { theme, navbar, hero, metrics, calculator, services_header, about, contact, footer, services, gallery } = siteContent;
 
-  // Force editing if in CMS Admin Page or if logged in as admin with visual editing toggled
-  const isEditing = forceEditing || (mounted && isAuthenticated && userRole === "admin" && isVisualEditing);
+  // Editing is STRICTLY enabled only inside the Admin CMS Station (/dashboard/admin/cms) where forceEditing is true
+  const isEditing = forceEditing === true;
 
   // Fallbacks for nested objects
   const safeMetrics = metrics || {
