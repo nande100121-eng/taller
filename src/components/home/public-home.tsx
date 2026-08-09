@@ -190,6 +190,30 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     }
   };
 
+  const handleAddFeaturedServiceFooter = () => {
+    const updated = [...(safeFooter.featured_services || []), "Nuevo Servicio Destacado"];
+    updateSiteContent("footer", { featured_services: updated });
+    showSaveSuccess();
+  };
+
+  const handleDeleteFeaturedServiceFooter = (index: number) => {
+    const updated = (safeFooter.featured_services || []).filter((_, i) => i !== index);
+    updateSiteContent("footer", { featured_services: updated });
+    showSaveSuccess();
+  };
+
+  const handleAddModuleFooter = () => {
+    const updated = [...(safeFooter.modules || []), "Nuevo Módulo Taller"];
+    updateSiteContent("footer", { modules: updated });
+    showSaveSuccess();
+  };
+
+  const handleDeleteModuleFooter = (index: number) => {
+    const updated = (safeFooter.modules || []).filter((_, i) => i !== index);
+    updateSiteContent("footer", { modules: updated });
+    showSaveSuccess();
+  };
+
   const handleBookSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     addAppointment({
@@ -889,7 +913,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 4. ABOUT US SECTION WITH EDITABLE BADGE */}
+      {/* 4. ABOUT US SECTION WITH EDITABLE BADGE & AUTO-FITTED WORKSHOP PHOTO */}
       {/* ========================================================================= */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-white/10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
@@ -961,13 +985,14 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
             </div>
           </div>
 
-          <div className="lg:col-span-6 relative h-64 sm:h-80 rounded-2xl overflow-hidden border border-white/10 group">
+          {/* WORKSHOP PHOTO CONTAINER - AUTO-FITTED 100% WITHOUT CROPPING */}
+          <div className="lg:col-span-6 relative rounded-2xl overflow-hidden border border-white/10 bg-reygas-dark/90 flex items-center justify-center p-2 min-h-[300px] sm:min-h-[380px] group">
             <img
               src={safeAbout.image_url}
               alt="Taller ReyGas Autogas Equipment"
-              className="w-full h-full object-cover"
+              className="w-full h-full max-h-[420px] object-contain rounded-xl"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-reygas-dark via-transparent to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-reygas-dark via-transparent to-transparent pointer-events-none" />
             <div className="absolute bottom-4 left-4 flex items-center gap-3">
               <ReyGasLogo size="sm" isEditingEnabled={isEditing} />
             </div>
@@ -991,7 +1016,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 5. FOOTER SECTION (100% EDITABLE EVERYTHING INLINE INCLUDING COLUMN TITLES) */}
+      {/* 5. FOOTER SECTION (100% EDITABLE EVERYTHING + ADD/DELETE ITEMS & MODULES) */}
       {/* ========================================================================= */}
       <footer className="bg-reygas-dark border-t border-white/10 text-gray-300 pt-16 pb-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1025,9 +1050,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               </div>
             </div>
 
-            {/* Quick Links (100% Editable Column Title & Items) */}
+            {/* Featured Services (100% Editable Column Title, Items + Add/Delete) */}
             <div>
-              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3">
+              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
                 <EditableText
                   value={safeFooter.title_services || "SERVICIOS DESTACADOS"}
                   isEditingEnabled={isEditing}
@@ -1036,6 +1061,15 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                     showSaveSuccess();
                   }}
                 />
+                {isEditing && (
+                  <button
+                    onClick={handleAddFeaturedServiceFooter}
+                    className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs flex items-center gap-1"
+                    title="Añadir Ítem de Servicio al Footer"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                )}
               </h4>
               <ul className="space-y-2 text-sm text-gray-400">
                 {(safeFooter.featured_services || [
@@ -1044,18 +1078,29 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   "Mantenimiento de Inyectores & Reductores",
                   "Certificación Anual & Prueba Hidrostática",
                 ]).map((servItem, idx) => (
-                  <li key={idx} className="flex items-center gap-2">
-                    <Flame className="w-3.5 h-3.5 text-reygas-red shrink-0" />
-                    <EditableText
-                      value={servItem}
-                      isEditingEnabled={isEditing}
-                      onSave={(val) => {
-                        const updated = [...(safeFooter.featured_services || [])];
-                        updated[idx] = val;
-                        updateSiteContent("footer", { featured_services: updated });
-                        showSaveSuccess();
-                      }}
-                    />
+                  <li key={idx} className="flex items-center justify-between gap-2 group">
+                    <div className="flex items-center gap-2 flex-grow">
+                      <Flame className="w-3.5 h-3.5 text-reygas-red shrink-0" />
+                      <EditableText
+                        value={servItem}
+                        isEditingEnabled={isEditing}
+                        onSave={(val) => {
+                          const updated = [...(safeFooter.featured_services || [])];
+                          updated[idx] = val;
+                          updateSiteContent("footer", { featured_services: updated });
+                          showSaveSuccess();
+                        }}
+                      />
+                    </div>
+                    {isEditing && (
+                      <button
+                        onClick={() => handleDeleteFeaturedServiceFooter(idx)}
+                        className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity"
+                        title="Eliminar este ítem del footer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1121,9 +1166,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
               </ul>
             </div>
 
-            {/* Modules (100% Editable Column Title & Items) */}
+            {/* Workshop Modules (100% Editable Column Title, Items + Add/Delete) */}
             <div>
-              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3">
+              <h4 className="text-white text-base font-bold mb-4 uppercase tracking-wider border-l-2 border-reygas-red pl-3 flex items-center justify-between">
                 <EditableText
                   value={safeFooter.title_modules || "MÓDULOS DEL TALLER"}
                   isEditingEnabled={isEditing}
@@ -1132,6 +1177,15 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                     showSaveSuccess();
                   }}
                 />
+                {isEditing && (
+                  <button
+                    onClick={handleAddModuleFooter}
+                    className="p-1 bg-reygas-red hover:bg-reygas-redDark text-white rounded text-xs flex items-center gap-1"
+                    title="Añadir Módulo al Footer"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                )}
               </h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {(safeFooter.modules || [
@@ -1142,7 +1196,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   "Caja & Facturación",
                   "Certificaciones",
                 ]).map((modItem, idx) => (
-                  <span key={idx} className="p-2 rounded bg-reygas-card text-gray-300">
+                  <div key={idx} className="p-2 rounded bg-reygas-card text-gray-300 flex items-center justify-between group">
                     <EditableText
                       value={modItem}
                       isEditingEnabled={isEditing}
@@ -1153,7 +1207,16 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                         showSaveSuccess();
                       }}
                     />
-                  </span>
+                    {isEditing && (
+                      <button
+                        onClick={() => handleDeleteModuleFooter(idx)}
+                        className="p-0.5 text-gray-500 hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity ml-1"
+                        title="Eliminar este módulo"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
