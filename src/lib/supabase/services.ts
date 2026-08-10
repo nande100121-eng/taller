@@ -118,6 +118,15 @@ export async function saveSupabaseAppointment(app: Appointment) {
   }
 }
 
+export async function deleteSupabaseAppointment(id: string) {
+  try {
+    const { error } = await supabase.from("appointments").delete().eq("id", id);
+    if (error) console.warn("Supabase appointment delete warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase appointment delete deferred:", err);
+  }
+}
+
 // ---------------------------------------------------------------------
 // INVOICES SUPABASE SYNC
 // ---------------------------------------------------------------------

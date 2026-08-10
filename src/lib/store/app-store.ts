@@ -9,6 +9,7 @@ import {
   saveSupabaseInventoryItem,
   saveSupabaseWorkOrder,
   saveSupabaseAppointment,
+  deleteSupabaseAppointment,
   saveSupabaseInvoice,
 } from "@/lib/supabase/services";
 
@@ -301,6 +302,8 @@ interface AppState {
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
   updateAppointmentStatus: (id: string, status: Appointment["status"]) => void;
+  updateAppointment: (id: string, updates: Partial<Appointment>) => void;
+  deleteAppointment: (id: string) => void;
 
   certifications: Certification[];
   addCertification: (cert: Omit<Certification, "id">) => void;
@@ -1043,6 +1046,27 @@ export const useAppStore = create<AppState>()(
           });
           return { appointments: updatedApps };
         });
+      },
+
+      updateAppointment: (id, updates) => {
+        set((state) => {
+          const updatedApps = state.appointments.map((a) => {
+            if (a.id === id) {
+              const updated = { ...a, ...updates };
+              saveSupabaseAppointment(updated);
+              return updated;
+            }
+            return a;
+          });
+          return { appointments: updatedApps };
+        });
+      },
+
+      deleteAppointment: (id) => {
+        deleteSupabaseAppointment(id);
+        set((state) => ({
+          appointments: state.appointments.filter((a) => a.id !== id),
+        }));
       },
 
       certifications: [
