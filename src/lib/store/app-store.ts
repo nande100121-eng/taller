@@ -22,6 +22,7 @@ export interface SiteTheme {
   surface_color: string;
   text_color: string;
   font_style: string;
+  zoom_scale?: number;
 }
 
 export interface FooterColumn {
@@ -393,6 +394,7 @@ export const useAppStore = create<AppState>()(
           surface_color: "#2A2D30",
           text_color: "#FFFFFF",
           font_style: "sans-serif",
+          zoom_scale: 100,
         },
         navbar: {
           brand_name: "REYGAS AUTOGAS EQUIPMENT",
