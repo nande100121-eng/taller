@@ -396,19 +396,8 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     }
   };
 
-  const currentZoom = theme.zoom_scale || 100;
-
-  const handleUpdateZoom = (newZoom: number) => {
-    const clamped = Math.min(140, Math.max(70, newZoom));
-    updateTheme({ zoom_scale: clamped });
-    showSaveSuccess();
-  };
-
   return (
-    <div
-      className="relative space-y-16 pb-20 transition-all duration-300 origin-top"
-      style={{ zoom: `${currentZoom}%` }}
-    >
+    <div className="relative space-y-16 pb-20">
       {/* Dynamic Theme Styles */}
       {mounted && (
         <style jsx global>{`
@@ -428,69 +417,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
         </div>
       )}
 
-      {/* ADMIN FLOATING ACTION BUTTONS & ZOOM SCALER */}
+      {/* ADMIN FLOATING ACTION BUTTONS */}
       {isEditing && (
         <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2.5 items-end">
-          {/* Web Zoom Scaler Widget */}
-          <div className="glass-panel p-3 rounded-2xl border border-reygas-red/40 bg-reygas-dark/95 shadow-2xl space-y-2 text-xs backdrop-blur-md max-w-xs">
-            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
-              <span className="font-extrabold text-white flex items-center gap-1.5">
-                <ZoomIn className="w-3.5 h-3.5 text-reygas-red" />
-                <span>Zoom Web Actual:</span>
-              </span>
-              <span className="font-mono font-black text-amber-400 text-sm bg-reygas-surface px-2 py-0.5 rounded">
-                {currentZoom}%
-              </span>
-            </div>
-
-            {/* Decrement / Increment Buttons */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => handleUpdateZoom(currentZoom - 5)}
-                className="flex-1 py-1 px-2 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-lg flex items-center justify-center gap-1 border border-white/10"
-                title="Reducir Zoom 5%"
-              >
-                <ZoomOut className="w-3 h-3 text-red-400" />
-                <span>-5%</span>
-              </button>
-
-              <button
-                onClick={() => handleUpdateZoom(100)}
-                className="py-1 px-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-lg flex items-center justify-center gap-1 border border-white/10"
-                title="Restablecer a 100%"
-              >
-                <Maximize2 className="w-3 h-3 text-blue-400" />
-                <span>100%</span>
-              </button>
-
-              <button
-                onClick={() => handleUpdateZoom(currentZoom + 5)}
-                className="flex-1 py-1 px-2 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-lg flex items-center justify-center gap-1 border border-white/10"
-                title="Aumentar Zoom 5%"
-              >
-                <ZoomIn className="w-3 h-3 text-emerald-400" />
-                <span>+5%</span>
-              </button>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="flex items-center justify-between gap-1 pt-1 text-[10px]">
-              {[85, 90, 95, 100, 105, 110, 120].map((pz) => (
-                <button
-                  key={pz}
-                  onClick={() => handleUpdateZoom(pz)}
-                  className={`px-1.5 py-0.5 rounded font-bold transition-all ${
-                    currentZoom === pz
-                      ? "bg-reygas-red text-white shadow-lg"
-                      : "bg-reygas-surface text-gray-400 hover:text-white"
-                  }`}
-                >
-                  {pz}%
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Master Save Button */}
           <button
             onClick={async () => {
