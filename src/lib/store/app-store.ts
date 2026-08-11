@@ -85,6 +85,19 @@ export interface SiteContent {
     experience_years: number;
     conversions_count: number;
     image_url: string;
+    gallery_images?: string[];
+  };
+  location_map?: {
+    badge_text: string;
+    title: string;
+    subtitle: string;
+    address_display: string;
+    city_district: string;
+    schedule_display: string;
+    phone_display: string;
+    map_embed_url: string;
+    btn_directions_text: string;
+    google_maps_link: string;
   };
   contact: {
     phone: string;
@@ -426,13 +439,31 @@ export const useAppStore = create<AppState>()(
           description: "En REYGAS AUTOGAS EQUIPMENT contamos con técnicos certificados, escáneres multimarca y bancos de prueba de inyectores para garantizar máxima potencia y ahorro de hasta 65% en combustible.",
           experience_years: 15,
           conversions_count: 8500,
-          image_url: "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80",
+          image_url: "https://lh3.googleusercontent.com/gps-cs-s/AB5981M3d5t7ZtWfG1vRk5yE7G2yB0p1V3q6r9t2M4l3N0k5s6v8-a=w1000",
+          gallery_images: [
+            "https://lh3.googleusercontent.com/gps-cs-s/AB5981M3d5t7ZtWfG1vRk5yE7G2yB0p1V3q6r9t2M4l3N0k5s6v8-a=w1000",
+            "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1000&q=80",
+            "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80",
+            "https://images.unsplash.com/photo-1530046339160-ce3e530c7d2f?auto=format&fit=crop&w=1000&q=80",
+          ],
+        },
+        location_map: {
+          badge_text: "Ubicación & Cobertura",
+          title: "Encuentra Nuestro Taller Autorizado",
+          subtitle: "Visítanos en nuestra sede principal con amplio estacionamiento y atención inmediata.",
+          address_display: "Av. San Martín N° 279 - Santa María",
+          city_district: "Huacho - Lima, Perú",
+          schedule_display: "Lunes a Sábado: 8:00 AM - 6:30 PM",
+          phone_display: "+51 987 654 321 / WhatsApp Directo",
+          map_embed_url: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3921.282875142145!2d-77.6049!3d-11.1072!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMTHCsDA2JzI1LjkiUyA3N8KwMzYnMTcuNiJX!5e0!3m2!1ses!2spe!4v1620000000000!5m2!1ses!2spe",
+          btn_directions_text: "Abrir Ubicación en Google Maps",
+          google_maps_link: "https://maps.google.com",
         },
         contact: {
           phone: "+51 987 654 321",
           email: "contacto@reygas.com",
-          address: "Av. Principal Automotriz 123, Lima",
-          schedule: "Lun - Sáb: 8:00 AM - 6:00 PM",
+          address: "Av. San Martín N° 279 - Santa María, Huacho",
+          schedule: "Lun - Sáb: 8:00 AM - 6:30 PM",
           whatsapp: "51987654321",
         },
         booking_modal: {

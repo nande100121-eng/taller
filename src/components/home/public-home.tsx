@@ -33,7 +33,11 @@ import {
   Cpu,
   Gauge,
   Eye,
-  EyeOff
+  EyeOff,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Navigation
 } from "lucide-react";
 
 interface PublicHomeProps {
@@ -59,7 +63,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     syncFromSupabase();
   }, []);
 
-  const { theme, navbar, hero, metrics, calculator, services_header, about, contact, booking_modal, footer, services, gallery } = siteContent;
+  const { theme, navbar, hero, metrics, calculator, services_header, about, location_map, contact, booking_modal, footer, services, gallery } = siteContent;
 
   // Editing is STRICTLY enabled only inside the Admin CMS Station (/dashboard/admin/cms) where forceEditing is true
   const isEditing = forceEditing === true;
@@ -107,7 +111,32 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     description: "En REYGAS AUTOGAS EQUIPMENT contamos con técnicos certificados, escáneres multimarca y bancos de prueba de inyectores para garantizar máxima potencia y ahorro de hasta 65% en combustible.",
     experience_years: 15,
     conversions_count: 8500,
-    image_url: "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80",
+    image_url: "https://lh3.googleusercontent.com/gps-cs-s/AB5981M3d5t7ZtWfG1vRk5yE7G2yB0p1V3q6r9t2M4l3N0k5s6v8-a=w1000",
+    gallery_images: [
+      "https://lh3.googleusercontent.com/gps-cs-s/AB5981M3d5t7ZtWfG1vRk5yE7G2yB0p1V3q6r9t2M4l3N0k5s6v8-a=w1000",
+      "https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1000&q=80",
+      "https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80",
+      "https://images.unsplash.com/photo-1530046339160-ce3e530c7d2f?auto=format&fit=crop&w=1000&q=80",
+    ],
+  };
+
+  const carouselImages = safeAbout.gallery_images && safeAbout.gallery_images.length > 0
+    ? safeAbout.gallery_images
+    : [safeAbout.image_url];
+
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+
+  const safeLocationMap = location_map || {
+    badge_text: "Ubicación & Cobertura",
+    title: "Encuentra Nuestro Taller Autorizado",
+    subtitle: "Visítanos en nuestra sede principal con amplio estacionamiento y atención inmediata.",
+    address_display: "Av. San Martín N° 279 - Santa María",
+    city_district: "Huacho - Lima, Perú",
+    schedule_display: "Lunes a Sábado: 8:00 AM - 6:30 PM",
+    phone_display: "+51 987 654 321 / WhatsApp Directo",
+    map_embed_url: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3921.282875142145!2d-77.6049!3d-11.1072!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMTHCsDA2JzI1LjkiUyA3N8KwMzYnMTcuNiJX!5e0!3m2!1ses!2spe!4v1620000000000!5m2!1ses!2spe",
+    btn_directions_text: "Abrir Ubicación en Google Maps",
+    google_maps_link: "https://maps.google.com",
   };
 
   const safeBookingModal = booking_modal || {
@@ -184,6 +213,38 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   const showSaveSuccess = () => {
     setSavedBadge(true);
     setTimeout(() => setSavedBadge(false), 2000);
+  };
+
+  // Carousel Next/Prev
+  const handlePrevSlide = () => {
+    setCurrentSlideIndex((prev) => (prev === 0 ? carouselImages.length - 1 : prev - 1));
+  };
+
+  const handleNextSlide = () => {
+    setCurrentSlideIndex((prev) => (prev === carouselImages.length - 1 ? 0 : prev + 1));
+  };
+
+  const handleAddCarouselImage = () => {
+    const newUrl = prompt("Ingresa la URL de la nueva imagen para el carrusel:");
+    if (newUrl) {
+      const updated = [...carouselImages, newUrl];
+      updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
+      setCurrentSlideIndex(updated.length - 1);
+      showSaveSuccess();
+    }
+  };
+
+  const handleDeleteCarouselImage = (index: number) => {
+    if (carouselImages.length <= 1) {
+      alert("Debes mantener al menos 1 imagen en el carrusel del taller.");
+      return;
+    }
+    if (confirm("¿Estás seguro de eliminar esta imagen del carrusel?")) {
+      const updated = carouselImages.filter((_, i) => i !== index);
+      updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
+      setCurrentSlideIndex(0);
+      showSaveSuccess();
+    }
   };
 
   const handleAddServiceCard = () => {
@@ -993,7 +1054,7 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 4. ABOUT US SECTION WITH EDITABLE BADGE & AUTO-FITTED WORKSHOP PHOTO */}
+      {/* 4. ABOUT US SECTION WITH EDITABLE BADGE & INTERACTIVE WORKSHOP CAROUSEL */}
       {/* ========================================================================= */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-white/10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
@@ -1065,30 +1126,96 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
             </div>
           </div>
 
-          {/* WORKSHOP PHOTO CONTAINER - AUTO-FITTED 100% WITHOUT CROPPING */}
-          <div className="lg:col-span-6 relative rounded-2xl overflow-hidden border border-white/10 bg-reygas-dark/90 flex items-center justify-center p-2 min-h-[300px] sm:min-h-[380px] group">
-            <img
-              src={safeAbout.image_url}
-              alt="Taller ReyGas Autogas Equipment"
-              className="w-full h-full max-h-[420px] object-contain rounded-xl"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-reygas-dark via-transparent to-transparent pointer-events-none" />
-            <div className="absolute bottom-4 left-4 flex items-center gap-3">
+          {/* WORKSHOP IMAGE CAROUSEL CONTAINER - AUTO-FITTED 100% WITH SLIDE ARROWS */}
+          <div className="lg:col-span-6 relative rounded-2xl overflow-hidden border border-white/10 bg-reygas-dark/90 flex flex-col items-center justify-center p-2 min-h-[320px] sm:min-h-[400px] group shadow-2xl">
+            {/* Active Image */}
+            <div className="relative w-full h-[320px] sm:h-[380px] flex items-center justify-center">
+              <img
+                src={carouselImages[currentSlideIndex] || safeAbout.image_url}
+                alt={`Taller ReyGas Autogas Equipment Foto ${currentSlideIndex + 1}`}
+                className="w-full h-full max-h-[420px] object-contain rounded-xl transition-all duration-500 ease-in-out"
+              />
+            </div>
+
+            {/* Navigation Arrows */}
+            {carouselImages.length > 1 && (
+              <>
+                <button
+                  onClick={handlePrevSlide}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-black/70 hover:bg-reygas-red text-white rounded-full transition-all shadow-xl opacity-80 hover:opacity-100"
+                  title="Imagen Anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={handleNextSlide}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-black/70 hover:bg-reygas-red text-white rounded-full transition-all shadow-xl opacity-80 hover:opacity-100"
+                  title="Siguiente Imagen"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </>
+            )}
+
+            {/* Carousel Dots */}
+            {carouselImages.length > 1 && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 z-20">
+                {carouselImages.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentSlideIndex(idx)}
+                    className={`h-2 rounded-full transition-all ${
+                      currentSlideIndex === idx ? "w-6 bg-reygas-red" : "w-2 bg-white/40 hover:bg-white"
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="absolute bottom-3 left-4 flex items-center gap-2 pointer-events-none z-10">
               <ReyGasLogo size="sm" isEditingEnabled={isEditing} />
             </div>
 
+            {/* Admin Controls for Carousel */}
             {isEditing && (
-              <div className="absolute top-4 right-4 bg-black/80 p-2 rounded-xl border border-white/20 text-xs">
-                <span className="text-[10px] text-gray-400 block mb-1">URL Foto Taller:</span>
-                <input
-                  type="text"
-                  value={safeAbout.image_url}
-                  onChange={(e) => {
-                    updateSiteContent("about", { image_url: e.target.value });
-                    showSaveSuccess();
-                  }}
-                  className="px-2 py-1 bg-reygas-dark border border-white/10 rounded text-xs text-white w-64"
-                />
+              <div className="absolute top-3 right-3 z-30 bg-black/90 p-3 rounded-xl border border-white/20 text-xs space-y-2 max-w-xs shadow-2xl">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-amber-400">
+                    Foto {currentSlideIndex + 1} de {carouselImages.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleAddCarouselImage}
+                      className="p-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] flex items-center gap-0.5"
+                      title="Añadir nueva imagen al carrusel"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Añadir</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCarouselImage(currentSlideIndex)}
+                      className="p-1 bg-red-600 hover:bg-red-500 text-white rounded text-[10px]"
+                      title="Eliminar esta foto"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-gray-400 block mb-1">URL de esta foto:</span>
+                  <input
+                    type="text"
+                    value={carouselImages[currentSlideIndex] || ""}
+                    onChange={(e) => {
+                      const updated = [...carouselImages];
+                      updated[currentSlideIndex] = e.target.value;
+                      updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
+                      showSaveSuccess();
+                    }}
+                    className="px-2 py-1 bg-reygas-dark border border-white/20 rounded text-xs text-white w-full"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1096,7 +1223,174 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       </section>
 
       {/* ========================================================================= */}
-      {/* 5. FOOTER SECTION (FULL COLUMN CREATION, DELETION & INLINE EDITING) */}
+      {/* 5. INTERACTIVE LOCATION & MAP SECTION (DIRECTLY BELOW ABOUT US) */}
+      {/* ========================================================================= */}
+      <section id="ubicacion" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-white/10 space-y-8 shadow-2xl">
+          {/* Header */}
+          <div className="text-center max-w-3xl mx-auto space-y-3">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-reygas-red/20 text-reygas-red text-xs font-bold uppercase border border-reygas-red/40">
+              <MapPin className="w-4 h-4" />
+              <EditableText
+                value={safeLocationMap.badge_text || "Ubicación & Cobertura"}
+                isEditingEnabled={isEditing}
+                onSave={(val) => {
+                  updateSiteContent("location_map", { badge_text: val });
+                  showSaveSuccess();
+                }}
+              />
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">
+              <EditableText
+                value={safeLocationMap.title || "Encuentra Nuestro Taller Autorizado"}
+                isEditingEnabled={isEditing}
+                onSave={(val) => {
+                  updateSiteContent("location_map", { title: val });
+                  showSaveSuccess();
+                }}
+              />
+            </h2>
+            <p className="text-gray-400 text-sm">
+              <EditableText
+                value={safeLocationMap.subtitle || "Visítanos en nuestra sede principal con amplio estacionamiento y atención inmediata."}
+                isEditingEnabled={isEditing}
+                multiline
+                onSave={(val) => {
+                  updateSiteContent("location_map", { subtitle: val });
+                  showSaveSuccess();
+                }}
+              />
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            {/* Info Cards */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="glass-card p-5 rounded-2xl border border-white/10 flex items-start gap-4 hover:border-reygas-red/50 transition-all">
+                <div className="p-3 bg-reygas-red/10 rounded-xl border border-reygas-red/30 text-reygas-red shrink-0">
+                  <MapPin className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-xs text-gray-400 block font-semibold uppercase tracking-wider">Dirección Principal</span>
+                  <h4 className="font-bold text-white text-base mt-0.5">
+                    <EditableText
+                      value={safeLocationMap.address_display || "Av. San Martín N° 279 - Santa María"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("location_map", { address_display: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    <EditableText
+                      value={safeLocationMap.city_district || "Huacho - Lima, Perú"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("location_map", { city_district: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </p>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-2xl border border-white/10 flex items-start gap-4 hover:border-blue-500/50 transition-all">
+                <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/30 text-blue-400 shrink-0">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-xs text-gray-400 block font-semibold uppercase tracking-wider">Horario de Atención</span>
+                  <h4 className="font-bold text-white text-base mt-0.5">
+                    <EditableText
+                      value={safeLocationMap.schedule_display || "Lunes a Sábado: 8:00 AM - 6:30 PM"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("location_map", { schedule_display: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-0.5">Recepción de vehículos e inspección técnica</p>
+                </div>
+              </div>
+
+              <div className="glass-card p-5 rounded-2xl border border-white/10 flex items-start gap-4 hover:border-emerald-500/50 transition-all">
+                <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/30 text-emerald-400 shrink-0">
+                  <Phone className="w-6 h-6" />
+                </div>
+                <div>
+                  <span className="text-xs text-gray-400 block font-semibold uppercase tracking-wider">Teléfono & WhatsApp</span>
+                  <h4 className="font-bold text-white text-base mt-0.5">
+                    <EditableText
+                      value={safeLocationMap.phone_display || "+51 987 654 321 / WhatsApp Directo"}
+                      isEditingEnabled={isEditing}
+                      onSave={(val) => {
+                        updateSiteContent("location_map", { phone_display: val });
+                        showSaveSuccess();
+                      }}
+                    />
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-0.5">Atención rápida de consultas e itinerarios</p>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <a
+                  href={safeLocationMap.google_maps_link || "https://maps.google.com"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3.5 bg-reygas-surface hover:bg-reygas-red text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 border border-white/10 transition-transform hover:scale-102 shadow-lg"
+                >
+                  <Navigation className="w-4 h-4 text-reygas-red" />
+                  <EditableText
+                    value={safeLocationMap.btn_directions_text || "Abrir Ubicación en Google Maps"}
+                    isEditingEnabled={isEditing}
+                    onSave={(val) => {
+                      updateSiteContent("location_map", { btn_directions_text: val });
+                      showSaveSuccess();
+                    }}
+                  />
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                </a>
+              </div>
+            </div>
+
+            {/* Google Map Embedded iframe Container */}
+            <div className="lg:col-span-7 relative h-[380px] rounded-2xl overflow-hidden border-2 border-white/10 shadow-2xl bg-reygas-dark">
+              <iframe
+                src={safeLocationMap.map_embed_url}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="w-full h-full grayscale-[20%] contrast-[110%] rounded-xl"
+              />
+
+              {isEditing && (
+                <div className="absolute bottom-3 left-3 right-3 bg-black/90 p-3 rounded-xl border border-white/20 text-xs space-y-1.5 shadow-2xl">
+                  <span className="text-[10px] text-amber-400 font-bold block">URL / Enlace Embed de Google Maps:</span>
+                  <input
+                    type="text"
+                    value={safeLocationMap.map_embed_url}
+                    onChange={(e) => {
+                      updateSiteContent("location_map", { map_embed_url: e.target.value });
+                      showSaveSuccess();
+                    }}
+                    className="px-2 py-1 bg-reygas-dark border border-white/20 rounded text-xs text-white w-full"
+                    placeholder="https://www.google.com/maps/embed?pb=..."
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ========================================================================= */}
+      {/* 6. FOOTER SECTION (FULL COLUMN CREATION, DELETION & INLINE EDITING) */}
       {/* ========================================================================= */}
       <footer className="bg-reygas-dark border-t border-white/10 text-gray-300 pt-16 pb-8 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
