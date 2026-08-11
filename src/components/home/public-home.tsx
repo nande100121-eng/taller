@@ -61,6 +61,18 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   useEffect(() => {
     setMounted(true);
     syncFromSupabase();
+
+    // Re-sync on window focus & every 10 seconds for real-time cross-device updates
+    const handleFocus = () => syncFromSupabase();
+    window.addEventListener("focus", handleFocus);
+    const interval = setInterval(() => {
+      syncFromSupabase();
+    }, 10000);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const { theme, navbar, hero, metrics, calculator, services_header, about, location_map, contact, booking_modal, footer, services, gallery } = siteContent;

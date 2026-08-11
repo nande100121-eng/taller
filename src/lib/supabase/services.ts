@@ -13,7 +13,16 @@ export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> |
 
     const result: any = {};
     data.forEach((row) => {
-      result[row.key] = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      const sectionKey = row.key || row.section_key;
+      const rawVal = row.value !== undefined ? row.value : row.content;
+
+      if (sectionKey && rawVal !== undefined) {
+        try {
+          result[sectionKey] = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+        } catch {
+          result[sectionKey] = rawVal;
+        }
+      }
     });
     return result as Partial<SiteContent>;
   } catch (err) {
@@ -24,15 +33,26 @@ export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> |
 
 export async function saveSupabaseSiteContent(key: string, value: any, category: string = "general") {
   try {
-    const { error } = await supabase.from("site_content").upsert({
+    const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
+
+    // Attempt Schema 1: { key, value }
+    let { error } = await supabase.from("site_content").upsert({
       key,
-      value: typeof value === "object" ? JSON.stringify(value) : value,
+      value: serializedValue,
       category,
       updated_at: new Date().toISOString(),
     });
 
+    // Fallback Attempt Schema 2: { section_key, content } if table uses section_key column
     if (error) {
-      console.warn(`Supabase site_content upsert warning for key [${key}]:`, error.message);
+      const retry = await supabase.from("site_content").upsert({
+        section_key: key,
+        content: typeof value === "object" ? value : { data: value },
+        updated_at: new Date().toISOString(),
+      });
+      if (retry.error) {
+        console.warn(`Supabase site_content upsert warning for key [${key}]:`, retry.error.message);
+      }
     }
   } catch (err) {
     console.warn("Supabase API call deferred:", err);
