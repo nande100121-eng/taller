@@ -224,14 +224,25 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     setCurrentSlideIndex((prev) => (prev === carouselImages.length - 1 ? 0 : prev + 1));
   };
 
+  // Carousel Add Image Modal state
+  const [isAddCarouselModalOpen, setIsAddCarouselModalOpen] = useState(false);
+  const [newCarouselUrlInput, setNewCarouselUrlInput] = useState("");
+
   const handleAddCarouselImage = () => {
-    const newUrl = prompt("Ingresa la URL de la nueva imagen para el carrusel:");
-    if (newUrl) {
-      const updated = [...carouselImages, newUrl];
-      updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
-      setCurrentSlideIndex(updated.length - 1);
-      showSaveSuccess();
-    }
+    setNewCarouselUrlInput("");
+    setIsAddCarouselModalOpen(true);
+  };
+
+  const handleConfirmAddCarouselImage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCarouselUrlInput.trim()) return;
+
+    const updated = [...carouselImages, newCarouselUrlInput.trim()];
+    updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
+    setCurrentSlideIndex(updated.length - 1);
+    setIsAddCarouselModalOpen(false);
+    setNewCarouselUrlInput("");
+    showSaveSuccess();
   };
 
   const handleDeleteCarouselImage = (index: number) => {
@@ -1959,6 +1970,126 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADD CAROUSEL IMAGE WEB-NATIVE DYNAMIC MODAL (SAME WEB DESIGN) */}
+      {/* ========================================================================= */}
+      {isAddCarouselModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel max-w-md w-full p-6 rounded-2xl border border-reygas-red/40 space-y-4 relative shadow-2xl animate-in fade-in zoom-in duration-200">
+            <button
+              onClick={() => setIsAddCarouselModalOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Plus className="w-5 h-5 text-reygas-red shrink-0" />
+                <span>Añadir Nueva Foto al Carrusel</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Pega el enlace URL de la imagen para incorporar la foto a la galería interactiva del taller.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmAddCarouselImage} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Enlace URL de la Imagen *
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://ejemplo.com/foto-taller.jpg"
+                  value={newCarouselUrlInput}
+                  onChange={(e) => setNewCarouselUrlInput(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-reygas-red"
+                />
+              </div>
+
+              {/* Live Preview Box */}
+              <div>
+                <span className="block text-[11px] font-semibold text-gray-400 mb-1.5">
+                  Vista Previa en Tiempo Real:
+                </span>
+                <div className="w-full h-36 bg-reygas-dark/90 rounded-xl border border-white/10 flex items-center justify-center overflow-hidden p-2">
+                  {newCarouselUrlInput.trim() ? (
+                    <img
+                      src={newCarouselUrlInput.trim()}
+                      alt="Vista Previa de Foto Taller"
+                      className="max-h-full max-w-full object-contain rounded-lg"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center text-xs text-gray-500 space-y-1">
+                      <Plus className="w-6 h-6 mx-auto text-gray-600" />
+                      <p>Ingresa una URL para ver la previsualización</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Sample Presets */}
+              <div className="space-y-1.5 pt-1">
+                <span className="block text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                  Sugerencias Rápidas de Prueba:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setNewCarouselUrlInput("https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1000&q=80")}
+                    className="p-1.5 bg-reygas-surface hover:bg-reygas-red/30 rounded-lg text-gray-300 text-left truncate border border-white/5"
+                  >
+                    📷 Motor 5ta Gen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCarouselUrlInput("https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1000&q=80")}
+                    className="p-1.5 bg-reygas-surface hover:bg-reygas-red/30 rounded-lg text-gray-300 text-left truncate border border-white/5"
+                  >
+                    💻 Diagnóstico ECU
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCarouselUrlInput("https://images.unsplash.com/photo-1530046339160-ce3e530c7d2f?auto=format&fit=crop&w=1000&q=80")}
+                    className="p-1.5 bg-reygas-surface hover:bg-reygas-red/30 rounded-lg text-gray-300 text-left truncate border border-white/5"
+                  >
+                    🔧 Banco Inyectores
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCarouselUrlInput("https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1000&q=80")}
+                    className="p-1.5 bg-reygas-surface hover:bg-reygas-red/30 rounded-lg text-gray-300 text-left truncate border border-white/5"
+                  >
+                    🚗 Vehículo en Rampa
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCarouselModalOpen(false)}
+                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-xs transition-colors shadow-lg shadow-reygas-red/30 flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Guardar en Carrusel</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
