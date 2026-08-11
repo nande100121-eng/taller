@@ -1466,31 +1466,87 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
             </div>
 
             {/* Google Map Embedded iframe Container */}
-            <div className="lg:col-span-7 relative h-[380px] rounded-2xl overflow-hidden border-2 border-white/10 shadow-2xl bg-reygas-dark">
+            <div className="lg:col-span-7 relative h-[420px] rounded-2xl overflow-hidden border-2 border-white/10 shadow-2xl bg-reygas-dark">
               <iframe
-                src={safeLocationMap.map_embed_url}
+                key={safeLocationMap.map_embed_url}
+                src={
+                  safeLocationMap.map_embed_url ||
+                  `https://maps.google.com/maps?q=${encodeURIComponent(
+                    (safeLocationMap.address_display || "Av. San Martín N° 279") +
+                      " " +
+                      (safeLocationMap.city_district || "Huacho")
+                  )}&z=${safeLocationMap.map_zoom_level || 17}&output=embed`
+                }
                 width="100%"
                 height="100%"
                 style={{ border: 0 }}
                 allowFullScreen
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
-                className="w-full h-full grayscale-[20%] contrast-[110%] rounded-xl"
+                className="w-full h-full grayscale-[15%] contrast-[110%] rounded-xl"
               />
 
+              {/* Admin Google Maps Zoom & URL Configurator */}
               {isEditing && (
-                <div className="absolute bottom-3 left-3 right-3 bg-black/90 p-3 rounded-xl border border-white/20 text-xs space-y-1.5 shadow-2xl">
-                  <span className="text-[10px] text-amber-400 font-bold block">URL / Enlace Embed de Google Maps:</span>
-                  <input
-                    type="text"
-                    value={safeLocationMap.map_embed_url}
-                    onChange={(e) => {
-                      updateSiteContent("location_map", { map_embed_url: e.target.value });
-                      showSaveSuccess();
-                    }}
-                    className="px-2 py-1 bg-reygas-dark border border-white/20 rounded text-xs text-white w-full"
-                    placeholder="https://www.google.com/maps/embed?pb=..."
-                  />
+                <div className="absolute bottom-3 left-3 right-3 bg-black/95 p-3 rounded-xl border border-reygas-red/50 text-xs space-y-2 shadow-2xl backdrop-blur-md z-30">
+                  <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
+                    <span className="text-[11px] font-extrabold text-amber-400 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-reygas-red" />
+                      <span>Configurar Zoom Fijo del Mapa Google:</span>
+                    </span>
+                    <span className="font-mono font-bold text-white text-xs bg-reygas-surface px-2 py-0.5 rounded">
+                      Nivel Zoom: {safeLocationMap.map_zoom_level || 17}
+                    </span>
+                  </div>
+
+                  {/* Zoom Level Select Buttons */}
+                  <div className="flex items-center justify-between gap-1 text-[10px]">
+                    {[
+                      { z: 13, label: "13 (Ciudad)" },
+                      { z: 15, label: "15 (Distrito)" },
+                      { z: 16, label: "16 (Avenida)" },
+                      { z: 17, label: "17 (Cerca)" },
+                      { z: 18, label: "18 (Taller Exacto)" },
+                      { z: 19, label: "19 (Zoom Máximo)" },
+                    ].map((item) => (
+                      <button
+                        key={item.z}
+                        onClick={() => {
+                          const query = `${safeLocationMap.address_display || "Av. San Martín 279"}, ${safeLocationMap.city_district || "Huacho"}`;
+                          const newEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${item.z}&output=embed`;
+                          updateSiteContent("location_map", {
+                            map_zoom_level: item.z,
+                            map_embed_url: newEmbedUrl,
+                            google_maps_link: `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${item.z}`,
+                          });
+                          showSaveSuccess();
+                        }}
+                        className={`flex-1 py-1 px-1 rounded font-bold transition-all text-center ${
+                          (safeLocationMap.map_zoom_level || 17) === item.z
+                            ? "bg-reygas-red text-white shadow-lg"
+                            : "bg-reygas-surface text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="pt-1">
+                    <span className="text-[10px] text-gray-400 block mb-1">
+                      URL Personalizada de Embed / iframe (Google Maps):
+                    </span>
+                    <input
+                      type="text"
+                      value={safeLocationMap.map_embed_url || ""}
+                      onChange={(e) => {
+                        updateSiteContent("location_map", { map_embed_url: e.target.value });
+                        showSaveSuccess();
+                      }}
+                      className="px-2 py-1 bg-reygas-dark border border-white/20 rounded text-xs text-white w-full"
+                      placeholder="https://maps.google.com/maps?q=...&z=17&output=embed"
+                    />
+                  </div>
                 </div>
               )}
             </div>

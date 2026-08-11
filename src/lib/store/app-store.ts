@@ -98,6 +98,7 @@ export interface SiteContent {
     schedule_display: string;
     phone_display: string;
     map_embed_url: string;
+    map_zoom_level?: number;
     btn_directions_text: string;
     google_maps_link: string;
   };
