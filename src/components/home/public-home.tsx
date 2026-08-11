@@ -1440,13 +1440,27 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                     ].map((item) => (
                       <button
                         key={item.z}
+                        type="button"
                         onClick={() => {
-                          const query = `${safeLocationMap.address_display || "Av. San Martín 279"}, ${safeLocationMap.city_district || "Huacho"}`;
-                          const newEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${item.z}&output=embed`;
+                          let currentUrl = safeLocationMap.map_embed_url || "";
+                          let updatedUrl = "";
+
+                          if (currentUrl.includes("z=")) {
+                            // Preserves active custom URL and updates only the z= zoom parameter
+                            updatedUrl = currentUrl.replace(/z=\d+/, `z=${item.z}`);
+                          } else if (currentUrl.includes("maps.google.com/maps")) {
+                            updatedUrl = `${currentUrl}&z=${item.z}`;
+                          } else if (currentUrl.includes("google.com/maps/embed")) {
+                            updatedUrl = currentUrl.includes("?") ? `${currentUrl}&z=${item.z}` : `${currentUrl}?z=${item.z}`;
+                          } else {
+                            // Fallback using active address
+                            const query = `${safeLocationMap.address_display || "Av. San Martín 279"}, ${safeLocationMap.city_district || "Huacho"}`;
+                            updatedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${item.z}&output=embed`;
+                          }
+
                           updateSiteContent("location_map", {
                             map_zoom_level: item.z,
-                            map_embed_url: newEmbedUrl,
-                            google_maps_link: `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${item.z}`,
+                            map_embed_url: updatedUrl,
                           });
                           showSaveSuccess();
                         }}
@@ -1461,10 +1475,25 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                     ))}
                   </div>
 
-                  <div className="pt-1">
-                    <span className="text-[10px] text-gray-400 block mb-1">
-                      URL Personalizada de Embed / iframe (Google Maps):
-                    </span>
+                  <div className="pt-1 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400 block font-semibold">
+                        URL Personalizada de Embed / iframe (Google Maps):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const query = `${safeLocationMap.address_display || "Av. San Martín 279"}, ${safeLocationMap.city_district || "Huacho"}`;
+                          const newUrl = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&z=${safeLocationMap.map_zoom_level || 17}&output=embed`;
+                          updateSiteContent("location_map", { map_embed_url: newUrl });
+                          showSaveSuccess();
+                        }}
+                        className="text-[10px] text-amber-400 hover:underline font-bold"
+                        title="Generar enlace embed usando la dirección principal ingresada arriba"
+                      >
+                        🔄 Generar desde Dirección
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={safeLocationMap.map_embed_url || ""}
