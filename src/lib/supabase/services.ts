@@ -59,6 +59,19 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
   }
 }
 
+export async function saveFullSiteContentToSupabase(content: SiteContent): Promise<boolean> {
+  try {
+    const keys = Object.keys(content) as Array<keyof SiteContent>;
+    for (const key of keys) {
+      await saveSupabaseSiteContent(key, content[key]);
+    }
+    return true;
+  } catch (err) {
+    console.error("Error saving full site content to Supabase:", err);
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------
 // TECHNICIANS SUPABASE SYNC
 // ---------------------------------------------------------------------

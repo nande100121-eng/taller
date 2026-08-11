@@ -5,6 +5,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import {
   fetchSupabaseSiteContent,
   saveSupabaseSiteContent,
+  saveFullSiteContentToSupabase,
   saveSupabaseTechnician,
   saveSupabaseInventoryItem,
   saveSupabaseWorkOrder,
@@ -277,8 +278,9 @@ interface AppState {
   isVisualEditing: boolean;
   toggleVisualEditing: () => void;
 
-  // Supabase Fetch Initializer
+  // Supabase Fetch Initializer & Full Manual Save
   syncFromSupabase: () => Promise<void>;
+  saveAllToSupabase: () => Promise<boolean>;
 
   siteContent: SiteContent;
   updateSiteContent: (key: keyof SiteContent, data: any) => void;
@@ -374,6 +376,12 @@ export const useAppStore = create<AppState>()(
             },
           }));
         }
+      },
+
+      saveAllToSupabase: async () => {
+        const currentContent = get().siteContent;
+        const success = await saveFullSiteContentToSupabase(currentContent);
+        return success;
       },
 
       siteContent: {

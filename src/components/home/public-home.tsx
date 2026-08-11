@@ -414,15 +414,26 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
         </div>
       )}
 
-      {/* ADMIN FLOATING MODAL EDIT BUTTON TRIGGER */}
+      {/* ADMIN FLOATING ACTION BUTTONS */}
       {isEditing && (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2 items-end">
+          <button
+            onClick={async () => {
+              const ok = await useAppStore.getState().saveAllToSupabase();
+              showSaveSuccess();
+            }}
+            className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-2xl shadow-2xl border-2 border-emerald-400/50 flex items-center gap-2 transition-transform hover:scale-105"
+          >
+            <Save className="w-4 h-4" />
+            <span>💾 GUARDAR TODOS LOS CAMBIOS EN SUPABASE</span>
+          </button>
+
           <button
             onClick={() => setBookingOpen(true)}
-            className="px-5 py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-extrabold text-xs rounded-2xl shadow-2xl border-2 border-white/20 flex items-center gap-2 transition-transform hover:scale-105"
+            className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold text-xs rounded-xl shadow-xl border border-white/20 flex items-center gap-2 transition-transform hover:scale-105"
           >
-            <Calendar className="w-4 h-4" />
-            <span>✏️ Editar Textos de la Ventana Flotante de Reserva</span>
+            <Calendar className="w-3.5 h-3.5 text-amber-400" />
+            <span>✏️ Editar Textos Ventana Flotante Cita</span>
           </button>
         </div>
       )}
