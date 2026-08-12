@@ -221,7 +221,7 @@ export default function PorteriaPage() {
   const handleConfirmAttendance = (app: Appointment) => {
     const plate = app.plate.toUpperCase();
 
-    // 1. Ensure vehicle is registered in global store
+    // 1. Ensure vehicle is registered in global store & Supabase
     const existingVehicle = vehicles.find((v) => v.plate === plate);
     if (!existingVehicle) {
       registerVehicle({
@@ -238,17 +238,20 @@ export default function PorteriaPage() {
       });
     }
 
-    // 2. Create work order directly for workshop
+    // 2. Create work order for workshop and active gate traffic
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
       problem_description: `${app.service_type} - Cita confirmada en Portería. ${app.notes || ""}`,
     });
 
-    // 3. Update appointment status
+    // 3. Update appointment status so it leaves pending reservations
     updateAppointmentStatus(app.id, "confirmado");
 
-    showAlert("success", `¡Asistencia confirmada para ${plate}! Se creó la Orden de Trabajo y se envió a Taller automáticamente.`);
+    showAlert(
+      "success",
+      `¡Asistencia Confirmada! El vehículo ${plate} salió de la lista de reservas pendientes y pasó al Semáforo de Salida e Inspección de Garita (Orden ingresada a Taller).`
+    );
   };
 
   const handleOpenReschedule = (app: Appointment) => {
