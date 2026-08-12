@@ -175,6 +175,69 @@ export default function PorteriaPage() {
     reader.readAsDataURL(file);
   };
 
+  // Bulk Vehicle Entry Importer from CSV / Excel
+  const handleImportVehiclesCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      let rawText = (evt.target?.result as string) || "";
+      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
+
+      const lines = rawText.split(/\r\n|\n/);
+      let importedCount = 0;
+
+      lines.forEach((line, idx) => {
+        if (idx === 0 || !line.trim()) return;
+        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+
+        if (cols.length >= 1 && cols[0]) {
+          const plate = cols[0].toUpperCase().replace(/[^A-Z0-9-]/g, "");
+          if (!plate) return;
+
+          const brand = cols[1] || "Toyota";
+          const model = cols[2] || "Yaris";
+          const year = parseInt(cols[3]) || 2022;
+          const color = cols[4] || "Plata";
+          const fuel_type = (cols[5] as any) || "GNV";
+          const owner_name = cols[6] || "Cliente Importado";
+          const owner_phone = cols[7] || "+51 900000000";
+          const current_mileage = parseInt(cols[8]) || 50000;
+          const problem_description = cols[9] || "Ingreso masivo por importación CSV";
+
+          registerVehicle({
+            plate,
+            brand,
+            model,
+            year,
+            color,
+            fuel_type,
+            owner_name,
+            owner_phone,
+            current_mileage,
+            last_visit_date: new Date().toISOString(),
+          });
+
+          createWorkOrder({
+            vehicle_plate: plate,
+            status: "ingresado",
+            problem_description,
+          });
+
+          importedCount++;
+        }
+      });
+
+      if (importedCount > 0) {
+        showAlert("success", `¡Se importaron con éxito ${importedCount} vehículos de ingreso desde el archivo CSV!`);
+      } else {
+        showAlert("warning", "No se pudieron interpretar filas. Verifique el formato CSV.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleRegisterEntry = (e: React.FormEvent) => {
     e.preventDefault();
     const plate = entryForm.plate.toUpperCase();
@@ -291,7 +354,13 @@ export default function PorteriaPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all">
+            <Upload className="w-4 h-4 text-white" />
+            <span>Cargar CSV Ingresos</span>
+            <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportVehiclesCSV} className="hidden" />
+          </label>
+
           <label className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors">
             <Upload className="w-4 h-4 text-purple-400" />
             <span>Subir Foto Placa</span>
