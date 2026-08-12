@@ -180,8 +180,11 @@ export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
 
 export async function clearSupabaseWorkOrders() {
   try {
-    const { error } = await supabase.from("work_orders").delete().neq("id", "");
-    if (error) console.warn("Supabase clear work orders warning:", error.message);
+    const { error: errInvoices } = await supabase.from("invoices").delete().filter("id", "not.is", null);
+    if (errInvoices) console.warn("Supabase clear invoices warning:", errInvoices.message);
+
+    const { error: errOrders } = await supabase.from("work_orders").delete().filter("id", "not.is", null);
+    if (errOrders) console.warn("Supabase clear work orders warning:", errOrders.message);
   } catch (err) {
     console.warn("Supabase clear work orders deferred:", err);
   }

@@ -1058,9 +1058,9 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
-      clearAllWorkOrders: () => {
-        clearSupabaseWorkOrders();
-        set({ workOrders: [] });
+      clearAllWorkOrders: async () => {
+        await clearSupabaseWorkOrders();
+        set({ workOrders: [], invoices: [] });
       },
 
       requestCertificationForWorkOrder: (orderId, certType, price) => {
