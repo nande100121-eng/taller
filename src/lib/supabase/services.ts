@@ -170,6 +170,33 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
   }
 }
 
+export async function deleteSupabaseWorkOrder(id: string) {
+  try {
+    const { error } = await supabase.from("work_orders").delete().eq("id", id);
+    if (error) console.warn("Supabase work order delete warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase work order delete deferred:", err);
+  }
+}
+
+export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
+  try {
+    const { error } = await supabase.from("work_orders").delete().in("id", ids);
+    if (error) console.warn("Supabase multiple work orders delete warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase multiple work orders delete deferred:", err);
+  }
+}
+
+export async function clearSupabaseWorkOrders() {
+  try {
+    const { error } = await supabase.from("work_orders").delete().neq("id", "");
+    if (error) console.warn("Supabase clear work orders warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase clear work orders deferred:", err);
+  }
+}
+
 // ---------------------------------------------------------------------
 // VEHICLES SUPABASE SYNC
 // ---------------------------------------------------------------------

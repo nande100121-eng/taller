@@ -17,6 +17,9 @@ import {
   deleteSupabaseInventoryItem,
   deleteMultipleSupabaseInventoryItems,
   clearSupabaseInventory,
+  deleteSupabaseWorkOrder,
+  deleteSupabaseMultipleWorkOrders,
+  clearSupabaseWorkOrders,
 } from "@/lib/supabase/services";
 
 export interface SiteTheme {
@@ -350,6 +353,9 @@ interface AppState {
   toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
   toggleAllowModificationsInWorkshop: (orderId: string) => void;
+  deleteWorkOrder: (id: string) => void;
+  deleteMultipleWorkOrders: (ids: string[]) => void;
+  clearAllWorkOrders: () => void;
   requestCertificationForWorkOrder: (
     orderId: string,
     certType: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática",
@@ -990,6 +996,25 @@ export const useAppStore = create<AppState>()(
           });
           return { workOrders: updatedOrders };
         });
+      },
+
+      deleteWorkOrder: (id) => {
+        deleteSupabaseWorkOrder(id);
+        set((state) => ({
+          workOrders: state.workOrders.filter((o) => o.id !== id),
+        }));
+      },
+
+      deleteMultipleWorkOrders: (ids) => {
+        deleteSupabaseMultipleWorkOrders(ids);
+        set((state) => ({
+          workOrders: state.workOrders.filter((o) => !ids.includes(o.id)),
+        }));
+      },
+
+      clearAllWorkOrders: () => {
+        clearSupabaseWorkOrders();
+        set({ workOrders: [] });
       },
 
       requestCertificationForWorkOrder: (orderId, certType, price) => {
