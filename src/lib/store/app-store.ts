@@ -23,6 +23,17 @@ import {
   saveSupabaseBulkWorkshopData,
 } from "@/lib/supabase/services";
 
+export function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export interface SiteTheme {
   primary_color: string;
   primary_hover: string;
@@ -851,7 +862,7 @@ export const useAppStore = create<AppState>()(
       createWorkOrder: (order) => {
         const newOrder: WorkOrder = {
           ...order,
-          id: `ot-${Date.now().toString().slice(-4)}`,
+          id: generateUUID(),
           entry_time: new Date().toISOString(),
           items: order.items || [],
         };
@@ -1270,7 +1281,7 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const newInvoice: Invoice = {
             ...invoiceData,
-            id: `inv-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            id: generateUUID(),
           };
           saveSupabaseInvoice(newInvoice);
           return { invoices: [...state.invoices, newInvoice] };
@@ -1285,7 +1296,7 @@ export const useAppStore = create<AppState>()(
           const grandTotal = laborFee + partsTotal + certFee;
 
           const newInvoice: Invoice = {
-            id: `fac-${Date.now().toString().slice(-4)}`,
+            id: generateUUID(),
             work_order_id: orderId,
             vehicle_plate: order.vehicle_plate,
             client_name: vehicle?.owner_name || "Cliente Taller",

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore } from "@/lib/store/app-store";
+import { useAppStore, generateUUID } from "@/lib/store/app-store";
 import {
   History,
   Calendar,
@@ -159,8 +159,8 @@ export default function ConsultasPage() {
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
 
-        const orderId = `ot-imp-${timestamp}-${idx}`;
-        const invoiceId = `inv-imp-${timestamp}-${idx}`;
+        const orderId = generateUUID();
+        const invoiceId = generateUUID();
 
         batchVehicles.push({
           plate,

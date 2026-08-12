@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore, WorkOrder } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, generateUUID } from "@/lib/store/app-store";
 import {
   Table,
   UserCheck,
@@ -134,8 +134,8 @@ export default function AdminTablesPage() {
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
 
-        const orderId = `ot-imp-${timestamp}-${idx}`;
-        const invoiceId = `inv-imp-${timestamp}-${idx}`;
+        const orderId = generateUUID();
+        const invoiceId = generateUUID();
 
         batchVehicles.push({
           plate,
