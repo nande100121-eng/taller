@@ -25,9 +25,12 @@ export default function AlmacenPage() {
     addToolLoan,
     returnTool,
     technicians,
+    workOrders,
+    vehicles,
+    markWorkOrderItemDispatched,
   } = useAppStore();
 
-  const [activeTab, setActiveTab] = useState<"inventario" | "herramientas" | "scanner">("inventario");
+  const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
   const [scanSku, setScanSku] = useState("");
   const [scanResult, setScanResult] = useState<typeof inventoryItems[0] | null>(null);
 
@@ -38,6 +41,23 @@ export default function AlmacenPage() {
     technician_name: technicians[0]?.full_name || "Carlos Mendoza",
     notes: "Uso en bahía de diagnóstico",
   });
+
+  // Calculate pending requisitions
+  const pendingOrders = workOrders.flatMap((wo) => {
+    const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
+    const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+
+    return wo.items.map((item) => ({
+      ...item,
+      orderId: wo.id,
+      plate: wo.vehicle_plate,
+      vehicleInfo: vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year}) - ${vehicle.fuel_type}` : "Vehículo",
+      ownerName: vehicle?.owner_name || "Cliente",
+      techName: tech?.full_name || "Técnico de Taller",
+    }));
+  });
+
+  const pendingRequisitionsCount = pendingOrders.filter((i) => !i.dispatched).length;
 
   const handleScanLookup = () => {
     const found = inventoryItems.find(
@@ -71,14 +91,30 @@ export default function AlmacenPage() {
             <Package className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white">Estación de Almacén & Préstamo de Herramientas</h1>
+            <h1 className="text-2xl font-black text-white">Estación de Almacén & Despacho a Taller</h1>
             <p className="text-xs text-gray-400">
-              Control de inventario, escáner de códigos de barra y asignación de equipos a mecánicos.
+              Notificaciones de repuestos requeridos por el taller, confirmación de recojo y control de inventario.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
+        <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
+          <button
+            onClick={() => setActiveTab("pedidos")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === "pedidos"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            <span>Pedidos de Taller</span>
+            {pendingRequisitionsCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-reygas-red text-white text-[10px] font-black animate-bounce">
+                {pendingRequisitionsCount}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => setActiveTab("inventario")}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -111,6 +147,84 @@ export default function AlmacenPage() {
           </button>
         </div>
       </div>
+
+      {activeTab === "pedidos" && (
+        <div className="space-y-6">
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
+            <h2 className="text-lg font-bold text-white flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Package className="w-5 h-5 text-amber-400" />
+                <span>Notificaciones de Repuestos Solicitados por los Mecánicos</span>
+              </div>
+              <span className="text-xs text-amber-400 font-bold">
+                {pendingRequisitionsCount} Pendientes de Recojo
+              </span>
+            </h2>
+
+            {pendingOrders.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">
+                No hay repuestos solicitados desde el taller en este momento.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {pendingOrders.map((req) => (
+                  <div
+                    key={`${req.orderId}-${req.id}`}
+                    className={`p-4 rounded-xl border transition-all ${
+                      req.dispatched
+                        ? "bg-emerald-950/20 border-emerald-500/30"
+                        : "bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5"
+                    }`}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-black text-base text-white bg-reygas-surface px-2.5 py-0.5 rounded border border-white/10">
+                            {req.plate}
+                          </span>
+                          <span className="text-xs font-bold text-amber-300">
+                            {req.vehicleInfo}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-reygas-surface text-gray-300 font-bold">
+                            Técnico: {req.techName}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-sm pt-1">
+                          <span className="font-extrabold text-white">{req.description}</span>
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-xs">
+                            Cantidad: {req.quantity}
+                          </span>
+                          <span className="font-mono text-gray-400 text-xs">
+                            Subtotal: S/ {req.subtotal}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {req.dispatched ? (
+                          <span className="px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-black flex items-center gap-1">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>ENTREGADO Y LISTO</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => markWorkOrderItemDispatched(req.orderId, req.id)}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
+                          >
+                            <Check className="w-4 h-4 stroke-[3]" />
+                            <span>Confirmar Repuesto Listo para Recojo</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {activeTab === "inventario" && (
         <div className="space-y-6">

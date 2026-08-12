@@ -18,7 +18,10 @@ import {
   ChevronRight,
   User,
   Phone,
-  AlertCircle
+  AlertCircle,
+  Package,
+  Trash2,
+  Edit3
 } from "lucide-react";
 
 export default function TallerPage() {
@@ -30,6 +33,7 @@ export default function TallerPage() {
     vehicles,
     inventoryItems,
     addWorkOrderItem,
+    removeWorkOrderItem,
     updateDiagnosticNotes,
   } = useAppStore();
 
@@ -43,7 +47,12 @@ export default function TallerPage() {
   // Form states inside modals
   const [diagnosticText, setDiagnosticText] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
-  const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "");
+
+  // Requisition form (Catalog or Custom text)
+  const [isCustomPart, setIsCustomPart] = useState(false);
+  const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "custom");
+  const [customPartName, setCustomPartName] = useState("");
+  const [customUnitPrice, setCustomUnitPrice] = useState(50);
   const [partQty, setPartQty] = useState(1);
 
   const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
@@ -63,6 +72,10 @@ export default function TallerPage() {
   const handleOpenParts = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("parts");
+    setIsCustomPart(false);
+    setCustomPartName("");
+    setCustomUnitPrice(50);
+    setPartQty(1);
   };
 
   const handleOpenTechnician = (orderId: string, currentTechId?: string) => {
@@ -86,7 +99,17 @@ export default function TallerPage() {
   };
 
   const handleAddPartRequisition = () => {
-    if (activeOrderModal && selectedInventoryId) {
+    if (!activeOrderModal) return;
+
+    if (isCustomPart) {
+      if (!customPartName.trim()) return;
+      addWorkOrderItem(activeOrderModal, {
+        description: customPartName.trim(),
+        quantity: Number(partQty),
+        unit_price: Number(customUnitPrice),
+      });
+      updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+    } else {
       const item = inventoryItems.find((i) => i.id === selectedInventoryId);
       if (item) {
         addWorkOrderItem(activeOrderModal, {
@@ -97,8 +120,8 @@ export default function TallerPage() {
         });
         updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
       }
-      setActiveOrderModal(null);
     }
+    setActiveOrderModal(null);
   };
 
   const filteredOrders = [...workOrders]
@@ -282,15 +305,82 @@ export default function TallerPage() {
                       </div>
                     </div>
 
-                    {/* Requisitions Badge */}
-                    {wo.items.length > 0 && (
-                      <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center justify-between">
-                        <span>{wo.items.length} Repuestos Solicitados</span>
-                        <span className="font-mono font-bold">
-                          S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0)}
+                    {/* Requisitions & Assigned Parts List */}
+                    <div className="space-y-2 pt-2 border-t border-white/5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase font-bold text-amber-400">
+                          Repuestos Solicitados a Almacén ({wo.items.length}):
+                        </span>
+                        <span className="text-xs font-mono font-bold text-white">
+                          Total: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0)}
                         </span>
                       </div>
-                    )}
+
+                      {wo.items.length === 0 ? (
+                        <p className="text-[11px] text-gray-500 italic">No hay repuestos solicitados aún.</p>
+                      ) : (
+                        <div className="space-y-1 max-h-[140px] overflow-y-auto pr-1">
+                          {wo.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 flex items-center justify-between text-xs gap-2"
+                            >
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span className="text-white font-semibold truncate">{item.description}</span>
+                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                                  x{item.quantity}
+                                </span>
+                                {item.dispatched ? (
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase">
+                                    ✓ Entregado por Almacén
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold uppercase">
+                                    ⏳ Pendiente Almacén
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal}</span>
+                                <button
+                                  onClick={() => removeWorkOrderItem(wo.id, item.id)}
+                                  className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                                  title="Quitar repuesto"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Assigned Technician & Actions */}
+                  <div className="lg:col-span-3 space-y-3 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
+                    {/* Technician selector dropdown */}
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                        Mecánico Asignado
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={wo.assigned_technician_id || ""}
+                          onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400"
+                        >
+                          <option value="">-- Sin Técnico Asignado --</option>
+                          {technicians.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.full_name} ({t.specialty})
+                            </option>
+                          ))}
+                        </select>
+                        <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
 
                     {/* Action buttons */}
                     <div className="grid grid-cols-2 gap-2">
@@ -369,22 +459,74 @@ export default function TallerPage() {
 
             {modalMode === "parts" && (
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-2">
-                    Seleccionar Producto del Inventario de Almacén
-                  </label>
-                  <select
-                    value={selectedInventoryId}
-                    onChange={(e) => setSelectedInventoryId(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                {/* Mode Selector: Catalog vs Custom */}
+                <div className="flex items-center gap-2 p-1 bg-reygas-dark rounded-xl border border-white/10 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomPart(false)}
+                    className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                      !isCustomPart ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                    }`}
                   >
-                    {inventoryItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} (Stock: {item.stock_quantity}) - S/ {item.unit_price}
-                      </option>
-                    ))}
-                  </select>
+                    Seleccionar de Inventario
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomPart(true)}
+                    className={`flex-1 py-2 rounded-lg font-bold transition-all ${
+                      isCustomPart ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    Ingreso Libre (Repuesto Especial)
+                  </button>
                 </div>
+
+                {!isCustomPart ? (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-2">
+                      Seleccionar Producto del Catálogo de Almacén
+                    </label>
+                    <select
+                      value={selectedInventoryId}
+                      onChange={(e) => setSelectedInventoryId(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                    >
+                      {inventoryItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} (Stock: {item.stock_quantity}) - S/ {item.unit_price}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Nombre / Descripción del Repuesto Especial *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Kit Inyectores Hana de 4 Cilindros con Adaptador"
+                        value={customPartName}
+                        onChange={(e) => setCustomPartName(e.target.value)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Precio Estimado Unitario (S/)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={customUnitPrice}
+                        onChange={(e) => setCustomUnitPrice(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-2">Cantidad</label>
@@ -399,9 +541,10 @@ export default function TallerPage() {
 
                 <button
                   onClick={handleAddPartRequisition}
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors"
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
                 >
-                  Confirmar Pedido a Almacén
+                  <PackagePlus className="w-4 h-4" />
+                  <span>Notificar y Enviar Pedido a Almacén</span>
                 </button>
               </div>
             )}

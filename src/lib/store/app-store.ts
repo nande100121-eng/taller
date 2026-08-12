@@ -312,6 +312,8 @@ interface AppState {
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
+  removeWorkOrderItem: (orderId: string, itemId: string) => void;
+  markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
 
   inventoryItems: InventoryItem[];
@@ -839,10 +841,42 @@ export const useAppStore = create<AppState>()(
               subtotal,
               dispatched: false,
             };
-            return {
+            const updatedOrder = {
               ...o,
               items: [...o.items, newItem],
             };
+            saveSupabaseWorkOrder(updatedOrder);
+            return updatedOrder;
+          }),
+        })),
+
+      removeWorkOrderItem: (orderId, itemId) =>
+        set((state) => ({
+          workOrders: state.workOrders.map((o) => {
+            if (o.id !== orderId) return o;
+            const updatedOrder = {
+              ...o,
+              items: o.items.filter((i) => i.id !== itemId),
+            };
+            saveSupabaseWorkOrder(updatedOrder);
+            return updatedOrder;
+          }),
+        })),
+
+      markWorkOrderItemDispatched: (orderId, itemId) =>
+        set((state) => ({
+          workOrders: state.workOrders.map((o) => {
+            if (o.id !== orderId) return o;
+            const targetItem = o.items.find((i) => i.id === itemId);
+            if (targetItem && targetItem.inventory_item_id) {
+              get().deductStock(targetItem.inventory_item_id, targetItem.quantity);
+            }
+            const updatedItems = o.items.map((i) =>
+              i.id === itemId ? { ...i, dispatched: true } : i
+            );
+            const updatedOrder = { ...o, items: updatedItems };
+            saveSupabaseWorkOrder(updatedOrder);
+            return updatedOrder;
           }),
         })),
 
