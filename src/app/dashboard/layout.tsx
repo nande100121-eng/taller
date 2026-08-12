@@ -21,7 +21,8 @@ import {
   Menu,
   X,
   UserCheck,
-  Edit3
+  Edit3,
+  History
 } from "lucide-react";
 
 export default function DashboardLayout({
@@ -87,13 +88,19 @@ export default function DashboardLayout({
       color: "text-indigo-400",
     },
     {
-      name: "9. Tabla Maestra de Personal",
+      name: "9. Consultas & Histórico por Día",
+      href: "/dashboard/consultas",
+      icon: History,
+      color: "text-amber-400",
+    },
+    {
+      name: "10. Tabla Maestra de Personal",
       href: "/dashboard/admin/tables",
       icon: Table,
       color: "text-pink-400",
     },
     {
-      name: "10. Configuración & Exportación",
+      name: "11. Configuración & Exportación",
       href: "/dashboard/configuracion",
       icon: Settings,
       color: "text-purple-400",

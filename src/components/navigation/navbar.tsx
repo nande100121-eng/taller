@@ -64,70 +64,26 @@ export const Navbar: React.FC = () => {
           <nav className="hidden md:flex items-center space-x-6">
             {isDashboard ? (
               /* ERP DASHBOARD HEADER (INSIDE /dashboard/...) */
-              <>
-                <div className="relative">
-                  <button
-                    onClick={() => setErpDropdownOpen(!erpDropdownOpen)}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-reygas-card hover:bg-reygas-surface border border-white/10 text-sm font-semibold text-white transition-all shadow-md"
-                  >
-                    <LayoutDashboard className="w-4 h-4 text-reygas-red" />
-                    <span>Estaciones ERP</span>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  </button>
-
-                  {erpDropdownOpen && (
-                    <div
-                      className="absolute right-0 mt-2 w-72 glass-panel rounded-2xl shadow-2xl py-2 border border-white/10 z-50 divide-y divide-white/5"
-                      onMouseLeave={() => setErpDropdownOpen(false)}
-                    >
-                      <div className="px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                        Seleccionar Estación Operativa
-                      </div>
-                      <div className="py-1">
-                        {erpLinks.map((link) => {
-                          const Icon = link.icon;
-                          return (
-                            <Link
-                              key={link.href}
-                              href={link.href}
-                              onClick={() => setErpDropdownOpen(false)}
-                              className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-white/5 ${
-                                pathname === link.href
-                                  ? "bg-reygas-red/20 text-white font-bold"
-                                  : "text-gray-300"
-                              }`}
-                            >
-                              <Icon className={`w-4 h-4 ${link.color}`} />
-                              <span>{link.name}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-xs font-bold text-white block">
+                    {currentUser?.name || "Usuario ERP"}
+                  </span>
+                  <span className="text-[10px] text-gray-400 uppercase font-mono">
+                    Rol: {userRole}
+                  </span>
                 </div>
-
-                <div className="flex items-center gap-3 pl-3 border-l border-white/10">
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-white block">
-                      {currentUser?.name || "Usuario ERP"}
-                    </span>
-                    <span className="text-[10px] text-gray-400 uppercase font-mono">
-                      Rol: {userRole}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      logout();
-                      router.push("/");
-                    }}
-                    className="p-2 rounded-lg bg-gray-800 hover:bg-red-950/40 text-gray-400 hover:text-red-400 transition-colors"
-                    title="Cerrar Sesión ERP"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              </>
+                <button
+                  onClick={() => {
+                    logout();
+                    router.push("/");
+                  }}
+                  className="p-2 rounded-lg bg-gray-800 hover:bg-red-950/40 text-gray-400 hover:text-red-400 transition-colors"
+                  title="Cerrar Sesión ERP"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             ) : (
               /* CLEAN PUBLIC WEBSITE NAVBAR (NO ERP TEXTS, NO ERP BUTTONS) */
               <div className="flex items-center gap-6 text-sm font-medium text-gray-300">
