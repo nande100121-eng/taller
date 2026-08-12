@@ -392,7 +392,7 @@ interface AppState {
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
-  importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => void;
+  importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
 
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
@@ -1321,8 +1321,8 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
-      importBulkWorkshopData: ({ vehicles: newVehicles, workOrders: newOrders, invoices: newInvoices }) => {
-        saveSupabaseBulkWorkshopData(newVehicles, newOrders, newInvoices);
+      importBulkWorkshopData: async ({ vehicles: newVehicles, workOrders: newOrders, invoices: newInvoices }) => {
+        const res = await saveSupabaseBulkWorkshopData(newVehicles, newOrders, newInvoices);
         set((state) => {
           // Merge vehicles by plate without duplicates
           const existingPlates = new Set(state.vehicles.map((v) => v.plate));
@@ -1342,6 +1342,7 @@ export const useAppStore = create<AppState>()(
             invoices: [...filteredInvoices, ...state.invoices],
           };
         });
+        return res;
       },
 
       payInvoice: (invoiceId) =>
@@ -1538,7 +1539,35 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "reygas-app-storage",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => {
+          try {
+            return localStorage.getItem(name);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            localStorage.setItem(name, value);
+          } catch (e) {
+            console.warn("localStorage quota exceeded, stored in memory:", e);
+          }
+        },
+        removeItem: (name) => {
+          try {
+            localStorage.removeItem(name);
+          } catch {}
+        },
+      })),
+      partialize: (state) => ({
+        siteContent: state.siteContent,
+        isAuthenticated: state.isAuthenticated,
+        userRole: state.userRole,
+        currentUser: state.currentUser,
+        aiSettings: state.aiSettings,
+        technicians: state.technicians,
+      }),
     }
   )
 );

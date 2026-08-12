@@ -226,8 +226,13 @@ export default function ConsultasPage() {
           vehicles: batchVehicles,
           workOrders: batchWorkOrders,
           invoices: batchInvoices,
+        }).then((res) => {
+          if (res?.success) {
+            showAlert("success", `¡Se importó con éxito el historial de ${batchWorkOrders.length} registros y guardados en Supabase!`);
+          } else {
+            showAlert("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+          }
         });
-        showAlert("success", `¡Se importó con éxito el historial de ${batchWorkOrders.length} registros en menos de 1 segundo!`);
       } else {
         showAlert("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
       }

@@ -320,16 +320,23 @@ export async function saveSupabaseBulkWorkshopData(
   vehicles: Vehicle[],
   orders: WorkOrder[],
   invoices: Invoice[]
-) {
+): Promise<{ success: boolean; errorMsg?: string }> {
   try {
     const CHUNK_SIZE = 150;
+    let lastError: string | null = null;
 
-    // 1. Vehicles chunked save
+    // 1. Vehicles chunked save (safe fallback if vehicles table is not created in Supabase)
     if (vehicles.length > 0) {
       for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
         const chunk = vehicles.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase.from("vehicles").upsert(chunk);
-        if (error) console.warn("Supabase vehicles upsert warning:", error.message);
+        if (error) {
+          console.warn("Supabase vehicles upsert notice:", error.message);
+          // If 404 table not found, do not block work_orders
+          if (!error.message.includes("404") && !error.message.includes("relation")) {
+            lastError = `Tabla vehículos: ${error.message}`;
+          }
+        }
       }
     }
 
@@ -353,7 +360,10 @@ export async function saveSupabaseBulkWorkshopData(
       for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
         const chunk = ordersPayload.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase.from("work_orders").upsert(chunk);
-        if (error) console.warn("Supabase work_orders upsert warning:", error.message);
+        if (error) {
+          console.warn("Supabase work_orders upsert warning:", error.message);
+          lastError = `Tabla órdenes: ${error.message}`;
+        }
       }
     }
 
@@ -362,10 +372,18 @@ export async function saveSupabaseBulkWorkshopData(
       for (let i = 0; i < invoices.length; i += CHUNK_SIZE) {
         const chunk = invoices.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase.from("invoices").upsert(chunk);
-        if (error) console.warn("Supabase invoices upsert warning:", error.message);
+        if (error) {
+          console.warn("Supabase invoices upsert warning:", error.message);
+        }
       }
     }
-  } catch (err) {
-    console.warn("Supabase bulk save deferred:", err);
+
+    if (lastError) {
+      return { success: false, errorMsg: lastError };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.warn("Supabase bulk save error:", err);
+    return { success: false, errorMsg: err?.message || "Error al conectar con Supabase" };
   }
 }

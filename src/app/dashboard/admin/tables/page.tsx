@@ -201,8 +201,13 @@ export default function AdminTablesPage() {
           vehicles: batchVehicles,
           workOrders: batchWorkOrders,
           invoices: batchInvoices,
+        }).then((res) => {
+          if (res?.success) {
+            showAlert("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!`);
+          } else {
+            showAlert("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+          }
         });
-        showAlert("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente en menos de 1 segundo!`);
       } else {
         showAlert("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
       }
