@@ -292,8 +292,6 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     const { error } = await supabase.from("invoices").upsert({
       id: inv.id,
       work_order_id: inv.work_order_id,
-      vehicle_plate: inv.vehicle_plate,
-      client_name: inv.client_name,
       labor_fee: inv.labor_fee,
       parts_total: inv.parts_total,
       certification_fee: inv.certification_fee,
@@ -301,13 +299,6 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_status: inv.payment_status,
       payment_method: inv.payment_method,
       issued_at: inv.issued_at,
-      paid_at: inv.paid_at,
-      receipt_number: inv.receipt_number,
-      receipt_type: inv.receipt_type,
-      discounts: inv.discounts,
-      credit_amount: inv.credit_amount,
-      payment_condition: inv.payment_condition,
-      payment_destination: inv.payment_destination,
     });
     if (error) console.warn("Supabase invoice save warning:", error.message);
   } catch (err) {
@@ -325,17 +316,26 @@ export async function saveSupabaseBulkWorkshopData(
     const CHUNK_SIZE = 150;
     let lastError: string | null = null;
 
-    // 1. Vehicles chunked save (safe fallback if vehicles table is not created in Supabase)
+    // 1. Vehicles chunked save
     if (vehicles.length > 0) {
-      for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
-        const chunk = vehicles.slice(i, i + CHUNK_SIZE);
+      const vehiclesPayload = vehicles.map((v) => ({
+        plate: v.plate,
+        brand: v.brand,
+        model: v.model || "Importado",
+        year: v.year || 2023,
+        color: v.color || "Plata",
+        fuel_type: v.fuel_type || "GNV",
+        owner_name: v.owner_name || "Cliente Taller",
+        owner_phone: v.owner_phone || "+51 900000000",
+        current_mileage: v.current_mileage || 0,
+        last_visit_date: v.last_visit_date || new Date().toISOString(),
+      }));
+
+      for (let i = 0; i < vehiclesPayload.length; i += CHUNK_SIZE) {
+        const chunk = vehiclesPayload.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase.from("vehicles").upsert(chunk);
         if (error) {
           console.warn("Supabase vehicles upsert notice:", error.message);
-          // If 404 table not found, do not block work_orders
-          if (!error.message.includes("404") && !error.message.includes("relation")) {
-            lastError = `Tabla vehículos: ${error.message}`;
-          }
         }
       }
     }
@@ -367,10 +367,22 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 3. Invoices chunked save
+    // 3. Invoices chunked save (only valid columns in Supabase schema)
     if (invoices.length > 0) {
-      for (let i = 0; i < invoices.length; i += CHUNK_SIZE) {
-        const chunk = invoices.slice(i, i + CHUNK_SIZE);
+      const invoicesPayload = invoices.map((inv) => ({
+        id: inv.id,
+        work_order_id: inv.work_order_id,
+        labor_fee: inv.labor_fee,
+        parts_total: inv.parts_total,
+        certification_fee: inv.certification_fee,
+        grand_total: inv.grand_total,
+        payment_status: inv.payment_status,
+        payment_method: inv.payment_method,
+        issued_at: inv.issued_at,
+      }));
+
+      for (let i = 0; i < invoicesPayload.length; i += CHUNK_SIZE) {
+        const chunk = invoicesPayload.slice(i, i + CHUNK_SIZE);
         const { error } = await supabase.from("invoices").upsert(chunk);
         if (error) {
           console.warn("Supabase invoices upsert warning:", error.message);
