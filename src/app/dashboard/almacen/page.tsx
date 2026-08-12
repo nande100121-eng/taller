@@ -42,22 +42,30 @@ export default function AlmacenPage() {
     notes: "Uso en bahía de diagnóstico",
   });
 
-  // Calculate pending requisitions
-  const pendingOrders = workOrders.flatMap((wo) => {
-    const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
-    const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+  // Group work orders with items by vehicle plate
+  const vehiclePartGroups = workOrders
+    .filter((wo) => wo.items.length > 0)
+    .map((wo) => {
+      const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
+      const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
 
-    return wo.items.map((item) => ({
-      ...item,
-      orderId: wo.id,
-      plate: wo.vehicle_plate,
-      vehicleInfo: vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year}) - ${vehicle.fuel_type}` : "Vehículo",
-      ownerName: vehicle?.owner_name || "Cliente",
-      techName: tech?.full_name || "Técnico de Taller",
-    }));
-  });
+      return {
+        orderId: wo.id,
+        plate: wo.vehicle_plate,
+        brand: vehicle?.brand || "Marca",
+        model: vehicle?.model || "Modelo",
+        year: vehicle?.year || 2022,
+        color: vehicle?.color || "Color",
+        fuel_type: vehicle?.fuel_type || "GNV",
+        ownerName: vehicle?.owner_name || "Cliente",
+        techName: tech?.full_name || "Técnico No Asignado",
+        items: wo.items,
+      };
+    });
 
-  const pendingRequisitionsCount = pendingOrders.filter((i) => !i.dispatched).length;
+  const pendingRequisitionsCount = workOrders
+    .flatMap((wo) => wo.items)
+    .filter((i) => !i.dispatched).length;
 
   const handleScanLookup = () => {
     const found = inventoryItems.find(
@@ -93,7 +101,7 @@ export default function AlmacenPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Almacén & Despacho a Taller</h1>
             <p className="text-xs text-gray-400">
-              Notificaciones de repuestos requeridos por el taller, confirmación de recojo y control de inventario.
+              Notificaciones de repuestos requeridos agrupadas por vehículo, confirmación de recojo y horas de solicitud/entrega.
             </p>
           </div>
         </div>
@@ -107,7 +115,7 @@ export default function AlmacenPage() {
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            <span>Pedidos de Taller</span>
+            <span>Pedidos por Vehículo</span>
             {pendingRequisitionsCount > 0 && (
               <span className="px-1.5 py-0.2 rounded-full bg-reygas-red text-white text-[10px] font-black animate-bounce">
                 {pendingRequisitionsCount}
@@ -154,72 +162,123 @@ export default function AlmacenPage() {
             <h2 className="text-lg font-bold text-white flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-amber-400" />
-                <span>Notificaciones de Repuestos Solicitados por los Mecánicos</span>
+                <span>Solicitudes de Repuestos Agrupadadas por Vehículo</span>
               </div>
               <span className="text-xs text-amber-400 font-bold">
-                {pendingRequisitionsCount} Pendientes de Recojo
+                {pendingRequisitionsCount} Repuestos Pendientes de Entrega
               </span>
             </h2>
 
-            {pendingOrders.length === 0 ? (
+            {vehiclePartGroups.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-8">
                 No hay repuestos solicitados desde el taller en este momento.
               </p>
             ) : (
-              <div className="space-y-3">
-                {pendingOrders.map((req) => (
-                  <div
-                    key={`${req.orderId}-${req.id}`}
-                    className={`p-4 rounded-xl border transition-all ${
-                      req.dispatched
-                        ? "bg-emerald-950/20 border-emerald-500/30"
-                        : "bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5"
-                    }`}
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono font-black text-base text-white bg-reygas-surface px-2.5 py-0.5 rounded border border-white/10">
-                            {req.plate}
+              <div className="space-y-6">
+                {vehiclePartGroups.map((group) => {
+                  const pendingCountInCard = group.items.filter((i) => !i.dispatched).length;
+
+                  return (
+                    <div
+                      key={group.orderId}
+                      className="glass-panel p-5 rounded-2xl border border-white/10 space-y-4 hover:border-amber-500/30 transition-all"
+                    >
+                      {/* Vehicle Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                            {group.plate}
                           </span>
-                          <span className="text-xs font-bold text-amber-300">
-                            {req.vehicleInfo}
-                          </span>
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-reygas-surface text-gray-300 font-bold">
-                            Técnico: {req.techName}
-                          </span>
+                          <div>
+                            <span className="text-sm font-bold text-white block">
+                              {group.brand} {group.model} ({group.year}) - {group.color}
+                            </span>
+                            <span className="text-xs text-reygas-red font-semibold">
+                              Combustible: {group.fuel_type} • Cliente: {group.ownerName}
+                            </span>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-3 text-sm pt-1">
-                          <span className="font-extrabold text-white">{req.description}</span>
-                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-xs">
-                            Cantidad: {req.quantity}
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-200 border border-white/10">
+                            Técnico Asignado: <strong className="text-amber-400">{group.techName}</strong>
                           </span>
-                          <span className="font-mono text-gray-400 text-xs">
-                            Subtotal: S/ {req.subtotal}
-                          </span>
+                          {pendingCountInCard > 0 ? (
+                            <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-extrabold">
+                              {pendingCountInCard} pendientes
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-extrabold">
+                              ✓ Todos entregados
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        {req.dispatched ? (
-                          <span className="px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-black flex items-center gap-1">
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>ENTREGADO Y LISTO</span>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => markWorkOrderItemDispatched(req.orderId, req.id)}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
-                          >
-                            <Check className="w-4 h-4 stroke-[3]" />
-                            <span>Confirmar Repuesto Listo para Recojo</span>
-                          </button>
-                        )}
+                      {/* Items List Inside Vehicle Card */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-bold uppercase text-gray-400 block">
+                          Lista de Repuestos Asignados para este Vehículo:
+                        </span>
+
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {group.items.map((item) => (
+                            <div
+                              key={item.id}
+                              className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                                item.dispatched
+                                  ? "bg-emerald-950/20 border-emerald-500/30"
+                                  : "bg-amber-950/20 border-amber-500/40"
+                              }`}
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Package className="w-4 h-4 text-amber-400 shrink-0" />
+                                  <span className="font-bold text-white text-sm">{item.description}</span>
+                                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-xs font-bold">
+                                    x{item.quantity}
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-400 pt-0.5">
+                                  <span>
+                                    📅 <strong>Solicitado:</strong>{" "}
+                                    {item.requested_at
+                                      ? new Date(item.requested_at).toLocaleString()
+                                      : "Reciente"}
+                                  </span>
+                                  {item.dispatched && item.dispatched_at && (
+                                    <span className="text-emerald-400">
+                                      ✓ <strong>Entregado:</strong>{" "}
+                                      {new Date(item.dispatched_at).toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="shrink-0">
+                                {item.dispatched ? (
+                                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-black flex items-center gap-1">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    <span>ENTREGADO Y LISTO</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => markWorkOrderItemDispatched(group.orderId, item.id)}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
+                                  >
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                    <span>Confirmar Repuesto Listo para Recojo</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

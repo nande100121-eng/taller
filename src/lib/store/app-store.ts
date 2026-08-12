@@ -188,6 +188,8 @@ export interface WorkOrderItem {
   unit_price: number;
   subtotal: number;
   dispatched?: boolean;
+  requested_at?: string;
+  dispatched_at?: string;
 }
 
 export interface WorkOrder {
@@ -840,6 +842,7 @@ export const useAppStore = create<AppState>()(
               id: `item-${Date.now()}`,
               subtotal,
               dispatched: false,
+              requested_at: new Date().toISOString(),
             };
             const updatedOrder = {
               ...o,
@@ -872,7 +875,9 @@ export const useAppStore = create<AppState>()(
               get().deductStock(targetItem.inventory_item_id, targetItem.quantity);
             }
             const updatedItems = o.items.map((i) =>
-              i.id === itemId ? { ...i, dispatched: true } : i
+              i.id === itemId
+                ? { ...i, dispatched: true, dispatched_at: new Date().toISOString() }
+                : i
             );
             const updatedOrder = { ...o, items: updatedItems };
             saveSupabaseWorkOrder(updatedOrder);
