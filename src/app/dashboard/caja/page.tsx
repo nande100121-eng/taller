@@ -172,13 +172,23 @@ export default function CajaPage() {
                             </div>
                             <div className="flex flex-col items-end gap-1 ml-auto">
                               <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
-                                📅 <strong>Fecha/Hora:</strong>{" "}
-                                {invoice?.issued_at
-                                  ? new Date(invoice.issued_at).toLocaleString()
-                                  : wo.entry_time
+                                🚗 <strong>Fecha/Hora Ingreso:</strong>{" "}
+                                {wo.entry_time
                                   ? new Date(wo.entry_time).toLocaleString()
-                                  : new Date().toLocaleString()}
+                                  : "Hoy"}
                               </span>
+
+                              {isPaid && (
+                                <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                                  💳 <strong>Fecha/Hora Pago:</strong>{" "}
+                                  {invoice?.paid_at
+                                    ? new Date(invoice.paid_at).toLocaleString()
+                                    : invoice?.issued_at
+                                    ? new Date(invoice.issued_at).toLocaleString()
+                                    : new Date().toLocaleString()}
+                                </span>
+                              )}
+
                               <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
                                 Técnico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
                               </span>

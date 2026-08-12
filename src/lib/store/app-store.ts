@@ -243,6 +243,7 @@ export interface Invoice {
   payment_status: "pendiente" | "pagado";
   payment_method: string;
   issued_at: string;
+  paid_at?: string;
 }
 
 export interface Appointment {
@@ -1162,7 +1163,11 @@ export const useAppStore = create<AppState>()(
           const targetInvoice = state.invoices.find((i) => i.id === invoiceId);
           if (!targetInvoice) return state;
 
-          const updatedInvoice = { ...targetInvoice, payment_status: "pagado" as const };
+          const updatedInvoice = {
+            ...targetInvoice,
+            payment_status: "pagado" as const,
+            paid_at: new Date().toISOString(),
+          };
           saveSupabaseInvoice(updatedInvoice);
 
           const updatedInvoices = state.invoices.map((i) =>
@@ -1191,7 +1196,11 @@ export const useAppStore = create<AppState>()(
 
           const isCurrentlyPaid = targetInvoice.payment_status === "pagado";
           const nextStatus = isCurrentlyPaid ? ("pendiente" as const) : ("pagado" as const);
-          const updatedInvoice = { ...targetInvoice, payment_status: nextStatus };
+          const updatedInvoice = {
+            ...targetInvoice,
+            payment_status: nextStatus,
+            paid_at: nextStatus === "pagado" ? new Date().toISOString() : undefined,
+          };
           saveSupabaseInvoice(updatedInvoice);
 
           const updatedInvoices = state.invoices.map((i) =>
