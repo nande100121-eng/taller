@@ -1328,10 +1328,18 @@ export const useAppStore = create<AppState>()(
           const existingPlates = new Set(state.vehicles.map((v) => v.plate));
           const filteredVehicles = newVehicles.filter((v) => !existingPlates.has(v.plate));
 
+          // Merge work orders by id without duplicates
+          const existingOrderIds = new Set(state.workOrders.map((o) => o.id));
+          const filteredOrders = newOrders.filter((o) => !existingOrderIds.has(o.id));
+
+          // Merge invoices by id without duplicates
+          const existingInvoiceIds = new Set(state.invoices.map((i) => i.id));
+          const filteredInvoices = newInvoices.filter((i) => !existingInvoiceIds.has(i.id));
+
           return {
-            vehicles: [...state.vehicles, ...filteredVehicles],
-            workOrders: [...newOrders, ...state.workOrders],
-            invoices: [...newInvoices, ...state.invoices],
+            vehicles: [...filteredVehicles, ...state.vehicles],
+            workOrders: [...filteredOrders, ...state.workOrders],
+            invoices: [...filteredInvoices, ...state.invoices],
           };
         });
       },

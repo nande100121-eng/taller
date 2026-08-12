@@ -322,25 +322,38 @@ export async function saveSupabaseBulkWorkshopData(
   invoices: Invoice[]
 ) {
   try {
-    const CHUNK_SIZE = 250;
+    const CHUNK_SIZE = 150;
 
     // 1. Vehicles chunked save
     if (vehicles.length > 0) {
       for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
         const chunk = vehicles.slice(i, i + CHUNK_SIZE);
-        await supabase.from("vehicles").upsert(chunk);
+        const { error } = await supabase.from("vehicles").upsert(chunk);
+        if (error) console.warn("Supabase vehicles upsert warning:", error.message);
       }
     }
 
     // 2. Work Orders chunked save
     if (orders.length > 0) {
       const ordersPayload = orders.map((o) => ({
-        ...o,
+        id: o.id,
+        vehicle_plate: o.vehicle_plate,
+        status: o.status,
+        assigned_technician_id: o.assigned_technician_id || null,
+        problem_description: o.problem_description,
+        diagnostic_notes: o.diagnostic_notes || null,
+        entry_time: o.entry_time || new Date().toISOString(),
         items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
+        quinquennial_date: o.quinquennial_date || null,
+        chip_expiry_date: o.chip_expiry_date || null,
+        general_maintenance_service: o.general_maintenance_service || null,
+        spare_parts_services: o.spare_parts_services || null,
       }));
+
       for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
         const chunk = ordersPayload.slice(i, i + CHUNK_SIZE);
-        await supabase.from("work_orders").upsert(chunk);
+        const { error } = await supabase.from("work_orders").upsert(chunk);
+        if (error) console.warn("Supabase work_orders upsert warning:", error.message);
       }
     }
 
@@ -348,7 +361,8 @@ export async function saveSupabaseBulkWorkshopData(
     if (invoices.length > 0) {
       for (let i = 0; i < invoices.length; i += CHUNK_SIZE) {
         const chunk = invoices.slice(i, i + CHUNK_SIZE);
-        await supabase.from("invoices").upsert(chunk);
+        const { error } = await supabase.from("invoices").upsert(chunk);
+        if (error) console.warn("Supabase invoices upsert warning:", error.message);
       }
     }
   } catch (err) {
