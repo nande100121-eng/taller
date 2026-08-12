@@ -52,7 +52,6 @@ export default function TallerPage() {
   const [isCustomPart, setIsCustomPart] = useState(false);
   const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "custom");
   const [customPartName, setCustomPartName] = useState("");
-  const [customUnitPrice, setCustomUnitPrice] = useState(50);
   const [partQty, setPartQty] = useState(1);
 
   const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
@@ -74,7 +73,6 @@ export default function TallerPage() {
     setModalMode("parts");
     setIsCustomPart(false);
     setCustomPartName("");
-    setCustomUnitPrice(50);
     setPartQty(1);
   };
 
@@ -106,7 +104,7 @@ export default function TallerPage() {
       addWorkOrderItem(activeOrderModal, {
         description: customPartName.trim(),
         quantity: Number(partQty),
-        unit_price: Number(customUnitPrice),
+        unit_price: 0, // Price managed by warehouse/cashier
       });
       updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
     } else {
@@ -116,7 +114,7 @@ export default function TallerPage() {
           inventory_item_id: item.id,
           description: item.name,
           quantity: Number(partQty),
-          unit_price: item.unit_price,
+          unit_price: item.unit_price || 0,
         });
         updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
       }
@@ -509,19 +507,6 @@ export default function TallerPage() {
                         placeholder="Ej. Kit Inyectores Hana de 4 Cilindros con Adaptador"
                         value={customPartName}
                         onChange={(e) => setCustomPartName(e.target.value)}
-                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-1">
-                        Precio Estimado Unitario (S/)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={customUnitPrice}
-                        onChange={(e) => setCustomUnitPrice(Number(e.target.value))}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
                       />
                     </div>
