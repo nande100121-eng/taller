@@ -42,11 +42,74 @@ export default function CertificacionesPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Certificaciones GNV / GLP</h1>
             <p className="text-xs text-gray-400">
-              Control de inspecciones anuales, chips de carga y cilindros de alta presión.
+              Control de inspecciones anuales, chips de carga y notificaciones de emisión requeridas por Taller.
             </p>
           </div>
         </div>
       </div>
+
+      {/* PENDING NOTIFICATIONS FROM WORKSHOP */}
+      {certifications.filter((c) => c.status === "Solicitado" || c.is_ready === false).length > 0 && (
+        <div className="glass-panel p-6 rounded-2xl border border-cyan-500/30 bg-cyan-950/20 space-y-4">
+          <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3">
+            <h2 className="text-base font-extrabold text-cyan-300 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-cyan-400 animate-pulse" />
+              <span>Solicitudes de Certificado Notificadas por Taller (Pendientes de Emisión)</span>
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/40">
+              {certifications.filter((c) => c.status === "Solicitado" || c.is_ready === false).length} Pendiente(s)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {certifications
+              .filter((c) => c.status === "Solicitado" || c.is_ready === false)
+              .map((c) => (
+                <div
+                  key={c.id}
+                  className="p-4 rounded-xl bg-reygas-dark/80 border border-cyan-500/40 flex flex-col justify-between gap-3 shadow-lg"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="font-mono font-black text-lg text-white bg-reygas-surface px-2.5 py-0.5 rounded border border-white/10">
+                        {c.vehicle_plate}
+                      </span>
+                      <h4 className="text-xs font-bold text-cyan-300 mt-1.5">{c.certification_type}</h4>
+                    </div>
+                    <span className="font-mono font-bold text-xs text-amber-300 bg-amber-950/60 px-2 py-1 rounded border border-amber-500/30">
+                      Monto a Cobrar: S/ {(c.price || 120).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span className="text-[11px] text-gray-400">
+                      Estado: <strong>Solicitado por Taller</strong>
+                    </span>
+                    <button
+                      onClick={() => {
+                        useAppStore.setState((state) => ({
+                          certifications: state.certifications.map((item) =>
+                            item.id === c.id ? { ...item, status: "Vigente", is_ready: true } : item
+                          ),
+                          workOrders: state.workOrders.map((wo) =>
+                            wo.id === c.work_order_id || wo.vehicle_plate === c.vehicle_plate
+                              ? { ...wo, certification_issued: true }
+                              : wo
+                          ),
+                        }));
+                        alert(`¡Certificación para ${c.vehicle_plate} emitida con éxito! Notificado a Caja para cobro.`);
+                      }}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-lg shadow-md flex items-center gap-1.5 transition-all"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-200" />
+                      <span>Emitir & Notificar Listo a Caja</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Form */}

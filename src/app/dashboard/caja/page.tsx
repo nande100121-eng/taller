@@ -144,7 +144,8 @@ export default function CajaPage() {
                 const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
                 const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
                 const laborFee = 150; // Tarifa estándar taller
-                const grandTotal = invoice?.grand_total || partsTotal + laborFee;
+                const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
+                const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
 
                 return (
                   <div
@@ -206,6 +207,15 @@ export default function CajaPage() {
                               <span>🛠️ Mano de Obra Taller:</span>
                               <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
                             </div>
+
+                            {wo.requires_certification && (
+                              <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2 rounded-lg border border-cyan-500/30">
+                                <span>📜 Certificado ({wo.certification_type}):</span>
+                                <span className="font-mono font-bold text-cyan-300">
+                                  S/ {(wo.certification_price || 120).toFixed(2)}
+                                </span>
+                              </div>
+                            )}
 
                             {wo.items.map((item) => (
                               <div

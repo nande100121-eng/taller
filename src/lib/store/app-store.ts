@@ -202,6 +202,11 @@ export interface WorkOrder {
   entry_time: string;
   completion_time?: string;
   items: WorkOrderItem[];
+  requires_certification?: boolean;
+  certification_type?: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática";
+  certification_price?: number;
+  certification_issued?: boolean;
+  certification_id?: string;
 }
 
 export interface InventoryItem {
@@ -259,6 +264,7 @@ export interface Appointment {
 
 export interface Certification {
   id: string;
+  work_order_id?: string;
   vehicle_plate: string;
   client_name: string;
   chip_code: string;
@@ -266,7 +272,9 @@ export interface Certification {
   certification_type: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática";
   issue_date: string;
   expiry_date: string;
-  status: "Vigente" | "Vencido" | "Por Vencer";
+  status: "Vigente" | "Vencido" | "Por Vencer" | "Solicitado";
+  price?: number;
+  is_ready?: boolean;
 }
 
 export interface AttendanceLog {
@@ -325,6 +333,11 @@ interface AppState {
   markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
+  requestCertificationForWorkOrder: (
+    orderId: string,
+    certType: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática",
+    price: number
+  ) => void;
 
   inventoryItems: InventoryItem[];
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
@@ -931,6 +944,50 @@ export const useAppStore = create<AppState>()(
             return o;
           });
           return { workOrders: updatedOrders };
+        });
+      },
+
+      requestCertificationForWorkOrder: (orderId, certType, price) => {
+        set((state) => {
+          const targetOrder = state.workOrders.find((o) => o.id === orderId);
+          if (!targetOrder) return state;
+
+          const certId = `cert-${Date.now()}`;
+          const newCert: Certification = {
+            id: certId,
+            work_order_id: orderId,
+            vehicle_plate: targetOrder.vehicle_plate,
+            client_name: "Cliente Taller",
+            chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
+            cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
+            certification_type: certType,
+            issue_date: new Date().toISOString().slice(0, 10),
+            expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+            status: "Solicitado",
+            price: price,
+            is_ready: false,
+          };
+
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === orderId) {
+              const updated = {
+                ...o,
+                requires_certification: true,
+                certification_type: certType,
+                certification_price: price,
+                certification_issued: false,
+                certification_id: certId,
+              };
+              saveSupabaseWorkOrder(updated);
+              return updated;
+            }
+            return o;
+          });
+
+          return {
+            workOrders: updatedOrders,
+            certifications: [newCert, ...state.certifications],
+          };
         });
       },
 
