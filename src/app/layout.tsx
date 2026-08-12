@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Navbar } from "@/components/navigation/navbar";
+import { SupabaseSyncProvider } from "@/components/providers/supabase-sync-provider";
 
 export const metadata: Metadata = {
   title: "REYGAS AUTOGAS EQUIPMENT | Conversiones y Mantenimiento GNV/GLP",
@@ -15,8 +16,10 @@ export default function RootLayout({
   return (
     <html lang="es" className="dark">
       <body className="bg-reygas-dark text-white min-h-screen flex flex-col antialiased">
-        <Navbar />
-        <main className="flex-1">{children}</main>
+        <SupabaseSyncProvider>
+          <Navbar />
+          <main className="flex-1">{children}</main>
+        </SupabaseSyncProvider>
       </body>
     </html>
   );

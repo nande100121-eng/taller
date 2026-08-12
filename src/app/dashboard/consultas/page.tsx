@@ -236,20 +236,20 @@ export default function ConsultasPage() {
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                     {/* Vehicle & Client Info */}
                     <div className="space-y-3 flex-1">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                          {wo.vehicle_plate}
-                        </span>
-                        <div>
-                          <span className="text-sm font-bold text-white block">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow inline-block">
+                            {wo.vehicle_plate}
+                          </span>
+                          <span className="text-sm font-bold text-white block break-words">
                             {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
                           </span>
-                          <span className="text-xs text-reygas-red font-semibold">
+                          <span className="text-xs text-reygas-red font-semibold block break-words">
                             Propietario: {vehicle?.owner_name || "Cliente Taller"} • Contacto: {vehicle?.owner_phone || "S/T"}
                           </span>
                         </div>
 
-                        <div className="flex flex-col items-end gap-1 ml-auto">
+                        <div className="flex flex-wrap sm:flex-col items-start sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/10">
                           <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
                             📅 <strong>Fecha Ingreso:</strong>{" "}
                             {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}

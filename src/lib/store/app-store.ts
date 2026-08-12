@@ -423,23 +423,25 @@ export const useAppStore = create<AppState>()(
         customEndpoint: "",
       },
       updateAISettings: (settings) =>
-        set((state) => ({
-          aiSettings: { ...state.aiSettings, ...settings },
-        })),
+        set((state) => ({ aiSettings: { ...state.aiSettings, ...settings } })),
 
       syncFromSupabase: async () => {
-        const remoteContent = await fetchSupabaseSiteContent();
-        const erpData = await fetchSupabaseErpData();
+        try {
+          const cmsData = await fetchSupabaseSiteContent();
+          const erpData = await fetchSupabaseErpData();
 
-        set((state) => ({
-          siteContent: remoteContent ? { ...state.siteContent, ...remoteContent } : state.siteContent,
-          technicians: erpData?.technicians ? erpData.technicians : state.technicians,
-          inventoryItems: erpData?.inventoryItems ? erpData.inventoryItems : state.inventoryItems,
-          workOrders: erpData?.workOrders ? erpData.workOrders : state.workOrders,
-          appointments: erpData?.appointments ? erpData.appointments : state.appointments,
-          invoices: erpData?.invoices ? erpData.invoices : state.invoices,
-          vehicles: erpData?.vehicles ? erpData.vehicles : state.vehicles,
-        }));
+          set((state) => ({
+            siteContent: cmsData && Object.keys(cmsData).length > 0 ? { ...state.siteContent, ...cmsData } : state.siteContent,
+            technicians: erpData?.technicians && erpData.technicians.length > 0 ? erpData.technicians : state.technicians,
+            inventoryItems: erpData?.inventoryItems && erpData.inventoryItems.length > 0 ? erpData.inventoryItems : state.inventoryItems,
+            workOrders: erpData?.workOrders && erpData.workOrders.length > 0 ? erpData.workOrders : state.workOrders,
+            appointments: erpData?.appointments && erpData.appointments.length > 0 ? erpData.appointments : state.appointments,
+            invoices: erpData?.invoices && erpData.invoices.length > 0 ? erpData.invoices : state.invoices,
+            vehicles: erpData?.vehicles && erpData.vehicles.length > 0 ? erpData.vehicles : state.vehicles,
+          }));
+        } catch (err) {
+          console.warn("Supabase sync warning:", err);
+        }
       },
 
       saveAllToSupabase: async () => {
