@@ -696,10 +696,10 @@ export default function AlmacenPage() {
               </div>
             </div>
 
-            {/* Inventory Table with Overflow Protection & Max Width Truncate */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-gray-300 table-auto">
-                <thead className="bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10">
+            {/* Inventory Table with Sticky Header & Overflow Protection */}
+            <div className="overflow-x-auto max-h-[70vh] overflow-y-auto border border-white/10 rounded-xl relative">
+              <table className="w-full text-left text-xs text-gray-300 table-auto border-collapse">
+                <thead className="sticky top-0 z-20 bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10 shadow-md">
                   <tr>
                     <th className="p-3 w-10 text-center">
                       <button
