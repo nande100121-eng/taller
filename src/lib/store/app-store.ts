@@ -9,9 +9,11 @@ import {
   saveSupabaseTechnician,
   saveSupabaseInventoryItem,
   saveSupabaseWorkOrder,
+  saveSupabaseVehicle,
   saveSupabaseAppointment,
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
+  fetchSupabaseErpData,
 } from "@/lib/supabase/services";
 
 export interface SiteTheme {
@@ -207,6 +209,7 @@ export interface WorkOrder {
   certification_price?: number;
   certification_issued?: boolean;
   certification_id?: string;
+  allow_modifications?: boolean;
 }
 
 export interface InventoryItem {
@@ -333,6 +336,7 @@ interface AppState {
   markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
+  toggleAllowModificationsInWorkshop: (orderId: string) => void;
   requestCertificationForWorkOrder: (
     orderId: string,
     certType: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática",
@@ -420,14 +424,17 @@ export const useAppStore = create<AppState>()(
 
       syncFromSupabase: async () => {
         const remoteContent = await fetchSupabaseSiteContent();
-        if (remoteContent) {
-          set((state) => ({
-            siteContent: {
-              ...state.siteContent,
-              ...remoteContent,
-            },
-          }));
-        }
+        const erpData = await fetchSupabaseErpData();
+
+        set((state) => ({
+          siteContent: remoteContent ? { ...state.siteContent, ...remoteContent } : state.siteContent,
+          technicians: erpData?.technicians ? erpData.technicians : state.technicians,
+          inventoryItems: erpData?.inventoryItems ? erpData.inventoryItems : state.inventoryItems,
+          workOrders: erpData?.workOrders ? erpData.workOrders : state.workOrders,
+          appointments: erpData?.appointments ? erpData.appointments : state.appointments,
+          invoices: erpData?.invoices ? erpData.invoices : state.invoices,
+          vehicles: erpData?.vehicles ? erpData.vehicles : state.vehicles,
+        }));
       },
 
       saveAllToSupabase: async () => {
@@ -937,7 +944,27 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const updatedOrders = state.workOrders.map((o) => {
             if (o.id === orderId) {
-              const updated = { ...o, diagnostic_notes: notes };
+              const updated = {
+                ...o,
+                diagnostic_notes: notes,
+                status: "en_diagnostico" as WorkOrderStatus,
+              };
+              saveSupabaseWorkOrder(updated);
+              return updated;
+            }
+            return o;
+          });
+          return { workOrders: updatedOrders };
+        });
+      },
+      toggleAllowModificationsInWorkshop: (orderId) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === orderId) {
+              const updated = {
+                ...o,
+                allow_modifications: !o.allow_modifications,
+              };
               saveSupabaseWorkOrder(updated);
               return updated;
             }

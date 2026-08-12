@@ -113,6 +113,8 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
 // ---------------------------------------------------------------------
 // WORK ORDERS SUPABASE SYNC
 // ---------------------------------------------------------------------
+// WORK ORDERS SUPABASE SYNC
+// ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
     const { error } = await supabase.from("work_orders").upsert({
@@ -123,10 +125,68 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       problem_description: order.problem_description,
       diagnostic_notes: order.diagnostic_notes,
       entry_time: order.entry_time,
+      items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
     });
     if (error) console.warn("Supabase work order save warning:", error.message);
   } catch (err) {
     console.warn("Supabase work order deferred:", err);
+  }
+}
+
+// ---------------------------------------------------------------------
+// VEHICLES SUPABASE SYNC
+// ---------------------------------------------------------------------
+export async function saveSupabaseVehicle(v: Vehicle) {
+  try {
+    const { error } = await supabase.from("vehicles").upsert({
+      plate: v.plate,
+      brand: v.brand,
+      model: v.model,
+      year: v.year,
+      color: v.color,
+      fuel_type: v.fuel_type,
+      owner_name: v.owner_name,
+      owner_phone: v.owner_phone,
+      current_mileage: v.current_mileage,
+      last_visit_date: v.last_visit_date,
+    });
+    if (error) console.warn("Supabase vehicle save warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase vehicle deferred:", err);
+  }
+}
+
+// ---------------------------------------------------------------------
+// FETCH ALL ERP TABLES FROM SUPABASE POSTGRESQL (REALTIME SYNC)
+// ---------------------------------------------------------------------
+export async function fetchSupabaseErpData() {
+  try {
+    const [techRes, invRes, orderRes, appRes, invoiceRes, vehicleRes] = await Promise.all([
+      supabase.from("technicians").select("*"),
+      supabase.from("inventory_items").select("*"),
+      supabase.from("work_orders").select("*"),
+      supabase.from("appointments").select("*"),
+      supabase.from("invoices").select("*"),
+      supabase.from("vehicles").select("*"),
+    ]);
+
+    return {
+      technicians: techRes.data && techRes.data.length > 0 ? techRes.data : null,
+      inventoryItems: invRes.data && invRes.data.length > 0 ? invRes.data : null,
+      workOrders:
+        orderRes.data && orderRes.data.length > 0
+          ? orderRes.data.map((o: any) => ({
+              ...o,
+              items: typeof o.items === "string" ? JSON.parse(o.items) : o.items || [],
+            }))
+          : null,
+      appointments: appRes.data && appRes.data.length > 0 ? appRes.data : null,
+      invoices: invoiceRes.data && invoiceRes.data.length > 0 ? invoiceRes.data : null,
+      vehicles: vehicleRes.data && vehicleRes.data.length > 0 ? vehicleRes.data : null,
+    };
+  } catch (err) {
+    console.warn("Supabase ERP fetch warning:", err);
+    return null;
   }
 }
 

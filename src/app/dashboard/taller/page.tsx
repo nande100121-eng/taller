@@ -22,7 +22,9 @@ import {
   Package,
   Trash2,
   Edit3,
-  ShieldCheck
+  ShieldCheck,
+  Lock,
+  Unlock
 } from "lucide-react";
 
 export default function TallerPage() {
@@ -33,6 +35,7 @@ export default function TallerPage() {
     technicians,
     vehicles,
     inventoryItems,
+    invoices,
     addWorkOrderItem,
     removeWorkOrderItem,
     updateDiagnosticNotes,
@@ -74,12 +77,6 @@ export default function TallerPage() {
     setPartQty(1);
   };
 
-  const handleOpenTechnician = (orderId: string, currentTechId?: string) => {
-    setActiveOrderModal(orderId);
-    setModalMode("technician");
-    setSelectedTechId(currentTechId || technicians[0]?.id || "");
-  };
-
   const handleOpenCertModal = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("certificate");
@@ -103,14 +100,8 @@ export default function TallerPage() {
 
   const handleSaveDiagnostic = () => {
     if (activeOrderModal) {
+      // Automatic status switch to "en_diagnostico" upon adding/modifying diagnostic
       updateDiagnosticNotes(activeOrderModal, diagnosticText);
-      setActiveOrderModal(null);
-    }
-  };
-
-  const handleSaveTechnician = () => {
-    if (activeOrderModal && selectedTechId) {
-      assignTechnicianToOrder(activeOrderModal, selectedTechId);
       setActiveOrderModal(null);
     }
   };
@@ -123,7 +114,7 @@ export default function TallerPage() {
       addWorkOrderItem(activeOrderModal, {
         description: customPartName.trim(),
         quantity: Number(partQty),
-        unit_price: 0, // Price managed by warehouse/cashier
+        unit_price: 0,
       });
       updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
     } else {
@@ -204,6 +195,9 @@ export default function TallerPage() {
           filteredOrders.map((wo) => {
             const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
             const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+            const invoice = invoices.find((i) => i.work_order_id === wo.id);
+            const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
+            const isLocked = isPaid && !wo.allow_modifications;
 
             // Current step index in pipeline
             const currentStepIdx = statusSteps.findIndex((s) => s.status === wo.status);
@@ -211,9 +205,28 @@ export default function TallerPage() {
             return (
               <div
                 key={wo.id}
-                className="glass-panel p-6 rounded-2xl border border-white/10 hover:border-amber-500/30 transition-all space-y-6"
+                className={`glass-panel p-6 rounded-2xl border transition-all space-y-6 ${
+                  isLocked
+                    ? "border-emerald-500/40 bg-emerald-950/10"
+                    : "border-white/10 hover:border-amber-500/30"
+                }`}
               >
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                {/* Locked Banner if Paid */}
+                {isLocked && (
+                  <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>
+                        🔒 ORDEN PAGADA EN CAJA - MODIFICACIONES BLOQUEADAS EN TALLER
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-emerald-200 font-normal">
+                      (Para modificar, desmarcar pago o pulsar "Permitir Modificación" en la pestaña Caja & Facturación)
+                    </span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   {/* Left Column: Vehicle Info */}
                   <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-white/10 pb-4 lg:pb-0 lg:pr-4">
                     <div className="flex items-center justify-between">
@@ -229,7 +242,10 @@ export default function TallerPage() {
                       <h3 className="text-sm font-bold text-white">
                         {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
                       </h3>
-                      <p className="text-xs text-gray-400 font-semibold">{vehicle?.color || "Color no especificado"} • <span className="text-reygas-red">{vehicle?.fuel_type || "GNV"}</span></p>
+                      <p className="text-xs text-gray-400 font-semibold">
+                        {vehicle?.color || "Color no especificado"} •{" "}
+                        <span className="text-reygas-red">{vehicle?.fuel_type || "GNV"}</span>
+                      </p>
                     </div>
 
                     <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
@@ -248,8 +264,8 @@ export default function TallerPage() {
                     </div>
                   </div>
 
-                  {/* Center Column: Interactive Progress Stepper & Description */}
-                  <div className="lg:col-span-6 space-y-4 px-0 lg:px-2">
+                  {/* Center Column: Interactive Progress Stepper, Description, DIAGNOSTICO & MECANICO ASIGNADO */}
+                  <div className="lg:col-span-5 space-y-4 px-0 lg:px-2">
                     <div className="space-y-1">
                       <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
                         Estado Actual y Flujo de Servicio:
@@ -263,6 +279,7 @@ export default function TallerPage() {
                           return (
                             <button
                               key={step.status}
+                              disabled={isLocked}
                               onClick={() => updateWorkOrderStatus(wo.id, step.status)}
                               className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${
                                 isCurrent
@@ -270,7 +287,7 @@ export default function TallerPage() {
                                   : isPassed
                                   ? "bg-reygas-surface text-gray-200 border-white/20 hover:border-amber-400"
                                   : "bg-reygas-dark/60 text-gray-500 border-white/5 hover:border-white/20"
-                              }`}
+                              } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                             >
                               <span>{step.label}</span>
                               {isCurrent && <Check className="w-3 h-3 text-black stroke-[3]" />}
@@ -287,29 +304,37 @@ export default function TallerPage() {
                       <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
                     </div>
 
-                    {/* Diagnostic notes preview if present */}
-                    {wo.diagnostic_notes && (
-                      <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200">
-                        <span className="font-bold text-purple-400 block text-[11px] uppercase">
-                          Diagnóstico Técnico ECU:
-                        </span>
-                        <p className="mt-0.5 line-clamp-2">{wo.diagnostic_notes}</p>
-                      </div>
-                    )}
-                  </div>
+                    {/* Diagnostic Notes */}
+                    <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
+                      <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
+                        <span>Diagnóstico Técnico ECU:</span>
+                        {!isLocked && (
+                          <button
+                            onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
+                            className="text-[10px] text-purple-300 hover:text-white underline font-normal"
+                          >
+                            {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
+                          </button>
+                        )}
+                      </span>
+                      <p className="mt-0.5 text-xs italic">
+                        {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
+                      </p>
+                    </div>
 
-                  {/* Right Column: Assigned Technician & Actions */}
-                  <div className="lg:col-span-3 space-y-3 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Technician selector dropdown */}
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                        Mecánico Asignado
+                    {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
+                    <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-1.5">
+                      <label className="block text-[10px] font-bold uppercase text-amber-400">
+                        👨‍🔧 Mecánico Asignado Responsable:
                       </label>
                       <div className="relative">
                         <select
+                          disabled={isLocked}
                           value={wo.assigned_technician_id || ""}
                           onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
-                          className="w-full pl-8 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400"
+                          className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${
+                            isLocked ? "opacity-60 cursor-not-allowed" : ""
+                          }`}
                         >
                           <option value="">-- Sin Técnico Asignado --</option>
                           {technicians.map((t) => (
@@ -321,9 +346,45 @@ export default function TallerPage() {
                         <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
                       </div>
                     </div>
+                  </div>
 
-                    {/* Requisitions & Assigned Parts List */}
-                    <div className="space-y-2 pt-2 border-t border-white/5">
+                  {/* Right Column: REPUESTOS SOLICITADOS A ALMACEN & DEBAJO SERVICIO DE CERTIFICADO */}
+                  <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
+                    {/* Action buttons toolbar */}
+                    {!isLocked && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
+                          className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors"
+                        >
+                          <Cpu className="w-3.5 h-3.5" />
+                          <span>Diagnóstico</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenParts(wo.id)}
+                          className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors"
+                        >
+                          <PackagePlus className="w-3.5 h-3.5" />
+                          <span>Pedir Repuestos</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenCertModal(wo.id)}
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors ${
+                            wo.requires_certification
+                              ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
+                              : "bg-blue-900/40 hover:bg-blue-800/60 text-blue-200 border-blue-500/30"
+                          }`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>{wo.requires_certification ? "Certificado Solicitado" : "+ Certificado"}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* REQUERIMIENTO #1: SECCION DE REPUESTOS SOLICITADOS */}
+                    <div className="space-y-2 p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] uppercase font-bold text-amber-400">
                           Repuestos Solicitados a Almacén ({wo.items.length}):
@@ -336,7 +397,7 @@ export default function TallerPage() {
                       {wo.items.length === 0 ? (
                         <p className="text-[11px] text-gray-500 italic">No hay repuestos solicitados aún.</p>
                       ) : (
-                        <div className="space-y-1 max-h-[140px] overflow-y-auto pr-1">
+                        <div className="space-y-1 max-h-[150px] overflow-y-auto pr-1">
                           {wo.items.map((item) => (
                             <div
                               key={item.id}
@@ -350,96 +411,59 @@ export default function TallerPage() {
                                 </span>
                                 {item.dispatched ? (
                                   <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase">
-                                    ✓ Entregado por Almacén
+                                    ✓ Entregado
                                   </span>
                                 ) : (
                                   <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold uppercase">
-                                    ⏳ Pendiente Almacén
+                                    ⏳ Pendiente
                                   </span>
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal}</span>
-                                <button
-                                  onClick={() => removeWorkOrderItem(wo.id, item.id)}
-                                  className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                                  title="Quitar repuesto"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {!isLocked && (
+                                  <button
+                                    onClick={() => removeWorkOrderItem(wo.id, item.id)}
+                                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                                    title="Quitar repuesto"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
                               </div>
                             </div>
                           ))}
                         </div>
                       )}
                     </div>
-                  </div>
 
-                  {/* Right Column: Assigned Technician & Actions */}
-                  <div className="lg:col-span-3 space-y-3 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Technician selector dropdown */}
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
-                        Mecánico Asignado
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={wo.assigned_technician_id || ""}
-                          onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
-                          className="w-full pl-8 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400"
+                    {/* REQUERIMIENTO #1: SERVICIO DE CERTIFICADO DEBAJO DE REPUESTOS SOLICITADOS */}
+                    {wo.requires_certification ? (
+                      <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/40 space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                            <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                            <span>Servicio de Certificación DEBAJO de Repuestos</span>
+                          </span>
+                          <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
+                            S/ {(wo.certification_price || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-cyan-200">
+                          Tipo: <strong>{wo.certification_type}</strong> • State:{" "}
+                          {wo.certification_issued ? "✅ Emitido en Certificaciones" : "⏳ Notificado y Pendiente"}
+                        </p>
+                      </div>
+                    ) : (
+                      !isLocked && (
+                        <button
+                          onClick={() => handleOpenCertModal(wo.id)}
+                          className="w-full py-2 bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 font-bold text-xs rounded-xl border border-cyan-500/30 flex items-center justify-center gap-1.5 transition-colors"
                         >
-                          <option value="">-- Sin Técnico Asignado --</option>
-                          {technicians.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.full_name} ({t.specialty})
-                            </option>
-                          ))}
-                        </select>
-                        <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
-                        className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors"
-                      >
-                        <Cpu className="w-3.5 h-3.5" />
-                        <span>Diagnóstico</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenParts(wo.id)}
-                        className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors"
-                      >
-                        <PackagePlus className="w-3.5 h-3.5" />
-                        <span>Pedir Repuestos</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenCertModal(wo.id)}
-                        className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors ${
-                          wo.requires_certification
-                            ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
-                            : "bg-blue-900/40 hover:bg-blue-800/60 text-blue-200 border-blue-500/30"
-                        }`}
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>{wo.requires_certification ? "Certificado Solicitado" : "+ Certificado"}</span>
-                      </button>
-                    </div>
-
-                    {wo.requires_certification && (
-                      <div className="p-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/30 flex items-center justify-between text-xs">
-                        <span className="text-cyan-300 font-bold flex items-center gap-1.5">
-                          <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                          <span>Certificación: {wo.certification_type}</span>
-                        </span>
-                        <span className="font-mono text-cyan-200 font-bold bg-cyan-900/50 px-2 py-0.5 rounded">
-                          {wo.certification_issued ? "✅ Emision Lista (Cobro en Caja)" : "⏳ Notificado a Certificaciones"} • S/ {(wo.certification_price || 0).toFixed(2)}
-                        </span>
-                      </div>
+                          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>+ Agregar Servicio de Certificación a esta Orden</span>
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
@@ -458,7 +482,7 @@ export default function TallerPage() {
                 {modalMode === "diagnostic" && (
                   <>
                     <Cpu className="w-5 h-5 text-purple-400" />
-                    <span>Registrar Diagnóstico de Falla ECU</span>
+                    <span>Registrar / Editar Diagnóstico de Falla ECU</span>
                   </>
                 )}
                 {modalMode === "parts" && (
@@ -511,7 +535,7 @@ export default function TallerPage() {
                     className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-cyan-400"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Este monto se agregará automáticamente al desglose total a cobrar en la pestaña de Caja & Facturación.
+                    Este servicio se colocará debajo de la sección de repuestos solicitados y se cargará a Caja.
                   </p>
                 </div>
 
@@ -520,7 +544,7 @@ export default function TallerPage() {
                   className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Notificar a Certificaciones & Cargar a Caja</span>
+                  <span>Guardar Servicio de Certificado Debajo de Repuestos</span>
                 </button>
               </div>
             )}
@@ -543,7 +567,7 @@ export default function TallerPage() {
                   onClick={handleSaveDiagnostic}
                   className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-sm transition-colors"
                 >
-                  Guardar Diagnóstico y Cambiar a En Diagnóstico
+                  Guardar Diagnóstico y Seleccionar Estado "2. En Diagnóstico"
                 </button>
               </div>
             )}
