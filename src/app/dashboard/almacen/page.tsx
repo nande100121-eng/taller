@@ -21,7 +21,8 @@ import {
   CheckSquare,
   Square,
   AlertCircle,
-  ShieldAlert
+  ShieldAlert,
+  Filter
 } from "lucide-react";
 
 export default function AlmacenPage() {
@@ -50,6 +51,10 @@ export default function AlmacenPage() {
 
   // Checkbox Row Selection State
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+
+  // Inventory Filter & Low Stock Filter State
+  const [stockFilter, setStockFilter] = useState<"todos" | "bajo" | "critico">("todos");
+  const [inventorySearch, setInventorySearch] = useState("");
 
   // Styled Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -629,120 +634,236 @@ export default function AlmacenPage() {
         </div>
       )}
 
-      {/* TAB 2: INVENTARIO & STOCK CON SELECCION MULTIPLE Y LIMPIEZA */}
-      {activeTab === "inventario" && (
-        <div className="space-y-6">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Package className="w-5 h-5 text-emerald-400" />
-                  <span>Catálogo de Inventario de Almacén</span>
-                </h2>
-                <p className="text-xs text-gray-400">
-                  Selección por casillas (checkboxes), eliminación de filas seleccionadas y vaciado completo de base de datos.
-                </p>
-              </div>
+      {/* TAB 2: INVENTARIO & STOCK CON SELECCION MULTIPLE, FILTRO DE BAJO STOCK Y LIMPIEZA */}
+      {activeTab === "inventario" && (() => {
+        const lowStockItems = inventoryItems.filter(
+          (item) => item.stock_quantity <= item.min_stock_alert
+        );
+        const criticalStockItems = inventoryItems.filter(
+          (item) => item.stock_quantity === 0
+        );
 
-              {/* Action Buttons Toolbar */}
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Batch Delete Selection Button */}
-                {selectedRowIds.length > 0 && (
+        const displayInventoryItems = inventoryItems.filter((item) => {
+          const matchesSearch =
+            !inventorySearch ||
+            item.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+            item.sku_barcode.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+            (item.brand || "").toLowerCase().includes(inventorySearch.toLowerCase());
+
+          const matchesStock =
+            stockFilter === "todos"
+              ? true
+              : stockFilter === "bajo"
+              ? item.stock_quantity <= item.min_stock_alert
+              : item.stock_quantity === 0;
+
+          return matchesSearch && matchesStock;
+        });
+
+        return (
+          <div className="space-y-6">
+            {/* ALERT BANNER FOR LOW OR CRITICAL STOCK MATERIALS */}
+            {lowStockItems.length > 0 && (
+              <div className="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shrink-0">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                      <span>⚠️ Alerta de Reabastecimiento de Almacén</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                        {lowStockItems.length} {lowStockItems.length === 1 ? "Material" : "Materiales"}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-amber-200/90 font-medium">
+                      Existen {lowStockItems.length} repuestos o materiales con stock igual o inferior al límite mínimo permitido ({criticalStockItems.length} agotados).
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setStockFilter(stockFilter === "bajo" ? "todos" : "bajo")}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
+                    stockFilter === "bajo"
+                      ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
+                      : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
+                  }`}
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>{stockFilter === "bajo" ? "Mostrando Solo Stock Bajo ✓" : "🔍 Filtrar Solo Stock Bajo"}</span>
+                </button>
+              </div>
+            )}
+
+            <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Package className="w-5 h-5 text-emerald-400" />
+                    <span>Catálogo de Inventario de Almacén</span>
+                  </h2>
+                  <p className="text-xs text-gray-400">
+                    Selección por casillas (checkboxes), alerta de bajo stock, filtro por estado de inventario y vaciado completo.
+                  </p>
+                </div>
+
+                {/* Action Buttons Toolbar */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Batch Delete Selection Button */}
+                  {selectedRowIds.length > 0 && (
+                    <button
+                      onClick={promptDeleteSelected}
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                    </button>
+                  )}
+
+                  {/* Clear Database / Purge All Inventory Button */}
                   <button
-                    onClick={promptDeleteSelected}
-                    className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse"
+                    onClick={promptPurgeAll}
+                    className="px-4 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all"
+                    title="Vaciar y limpiar todo el inventario de la base de datos"
                   >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                    <ShieldAlert className="w-4 h-4 text-red-400" />
+                    <span>Limpiar Base de Datos Completa</span>
                   </button>
-                )}
 
-                {/* Clear Database / Purge All Inventory Button */}
-                <button
-                  onClick={promptPurgeAll}
-                  className="px-4 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all"
-                  title="Vaciar y limpiar todo el inventario de la base de datos"
-                >
-                  <ShieldAlert className="w-4 h-4 text-red-400" />
-                  <span>Limpiar Base de Datos Completa</span>
-                </button>
+                  <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all">
+                    <Upload className="w-4 h-4" />
+                    <span>Cargar CSV / Excel</span>
+                    <input
+                      type="file"
+                      accept=".csv, .txt, .xlsx, .xls"
+                      onChange={handleFileUploadExcel}
+                      className="hidden"
+                    />
+                  </label>
 
-                <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all">
-                  <Upload className="w-4 h-4" />
-                  <span>Cargar CSV / Excel</span>
-                  <input
-                    type="file"
-                    accept=".csv, .txt, .xlsx, .xls"
-                    onChange={handleFileUploadExcel}
-                    className="hidden"
-                  />
-                </label>
+                  <button
+                    onClick={() => setManualExitModalOpen(true)}
+                    className="px-4 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
+                  >
+                    <RotateCcw className="w-4 h-4 rotate-180" />
+                    <span>Salida Urgente</span>
+                  </button>
 
-                <button
-                  onClick={() => setManualExitModalOpen(true)}
-                  className="px-4 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
-                >
-                  <RotateCcw className="w-4 h-4 rotate-180" />
-                  <span>Salida Urgente</span>
-                </button>
-
-                <button
-                  onClick={handleOpenNewModal}
-                  className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
-                >
-                  <Plus className="w-4 h-4 text-emerald-400" />
-                  <span>Agregar Fila</span>
-                </button>
+                  <button
+                    onClick={handleOpenNewModal}
+                    className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
+                  >
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    <span>Agregar Fila</span>
+                  </button>
+                </div>
               </div>
-            </div>
 
-            {/* Inventory Table with Sticky Header & Overflow Protection */}
-            <div className="overflow-x-auto max-h-[70vh] overflow-y-auto border border-white/10 rounded-xl relative">
-              <table className="w-full text-left text-xs text-gray-300 table-auto border-collapse">
-                <thead className="sticky top-0 z-20 bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10 shadow-md">
-                  <tr>
-                    <th className="p-3 w-10 text-center">
-                      <button
-                        onClick={handleToggleSelectAll}
-                        className="text-gray-400 hover:text-white"
-                        title="Seleccionar todo"
-                      >
-                        {selectedRowIds.length > 0 && selectedRowIds.length === inventoryItems.length ? (
-                          <CheckSquare className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Square className="w-4 h-4" />
-                        )}
-                      </button>
-                    </th>
-                    <th className="p-3 font-extrabold w-16 text-center text-amber-400">ÍTEM (#)</th>
-                    <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
-                    <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
-                    <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
-                    <th className="p-3 font-extrabold max-w-[120px]">SERIE</th>
-                    <th className="p-3 font-extrabold">PRECIO VENTA</th>
-                    <th className="p-3 font-extrabold">STOCK INICIAL</th>
-                    <th className="p-3 font-extrabold">ENTRADAS</th>
-                    <th className="p-3 font-extrabold">SALIDAS</th>
-                    <th className="p-3 font-extrabold">STOCK VIGENTE</th>
-                    <th className="p-3 font-extrabold">CONTADOS</th>
-                    <th className="p-3 font-extrabold text-right">OPCIONES</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {inventoryItems.length === 0 ? (
+              {/* SEARCH & LOW/CRITICAL STOCK FILTER TOOLBAR */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar producto por SKU, nombre o marca..."
+                    value={inventorySearch}
+                    onChange={(e) => setInventorySearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Quick Stock Filter Tabs */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setStockFilter("todos")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
+                      stockFilter === "todos"
+                        ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
+                        : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                    }`}
+                  >
+                    Todos ({inventoryItems.length})
+                  </button>
+
+                  <button
+                    onClick={() => setStockFilter("bajo")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                      stockFilter === "bajo"
+                        ? "bg-amber-500 text-black border-amber-400 shadow-md font-black"
+                        : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>⚠️ Stock Bajo / Crítico ({lowStockItems.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setStockFilter("critico")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                      stockFilter === "critico"
+                        ? "bg-red-600 text-white border-red-500 shadow-md font-black"
+                        : "bg-red-950/40 text-red-300 border-red-500/40 hover:bg-red-950/70"
+                    }`}
+                  >
+                    <span>🚫 Agotados ({criticalStockItems.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Inventory Table with Sticky Header & Overflow Protection */}
+              <div className="overflow-x-auto max-h-[70vh] overflow-y-auto border border-white/10 rounded-xl relative">
+                <table className="w-full text-left text-xs text-gray-300 table-auto border-collapse">
+                  <thead className="sticky top-0 z-20 bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10 shadow-md">
                     <tr>
-                      <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
-                        <Package className="w-10 h-10 text-gray-600 mx-auto" />
-                        <p className="font-bold text-sm">El inventario está completamente vacío.</p>
-                        <p className="text-xs text-gray-500">
-                          Utilice el botón "Agregar Fila" o "Cargar CSV / Excel" para añadir productos limpios.
-                        </p>
-                      </td>
+                      <th className="p-3 w-10 text-center">
+                        <button
+                          onClick={handleToggleSelectAll}
+                          className="text-gray-400 hover:text-white"
+                          title="Seleccionar todo"
+                        >
+                          {selectedRowIds.length > 0 && selectedRowIds.length === inventoryItems.length ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="p-3 font-extrabold w-16 text-center text-amber-400">ÍTEM (#)</th>
+                      <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
+                      <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
+                      <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
+                      <th className="p-3 font-extrabold max-w-[120px]">SERIE</th>
+                      <th className="p-3 font-extrabold">PRECIO VENTA</th>
+                      <th className="p-3 font-extrabold">STOCK INICIAL</th>
+                      <th className="p-3 font-extrabold">ENTRADAS</th>
+                      <th className="p-3 font-extrabold">SALIDAS</th>
+                      <th className="p-3 font-extrabold">STOCK VIGENTE</th>
+                      <th className="p-3 font-extrabold">CONTADOS</th>
+                      <th className="p-3 font-extrabold text-right">OPCIONES</th>
                     </tr>
-                  ) : (
-                    inventoryItems.map((item, idx) => {
-                      const isLow = item.stock_quantity <= item.min_stock_alert;
-                      const isSelected = selectedRowIds.includes(item.id);
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {displayInventoryItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
+                          <Package className="w-10 h-10 text-gray-600 mx-auto" />
+                          <p className="font-bold text-sm">
+                            {stockFilter === "bajo"
+                              ? "No hay materiales con stock bajo o crítico."
+                              : stockFilter === "critico"
+                              ? "No hay materiales agotados en 0."
+                              : "No se encontraron productos con el filtro aplicado."}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Pruebe cambiando el filtro a "Todos" o limpiando el texto de búsqueda.
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      displayInventoryItems.map((item, idx) => {
+                        const isLow = item.stock_quantity <= item.min_stock_alert;
+                        const isSelected = selectedRowIds.includes(item.id);
 
                       return (
                         <tr
@@ -844,7 +965,8 @@ export default function AlmacenPage() {
             </div>
           </div>
         </div>
-      )}
+      );
+    })()}
 
       {/* TAB 3: PRESTAMO HERRAMIENTAS */}
       {activeTab === "herramientas" && (
