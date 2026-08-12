@@ -158,22 +158,32 @@ export default function CajaPage() {
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       {/* Vehicle & Client Info */}
                       <div className="space-y-3 flex-1">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                            {wo.vehicle_plate}
-                          </span>
-                          <div>
-                            <span className="text-sm font-bold text-white block">
-                              {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                              {wo.vehicle_plate}
                             </span>
-                            <span className="text-xs text-reygas-red font-semibold">
-                              Cliente: {vehicle?.owner_name || "Cliente Taller"} • Teléfono: {vehicle?.owner_phone || "S/T"}
-                            </span>
+                            <div>
+                              <span className="text-sm font-bold text-white block">
+                                {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
+                              </span>
+                              <span className="text-xs text-reygas-red font-semibold">
+                                Cliente: {vehicle?.owner_name || "Cliente Taller"} • Teléfono: {vehicle?.owner_phone || "S/T"}
+                              </span>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 ml-auto">
+                              <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
+                                📅 <strong>Fecha/Hora:</strong>{" "}
+                                {invoice?.issued_at
+                                  ? new Date(invoice.issued_at).toLocaleString()
+                                  : wo.entry_time
+                                  ? new Date(wo.entry_time).toLocaleString()
+                                  : new Date().toLocaleString()}
+                              </span>
+                              <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
+                                Técnico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10 ml-auto sm:ml-0">
-                            Técnico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
-                          </span>
-                        </div>
 
                         {/* Parts and Concept Detail */}
                         <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5 space-y-2">
