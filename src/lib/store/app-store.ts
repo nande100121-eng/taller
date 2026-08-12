@@ -268,6 +268,13 @@ export interface AttendanceLog {
   source_file?: string;
 }
 
+export interface AISettings {
+  apiKey: string;
+  provider: "openai" | "gemini" | "custom";
+  model: string;
+  customEndpoint?: string;
+}
+
 interface AppState {
   // Authentication State
   isAuthenticated: boolean;
@@ -279,6 +286,10 @@ interface AppState {
   // Visual Editing Toggle
   isVisualEditing: boolean;
   toggleVisualEditing: () => void;
+
+  // AI Configuration Settings
+  aiSettings: AISettings;
+  updateAISettings: (settings: Partial<AISettings>) => void;
 
   // Supabase Fetch Initializer & Full Manual Save
   syncFromSupabase: () => Promise<void>;
@@ -367,6 +378,17 @@ export const useAppStore = create<AppState>()(
 
       isVisualEditing: false,
       toggleVisualEditing: () => set((state) => ({ isVisualEditing: !state.isVisualEditing })),
+
+      aiSettings: {
+        apiKey: "",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        customEndpoint: "",
+      },
+      updateAISettings: (settings) =>
+        set((state) => ({
+          aiSettings: { ...state.aiSettings, ...settings },
+        })),
 
       syncFromSupabase: async () => {
         const remoteContent = await fetchSupabaseSiteContent();

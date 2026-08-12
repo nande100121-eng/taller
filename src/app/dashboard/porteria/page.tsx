@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore } from "@/lib/store/app-store";
+import { useAppStore, Appointment } from "@/lib/store/app-store";
 import {
   ShieldAlert,
   Car,
@@ -14,14 +14,37 @@ import {
   Fuel,
   User,
   Phone,
-  Plus
+  Plus,
+  Calendar,
+  RefreshCw,
+  Upload,
+  Sparkles,
+  AlertCircle,
+  Check,
+  X,
+  Edit3
 } from "lucide-react";
 
 export default function PorteriaPage() {
-  const { vehicles, workOrders, registerVehicle, createWorkOrder, updateWorkOrderStatus } = useAppStore();
+  const {
+    vehicles,
+    workOrders,
+    registerVehicle,
+    createWorkOrder,
+    updateWorkOrderStatus,
+    appointments,
+    updateAppointmentStatus,
+    updateAppointment,
+    aiSettings,
+  } = useAppStore();
 
   const [searchPlate, setSearchPlate] = useState("");
-  const [ocrActive, setOcrActive] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrSource, setOcrSource] = useState<"camera" | "upload" | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+
+  // Status notification message
+  const [alertMessage, setAlertMessage] = useState<{ type: "success" | "info" | "warning"; text: string } | null>(null);
 
   // Form for vehicle entry
   const [entryForm, setEntryForm] = useState({
@@ -30,36 +53,123 @@ export default function PorteriaPage() {
     model: "",
     year: 2022,
     color: "",
-    fuel_type: "GNV" as const,
+    fuel_type: "GNV" as "GNV" | "GLP" | "Gasolina" | "Bifuel",
     owner_name: "",
     owner_phone: "",
     current_mileage: 50000,
     problem_description: "Ingreso para mantenimiento general y revisión",
   });
 
-  const handleSimulateOCR = () => {
-    setOcrActive(true);
-    setTimeout(() => {
-      const samplePlates = ["ABC-123", "XYZ-987", "B7V-456", "F9K-112"];
-      const randomPlate = samplePlates[Math.floor(Math.random() * samplePlates.length)];
-      setEntryForm({
-        ...entryForm,
-        plate: randomPlate,
-        brand: "Toyota",
-        model: "Corolla",
-        color: "Plata",
-        owner_name: "Gonzalo Vargas",
-        owner_phone: "+51 987112233",
+  // Modals for appointment management
+  const [rescheduleModal, setRescheduleModal] = useState<Appointment | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+
+  const showAlert = (type: "success" | "info" | "warning", text: string) => {
+    setAlertMessage({ type, text });
+    setTimeout(() => setAlertMessage(null), 4000);
+  };
+
+  // Search existing vehicle by plate input dynamically
+  const handlePlateChange = (newPlate: string) => {
+    const uppercasePlate = newPlate.toUpperCase();
+    setEntryForm((prev) => ({ ...prev, plate: uppercasePlate }));
+
+    if (uppercasePlate.trim().length >= 5) {
+      const existingVehicle = vehicles.find((v) => v.plate === uppercasePlate);
+      if (existingVehicle) {
+        setEntryForm((prev) => ({
+          ...prev,
+          brand: existingVehicle.brand,
+          model: existingVehicle.model,
+          year: existingVehicle.year,
+          color: existingVehicle.color,
+          fuel_type: existingVehicle.fuel_type,
+          owner_name: existingVehicle.owner_name,
+          owner_phone: existingVehicle.owner_phone,
+          current_mileage: existingVehicle.current_mileage || 50000,
+        }));
+        showAlert("info", `Vehículo ${uppercasePlate} encontrado en el registro. Datos cargados.`);
+      }
+    }
+  };
+
+  // Perform AI Camera / Image OCR Scan
+  const handleScanOCR = async (imageBase64?: string) => {
+    setOcrLoading(true);
+    try {
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: imageBase64 || "sample-plate-image",
+          apiKey: aiSettings?.apiKey,
+          provider: aiSettings?.provider,
+          model: aiSettings?.model,
+        }),
       });
-      setOcrActive(false);
-    }, 1200);
+
+      const result = await res.json();
+      if (result.success && result.data) {
+        const data = result.data;
+        const scannedPlate = (data.plate || "ABC-123").toUpperCase();
+
+        // Check if vehicle already exists in store
+        const existingVehicle = vehicles.find((v) => v.plate === scannedPlate);
+
+        if (existingVehicle) {
+          setEntryForm({
+            plate: scannedPlate,
+            brand: existingVehicle.brand,
+            model: existingVehicle.model,
+            year: existingVehicle.year,
+            color: existingVehicle.color,
+            fuel_type: existingVehicle.fuel_type,
+            owner_name: existingVehicle.owner_name,
+            owner_phone: existingVehicle.owner_phone,
+            current_mileage: existingVehicle.current_mileage || 50000,
+            problem_description: entryForm.problem_description,
+          });
+          showAlert("success", `OCR leyó placa ${scannedPlate}. Se jalaron sus datos existentes.`);
+        } else {
+          setEntryForm({
+            plate: scannedPlate,
+            brand: data.brand || "Toyota",
+            model: data.model || "Yaris",
+            year: 2022,
+            color: data.color || "Plata",
+            fuel_type: (data.fuel_type as any) || "GNV",
+            owner_name: data.owner_name || "Cliente Nuevo",
+            owner_phone: data.owner_phone || "+51 900000000",
+            current_mileage: 50000,
+            problem_description: entryForm.problem_description,
+          });
+          showAlert("warning", `OCR leyó placa ${scannedPlate} (Nuevo). Se completaron valores sugeridos. Presione "Registrar Ingreso" para confirmar.`);
+        }
+      }
+    } catch (error) {
+      showAlert("warning", "Error en el escáner OCR. Se cargaron valores por defecto.");
+    } finally {
+      setOcrLoading(false);
+      setCameraOpen(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      handleScanOCR(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleRegisterEntry = (e: React.FormEvent) => {
     e.preventDefault();
     const plate = entryForm.plate.toUpperCase();
 
-    // 1. Register or update vehicle
+    // 1. Register or update vehicle in global store
     registerVehicle({
       plate,
       brand: entryForm.brand,
@@ -73,12 +183,14 @@ export default function PorteriaPage() {
       last_visit_date: new Date().toISOString(),
     });
 
-    // 2. Create work order
+    // 2. Create work order for workshop
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
       problem_description: entryForm.problem_description,
     });
+
+    showAlert("success", `¡Ingreso del vehículo ${plate} registrado con éxito y enviado a Taller!`);
 
     // Reset form
     setEntryForm({
@@ -95,6 +207,61 @@ export default function PorteriaPage() {
     });
   };
 
+  // Appointment actions
+  const handleConfirmAttendance = (app: Appointment) => {
+    const plate = app.plate.toUpperCase();
+
+    // 1. Ensure vehicle is registered in global store
+    const existingVehicle = vehicles.find((v) => v.plate === plate);
+    if (!existingVehicle) {
+      registerVehicle({
+        plate,
+        brand: "Automóvil",
+        model: "Genérico",
+        year: new Date().getFullYear(),
+        color: "Plateado",
+        fuel_type: "GNV",
+        owner_name: app.client_name,
+        owner_phone: app.client_phone,
+        current_mileage: 50000,
+        last_visit_date: new Date().toISOString(),
+      });
+    }
+
+    // 2. Create work order directly for workshop
+    createWorkOrder({
+      vehicle_plate: plate,
+      status: "ingresado",
+      problem_description: `${app.service_type} - Cita confirmada en Portería. ${app.notes || ""}`,
+    });
+
+    // 3. Update appointment status
+    updateAppointmentStatus(app.id, "confirmado");
+
+    showAlert("success", `¡Asistencia confirmada para ${plate}! Se creó la Orden de Trabajo y se envió a Taller automáticamente.`);
+  };
+
+  const handleOpenReschedule = (app: Appointment) => {
+    setRescheduleModal(app);
+    setRescheduleDate(app.scheduled_date.slice(0, 16));
+  };
+
+  const handleSaveReschedule = () => {
+    if (!rescheduleModal) return;
+    updateAppointment(rescheduleModal.id, {
+      scheduled_date: new Date(rescheduleDate).toISOString(),
+    });
+    showAlert("info", `Cita de ${rescheduleModal.plate} reprogramada para ${new Date(rescheduleDate).toLocaleString()}.`);
+    setRescheduleModal(null);
+  };
+
+  const handleCancelAppointment = (id: string, plate: string) => {
+    if (confirm(`¿Desea cancelar/anular la cita del vehículo ${plate}?`)) {
+      updateAppointmentStatus(id, "cancelado");
+      showAlert("warning", `Cita de ${plate} ha sido anulada.`);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
@@ -104,32 +271,59 @@ export default function PorteriaPage() {
             <ShieldAlert className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white">Estación de Portería & Control de Garita</h1>
+            <h1 className="text-2xl font-black text-white">Estación de Portería & Garita</h1>
             <p className="text-xs text-gray-400">
-              Registro de ingreso vehicular con OCR simulado y Semáforo Inteligente de Salida.
+              Escaneo OCR Inteligente de Placas por IA, Control de Citas Programadas y Semáforo de Salida.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          <label className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors">
+            <Upload className="w-4 h-4 text-purple-400" />
+            <span>Subir Foto Placa</span>
+            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+          </label>
+
           <button
-            onClick={handleSimulateOCR}
-            disabled={ocrActive}
-            className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
+            onClick={() => handleScanOCR()}
+            disabled={ocrLoading}
+            className="px-4 py-2.5 bg-reygas-red hover:bg-red-700 text-white text-xs font-bold rounded-xl border border-red-500/30 flex items-center gap-2 transition-colors shadow-lg shadow-reygas-red/20"
           >
-            <Camera className="w-4 h-4 text-reygas-red" />
-            <span>{ocrActive ? "Escaneando Placa..." : "Simular Escaneo OCR Cámara"}</span>
+            <Sparkles className={`w-4 h-4 ${ocrLoading ? "animate-spin" : ""}`} />
+            <span>{ocrLoading ? "Escaneando con IA..." : "Escaneo OCR Cámara / IA"}</span>
           </button>
         </div>
       </div>
 
+      {alertMessage && (
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm ${
+            alertMessage.type === "success"
+              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+              : alertMessage.type === "warning"
+              ? "bg-amber-950/40 border-amber-500/40 text-amber-300"
+              : "bg-blue-950/40 border-blue-500/40 text-blue-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <span>{alertMessage.text}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Main Grid: Form + Appointments & Semaphore */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Entry Registration Form */}
         <div className="lg:col-span-5 glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-3">
-            <Car className="w-5 h-5 text-reygas-red" />
-            <span>Registrar Ingreso de Vehículo</span>
-          </h2>
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Car className="w-5 h-5 text-reygas-red" />
+              <span>Registrar Ingreso de Vehículo</span>
+            </h2>
+            <span className="text-[10px] text-gray-400 font-mono">Búsqueda Automática</span>
+          </div>
 
           <form onSubmit={handleRegisterEntry} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -137,14 +331,17 @@ export default function PorteriaPage() {
                 <label className="block text-xs font-medium text-gray-300 mb-1">
                   Placa Vehículo *
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ABC-123"
-                  value={entryForm.plate}
-                  onChange={(e) => setEntryForm({ ...entryForm, plate: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono font-bold uppercase focus:border-reygas-red"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="ABC-123"
+                    value={entryForm.plate}
+                    onChange={(e) => handlePlateChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono font-bold uppercase focus:border-reygas-red pr-8"
+                  />
+                  <Search className="w-4 h-4 text-gray-500 absolute right-2.5 top-2.5" />
+                </div>
               </div>
 
               <div>
@@ -243,7 +440,7 @@ export default function PorteriaPage() {
 
             <button
               type="submit"
-              className="w-full py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-reygas-red/30"
+              className="w-full py-3 bg-reygas-red hover:bg-red-700 text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-reygas-red/30"
             >
               <Plus className="w-5 h-5" />
               <span>Registrar Ingreso y Abrir OT</span>
@@ -251,10 +448,88 @@ export default function PorteriaPage() {
           </form>
         </div>
 
-        {/* Exit Semaphore & Active Vehicles List */}
+        {/* Scheduled Appointments & Exit Semaphore */}
         <div className="lg:col-span-7 space-y-6">
+          {/* Citas & Reservas Programadas */}
           <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-            <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-amber-400" />
+                <span>Citas & Reservas Programadas</span>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold">
+                {appointments.filter((a) => a.status !== "cancelado" && a.status !== "completado").length} pendientes
+              </span>
+            </h2>
+
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {appointments.filter((a) => a.status !== "cancelado").length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">No hay citas programadas actualmente.</p>
+              ) : (
+                [...appointments]
+                  .filter((a) => a.status !== "cancelado")
+                  .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
+                  .map((app) => (
+                    <div
+                      key={app.id}
+                      className="p-3.5 rounded-xl bg-reygas-card/80 border border-white/10 hover:border-amber-500/30 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-sm text-white bg-reygas-surface px-2 py-0.5 rounded border border-white/10">
+                            {app.plate}
+                          </span>
+                          <span className="text-xs font-bold text-gray-200">{app.client_name}</span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                              app.status === "confirmado"
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            }`}
+                          >
+                            {app.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          <span className="text-gray-300 font-medium">{app.service_type}</span> •{" "}
+                          <span className="text-amber-400">{new Date(app.scheduled_date).toLocaleString()}</span>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleConfirmAttendance(app)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1 transition-colors"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Confirmar Asistencia</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenReschedule(app)}
+                          className="p-1.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
+                          title="Reprogramar Cita"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleCancelAppointment(app.id, app.plate)}
+                          className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                          title="Anular Cita"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+
+          {/* Exit Semaphore & Active Vehicles List */}
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-amber-400" />
                 <span>Semáforo de Salida e Inspección de Garita</span>
@@ -272,11 +547,9 @@ export default function PorteriaPage() {
             </div>
 
             {/* List of Active Vehicles */}
-            <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
               {workOrders
-                .filter((wo) =>
-                  searchPlate ? wo.vehicle_plate.includes(searchPlate) : true
-                )
+                .filter((wo) => (searchPlate ? wo.vehicle_plate.includes(searchPlate) : true))
                 .map((wo) => {
                   const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
                   const isPaidAndAuthorized = wo.status === "pagado_autorizado" || wo.status === "finalizado";
@@ -306,16 +579,6 @@ export default function PorteriaPage() {
                           <p className="text-xs text-gray-400 line-clamp-1">
                             <span className="text-gray-300 font-semibold">Reporte:</span> {wo.problem_description}
                           </p>
-                          <div className="flex items-center gap-4 text-[11px] text-gray-500 pt-1">
-                            <span className="flex items-center gap-1">
-                              <User className="w-3 h-3 text-gray-400" />
-                              {vehicle?.owner_name || "Cliente"}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Phone className="w-3 h-3 text-gray-400" />
-                              {vehicle?.owner_phone}
-                            </span>
-                          </div>
                         </div>
 
                         {/* Semaphore Status Badge & Action */}
@@ -354,6 +617,45 @@ export default function PorteriaPage() {
           </div>
         </div>
       </div>
+
+      {/* Reschedule Modal */}
+      {rescheduleModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-md w-full space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-amber-400" />
+              <span>Reprogramar Cita - {rescheduleModal.plate}</span>
+            </h3>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-300 mb-1">
+                Nueva Fecha y Hora Programada
+              </label>
+              <input
+                type="datetime-local"
+                value={rescheduleDate}
+                onChange={(e) => setRescheduleDate(e.target.value)}
+                className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-amber-400"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                onClick={() => setRescheduleModal(null)}
+                className="px-4 py-2 bg-reygas-surface text-gray-300 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveReschedule}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-xs font-extrabold rounded-xl"
+              >
+                Guardar Reprogramación
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

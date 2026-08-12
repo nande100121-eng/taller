@@ -12,7 +12,13 @@ import {
   ArrowRight,
   Plus,
   X,
-  Cpu
+  Cpu,
+  Search,
+  Check,
+  ChevronRight,
+  User,
+  Phone,
+  AlertCircle
 } from "lucide-react";
 
 export default function TallerPage() {
@@ -27,21 +33,25 @@ export default function TallerPage() {
     updateDiagnosticNotes,
   } = useAppStore();
 
+  const [searchPlate, setSearchPlate] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("todos");
+
+  // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<"diagnostic" | "parts" | "technician">("diagnostic");
 
-  // Local state for modal forms
+  // Form states inside modals
   const [diagnosticText, setDiagnosticText] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
   const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "");
   const [partQty, setPartQty] = useState(1);
 
-  const columns: Array<{ status: WorkOrderStatus; title: string; color: string }> = [
-    { status: "ingresado", title: "1. Ingresados", color: "border-blue-500/40 text-blue-400" },
-    { status: "en_diagnostico", title: "2. En Diagnóstico", color: "border-purple-500/40 text-purple-400" },
-    { status: "esperando_repuestos", title: "3. Esperando Repuestos", color: "border-amber-500/40 text-amber-400" },
-    { status: "en_servicio", title: "4. En Servicio / Bahía", color: "border-teal-500/40 text-teal-400" },
-    { status: "por_cobrar", title: "5. Por Cobrar en Caja", color: "border-emerald-500/40 text-emerald-400" },
+  const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
+    { status: "ingresado", label: "1. Ingresado", color: "bg-blue-500" },
+    { status: "en_diagnostico", label: "2. Diagnóstico", color: "bg-purple-500" },
+    { status: "esperando_repuestos", label: "3. Repuestos", color: "bg-amber-500" },
+    { status: "en_servicio", label: "4. En Servicio", color: "bg-teal-500" },
+    { status: "por_cobrar", label: "5. Por Cobrar", color: "bg-emerald-500" },
   ];
 
   const handleOpenDiagnostic = (orderId: string, currentNotes?: string) => {
@@ -91,6 +101,14 @@ export default function TallerPage() {
     }
   };
 
+  const filteredOrders = [...workOrders]
+    .filter((wo) => {
+      const matchPlate = searchPlate ? wo.vehicle_plate.includes(searchPlate) : true;
+      const matchStatus = statusFilter === "todos" ? true : wo.status === statusFilter;
+      return matchPlate && matchStatus;
+    })
+    .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
+
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
@@ -100,300 +118,293 @@ export default function TallerPage() {
             <Wrench className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white">Estación de Taller & Bahía de Diagnóstico</h1>
+            <h1 className="text-2xl font-black text-white">Estación de Taller & Bahías de Trabajo</h1>
             <p className="text-xs text-gray-400">
-              Tablero Kanban técnico en tiempo real, asignación de mecánicos y pedidos a Almacén.
+              Vista tecnológica por Cards Horizontales ordenadas por hora de llegada, con Pipeline interactivo de estado.
             </p>
           </div>
         </div>
+
+        {/* Filter Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar por placa..."
+              value={searchPlate}
+              onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
+              className="pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400"
+            />
+          </div>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
+          >
+            <option value="todos">Todos los Estados ({workOrders.length})</option>
+            <option value="ingresado">1. Ingresados</option>
+            <option value="en_diagnostico">2. En Diagnóstico</option>
+            <option value="esperando_repuestos">3. Esperando Repuestos</option>
+            <option value="en_servicio">4. En Servicio / Bahía</option>
+            <option value="por_cobrar">5. Por Cobrar</option>
+          </select>
+        </div>
       </div>
 
-      {/* Kanban Board Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 overflow-x-auto pb-6">
-        {columns.map((col) => {
-          const ordersInCol = workOrders.filter((wo) => wo.status === col.status);
+      {/* Horizontal Cards List */}
+      <div className="space-y-4">
+        {filteredOrders.length === 0 ? (
+          <div className="glass-panel p-12 text-center text-gray-400 space-y-3 rounded-2xl border border-white/10">
+            <Wrench className="w-12 h-12 text-gray-600 mx-auto" />
+            <p className="text-sm font-semibold">No hay órdenes de trabajo que coincidan con los filtros.</p>
+          </div>
+        ) : (
+          filteredOrders.map((wo) => {
+            const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
+            const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
 
-          return (
-            <div
-              key={col.status}
-              className="glass-panel p-4 rounded-2xl border border-white/10 space-y-4 min-w-[280px] flex flex-col justify-between"
-            >
-              <div className="space-y-4">
-                <div className={`flex items-center justify-between border-b pb-3 ${col.color}`}>
-                  <h3 className="font-extrabold text-sm uppercase tracking-wider">{col.title}</h3>
-                  <span className="px-2 py-0.5 rounded-full bg-white/10 text-xs font-bold text-white">
-                    {ordersInCol.length}
-                  </span>
-                </div>
+            // Current step index in pipeline
+            const currentStepIdx = statusSteps.findIndex((s) => s.status === wo.status);
 
-                <div className="space-y-3">
-                  {ordersInCol.map((wo) => {
-                    const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
-                    const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+            return (
+              <div
+                key={wo.id}
+                className="glass-panel p-6 rounded-2xl border border-white/10 hover:border-amber-500/30 transition-all space-y-6"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  {/* Left Column: Vehicle Info */}
+                  <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-white/10 pb-4 lg:pb-0 lg:pr-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                        {wo.vehicle_plate}
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
+                        OT #{wo.id}
+                      </span>
+                    </div>
 
-                    return (
-                      <div
-                        key={wo.id}
-                        className="p-4 rounded-xl glass-card border border-white/10 hover:border-amber-500/40 transition-all space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-black text-base text-white bg-reygas-surface px-2 py-0.5 rounded border border-white/10">
-                            {wo.vehicle_plate}
-                          </span>
-                          <span className="text-[10px] text-gray-400 font-bold uppercase">
-                            OT: #{wo.id}
-                          </span>
-                        </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">
+                        {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
+                      </h3>
+                      <p className="text-xs text-gray-400 font-semibold">{vehicle?.color || "Color no especificado"} • <span className="text-reygas-red">{vehicle?.fuel_type || "GNV"}</span></p>
+                    </div>
 
-                        <div>
-                          <span className="text-xs font-bold text-white block">
-                            {vehicle ? `${vehicle.brand} ${vehicle.model}` : "Vehículo"}
-                          </span>
-                          <p className="text-xs text-gray-400 line-clamp-2 mt-1">
-                            {wo.problem_description}
-                          </p>
-                        </div>
-
-                        {/* Assigned Technician Badge */}
-                        <div
-                          onClick={() => handleOpenTechnician(wo.id, wo.assigned_technician_id)}
-                          className="flex items-center justify-between p-2 rounded-lg bg-reygas-dark border border-white/5 cursor-pointer hover:border-amber-500/40"
-                        >
-                          <div className="flex items-center gap-2">
-                            <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-                            <span className="text-xs font-semibold text-gray-200">
-                              {tech ? tech.full_name : "Sin Técnico"}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-reygas-red font-bold">Cambiar</span>
-                        </div>
-
-                        {/* Diagnostic Notes Preview */}
-                        {wo.diagnostic_notes && (
-                          <div className="p-2 rounded bg-purple-950/20 border border-purple-500/30 text-[11px] text-purple-200">
-                            <span className="font-bold block text-purple-400">ECU Diagnóstico:</span>
-                            {wo.diagnostic_notes}
-                          </div>
-                        )}
-
-                        {/* Requisition Items */}
-                        {wo.items.length > 0 && (
-                          <div className="text-[11px] text-gray-300 space-y-1 pt-1 border-t border-white/5">
-                            <span className="font-bold text-amber-400 block">
-                              Repuestos Solicitados ({wo.items.length}):
-                            </span>
-                            {wo.items.map((item) => (
-                              <div key={item.id} className="flex justify-between text-gray-400">
-                                <span>{item.quantity}x {item.description}</span>
-                                <span>S/ {item.subtotal}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Action Buttons */}
-                        <div className="pt-2 border-t border-white/10 grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
-                            className="py-1.5 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-[11px] font-bold rounded flex items-center justify-center gap-1"
-                          >
-                            <Cpu className="w-3 h-3" />
-                            <span>Diagnóstico</span>
-                          </button>
-                          <button
-                            onClick={() => handleOpenParts(wo.id)}
-                            className="py-1.5 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-bold rounded flex items-center justify-center gap-1"
-                          >
-                            <PackagePlus className="w-3 h-3" />
-                            <span>Pedir Insumo</span>
-                          </button>
-                        </div>
-
-                        {/* Status Advancement Button */}
-                        <div className="pt-1">
-                          {wo.status === "ingresado" && (
-                            <button
-                              onClick={() => updateWorkOrderStatus(wo.id, "en_diagnostico")}
-                              className="w-full py-1.5 bg-purple-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"
-                            >
-                              <span>Iniciar Diagnóstico</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {wo.status === "en_diagnostico" && (
-                            <button
-                              onClick={() => updateWorkOrderStatus(wo.id, "en_servicio")}
-                              className="w-full py-1.5 bg-teal-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"
-                            >
-                              <span>Pasar a Servicio en Bahía</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {wo.status === "esperando_repuestos" && (
-                            <button
-                              onClick={() => updateWorkOrderStatus(wo.id, "en_servicio")}
-                              className="w-full py-1.5 bg-teal-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"
-                            >
-                              <span>Repuesto Recibido ➔ En Servicio</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {wo.status === "en_servicio" && (
-                            <button
-                              onClick={() => updateWorkOrderStatus(wo.id, "por_cobrar")}
-                              className="w-full py-1.5 bg-emerald-600 text-white text-xs font-bold rounded flex items-center justify-center gap-1"
-                            >
-                              <span>Finalizar ➔ Enviar a Caja</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                    <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
+                      <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Llegada: {new Date(wo.entry_time).toLocaleString()}</span>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <User className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-gray-200 font-medium">{vehicle?.owner_name || "Cliente Garita"}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                        <Phone className="w-3.5 h-3.5 text-gray-500" />
+                        <span>{vehicle?.owner_phone || "Sin teléfono"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Center Column: Interactive Progress Stepper & Description */}
+                  <div className="lg:col-span-6 space-y-4 px-0 lg:px-2">
+                    <div className="space-y-1">
+                      <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                        Estado Actual y Flujo de Servicio:
+                      </span>
+                      {/* Stepper Pipeline */}
+                      <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        {statusSteps.map((step, idx) => {
+                          const isCurrent = wo.status === step.status;
+                          const isPassed = idx <= currentStepIdx;
+
+                          return (
+                            <button
+                              key={step.status}
+                              onClick={() => updateWorkOrderStatus(wo.id, step.status)}
+                              className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${
+                                isCurrent
+                                  ? `${step.color} text-black border-white shadow-lg`
+                                  : isPassed
+                                  ? "bg-reygas-surface text-gray-200 border-white/20 hover:border-amber-400"
+                                  : "bg-reygas-dark/60 text-gray-500 border-white/5 hover:border-white/20"
+                              }`}
+                            >
+                              <span>{step.label}</span>
+                              {isCurrent && <Check className="w-3 h-3 text-black stroke-[3]" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-reygas-dark/80 border border-white/5 text-xs text-gray-300">
+                      <span className="font-bold text-amber-400 block text-[11px] uppercase">
+                        Reporte / Motivo de Ingreso:
+                      </span>
+                      <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
+                    </div>
+
+                    {/* Diagnostic notes preview if present */}
+                    {wo.diagnostic_notes && (
+                      <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200">
+                        <span className="font-bold text-purple-400 block text-[11px] uppercase">
+                          Diagnóstico Técnico ECU:
+                        </span>
+                        <p className="mt-0.5 line-clamp-2">{wo.diagnostic_notes}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Column: Assigned Technician & Actions */}
+                  <div className="lg:col-span-3 space-y-3 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
+                    {/* Technician selector dropdown */}
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">
+                        Mecánico Asignado
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={wo.assigned_technician_id || ""}
+                          onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400"
+                        >
+                          <option value="">-- Sin Técnico Asignado --</option>
+                          {technicians.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.full_name} ({t.specialty})
+                            </option>
+                          ))}
+                        </select>
+                        <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
+                      </div>
+                    </div>
+
+                    {/* Requisitions Badge */}
+                    {wo.items.length > 0 && (
+                      <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center justify-between">
+                        <span>{wo.items.length} Repuestos Solicitados</span>
+                        <span className="font-mono font-bold">
+                          S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
+                        className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors"
+                      >
+                        <Cpu className="w-3.5 h-3.5" />
+                        <span>Diagnóstico</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenParts(wo.id)}
+                        className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors"
+                      >
+                        <PackagePlus className="w-3.5 h-3.5" />
+                        <span>Pedir Repuestos</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
-      {/* MODALS */}
-      {activeOrderModal && modalMode === "diagnostic" && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-lg w-full p-6 rounded-2xl border border-white/20 space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-purple-400" />
-              <span>Checklist de Diagnóstico Computarizado ECU</span>
-            </h3>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-1">
-                Resultados de Escáner y Notas de Diagnóstico
-              </label>
-              <textarea
-                rows={5}
-                placeholder="Presión de regulador: 1.2 bar. Mapa de inyección corregido. Inyector #3 limpiado por ultrasonido..."
-                value={diagnosticText}
-                onChange={(e) => setDiagnosticText(e.target.value)}
-                className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-purple-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+      {/* Modals for Diagnostic and Parts Requisition */}
+      {activeOrderModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-lg w-full space-y-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                {modalMode === "diagnostic" ? (
+                  <>
+                    <Cpu className="w-5 h-5 text-purple-400" />
+                    <span>Registrar Diagnóstico de Falla ECU</span>
+                  </>
+                ) : (
+                  <>
+                    <PackagePlus className="w-5 h-5 text-amber-400" />
+                    <span>Solicitar Repuestos a Almacén</span>
+                  </>
+                )}
+              </h3>
               <button
                 onClick={() => setActiveOrderModal(null)}
-                className="px-4 py-2 bg-gray-800 text-gray-300 text-xs font-bold rounded-lg"
+                className="p-1 rounded-lg text-gray-400 hover:text-white"
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveDiagnostic}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg shadow-lg"
-              >
-                Guardar Diagnóstico
+                <X className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {activeOrderModal && modalMode === "parts" && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-lg w-full p-6 rounded-2xl border border-white/20 space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <PackagePlus className="w-5 h-5 text-amber-400" />
-              <span>Requisición Digital de Insumo a Almacén</span>
-            </h3>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Seleccionar Repuesto del Catálogo
-                </label>
-                <select
-                  value={selectedInventoryId}
-                  onChange={(e) => setSelectedInventoryId(e.target.value)}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-amber-500"
+            {modalMode === "diagnostic" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-2">
+                    Notas y Códigos de Error Escáner OBD2 / ECU
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Ej. Código P0300 Misfire detectado en cilindro 2. Inyector de gas tapado."
+                    value={diagnosticText}
+                    onChange={(e) => setDiagnosticText(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-purple-400"
+                  />
+                </div>
+                <button
+                  onClick={handleSaveDiagnostic}
+                  className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-sm transition-colors"
                 >
-                  {inventoryItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} (Stock: {item.stock_quantity}) - S/ {item.unit_price}
-                    </option>
-                  ))}
-                </select>
+                  Guardar Diagnóstico y Cambiar a En Diagnóstico
+                </button>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={partQty}
-                  onChange={(e) => setPartQty(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-                />
+            {modalMode === "parts" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-2">
+                    Seleccionar Producto del Inventario de Almacén
+                  </label>
+                  <select
+                    value={selectedInventoryId}
+                    onChange={(e) => setSelectedInventoryId(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                  >
+                    {inventoryItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} (Stock: {item.stock_quantity}) - S/ {item.unit_price}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-2">Cantidad</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={partQty}
+                    onChange={(e) => setPartQty(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white"
+                  />
+                </div>
+
+                <button
+                  onClick={handleAddPartRequisition}
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors"
+                >
+                  Confirmar Pedido a Almacén
+                </button>
               </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setActiveOrderModal(null)}
-                className="px-4 py-2 bg-gray-800 text-gray-300 text-xs font-bold rounded-lg"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAddPartRequisition}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg shadow-lg"
-              >
-                Enviar Solicitud a Almacén
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeOrderModal && modalMode === "technician" && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-md w-full p-6 rounded-2xl border border-white/20 space-y-4">
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-reygas-red" />
-              <span>Asignar Técnico Responsable</span>
-            </h3>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-300 mb-1">
-                Mecánico de la Lista Maestra
-              </label>
-              <select
-                value={selectedTechId}
-                onChange={(e) => setSelectedTechId(e.target.value)}
-                className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-              >
-                {technicians.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.full_name} ({t.specialty})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setActiveOrderModal(null)}
-                className="px-4 py-2 bg-gray-800 text-gray-300 text-xs font-bold rounded-lg"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveTechnician}
-                className="px-4 py-2 bg-reygas-red text-white text-xs font-bold rounded-lg shadow-lg"
-              >
-                Asignar Técnico
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}

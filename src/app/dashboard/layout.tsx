@@ -92,6 +92,12 @@ export default function DashboardLayout({
       icon: Table,
       color: "text-pink-400",
     },
+    {
+      name: "10. Configuración & API IA",
+      href: "/dashboard/configuracion",
+      icon: Settings,
+      color: "text-purple-400",
+    },
   ];
 
   return (
