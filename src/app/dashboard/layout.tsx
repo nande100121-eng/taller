@@ -87,7 +87,7 @@ export default function DashboardLayout({
       color: "text-indigo-400",
     },
     {
-      name: "9. Tablas Maestras & Insumos",
+      name: "9. Tabla Maestra de Personal",
       href: "/dashboard/admin/tables",
       icon: Table,
       color: "text-pink-400",
