@@ -373,6 +373,8 @@ interface AppState {
   updateAISettings: (settings: Partial<AISettings>) => void;
 
   // Supabase Fetch Initializer & Full Manual Save
+  isSyncing: boolean;
+  hasSyncedOnce: boolean;
   syncFromSupabase: () => Promise<void>;
   saveAllToSupabase: () => Promise<boolean>;
 
@@ -488,7 +490,13 @@ export const useAppStore = create<AppState>()(
       updateAISettings: (settings) =>
         set((state) => ({ aiSettings: { ...state.aiSettings, ...settings } })),
 
+      isSyncing: false,
+      hasSyncedOnce: false,
+
       syncFromSupabase: async () => {
+        // Prevent concurrent sync calls
+        if (get().isSyncing) return;
+        set({ isSyncing: true });
         try {
           const cmsData = await fetchSupabaseSiteContent();
           const erpData = await fetchSupabaseErpData();
@@ -501,9 +509,12 @@ export const useAppStore = create<AppState>()(
             appointments: erpData?.appointments !== null && erpData?.appointments !== undefined ? erpData.appointments : state.appointments,
             invoices: erpData?.invoices !== null && erpData?.invoices !== undefined ? erpData.invoices : state.invoices,
             vehicles: erpData?.vehicles !== null && erpData?.vehicles !== undefined ? erpData.vehicles : state.vehicles,
+            hasSyncedOnce: true,
           }));
         } catch (err) {
           console.warn("Supabase sync warning:", err);
+        } finally {
+          set({ isSyncing: false });
         }
       },
 

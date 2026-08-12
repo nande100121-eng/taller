@@ -30,6 +30,8 @@ export default function AdminTablesPage() {
     deleteWorkOrder,
     deleteMultipleWorkOrders,
     clearAllWorkOrders,
+    isSyncing,
+    hasSyncedOnce,
   } = useAppStore();
 
   // Active Tab
@@ -425,6 +427,20 @@ export default function AdminTablesPage() {
               </button>
             </div>
           </div>
+
+          {/* Sync Status Indicator */}
+          {isSyncing && !hasSyncedOnce && (
+            <div className="flex items-center justify-center gap-3 p-6 glass-panel rounded-xl border border-indigo-500/30 animate-pulse">
+              <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
+              <span className="text-indigo-300 font-semibold text-sm">Sincronizando datos desde Supabase... ({workOrders.length} registros cargados)</span>
+            </div>
+          )}
+          {isSyncing && hasSyncedOnce && (
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              <span>Actualizando...</span>
+            </div>
+          )}
 
           {/* Master 20 Column Table Container */}
           <div className="overflow-x-auto max-h-[600px] border border-white/10 rounded-xl">

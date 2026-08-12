@@ -11,10 +11,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 1. Immediate sync on page load / mount
     syncFromSupabase();
 
-    // 2. Lightweight 3.5s background interval polling for instant cross-device synchronization
+    // 2. Background interval polling for cross-device synchronization (every 15s to avoid overlap)
     const interval = setInterval(() => {
       syncFromSupabase();
-    }, 3500);
+    }, 15000);
 
     // 3. Supabase Realtime WebSocket listener for immediate instant push events
     const channel = supabase
