@@ -314,3 +314,30 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     console.warn("Supabase invoice deferred:", err);
   }
 }
+
+// Batch Bulk Upsert for Workshop Data to avoid browser memory crash
+export async function saveSupabaseBulkWorkshopData(
+  vehicles: Vehicle[],
+  orders: WorkOrder[],
+  invoices: Invoice[]
+) {
+  try {
+    if (vehicles.length > 0) {
+      await supabase.from("vehicles").upsert(vehicles);
+    }
+
+    if (orders.length > 0) {
+      const ordersPayload = orders.map((o) => ({
+        ...o,
+        items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
+      }));
+      await supabase.from("work_orders").upsert(ordersPayload);
+    }
+
+    if (invoices.length > 0) {
+      await supabase.from("invoices").upsert(invoices);
+    }
+  } catch (err) {
+    console.warn("Supabase bulk save deferred:", err);
+  }
+}

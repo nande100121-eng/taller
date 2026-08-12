@@ -20,6 +20,7 @@ import {
   deleteSupabaseWorkOrder,
   deleteSupabaseMultipleWorkOrders,
   clearSupabaseWorkOrders,
+  saveSupabaseBulkWorkshopData,
 } from "@/lib/supabase/services";
 
 export interface SiteTheme {
@@ -380,6 +381,7 @@ interface AppState {
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
+  importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => void;
 
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
@@ -1307,6 +1309,21 @@ export const useAppStore = create<AppState>()(
             workOrders: updatedOrders,
           };
         }),
+
+      importBulkWorkshopData: ({ vehicles: newVehicles, workOrders: newOrders, invoices: newInvoices }) => {
+        saveSupabaseBulkWorkshopData(newVehicles, newOrders, newInvoices);
+        set((state) => {
+          // Merge vehicles by plate without duplicates
+          const existingPlates = new Set(state.vehicles.map((v) => v.plate));
+          const filteredVehicles = newVehicles.filter((v) => !existingPlates.has(v.plate));
+
+          return {
+            vehicles: [...state.vehicles, ...filteredVehicles],
+            workOrders: [...newOrders, ...state.workOrders],
+            invoices: [...newInvoices, ...state.invoices],
+          };
+        });
+      },
 
       payInvoice: (invoiceId) =>
         set((state) => {

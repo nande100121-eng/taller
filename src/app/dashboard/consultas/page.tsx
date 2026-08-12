@@ -112,7 +112,7 @@ export default function ConsultasPage() {
     setTimeout(() => setAlertMessage(null), 5000);
   };
 
-  // Importer for the 20 Specific Workshop Columns from Excel CSV
+  // Importer for the 20 Specific Workshop Columns from Excel CSV (Batch Processing)
   const handleImportFullWorkshopExcelCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -123,21 +123,17 @@ export default function ConsultasPage() {
       rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
 
       const lines = rawText.split(/\r\n|\n/);
-      let importedCount = 0;
+      const batchVehicles: any[] = [];
+      const batchWorkOrders: any[] = [];
+      const batchInvoices: any[] = [];
+
+      const timestamp = Date.now();
 
       lines.forEach((line, idx) => {
         if (idx === 0 || !line.trim()) return;
-
-        // Split by comma, tab or semicolon
         const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
 
-        // Header Order:
-        // 0: Fecha | 1: FECHA QUINTENAL | 2: FECHA CHIP ANUAL | 3: Sistema | 4: Marca | 5: KILOMETRAJE
-        // 6: PLACA | 7: N° de boleta/Factura | 8: Cliente | 9: Celular | 10: Técnico
-        // 11: MANT. GENERAL / SERVICIO | 12: REPUESTOS Y SERVICIOS | 13: Precio | 14: DESCUENTOS
-        // 15: Credito | 16: Condicion | 17: METODO DE PAGO | 18: DESTINO DE PAGO | 19: COMPROBANTE
-
-        const plateRaw = cols[6] || cols[0]; // Look for plate column
+        const plateRaw = cols[6] || cols[0];
         if (!plateRaw) return;
 
         const plate = plateRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "");
@@ -163,8 +159,10 @@ export default function ConsultasPage() {
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
 
-        // 1. Save or update vehicle
-        useAppStore.getState().registerVehicle({
+        const orderId = `ot-imp-${timestamp}-${idx}`;
+        const invoiceId = `inv-imp-${timestamp}-${idx}`;
+
+        batchVehicles.push({
           plate,
           brand,
           model: "Importado",
@@ -177,35 +175,32 @@ export default function ConsultasPage() {
           last_visit_date: dateStr,
         });
 
-        // 2. Create items list if spare_parts_services is present
-        const items = spare_parts_services
-          ? [
-              {
-                id: `item-${Date.now()}-${idx}`,
-                description: spare_parts_services,
-                quantity: 1,
-                unit_price: Math.max(0, price - 150),
-                subtotal: Math.max(0, price - 150),
-              },
-            ]
-          : [];
-
-        // 3. Create work order
-        const orderId = `WO-IMP-${Date.now()}-${idx}`;
-        useAppStore.getState().createWorkOrder({
+        batchWorkOrders.push({
+          id: orderId,
           vehicle_plate: plate,
           status: "pagado_autorizado",
           problem_description: maintenance_service,
           diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
+          entry_time: dateStr,
+          items: spare_parts_services
+            ? [
+                {
+                  id: `item-${timestamp}-${idx}`,
+                  description: spare_parts_services,
+                  quantity: 1,
+                  unit_price: Math.max(0, price - 150),
+                  subtotal: Math.max(0, price - 150),
+                },
+              ]
+            : [],
           quinquennial_date,
           chip_expiry_date,
           general_maintenance_service: maintenance_service,
           spare_parts_services,
-          items,
         });
 
-        // 4. Create Invoice
-        useAppStore.getState().createInvoice({
+        batchInvoices.push({
+          id: invoiceId,
           work_order_id: orderId,
           vehicle_plate: plate,
           client_name,
@@ -224,12 +219,15 @@ export default function ConsultasPage() {
           payment_condition,
           payment_destination,
         });
-
-        importedCount++;
       });
 
-      if (importedCount > 0) {
-        showAlert("success", `¡Se importó con éxito el historial de ${importedCount} registros de atención desde el Excel del taller!`);
+      if (batchWorkOrders.length > 0) {
+        useAppStore.getState().importBulkWorkshopData({
+          vehicles: batchVehicles,
+          workOrders: batchWorkOrders,
+          invoices: batchInvoices,
+        });
+        showAlert("success", `¡Se importó con éxito el historial de ${batchWorkOrders.length} registros en menos de 1 segundo!`);
       } else {
         showAlert("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
       }

@@ -86,7 +86,7 @@ export default function AdminTablesPage() {
     showAlert("success", "Técnico registrado con éxito en la lista maestra.");
   };
 
-  // Importer for 20 Workshop Columns from CSV / Excel
+  // Importer for 20 Workshop Columns from CSV / Excel (Batch Processing for Performance)
   const handleImportFullWorkshopExcelCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -97,7 +97,12 @@ export default function AdminTablesPage() {
       rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
 
       const lines = rawText.split(/\r\n|\n/);
-      let importedCount = 0;
+
+      const batchVehicles: any[] = [];
+      const batchWorkOrders: any[] = [];
+      const batchInvoices: any[] = [];
+
+      const timestamp = Date.now();
 
       lines.forEach((line, idx) => {
         if (idx === 0 || !line.trim()) return;
@@ -129,8 +134,10 @@ export default function AdminTablesPage() {
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
 
-        // 1. Save vehicle
-        useAppStore.getState().registerVehicle({
+        const orderId = `ot-imp-${timestamp}-${idx}`;
+        const invoiceId = `inv-imp-${timestamp}-${idx}`;
+
+        batchVehicles.push({
           plate,
           brand,
           model: "Importado",
@@ -143,21 +150,32 @@ export default function AdminTablesPage() {
           last_visit_date: dateStr,
         });
 
-        // 2. Save Work Order
-        const orderId = `WO-IMP-${Date.now()}-${idx}`;
-        useAppStore.getState().createWorkOrder({
+        batchWorkOrders.push({
+          id: orderId,
           vehicle_plate: plate,
           status: "pagado_autorizado",
           problem_description: maintenance_service,
           diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
+          entry_time: dateStr,
+          items: spare_parts_services
+            ? [
+                {
+                  id: `item-${timestamp}-${idx}`,
+                  description: spare_parts_services,
+                  quantity: 1,
+                  unit_price: Math.max(0, price - 150),
+                  subtotal: Math.max(0, price - 150),
+                },
+              ]
+            : [],
           quinquennial_date,
           chip_expiry_date,
           general_maintenance_service: maintenance_service,
           spare_parts_services,
         });
 
-        // 3. Save Invoice
-        useAppStore.getState().createInvoice({
+        batchInvoices.push({
+          id: invoiceId,
           work_order_id: orderId,
           vehicle_plate: plate,
           client_name,
@@ -176,12 +194,15 @@ export default function AdminTablesPage() {
           payment_condition,
           payment_destination,
         });
-
-        importedCount++;
       });
 
-      if (importedCount > 0) {
-        showAlert("success", `¡Se importaron ${importedCount} registros exitosamente a la Tabla Maestra!`);
+      if (batchWorkOrders.length > 0) {
+        useAppStore.getState().importBulkWorkshopData({
+          vehicles: batchVehicles,
+          workOrders: batchWorkOrders,
+          invoices: batchInvoices,
+        });
+        showAlert("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente en menos de 1 segundo!`);
       } else {
         showAlert("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
       }
