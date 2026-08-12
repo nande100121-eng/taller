@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, generateUUID, parseISODate } from "@/lib/store/app-store";
 import {
   Table,
@@ -37,6 +37,14 @@ export default function AdminTablesPage() {
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Pagination state (1,000 items per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 1000;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -232,6 +240,13 @@ export default function AdminTablesPage() {
       (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
     );
   });
+
+  // Calculate Pagination slice
+  const totalItems = filteredOrders.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
 
   // Checkbox selection handlers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -462,7 +477,7 @@ export default function AdminTablesPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map((wo, index) => {
+                  paginatedOrders.map((wo, index) => {
                     const veh = vehicles.find((v) => v.plate === wo.vehicle_plate);
                     const inv = invoices.find((i) => i.work_order_id === wo.id);
                     const isSelected = selectedIds.includes(wo.id);
@@ -485,7 +500,7 @@ export default function AdminTablesPage() {
                             className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
                           />
                         </td>
-                        <td className="p-3 font-mono font-bold text-gray-400">#{index + 1}</td>
+                        <td className="p-3 font-mono font-bold text-gray-400">#{startIndex + index + 1}</td>
                         <td className="p-3 font-mono text-purple-300">
                           {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : "-"}
                         </td>
@@ -554,6 +569,42 @@ export default function AdminTablesPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Table Pagination Bar Controls */}
+          {filteredOrders.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 glass-panel p-4 rounded-xl border border-white/10 mt-4 text-xs">
+              <div className="text-gray-400 font-medium">
+                Mostrando del <span className="font-bold text-white">#{startIndex + 1}</span> al{" "}
+                <span className="font-bold text-white">#{endIndex}</span> de{" "}
+                <span className="font-bold text-indigo-400">{totalItems}</span> registros totales
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3.5 py-2 rounded-lg bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                >
+                  <span>&larr;</span>
+                  <span>Anterior (1,000)</span>
+                </button>
+
+                <div className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-gray-300 font-semibold">
+                  Página <span className="text-white font-bold">{currentPage}</span> de{" "}
+                  <span className="text-white font-bold">{totalPages}</span>
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="px-3.5 py-2 rounded-lg bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                >
+                  <span>Siguientes (1,000)</span>
+                  <span>&rarr;</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
