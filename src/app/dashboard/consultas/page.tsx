@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore, generateUUID } from "@/lib/store/app-store";
+import { useAppStore, generateUUID, parseISODate } from "@/lib/store/app-store";
 import {
   History,
   Calendar,
@@ -139,21 +139,21 @@ export default function ConsultasPage() {
         const plate = plateRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "");
         if (!plate || plate.length < 3) return;
 
-        const dateStr = cols[0] || new Date().toISOString().slice(0, 10);
+        const dateISO = parseISODate(cols[0]);
         const quinquennial_date = cols[1] || "";
         const chip_expiry_date = cols[2] || "";
         const fuel_type = (cols[3] as any) || "GNV";
         const brand = cols[4] || "Automóvil";
-        const mileage = parseInt(cols[5]) || 50000;
+        const mileage = Math.min(999999, Math.max(0, parseInt(cols[5]) || 50000));
         const receipt_number = cols[7] || "";
         const client_name = cols[8] || "Cliente Taller";
         const client_phone = cols[9] || "+51 900000000";
         const tech_name = cols[10] || "Mecánico Asignado";
         const maintenance_service = cols[11] || "Mantenimiento General";
         const spare_parts_services = cols[12] || "";
-        const price = parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 150;
-        const discounts = parseFloat(cols[14]?.replace(/[^0-9.]/g, "")) || 0;
-        const credit_amount = parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0;
+        const price = Math.min(99999, Math.max(0, parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 0));
+        const discounts = Math.min(99999, Math.max(0, parseFloat(cols[14]?.replace(/[^0-9.]/g, "")) || 0));
+        const credit_amount = Math.min(99999, Math.max(0, parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0));
         const payment_condition = cols[16] || "Contado";
         const payment_method = cols[17] || "Efectivo";
         const payment_destination = cols[18] || "Caja Efectivo";
@@ -161,6 +161,10 @@ export default function ConsultasPage() {
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
+
+        const labor_fee = Math.min(99999, Math.max(0, price > 150 ? 150 : price));
+        const parts_total = Math.min(99999, Math.max(0, price - labor_fee));
+        const grand_total = Math.min(99999, Math.max(0, price - discounts));
 
         batchVehicles.push({
           plate,
@@ -172,7 +176,7 @@ export default function ConsultasPage() {
           owner_name: client_name,
           owner_phone: client_phone,
           current_mileage: mileage,
-          last_visit_date: dateStr,
+          last_visit_date: dateISO,
         });
 
         batchWorkOrders.push({
@@ -181,15 +185,15 @@ export default function ConsultasPage() {
           status: "pagado_autorizado",
           problem_description: maintenance_service,
           diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
-          entry_time: dateStr,
+          entry_time: dateISO,
           items: spare_parts_services
             ? [
                 {
                   id: `item-${timestamp}-${idx}`,
                   description: spare_parts_services,
                   quantity: 1,
-                  unit_price: Math.max(0, price - 150),
-                  subtotal: Math.max(0, price - 150),
+                  unit_price: parts_total,
+                  subtotal: parts_total,
                 },
               ]
             : [],
@@ -204,14 +208,14 @@ export default function ConsultasPage() {
           work_order_id: orderId,
           vehicle_plate: plate,
           client_name,
-          labor_fee: 150,
-          parts_total: Math.max(0, price - 150),
+          labor_fee,
+          parts_total,
           certification_fee: 0,
-          grand_total: Math.max(0, price - discounts),
+          grand_total,
           payment_status: "pagado",
           payment_method,
-          issued_at: dateStr,
-          paid_at: dateStr,
+          issued_at: dateISO,
+          paid_at: dateISO,
           receipt_number,
           receipt_type,
           discounts,

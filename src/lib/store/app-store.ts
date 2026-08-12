@@ -34,6 +34,39 @@ export function generateUUID(): string {
   });
 }
 
+export function parseISODate(dateStr?: string): string {
+  if (!dateStr || !dateStr.trim() || dateStr.trim() === "-") {
+    return new Date().toISOString();
+  }
+  const str = dateStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  const parts = str.split(/[/.-]/);
+  if (parts.length === 3) {
+    let part1 = parseInt(parts[0], 10);
+    let part2 = parseInt(parts[1], 10);
+    let year = parseInt(parts[2], 10);
+    if (year < 100) year += 2000;
+    let day = part1;
+    let month = part2;
+    if (part1 > 12 && part2 <= 12) {
+      day = part1;
+      month = part2;
+    } else if (part2 > 12 && part1 <= 12) {
+      day = part2;
+      month = part1;
+    }
+    if (!isNaN(year) && !isNaN(month) && !isNaN(day) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+      const d = new Date(`${year}-${pad(month)}-${pad(day)}T12:00:00.000Z`);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
 export interface SiteTheme {
   primary_color: string;
   primary_hover: string;
