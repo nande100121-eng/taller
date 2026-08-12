@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore } from "@/lib/store/app-store";
+import { useAppStore, InventoryItem } from "@/lib/store/app-store";
 import {
   Package,
   Barcode,
@@ -12,7 +12,12 @@ import {
   CheckCircle2,
   RotateCcw,
   Search,
-  Check
+  Check,
+  Upload,
+  Edit3,
+  Trash2,
+  X,
+  FileSpreadsheet
 } from "lucide-react";
 
 export default function AlmacenPage() {
@@ -20,6 +25,8 @@ export default function AlmacenPage() {
     inventoryItems,
     addInventoryItem,
     updateInventoryItem,
+    deleteInventoryItem,
+    importBulkInventoryItems,
     deductStock,
     toolLoans,
     addToolLoan,
@@ -33,6 +40,148 @@ export default function AlmacenPage() {
   const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
   const [scanSku, setScanSku] = useState("");
   const [scanResult, setScanResult] = useState<typeof inventoryItems[0] | null>(null);
+
+  // Edit & New Modal states
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [itemForm, setItemForm] = useState({
+    sku_barcode: "",
+    name: "",
+    brand: "",
+    serial_number: "",
+    category: "Repuestos GNV/GLP",
+    unit_price: 100,
+    initial_stock: 10,
+    entries: 0,
+    exits: 0,
+    stock_quantity: 10,
+    counted_stock: 10,
+    min_stock_alert: 2,
+  });
+
+  const handleOpenNewModal = () => {
+    setEditingItem(null);
+    setItemForm({
+      sku_barcode: `SKU-${Date.now().toString().slice(-4)}`,
+      name: "",
+      brand: "",
+      serial_number: "",
+      category: "Repuestos GNV/GLP",
+      unit_price: 100,
+      initial_stock: 10,
+      entries: 0,
+      exits: 0,
+      stock_quantity: 10,
+      counted_stock: 10,
+      min_stock_alert: 2,
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleOpenEditModal = (item: InventoryItem) => {
+    setEditingItem(item);
+    setItemForm({
+      sku_barcode: item.sku_barcode,
+      name: item.name,
+      brand: item.brand || "",
+      serial_number: item.serial_number || "",
+      category: item.category || "Repuestos",
+      unit_price: item.unit_price,
+      initial_stock: item.initial_stock ?? item.stock_quantity,
+      entries: item.entries || 0,
+      exits: item.exits || 0,
+      stock_quantity: item.stock_quantity,
+      counted_stock: item.counted_stock ?? item.stock_quantity,
+      min_stock_alert: item.min_stock_alert || 2,
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleDeleteRow = (id: string, name: string) => {
+    if (confirm(`¿Estás seguro de eliminar el producto "${name}" del inventario?`)) {
+      deleteInventoryItem(id);
+    }
+  };
+
+  const handleSaveItemForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingItem) {
+      updateInventoryItem(editingItem.id, {
+        sku_barcode: itemForm.sku_barcode,
+        name: itemForm.name,
+        brand: itemForm.brand,
+        serial_number: itemForm.serial_number,
+        category: itemForm.category,
+        unit_price: Number(itemForm.unit_price),
+        initial_stock: Number(itemForm.initial_stock),
+        entries: Number(itemForm.entries),
+        exits: Number(itemForm.exits),
+        stock_quantity: Number(itemForm.stock_quantity),
+        counted_stock: Number(itemForm.counted_stock),
+        min_stock_alert: Number(itemForm.min_stock_alert),
+      });
+    } else {
+      addInventoryItem({
+        sku_barcode: itemForm.sku_barcode,
+        name: itemForm.name,
+        brand: itemForm.brand,
+        serial_number: itemForm.serial_number,
+        category: itemForm.category,
+        unit_price: Number(itemForm.unit_price),
+        initial_stock: Number(itemForm.initial_stock),
+        entries: Number(itemForm.entries),
+        exits: Number(itemForm.exits),
+        stock_quantity: Number(itemForm.stock_quantity),
+        counted_stock: Number(itemForm.counted_stock),
+        min_stock_alert: Number(itemForm.min_stock_alert),
+      });
+    }
+    setEditModalOpen(false);
+  };
+
+  const handleFileUploadExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (!text) return;
+
+      const lines = text.split(/\r\n|\n/);
+      const parsedItems: Omit<InventoryItem, "id">[] = [];
+
+      lines.forEach((line, idx) => {
+        if (idx === 0 || !line.trim()) return; // skip header or empty lines
+        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+
+        if (cols.length >= 2) {
+          parsedItems.push({
+            sku_barcode: cols[0] || `SKU-IMP-${idx}`,
+            name: cols[1] || `Producto ${idx}`,
+            brand: cols[2] || "Genérico",
+            serial_number: cols[3] || "S/N",
+            unit_price: parseFloat(cols[4]) || 100,
+            initial_stock: parseInt(cols[5]) || 10,
+            entries: parseInt(cols[6]) || 0,
+            exits: parseInt(cols[7]) || 0,
+            stock_quantity: parseInt(cols[8]) || (parseInt(cols[5]) || 10),
+            counted_stock: parseInt(cols[9]) || (parseInt(cols[8]) || 10),
+            category: "Importación Excel",
+            min_stock_alert: 2,
+          });
+        }
+      });
+
+      if (parsedItems.length > 0) {
+        importBulkInventoryItems(parsedItems);
+        alert(`¡Se importaron con éxito ${parsedItems.length} filas desde el archivo!`);
+      } else {
+        alert("No se pudieron interpretar productos. Verifique que el archivo CSV/Excel contenga filas con formato separado por comas o tabulaciones.");
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Form for new tool loan
   const [loanForm, setLoanForm] = useState({
@@ -287,22 +436,55 @@ export default function AlmacenPage() {
 
       {activeTab === "inventario" && (
         <div className="space-y-6">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Package className="w-5 h-5 text-emerald-400" />
-              <span>Catálogo de Repuestos e Insumos GNV/GLP</span>
-            </h2>
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-emerald-400" />
+                  <span>Catálogo de Inventario de Almacén</span>
+                </h2>
+                <p className="text-xs text-gray-400">
+                  Gestión de catálogo, edición/eliminación de filas y carga masiva desde Excel o Google Sheets (CSV).
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all">
+                  <Upload className="w-4 h-4" />
+                  <span>Cargar Excel / Google Sheets (.csv/.xlsx)</span>
+                  <input
+                    type="file"
+                    accept=".csv, .txt, .xlsx, .xls"
+                    onChange={handleFileUploadExcel}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  onClick={handleOpenNewModal}
+                  className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400" />
+                  <span>Agregar Producto Manual</span>
+                </button>
+              </div>
+            </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-gray-300">
-                <thead className="bg-reygas-dark text-xs uppercase text-gray-400 border-b border-white/10">
+              <table className="w-full text-left text-xs text-gray-300">
+                <thead className="bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10">
                   <tr>
-                    <th className="p-3">SKU / Código</th>
-                    <th className="p-3">Nombre del Repuesto</th>
-                    <th className="p-3">Categoría</th>
-                    <th className="p-3">Stock Actual</th>
-                    <th className="p-3">Precio Unitario</th>
-                    <th className="p-3">Acciones Stock</th>
+                    <th className="p-3 font-extrabold">CÓDIGO SKU</th>
+                    <th className="p-3 font-extrabold">PRODUCTO</th>
+                    <th className="p-3 font-extrabold">MARCA</th>
+                    <th className="p-3 font-extrabold">SERIE</th>
+                    <th className="p-3 font-extrabold">PRECIO DE VENTA</th>
+                    <th className="p-3 font-extrabold">STOCK INICIAL</th>
+                    <th className="p-3 font-extrabold">ENTRADAS</th>
+                    <th className="p-3 font-extrabold">SALIDAS</th>
+                    <th className="p-3 font-extrabold">STOCK VIGENTE</th>
+                    <th className="p-3 font-extrabold">CONTADOS</th>
+                    <th className="p-3 font-extrabold text-right">OPCIONES</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -311,43 +493,46 @@ export default function AlmacenPage() {
 
                     return (
                       <tr key={item.id} className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 font-mono text-xs font-bold text-reygas-silver">
+                        <td className="p-3 font-mono font-bold text-reygas-silver">
                           {item.sku_barcode}
                         </td>
                         <td className="p-3 font-bold text-white">{item.name}</td>
-                        <td className="p-3 text-xs text-gray-400">{item.category}</td>
+                        <td className="p-3 text-gray-300">{item.brand || "Generico"}</td>
+                        <td className="p-3 font-mono text-gray-400">{item.serial_number || "S/N"}</td>
+                        <td className="p-3 font-bold text-white font-mono">
+                          S/ {(item.unit_price || 0).toFixed(2)}
+                        </td>
+                        <td className="p-3 font-mono text-gray-300">{item.initial_stock ?? item.stock_quantity}</td>
+                        <td className="p-3 font-mono text-emerald-400 font-bold">+{item.entries || 0}</td>
+                        <td className="p-3 font-mono text-red-400 font-bold">-{item.exits || 0}</td>
                         <td className="p-3">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${
                               isLow
                                 ? "bg-red-500/20 text-red-400 border border-red-500/30"
                                 : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                             }`}
                           >
-                            {isLow && <AlertTriangle className="w-3.5 h-3.5" />}
-                            {item.stock_quantity} unidades
+                            {isLow && <AlertTriangle className="w-3 h-3" />}
+                            {item.stock_quantity} unids
                           </span>
                         </td>
-                        <td className="p-3 font-bold text-white">
-                          S/ {item.unit_price.toFixed(2)}
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
+                        <td className="p-3 font-mono text-gray-200">{item.counted_stock ?? item.stock_quantity}</td>
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
                             <button
-                              onClick={() =>
-                                updateInventoryItem(item.id, {
-                                  stock_quantity: item.stock_quantity + 5,
-                                })
-                              }
-                              className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-emerald-400 font-bold rounded"
+                              onClick={() => handleOpenEditModal(item)}
+                              className="p-1.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
+                              title="Editar Fila"
                             >
-                              +5 Stock
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => deductStock(item.id, 1)}
-                              className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-red-400 font-bold rounded"
+                              onClick={() => handleDeleteRow(item.id, item.name)}
+                              className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                              title="Eliminar Fila"
                             >
-                              -1 Entregar
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -523,6 +708,157 @@ export default function AlmacenPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Edit / New Item Modal */}
+      {editModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-xl w-full space-y-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Package className="w-5 h-5 text-emerald-400" />
+                <span>{editingItem ? `Editar Fila - ${editingItem.name}` : "Agregar Nuevo Producto al Inventario"}</span>
+              </h3>
+              <button
+                onClick={() => setEditModalOpen(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveItemForm} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">CÓDIGO SKU *</label>
+                  <input
+                    type="text"
+                    required
+                    value={itemForm.sku_barcode}
+                    onChange={(e) => setItemForm({ ...itemForm, sku_barcode: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRODUCTO *</label>
+                  <input
+                    type="text"
+                    required
+                    value={itemForm.name}
+                    onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">MARCA</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Tomasetto / BRC"
+                    value={itemForm.brand}
+                    onChange={(e) => setItemForm({ ...itemForm, brand: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">SERIE / NRO PARTE</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. SN-88192"
+                    value={itemForm.serial_number}
+                    onChange={(e) => setItemForm({ ...itemForm, serial_number: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRECIO DE VENTA (S/)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={itemForm.unit_price}
+                    onChange={(e) => setItemForm({ ...itemForm, unit_price: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK INICIAL</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={itemForm.initial_stock}
+                    onChange={(e) => setItemForm({ ...itemForm, initial_stock: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK VIGENTE</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={itemForm.stock_quantity}
+                    onChange={(e) => setItemForm({ ...itemForm, stock_quantity: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={itemForm.entries}
+                    onChange={(e) => setItemForm({ ...itemForm, entries: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={itemForm.exits}
+                    onChange={(e) => setItemForm({ ...itemForm, exits: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">CONTADOS</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={itemForm.counted_stock}
+                    onChange={(e) => setItemForm({ ...itemForm, counted_stock: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                  className="px-4 py-2 bg-reygas-surface text-gray-300 text-xs font-bold rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg"
+                >
+                  Guardar Fila
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

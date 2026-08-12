@@ -208,9 +208,15 @@ export interface InventoryItem {
   id: string;
   sku_barcode: string;
   name: string;
+  brand?: string;
+  serial_number?: string;
   category: string;
-  stock_quantity: number;
   unit_price: number;
+  initial_stock?: number;
+  entries?: number;
+  exits?: number;
+  stock_quantity: number; // Stock Vigente
+  counted_stock?: number;
   min_stock_alert: number;
 }
 
@@ -321,6 +327,8 @@ interface AppState {
   inventoryItems: InventoryItem[];
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
+  deleteInventoryItem: (id: string) => void;
+  importBulkInventoryItems: (items: Omit<InventoryItem, "id">[]) => void;
   deductStock: (id: string, qty: number) => void;
 
   toolLoans: ToolLoan[];
@@ -904,45 +912,75 @@ export const useAppStore = create<AppState>()(
           id: "inv-1",
           sku_barcode: "KIT-GNV-5G",
           name: "Kit Completo Conversión GNV 5ta Gen Tomasetto",
+          brand: "Tomasetto Achille",
+          serial_number: "TOM-5G-881",
           category: "Kits de Conversión",
-          stock_quantity: 12,
           unit_price: 2800,
+          initial_stock: 10,
+          entries: 5,
+          exits: 3,
+          stock_quantity: 12,
+          counted_stock: 12,
           min_stock_alert: 3,
         },
         {
           id: "inv-2",
           sku_barcode: "KIT-GLP-5G",
           name: "Kit Completo Conversión GLP 5ta Gen BRC",
+          brand: "BRC Gas Equipment",
+          serial_number: "BRC-GLP-992",
           category: "Kits de Conversión",
-          stock_quantity: 8,
           unit_price: 2600,
+          initial_stock: 5,
+          entries: 5,
+          exits: 2,
+          stock_quantity: 8,
+          counted_stock: 8,
           min_stock_alert: 2,
         },
         {
           id: "inv-3",
           sku_barcode: "FIL-GAS-14",
           name: "Filtro de Gas Línea 14mm GNV/GLP",
+          brand: "Stag Autogas",
+          serial_number: "STG-FL-14",
           category: "Filtros & Mantenimiento",
-          stock_quantity: 45,
           unit_price: 35,
+          initial_stock: 30,
+          entries: 20,
+          exits: 5,
+          stock_quantity: 45,
+          counted_stock: 45,
           min_stock_alert: 10,
         },
         {
           id: "inv-4",
           sku_barcode: "INY-VAL-4C",
           name: "Rampa de Inyectores Valtek 4 Cilindros",
+          brand: "Valtek",
+          serial_number: "VLT-30-4C",
           category: "Inyección de Gas",
-          stock_quantity: 15,
           unit_price: 240,
+          initial_stock: 10,
+          entries: 8,
+          exits: 3,
+          stock_quantity: 15,
+          counted_stock: 15,
           min_stock_alert: 4,
         },
         {
           id: "inv-5",
           sku_barcode: "RED-TOM-AT09",
           name: "Reductor de Presión Tomasetto AT09",
+          brand: "Tomasetto Achille",
+          serial_number: "RED-AT09-441",
           category: "Reductores",
-          stock_quantity: 9,
           unit_price: 420,
+          initial_stock: 8,
+          entries: 4,
+          exits: 3,
+          stock_quantity: 9,
+          counted_stock: 9,
           min_stock_alert: 2,
         },
       ],
@@ -967,6 +1005,23 @@ export const useAppStore = create<AppState>()(
           });
           return { inventoryItems: updatedItems };
         });
+      },
+
+      deleteInventoryItem: (id) => {
+        set((state) => ({
+          inventoryItems: state.inventoryItems.filter((i) => i.id !== id),
+        }));
+      },
+
+      importBulkInventoryItems: (items) => {
+        const newItems = items.map((item, idx) => ({
+          ...item,
+          id: `inv-${Date.now()}-${idx}`,
+        }));
+        newItems.forEach((i) => saveSupabaseInventoryItem(i));
+        set((state) => ({
+          inventoryItems: [...state.inventoryItems, ...newItems],
+        }));
       },
 
       deductStock: (id, qty) => {
