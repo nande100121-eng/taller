@@ -877,13 +877,20 @@ export default function AlmacenPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK VIGENTE / ACTUAL</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    STOCK VIGENTE / ACTUAL {!editingItem && <span className="text-[10px] text-emerald-400 font-normal">(Informativo)</span>}
+                  </label>
                   <input
                     type="number"
                     min={0}
+                    readOnly={!editingItem}
                     value={itemForm.stock_quantity}
                     onChange={(e) => setItemForm({ ...itemForm, stock_quantity: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
+                      !editingItem
+                        ? "bg-reygas-surface/60 border-white/5 text-emerald-400 font-extrabold cursor-not-allowed"
+                        : "bg-reygas-dark border-white/10 text-white focus:border-emerald-400"
+                    }`}
                   />
                 </div>
               </div>
