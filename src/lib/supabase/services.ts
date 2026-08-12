@@ -153,6 +153,16 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       diagnostic_notes: order.diagnostic_notes,
       entry_time: order.entry_time,
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
+      requires_certification: order.requires_certification,
+      certification_type: order.certification_type,
+      certification_price: order.certification_price,
+      certification_issued: order.certification_issued,
+      certification_id: order.certification_id,
+      allow_modifications: order.allow_modifications,
+      quinquennial_date: order.quinquennial_date,
+      chip_expiry_date: order.chip_expiry_date,
+      general_maintenance_service: order.general_maintenance_service,
+      spare_parts_services: order.spare_parts_services,
     });
     if (error) console.warn("Supabase work order save warning:", error.message);
   } catch (err) {
@@ -255,6 +265,8 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     const { error } = await supabase.from("invoices").upsert({
       id: inv.id,
       work_order_id: inv.work_order_id,
+      vehicle_plate: inv.vehicle_plate,
+      client_name: inv.client_name,
       labor_fee: inv.labor_fee,
       parts_total: inv.parts_total,
       certification_fee: inv.certification_fee,
@@ -262,6 +274,13 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_status: inv.payment_status,
       payment_method: inv.payment_method,
       issued_at: inv.issued_at,
+      paid_at: inv.paid_at,
+      receipt_number: inv.receipt_number,
+      receipt_type: inv.receipt_type,
+      discounts: inv.discounts,
+      credit_amount: inv.credit_amount,
+      payment_condition: inv.payment_condition,
+      payment_destination: inv.payment_destination,
     });
     if (error) console.warn("Supabase invoice save warning:", error.message);
   } catch (err) {

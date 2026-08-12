@@ -104,6 +104,139 @@ export default function ConsultasPage() {
     ? vehicles.find((v) => v.plate === selectedPlateHistory)
     : null;
 
+  // State for alerts in Consultas page
+  const [alertMessage, setAlertMessage] = useState<{ type: "success" | "warning"; text: string } | null>(null);
+
+  const showAlert = (type: "success" | "warning", text: string) => {
+    setAlertMessage({ type, text });
+    setTimeout(() => setAlertMessage(null), 5000);
+  };
+
+  // Importer for the 20 Specific Workshop Columns from Excel CSV
+  const handleImportFullWorkshopExcelCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      let rawText = (evt.target?.result as string) || "";
+      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
+
+      const lines = rawText.split(/\r\n|\n/);
+      let importedCount = 0;
+
+      lines.forEach((line, idx) => {
+        if (idx === 0 || !line.trim()) return;
+
+        // Split by comma, tab or semicolon
+        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+
+        // Header Order:
+        // 0: Fecha | 1: FECHA QUINTENAL | 2: FECHA CHIP ANUAL | 3: Sistema | 4: Marca | 5: KILOMETRAJE
+        // 6: PLACA | 7: N° de boleta/Factura | 8: Cliente | 9: Celular | 10: Técnico
+        // 11: MANT. GENERAL / SERVICIO | 12: REPUESTOS Y SERVICIOS | 13: Precio | 14: DESCUENTOS
+        // 15: Credito | 16: Condicion | 17: METODO DE PAGO | 18: DESTINO DE PAGO | 19: COMPROBANTE
+
+        const plateRaw = cols[6] || cols[0]; // Look for plate column
+        if (!plateRaw) return;
+
+        const plate = plateRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+        if (!plate || plate.length < 3) return;
+
+        const dateStr = cols[0] || new Date().toISOString().slice(0, 10);
+        const quinquennial_date = cols[1] || "";
+        const chip_expiry_date = cols[2] || "";
+        const fuel_type = (cols[3] as any) || "GNV";
+        const brand = cols[4] || "Automóvil";
+        const mileage = parseInt(cols[5]) || 50000;
+        const receipt_number = cols[7] || "";
+        const client_name = cols[8] || "Cliente Taller";
+        const client_phone = cols[9] || "+51 900000000";
+        const tech_name = cols[10] || "Mecánico Asignado";
+        const maintenance_service = cols[11] || "Mantenimiento General";
+        const spare_parts_services = cols[12] || "";
+        const price = parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 150;
+        const discounts = parseFloat(cols[14]?.replace(/[^0-9.]/g, "")) || 0;
+        const credit_amount = parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0;
+        const payment_condition = cols[16] || "Contado";
+        const payment_method = cols[17] || "Efectivo";
+        const payment_destination = cols[18] || "Caja Efectivo";
+        const receipt_type = cols[19] || "Boleta";
+
+        // 1. Save or update vehicle
+        useAppStore.getState().registerVehicle({
+          plate,
+          brand,
+          model: "Importado",
+          year: 2023,
+          color: "Plata",
+          fuel_type,
+          owner_name: client_name,
+          owner_phone: client_phone,
+          current_mileage: mileage,
+          last_visit_date: dateStr,
+        });
+
+        // 2. Create items list if spare_parts_services is present
+        const items = spare_parts_services
+          ? [
+              {
+                id: `item-${Date.now()}-${idx}`,
+                description: spare_parts_services,
+                quantity: 1,
+                unit_price: Math.max(0, price - 150),
+                subtotal: Math.max(0, price - 150),
+              },
+            ]
+          : [];
+
+        // 3. Create work order
+        const orderId = `WO-IMP-${Date.now()}-${idx}`;
+        useAppStore.getState().createWorkOrder({
+          vehicle_plate: plate,
+          status: "pagado_autorizado",
+          problem_description: maintenance_service,
+          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
+          quinquennial_date,
+          chip_expiry_date,
+          general_maintenance_service: maintenance_service,
+          spare_parts_services,
+          items,
+        });
+
+        // 4. Create Invoice
+        useAppStore.getState().createInvoice({
+          work_order_id: orderId,
+          vehicle_plate: plate,
+          client_name,
+          labor_fee: 150,
+          parts_total: Math.max(0, price - 150),
+          certification_fee: 0,
+          grand_total: Math.max(0, price - discounts),
+          payment_status: "pagado",
+          payment_method,
+          issued_at: dateStr,
+          paid_at: dateStr,
+          receipt_number,
+          receipt_type,
+          discounts,
+          credit_amount,
+          payment_condition,
+          payment_destination,
+        });
+
+        importedCount++;
+      });
+
+      if (importedCount > 0) {
+        showAlert("success", `¡Se importó con éxito el historial de ${importedCount} registros de atención desde el Excel del taller!`);
+      } else {
+        showAlert("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
@@ -120,8 +253,14 @@ export default function ConsultasPage() {
           </div>
         </div>
 
-        {/* Date Summary Pill */}
+        {/* Date Summary Pill & Excel Importer Button */}
         <div className="flex flex-wrap items-center gap-3">
+          <label className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40">
+            <Receipt className="w-4 h-4 text-white" />
+            <span>Cargar Excel Taller (20 Encabezados)</span>
+            <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportFullWorkshopExcelCSV} className="hidden" />
+          </label>
+
           <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3">
             <Coins className="w-6 h-6 text-amber-400 shrink-0" />
             <div>
@@ -449,7 +588,7 @@ export default function ConsultasPage() {
                     {/* Detailed Service Information Sheet (Shown when date item is clicked) */}
                     {isSelectedDate && (
                       <div className="p-5 border-t border-white/10 bg-black/40 space-y-4 animate-fadeIn">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                           {/* Workshop & Technician Details */}
                           <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
                             <span className="text-[11px] font-bold text-amber-400 uppercase block">
@@ -458,26 +597,59 @@ export default function ConsultasPage() {
                             <div className="space-y-1 text-gray-300">
                               <p>
                                 <strong>Mecánico Asignado:</strong>{" "}
-                                <span className="text-white font-bold">{tech?.full_name || "Sin Asignar"}</span>
+                                <span className="text-white font-bold">{tech?.full_name || "Mecánico Taller"}</span>
                               </p>
                               <p>
-                                <strong>Especialidad:</strong> {tech?.specialty || "Mecánica General"}
+                                <strong>Servicio / Mantenimiento:</strong>{" "}
+                                <span className="text-amber-300 font-semibold">{wo.general_maintenance_service || wo.problem_description}</span>
                               </p>
                               <p>
                                 <strong>Estado de Trabajo:</strong>{" "}
-                                <span className="text-amber-300 uppercase font-bold">{wo.status}</span>
+                                <span className="text-emerald-400 uppercase font-bold">{wo.status}</span>
                               </p>
                             </div>
                           </div>
 
-                          {/* Diagnostic Notes */}
+                          {/* Technical Dates & Certificates */}
                           <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
-                            <span className="text-[11px] font-bold text-cyan-400 uppercase block">
-                              📝 Diagnóstico & Observaciones Técnicas
+                            <span className="text-[11px] font-bold text-purple-400 uppercase block">
+                              📅 Fechas Técnicas & Certificaciones
                             </span>
-                            <p className="text-gray-200 leading-relaxed italic">
-                              {wo.diagnostic_notes || "Diagnóstico ejecutado con escáner computarizado y banco de inyectores. Sistema en correcto funcionamiento."}
-                            </p>
+                            <div className="space-y-1 text-gray-300">
+                              <p>
+                                <strong>Prueba Quinquenal (Cilindro):</strong>{" "}
+                                <span className="text-purple-300 font-mono font-bold">{wo.quinquennial_date || "Vigente"}</span>
+                              </p>
+                              <p>
+                                <strong>Chip Anual GNV/GLP:</strong>{" "}
+                                <span className="text-cyan-300 font-mono font-bold">{wo.chip_expiry_date || "Vigente"}</span>
+                              </p>
+                              <p>
+                                <strong>Comprobante N°:</strong>{" "}
+                                <span className="text-white font-mono">{invoice?.receipt_number || "S/N"} ({invoice?.receipt_type || "Boleta"})</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Payment & Credit Details */}
+                          <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
+                            <span className="text-[11px] font-bold text-emerald-400 uppercase block">
+                              💳 Método, Destino de Pago & Crédito
+                            </span>
+                            <div className="space-y-1 text-gray-300">
+                              <p>
+                                <strong>Condición & Método:</strong>{" "}
+                                <span className="text-white font-bold">{invoice?.payment_condition || "Contado"} - {invoice?.payment_method || "Efectivo"}</span>
+                              </p>
+                              <p>
+                                <strong>Destino de Pago:</strong>{" "}
+                                <span className="text-amber-300 font-bold">{invoice?.payment_destination || "Caja Efectivo"}</span>
+                              </p>
+                              <p>
+                                <strong>Descuentos / Crédito:</strong>{" "}
+                                <span className="text-gray-300">Desc: S/ {(invoice?.discounts || 0).toFixed(2)} | Crédito: S/ {(invoice?.credit_amount || 0).toFixed(2)}</span>
+                              </p>
+                            </div>
                           </div>
                         </div>
 

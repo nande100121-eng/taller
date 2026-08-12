@@ -213,6 +213,10 @@ export interface WorkOrder {
   certification_issued?: boolean;
   certification_id?: string;
   allow_modifications?: boolean;
+  quinquennial_date?: string; // FECHA QUINTENAL
+  chip_expiry_date?: string; // FECHA CHIP ANUAL
+  general_maintenance_service?: string; // MANT. GENERAL / SERVICIO
+  spare_parts_services?: string; // REPUESTOS Y SERVICIOS
 }
 
 export interface InventoryItem {
@@ -255,6 +259,12 @@ export interface Invoice {
   payment_method: string;
   issued_at: string;
   paid_at?: string;
+  receipt_number?: string; // N° de boleta/Factura
+  receipt_type?: string; // COMPROBANTE (Boleta/Factura/Nota)
+  discounts?: number; // DESCUENTOS
+  credit_amount?: number; // Credito
+  payment_condition?: string; // Condicion (Contado/Crédito)
+  payment_destination?: string; // DESTINO DE PAGO (BCP, BBVA, Yape, Caja)
 }
 
 export interface Appointment {
@@ -331,7 +341,7 @@ interface AppState {
   registerVehicle: (v: Vehicle) => void;
 
   workOrders: WorkOrder[];
-  createWorkOrder: (order: Omit<WorkOrder, "id" | "entry_time" | "items">) => void;
+  createWorkOrder: (order: Omit<WorkOrder, "id" | "entry_time" | "items"> & { items?: WorkOrderItem[] }) => void;
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
@@ -360,6 +370,7 @@ interface AppState {
   returnTool: (loanId: string) => void;
 
   invoices: Invoice[];
+  createInvoice: (invoice: Omit<Invoice, "id">) => void;
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
@@ -834,7 +845,7 @@ export const useAppStore = create<AppState>()(
           ...order,
           id: `ot-${Date.now().toString().slice(-4)}`,
           entry_time: new Date().toISOString(),
-          items: [],
+          items: order.items || [],
         };
         saveSupabaseWorkOrder(newOrder);
         set((state) => ({
@@ -1227,6 +1238,16 @@ export const useAppStore = create<AppState>()(
           issued_at: new Date().toISOString(),
         },
       ],
+
+      createInvoice: (invoiceData) =>
+        set((state) => {
+          const newInvoice: Invoice = {
+            ...invoiceData,
+            id: `inv-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          };
+          saveSupabaseInvoice(newInvoice);
+          return { invoices: [...state.invoices, newInvoice] };
+        }),
 
       createInvoiceForOrder: (orderId, laborFee, certFee, method) =>
         set((state) => {
