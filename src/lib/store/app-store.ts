@@ -451,12 +451,12 @@ export const useAppStore = create<AppState>()(
 
           set((state) => ({
             siteContent: cmsData && Object.keys(cmsData).length > 0 ? { ...state.siteContent, ...cmsData } : state.siteContent,
-            technicians: erpData?.technicians && erpData.technicians.length > 0 ? erpData.technicians : state.technicians,
-            inventoryItems: erpData?.inventoryItems && erpData.inventoryItems.length > 0 ? erpData.inventoryItems : state.inventoryItems,
-            workOrders: erpData?.workOrders && erpData.workOrders.length > 0 ? erpData.workOrders : state.workOrders,
-            appointments: erpData?.appointments && erpData.appointments.length > 0 ? erpData.appointments : state.appointments,
-            invoices: erpData?.invoices && erpData.invoices.length > 0 ? erpData.invoices : state.invoices,
-            vehicles: erpData?.vehicles && erpData.vehicles.length > 0 ? erpData.vehicles : state.vehicles,
+            technicians: erpData?.technicians !== null && erpData?.technicians !== undefined ? erpData.technicians : state.technicians,
+            inventoryItems: erpData?.inventoryItems !== null && erpData?.inventoryItems !== undefined ? erpData.inventoryItems : state.inventoryItems,
+            workOrders: erpData?.workOrders !== null && erpData?.workOrders !== undefined ? erpData.workOrders : state.workOrders,
+            appointments: erpData?.appointments !== null && erpData?.appointments !== undefined ? erpData.appointments : state.appointments,
+            invoices: erpData?.invoices !== null && erpData?.invoices !== undefined ? erpData.invoices : state.invoices,
+            vehicles: erpData?.vehicles !== null && erpData?.vehicles !== undefined ? erpData.vehicles : state.vehicles,
           }));
         } catch (err) {
           console.warn("Supabase sync warning:", err);

@@ -235,18 +235,18 @@ export async function fetchSupabaseErpData() {
     ]);
 
     return {
-      technicians: techRes.data && techRes.data.length > 0 ? techRes.data : null,
-      inventoryItems: invRes.data && invRes.data.length > 0 ? invRes.data : null,
+      technicians: techRes.data ? techRes.data : null,
+      inventoryItems: invRes.data ? invRes.data : null,
       workOrders:
-        orderRes.data && orderRes.data.length > 0
+        orderRes.data
           ? orderRes.data.map((o: any) => ({
               ...o,
-              items: typeof o.items === "string" ? JSON.parse(o.items) : o.items || [],
+              items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
             }))
           : null,
-      appointments: appRes.data && appRes.data.length > 0 ? appRes.data : null,
-      invoices: invoiceRes.data && invoiceRes.data.length > 0 ? invoiceRes.data : null,
-      vehicles: vehicleRes.data && vehicleRes.data.length > 0 ? vehicleRes.data : null,
+      appointments: appRes.data ? appRes.data : null,
+      invoices: invoiceRes.data ? invoiceRes.data : null,
+      vehicles: vehicleRes.data ? vehicleRes.data : null,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);
