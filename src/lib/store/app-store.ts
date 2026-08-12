@@ -339,6 +339,7 @@ interface AppState {
   invoices: Invoice[];
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
+  togglePayInvoice: (invoiceId: string) => void;
 
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
@@ -1171,6 +1172,36 @@ export const useAppStore = create<AppState>()(
           const updatedOrders = state.workOrders.map((o) => {
             if (o.id === targetInvoice.work_order_id) {
               const updatedOrder = { ...o, status: "pagado_autorizado" as WorkOrderStatus };
+              saveSupabaseWorkOrder(updatedOrder);
+              return updatedOrder;
+            }
+            return o;
+          });
+
+          return {
+            invoices: updatedInvoices,
+            workOrders: updatedOrders,
+          };
+        }),
+
+      togglePayInvoice: (invoiceId) =>
+        set((state) => {
+          const targetInvoice = state.invoices.find((i) => i.id === invoiceId);
+          if (!targetInvoice) return state;
+
+          const isCurrentlyPaid = targetInvoice.payment_status === "pagado";
+          const nextStatus = isCurrentlyPaid ? ("pendiente" as const) : ("pagado" as const);
+          const updatedInvoice = { ...targetInvoice, payment_status: nextStatus };
+          saveSupabaseInvoice(updatedInvoice);
+
+          const updatedInvoices = state.invoices.map((i) =>
+            i.id === invoiceId ? updatedInvoice : i
+          );
+
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === targetInvoice.work_order_id) {
+              const nextOrderStatus = isCurrentlyPaid ? ("por_cobrar" as WorkOrderStatus) : ("pagado_autorizado" as WorkOrderStatus);
+              const updatedOrder = { ...o, status: nextOrderStatus };
               saveSupabaseWorkOrder(updatedOrder);
               return updatedOrder;
             }
