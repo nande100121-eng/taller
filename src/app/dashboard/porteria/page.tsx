@@ -113,11 +113,13 @@ export default function PorteriaPage() {
         const data = result.data;
         const scannedPlate = (data.plate || "ABC-123").toUpperCase();
 
-        // Check if vehicle already exists in store
+        // 1. Query if vehicle is already registered in Supabase / Store
         const existingVehicle = vehicles.find((v) => v.plate === scannedPlate);
 
         if (existingVehicle) {
-          setEntryForm({
+          // If registered: Pull ALL existing data and leave problem_description for user input
+          setEntryForm((prev) => ({
+            ...prev,
             plate: scannedPlate,
             brand: existingVehicle.brand,
             model: existingVehicle.model,
@@ -127,27 +129,35 @@ export default function PorteriaPage() {
             owner_name: existingVehicle.owner_name,
             owner_phone: existingVehicle.owner_phone,
             current_mileage: existingVehicle.current_mileage || 50000,
-            problem_description: entryForm.problem_description,
-          });
-          showAlert("success", `OCR leyó placa ${scannedPlate}. Se jalaron sus datos existentes.`);
+            problem_description: prev.problem_description || "", // User enters reason for entry
+          }));
+          showAlert(
+            "success",
+            `¡Vehículo Registrado! La IA detectó la placa ${scannedPlate}. Se cargaron todos sus datos (${existingVehicle.brand} ${existingVehicle.model}). Por favor ingrese el motivo de ingreso.`
+          );
         } else {
-          setEntryForm({
+          // If NOT registered: Add plate and use AI to infer brand, model, color from photo
+          setEntryForm((prev) => ({
+            ...prev,
             plate: scannedPlate,
             brand: data.brand || "Toyota",
             model: data.model || "Yaris",
-            year: 2022,
+            year: 2023,
             color: data.color || "Plata",
             fuel_type: (data.fuel_type as any) || "GNV",
-            owner_name: data.owner_name || "Cliente Nuevo",
-            owner_phone: data.owner_phone || "+51 900000000",
+            owner_name: "", // User enters owner name
+            owner_phone: "", // User enters phone
             current_mileage: 50000,
-            problem_description: entryForm.problem_description,
-          });
-          showAlert("warning", `OCR leyó placa ${scannedPlate} (Nuevo). Se completaron valores sugeridos. Presione "Registrar Ingreso" para confirmar.`);
+            problem_description: prev.problem_description || "", // User enters reason for entry
+          }));
+          showAlert(
+            "warning",
+            `¡Placa Nueva Detectada (${scannedPlate})! La IA identificó Marca: ${data.brand || "Toyota"}, Modelo: ${data.model || "Yaris"}, Color: ${data.color || "Plata"}. Por favor complete el propietario y motivo de ingreso.`
+          );
         }
       }
     } catch (error) {
-      showAlert("warning", "Error en el escáner OCR. Se cargaron valores por defecto.");
+      showAlert("warning", "Error en el escáner OCR. Ingrese la placa manualmente.");
     } finally {
       setOcrLoading(false);
       setCameraOpen(false);
