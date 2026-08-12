@@ -210,9 +210,6 @@ export async function saveSupabaseVehicle(v: Vehicle) {
   }
 }
 
-// ---------------------------------------------------------------------
-// FETCH ALL ERP TABLES FROM SUPABASE POSTGRESQL (REALTIME SYNC)
-// ---------------------------------------------------------------------
 async function safeQuery(builder: any) {
   try {
     return await builder;
@@ -221,30 +218,62 @@ async function safeQuery(builder: any) {
   }
 }
 
+async function fetchAllSupabaseTable(table: string): Promise<any[] | null> {
+  try {
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+      const { data, error } = await supabase.from(table).select("*").range(from, to);
+      if (error) {
+        console.warn(`Error fetching ${table} page ${page}:`, error.message);
+        break;
+      }
+      if (data && data.length > 0) {
+        allData = allData.concat(data);
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    return allData.length > 0 ? allData : null;
+  } catch (err) {
+    console.warn(`Supabase fetchAll ${table} error:`, err);
+    return null;
+  }
+}
+
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invRes, orderRes, appRes, invoiceRes, vehicleRes] = await Promise.all([
+    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData] = await Promise.all([
       safeQuery(supabase.from("technicians").select("*")),
       safeQuery(supabase.from("inventory_items").select("*")),
-      safeQuery(supabase.from("work_orders").select("*")),
+      fetchAllSupabaseTable("work_orders"),
       safeQuery(supabase.from("appointments").select("*")),
-      safeQuery(supabase.from("invoices").select("*")),
-      safeQuery(supabase.from("vehicles").select("*")),
+      fetchAllSupabaseTable("invoices"),
+      fetchAllSupabaseTable("vehicles"),
     ]);
 
     return {
       technicians: techRes.data ? techRes.data : null,
       inventoryItems: invRes.data ? invRes.data : null,
-      workOrders:
-        orderRes.data
-          ? orderRes.data.map((o: any) => ({
-              ...o,
-              items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
-            }))
-          : null,
+      workOrders: orderData
+        ? orderData.map((o: any) => ({
+            ...o,
+            items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
+          }))
+        : null,
       appointments: appRes.data ? appRes.data : null,
-      invoices: invoiceRes.data ? invoiceRes.data : null,
-      vehicles: vehicleRes.data ? vehicleRes.data : null,
+      invoices: invoiceData,
+      vehicles: vehicleData,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);
