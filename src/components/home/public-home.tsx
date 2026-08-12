@@ -260,17 +260,41 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     showSaveSuccess();
   };
 
+  // Web Native Modal & Confirmation State for CMS
+  const [cmsConfirmModal, setCmsConfirmModal] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const [cmsWebAlert, setCmsWebAlert] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  } | null>(null);
+
   const handleDeleteCarouselImage = (index: number) => {
     if (carouselImages.length <= 1) {
-      alert("Debes mantener al menos 1 imagen en el carrusel del taller.");
+      setCmsWebAlert({
+        open: true,
+        title: "Límite Mínimo de Imágenes",
+        message: "Debes mantener al menos 1 imagen en el carrusel del taller.",
+      });
       return;
     }
-    if (confirm("¿Estás seguro de eliminar esta imagen del carrusel?")) {
-      const updated = carouselImages.filter((_, i) => i !== index);
-      updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
-      setCurrentSlideIndex(0);
-      showSaveSuccess();
-    }
+
+    setCmsConfirmModal({
+      open: true,
+      title: "Eliminar Imagen de Carrusel",
+      message: "¿Estás seguro de eliminar esta foto del carrusel interactivo?",
+      onConfirm: () => {
+        const updated = carouselImages.filter((_, i) => i !== index);
+        updateSiteContent("about", { gallery_images: updated, image_url: updated[0] });
+        setCurrentSlideIndex(0);
+        showSaveSuccess();
+      },
+    });
   };
 
   const handleAddServiceCard = () => {
@@ -287,11 +311,16 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   };
 
   const handleDeleteServiceCard = (id: string) => {
-    if (confirm("¿Estás seguro de eliminar esta tarjeta de servicio?")) {
-      const updated = services.filter((s) => s.id !== id);
-      updateSiteContent("services", updated);
-      showSaveSuccess();
-    }
+    setCmsConfirmModal({
+      open: true,
+      title: "Eliminar Tarjeta de Servicio",
+      message: "¿Estás seguro de eliminar esta tarjeta de servicio prestado?",
+      onConfirm: () => {
+        const updated = services.filter((s) => s.id !== id);
+        updateSiteContent("services", updated);
+        showSaveSuccess();
+      },
+    });
   };
 
   const handleAddFeaturedServiceFooter = () => {
@@ -331,11 +360,16 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
   };
 
   const handleDeleteCustomColumnFooter = (colId: string) => {
-    if (confirm("¿Estás seguro de eliminar esta sección de columna completa?")) {
-      const updatedCols = (safeFooter.custom_columns || []).filter((c) => c.id !== colId);
-      updateSiteContent("footer", { custom_columns: updatedCols });
-      showSaveSuccess();
-    }
+    setCmsConfirmModal({
+      open: true,
+      title: "Eliminar Sección de Columna",
+      message: "¿Estás seguro de eliminar esta sección de columna completa del pie de página?",
+      onConfirm: () => {
+        const updatedCols = (safeFooter.custom_columns || []).filter((c) => c.id !== colId);
+        updateSiteContent("footer", { custom_columns: updatedCols });
+        showSaveSuccess();
+      },
+    });
   };
 
   const handleAddCustomItemToCol = (colId: string) => {

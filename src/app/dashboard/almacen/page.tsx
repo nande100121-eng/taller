@@ -72,15 +72,31 @@ export default function AlmacenPage() {
     reason: "Caso Urgente / Auxilio Mecánico",
   });
 
+  // Styled Web Notification Modal State (Replaces browser alert)
+  const [webAlert, setWebAlert] = useState<{
+    open: boolean;
+    type: "info" | "warning" | "success" | "error";
+    title: string;
+    message: string;
+  } | null>(null);
+
+  const showWebNotification = (
+    type: "info" | "warning" | "success" | "error",
+    title: string,
+    message: string
+  ) => {
+    setWebAlert({ open: true, type, title, message });
+  };
+
   const handleConfirmManualExit = (e: React.FormEvent) => {
     e.preventDefault();
     const item = inventoryItems.find((i) => i.id === exitForm.itemId);
     if (!item) {
-      alert("Por favor seleccione un producto del inventario.");
+      showWebNotification("warning", "Selección Requerida", "Por favor seleccione un producto del inventario de almacén.");
       return;
     }
     if (exitForm.quantity <= 0) {
-      alert("Ingrese una cantidad válida mayor a 0.");
+      showWebNotification("warning", "Cantidad Inválida", "Por favor ingrese una cantidad válida mayor a 0.");
       return;
     }
 
@@ -94,7 +110,11 @@ export default function AlmacenPage() {
       exits: (item.exits || 0) + Number(exitForm.quantity),
     });
 
-    alert(`¡Salida urgente registrada con éxito! ${exitForm.quantity} unidades de "${item.name}" asignadas a ${assignedTarget}.`);
+    showWebNotification(
+      "success",
+      "¡Salida Registrada con Éxito!",
+      `${exitForm.quantity} unidades de "${item.name}" asignadas a ${assignedTarget}.`
+    );
     setManualExitModalOpen(false);
     setExitForm({
       itemId: "",
@@ -295,7 +315,11 @@ export default function AlmacenPage() {
 
     // Check if file is a binary .xlsx file without proper text encoding
     if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
-      alert("⚠️ Ha seleccionado un archivo de Excel binario (.xlsx). Para evitar caracteres extraños o símbolos raros, por favor guarde o exporte su hoja de Excel en formato CSV (.csv) y vuélvalo a cargar.");
+      showWebNotification(
+        "warning",
+        "Formato de Excel Binario Detectado",
+        "Ha seleccionado un archivo de Excel binario (.xlsx). Para evitar caracteres extraños o símbolos raros, guarde o exporte su hoja de Excel en formato CSV (.csv) y vuélvalo a cargar."
+      );
     }
 
     const reader = new FileReader();
@@ -335,9 +359,17 @@ export default function AlmacenPage() {
 
       if (parsedItems.length > 0) {
         importBulkInventoryItems(parsedItems);
-        alert(`¡Se importaron con éxito ${parsedItems.length} filas limpias desde el archivo!`);
+        showWebNotification(
+          "success",
+          "¡Importación Exitosa!",
+          `Se importaron con éxito ${parsedItems.length} filas de productos totalmente limpias.`
+        );
       } else {
-        alert("No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por comas o tabulaciones.");
+        showWebNotification(
+          "error",
+          "Error de Interpretación",
+          "No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por comas o tabulaciones."
+        );
       }
     };
     reader.readAsText(file);
@@ -682,6 +714,7 @@ export default function AlmacenPage() {
                         )}
                       </button>
                     </th>
+                    <th className="p-3 font-extrabold w-16 text-center text-amber-400">ÍTEM (#)</th>
                     <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
                     <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
                     <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
@@ -698,7 +731,7 @@ export default function AlmacenPage() {
                 <tbody className="divide-y divide-white/5">
                   {inventoryItems.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="text-center py-12 text-gray-400 space-y-2">
+                      <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
                         <Package className="w-10 h-10 text-gray-600 mx-auto" />
                         <p className="font-bold text-sm">El inventario está completamente vacío.</p>
                         <p className="text-xs text-gray-500">
@@ -707,7 +740,7 @@ export default function AlmacenPage() {
                       </td>
                     </tr>
                   ) : (
-                    inventoryItems.map((item) => {
+                    inventoryItems.map((item, idx) => {
                       const isLow = item.stock_quantity <= item.min_stock_alert;
                       const isSelected = selectedRowIds.includes(item.id);
 
@@ -729,6 +762,9 @@ export default function AlmacenPage() {
                                 <Square className="w-4 h-4" />
                               )}
                             </button>
+                          </td>
+                          <td className="p-3 font-mono font-bold text-center text-amber-400 bg-amber-500/10 rounded">
+                            #{idx + 1}
                           </td>
                           <td
                             className="p-3 font-mono font-bold text-reygas-silver max-w-[140px] truncate"
@@ -1008,6 +1044,46 @@ export default function AlmacenPage() {
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Sí, Confirmar Eliminación</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STYLED WEB NOTIFICATION MODAL (REPLACES BROWSER ALERT) */}
+      {webAlert?.open && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/20 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+              <div
+                className={`p-3 rounded-2xl border ${
+                  webAlert.type === "warning"
+                    ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                    : webAlert.type === "error"
+                    ? "bg-red-500/20 text-red-400 border-red-500/30"
+                    : webAlert.type === "success"
+                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                    : "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                }`}
+              >
+                <AlertCircle className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">{webAlert.title}</h3>
+                <span className="text-[11px] text-gray-400 font-semibold">Aviso Web de Almacén</span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-200 leading-relaxed font-medium">
+              {webAlert.message}
+            </p>
+
+            <div className="flex items-center justify-end pt-2">
+              <button
+                onClick={() => setWebAlert(null)}
+                className="px-6 py-2.5 bg-reygas-red hover:bg-red-600 text-white font-black rounded-xl text-xs shadow-lg shadow-reygas-red/30 transition-transform hover:scale-105"
+              >
+                Aceptar
               </button>
             </div>
           </div>

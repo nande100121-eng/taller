@@ -84,10 +84,21 @@ export default function TallerPage() {
     setCertPrice(120);
   };
 
+  // Styled Web Notification Modal State (Replaces browser alert)
+  const [webAlert, setWebAlert] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+  } | null>(null);
+
   const handleSaveCertification = () => {
     if (activeOrderModal) {
       requestCertificationForWorkOrder(activeOrderModal, certType, Number(certPrice));
-      alert(`¡Certificación "${certType}" (S/ ${certPrice}) solicitada e ingresada al flujo de cobro en Caja! Se notificó al Encargado de Certificaciones.`);
+      setWebAlert({
+        open: true,
+        title: "¡Certificación Solicitada!",
+        message: `La certificación "${certType}" (S/ ${certPrice}) fue registrada e ingresada al flujo de cobro en Caja. Se notificó al Encargado de Certificaciones.`
+      });
       setActiveOrderModal(null);
     }
   };
@@ -650,6 +661,36 @@ export default function TallerPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* STYLED WEB NOTIFICATION MODAL (REPLACES BROWSER ALERT) */}
+      {webAlert?.open && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-cyan-500/40 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+              <div className="p-3 rounded-2xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                <ShieldCheck className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">{webAlert.title}</h3>
+                <span className="text-[11px] text-gray-400 font-semibold">Notificación de Taller</span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-200 leading-relaxed font-medium">
+              {webAlert.message}
+            </p>
+
+            <div className="flex items-center justify-end pt-2">
+              <button
+                onClick={() => setWebAlert(null)}
+                className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-xs shadow-lg shadow-cyan-600/30 transition-transform hover:scale-105"
+              >
+                Aceptar
+              </button>
+            </div>
           </div>
         </div>
       )}
