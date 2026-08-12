@@ -30,6 +30,10 @@ export default function ConsultasPage() {
   const [searchPlate, setSearchPlate] = useState("");
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
 
+  // State for Plate History Timeline Modal
+  const [selectedPlateHistory, setSelectedPlateHistory] = useState<string | null>(null);
+  const [selectedOrderDetails, setSelectedOrderDetails] = useState<string | null>(null);
+
   // Helper functions to advance or regress date by 1 day
   const handlePrevDay = () => {
     const current = new Date(queryDate + "T12:00:00");
@@ -89,6 +93,17 @@ export default function ConsultasPage() {
     return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
   }).length;
 
+  // Get all work orders for the selected plate sorted by date (newest first)
+  const plateHistoryOrders = selectedPlateHistory
+    ? workOrders
+        .filter((wo) => wo.vehicle_plate === selectedPlateHistory)
+        .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime())
+    : [];
+
+  const activePlateVehicle = selectedPlateHistory
+    ? vehicles.find((v) => v.plate === selectedPlateHistory)
+    : null;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
@@ -100,7 +115,7 @@ export default function ConsultasPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Consultas & Histórico por Día</h1>
             <p className="text-xs text-gray-400">
-              Módulo de consulta general habilitado para todo el personal. Explore el historial de atención por fecha y placa.
+              Módulo de consulta general. Haga clic en cualquier tarjeta para abrir el historial completo de todas las fechas de dicha placa.
             </p>
           </div>
         </div>
@@ -202,7 +217,7 @@ export default function ConsultasPage() {
             <span>Histórico de Atenciones Registradas el {queryDate}</span>
           </h2>
           <span className="text-xs text-amber-400 font-bold font-mono">
-            {filteredOrders.length} Registros Encontrados
+            {filteredOrders.length} Registros Encontrados (Haga clic en una tarjeta para ver todas sus fechas)
           </span>
         </div>
 
@@ -231,16 +246,25 @@ export default function ConsultasPage() {
               return (
                 <div
                   key={wo.id}
-                  className="p-5 rounded-2xl border border-white/10 glass-panel bg-reygas-dark/90 space-y-4 hover:border-amber-500/40 transition-all"
+                  onClick={() => {
+                    setSelectedPlateHistory(wo.vehicle_plate);
+                    setSelectedOrderDetails(wo.id);
+                  }}
+                  className="p-5 rounded-2xl border border-white/10 glass-panel bg-reygas-dark/90 space-y-4 hover:border-amber-500/60 hover:shadow-2xl transition-all cursor-pointer group"
                 >
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                     {/* Vehicle & Client Info */}
                     <div className="space-y-3 flex-1">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="space-y-1">
-                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow inline-block">
-                            {wo.vehicle_plate}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow inline-block group-hover:border-amber-400">
+                              {wo.vehicle_plate}
+                            </span>
+                            <span className="text-[10px] px-2.5 py-1 bg-amber-500/20 text-amber-300 font-extrabold rounded-full border border-amber-500/30">
+                              🔍 Click para Ver Histórico Completo
+                            </span>
+                          </div>
                           <span className="text-sm font-bold text-white block break-words">
                             {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
                           </span>
@@ -324,6 +348,201 @@ export default function ConsultasPage() {
           </div>
         )}
       </div>
+
+      {/* ========================================================================= */}
+      {/* FULL PLATE HISTORY TIMELINE MODAL (ALL DATES & SERVICE DETAILS) */}
+      {/* ========================================================================= */}
+      {selectedPlateHistory && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-amber-500/40 max-w-4xl w-full space-y-6 shadow-2xl bg-reygas-dark max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <History className="w-8 h-8" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-black text-white font-mono tracking-wider">
+                      {selectedPlateHistory}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30">
+                      {plateHistoryOrders.length} {plateHistoryOrders.length === 1 ? "Atención Registrada" : "Atenciones Registradas"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Propietario: <strong className="text-white">{activePlateVehicle?.owner_name || "Cliente Taller"}</strong> • Modelo: {activePlateVehicle?.brand} {activePlateVehicle?.model} ({activePlateVehicle?.year || 2023})
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedPlateHistory(null)}
+                className="p-2 rounded-xl bg-reygas-surface hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-amber-300 font-semibold bg-amber-950/40 p-3 rounded-xl border border-amber-500/30">
+              💡 Haga clic en cualquier fecha de la lista para desplegar u ocultar la información completa del servicio realizado en ese día.
+            </p>
+
+            {/* List of Dates (Historical Timeline) */}
+            <div className="space-y-4">
+              {plateHistoryOrders.map((wo, idx) => {
+                const isSelectedDate = selectedOrderDetails === wo.id;
+                const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
+                const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
+                const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+
+                const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
+                const laborFee = 150;
+                const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
+                const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+
+                return (
+                  <div
+                    key={wo.id}
+                    className={`rounded-2xl border transition-all glass-panel overflow-hidden ${
+                      isSelectedDate
+                        ? "border-amber-500 bg-amber-950/20 shadow-xl"
+                        : "border-white/10 bg-reygas-dark/90 hover:border-amber-500/40"
+                    }`}
+                  >
+                    {/* Date Item Header Bar (Clickable) */}
+                    <div
+                      onClick={() => setSelectedOrderDetails(isSelectedDate ? null : wo.id)}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-white/5 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-sm font-black text-amber-400 bg-amber-500/10 px-3 py-1 rounded-xl border border-amber-500/30">
+                          #{plateHistoryOrders.length - idx}
+                        </span>
+                        <div>
+                          <span className="text-sm font-bold text-white block">
+                            📅 Fecha: {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Sin fecha"}
+                          </span>
+                          <span className="text-xs text-gray-400 block truncate max-w-md">
+                            Falla / Motivo: {wo.problem_description || "Atención General Taller"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {isPaid ? (
+                          <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold">
+                            PAGADO (S/ {grandTotal.toFixed(2)})
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2.5 py-1 rounded-lg border border-amber-500/30 font-bold">
+                            PENDIENTE (S/ {grandTotal.toFixed(2)})
+                          </span>
+                        )}
+
+                        <span className="text-xs text-amber-400 font-bold">
+                          {isSelectedDate ? "▲ Ocultar Detalle" : "▼ Ver Detalle Completo"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Detailed Service Information Sheet (Shown when date item is clicked) */}
+                    {isSelectedDate && (
+                      <div className="p-5 border-t border-white/10 bg-black/40 space-y-4 animate-fadeIn">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                          {/* Workshop & Technician Details */}
+                          <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
+                            <span className="text-[11px] font-bold text-amber-400 uppercase block">
+                              ⚙️ Información de Taller & Mecánico
+                            </span>
+                            <div className="space-y-1 text-gray-300">
+                              <p>
+                                <strong>Mecánico Asignado:</strong>{" "}
+                                <span className="text-white font-bold">{tech?.full_name || "Sin Asignar"}</span>
+                              </p>
+                              <p>
+                                <strong>Especialidad:</strong> {tech?.specialty || "Mecánica General"}
+                              </p>
+                              <p>
+                                <strong>Estado de Trabajo:</strong>{" "}
+                                <span className="text-amber-300 uppercase font-bold">{wo.status}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Diagnostic Notes */}
+                          <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
+                            <span className="text-[11px] font-bold text-cyan-400 uppercase block">
+                              📝 Diagnóstico & Observaciones Técnicas
+                            </span>
+                            <p className="text-gray-200 leading-relaxed italic">
+                              {wo.diagnostic_notes || "Diagnóstico ejecutado con escáner computarizado y banco de inyectores. Sistema en correcto funcionamiento."}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Breakdown of Labor, Certifications & Spare Parts */}
+                        <div className="p-4 bg-reygas-surface/90 rounded-xl border border-white/10 space-y-3">
+                          <span className="text-[11px] font-bold uppercase text-amber-400 block">
+                            📦 Desglose Completo de Servicios & Materiales Usados en esta Fecha:
+                          </span>
+
+                          <div className="space-y-2 text-xs">
+                            <div className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5">
+                              <span>🛠️ Servicio de Mano de Obra Taller:</span>
+                              <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
+                            </div>
+
+                            {wo.requires_certification && (
+                              <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2.5 rounded-lg border border-cyan-500/30">
+                                <span>📜 Certificado Oficial ({wo.certification_type}):</span>
+                                <span className="font-mono font-bold text-cyan-300">
+                                  S/ {(wo.certification_price || 120).toFixed(2)}
+                                </span>
+                              </div>
+                            )}
+
+                            {wo.items.length === 0 ? (
+                              <p className="text-[11px] text-gray-400 italic">No se requirieron repuestos de almacén para este mantenimiento.</p>
+                            ) : (
+                              wo.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5"
+                                >
+                                  <span>📦 {item.description} (x{item.quantity})</span>
+                                  <span className="font-mono font-bold text-amber-300">
+                                    S/ {item.subtotal.toFixed(2)}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          <div className="flex justify-between items-center pt-2 border-t border-white/10 text-sm font-bold">
+                            <span className="text-white">Monto Total Facturado el {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:</span>
+                            <span className="font-mono text-xl text-amber-400">S/ {grandTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Close Button */}
+            <div className="flex justify-end pt-2 border-t border-white/10">
+              <button
+                onClick={() => setSelectedPlateHistory(null)}
+                className="px-6 py-2.5 bg-reygas-red hover:bg-red-600 text-white font-black rounded-xl text-xs shadow-lg shadow-reygas-red/30 transition-transform hover:scale-105"
+              >
+                Cerrar Histórico
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
