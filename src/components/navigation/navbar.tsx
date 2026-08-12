@@ -47,7 +47,8 @@ export const Navbar: React.FC = () => {
     { name: "6. Caja & Facturación", href: "/dashboard/caja", icon: CreditCard, color: "text-purple-400" },
     { name: "7. Certificaciones GNV/GLP", href: "/dashboard/certificaciones", icon: Award, color: "text-teal-400" },
     { name: "8. Asistencia Biométrica", href: "/dashboard/asistencia", icon: Clock, color: "text-cyan-400" },
-    { name: "9. Tablas Maestras", href: "/dashboard/admin/tables", icon: Table, color: "text-indigo-400" },
+    { name: "9. Consultas & Histórico por Día", href: "/dashboard/consultas", icon: Clock, color: "text-amber-400" },
+    { name: "10. Tablas Maestras", href: "/dashboard/admin/tables", icon: Table, color: "text-indigo-400" },
   ];
 
   return (
