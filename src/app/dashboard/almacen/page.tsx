@@ -1038,16 +1038,38 @@ export default function AlmacenPage() {
                   </select>
                 </div>
               ) : (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">NOMBRE DEL RESPONSABLE *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Técnico Carlos Mendoza / Ing. Miguel Torres"
-                    value={exitForm.responsibleName}
-                    onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-                  />
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      SELECCIONAR DE LA TABLA MAESTRA DE PERSONAL
+                    </label>
+                    <select
+                      value={exitForm.responsibleName}
+                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                    >
+                      <option value="">-- Seleccionar Personal Registrado --</option>
+                      {technicians.map((t) => (
+                        <option key={t.id} value={t.full_name}>
+                          {t.full_name} ({t.specialty})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      O ESCRIBIR NOMBRE DEL RESPONSABLE *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. Técnico Carlos Mendoza / Ing. Miguel Torres"
+                      value={exitForm.responsibleName}
+                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                    />
+                  </div>
                 </div>
               )}
 
