@@ -146,23 +146,13 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
     const { error } = await supabase.from("work_orders").upsert({
       id: order.id,
-      vehicle_plate: order.vehicle_plate,
-      status: order.status,
-      assigned_technician_id: order.assigned_technician_id,
-      problem_description: order.problem_description,
-      diagnostic_notes: order.diagnostic_notes,
-      entry_time: order.entry_time,
+      vehicle_plate: order.vehicle_plate || "SN-PLACA",
+      status: order.status || "pagado_autorizado",
+      assigned_technician_id: order.assigned_technician_id || null,
+      problem_description: order.problem_description || "Mantenimiento General",
+      diagnostic_notes: order.diagnostic_notes || null,
+      entry_time: order.entry_time || new Date().toISOString(),
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
-      requires_certification: order.requires_certification,
-      certification_type: order.certification_type,
-      certification_price: order.certification_price,
-      certification_issued: order.certification_issued,
-      certification_id: order.certification_id,
-      allow_modifications: order.allow_modifications,
-      quinquennial_date: order.quinquennial_date,
-      chip_expiry_date: order.chip_expiry_date,
-      general_maintenance_service: order.general_maintenance_service,
-      spare_parts_services: order.spare_parts_services,
     });
     if (error) console.warn("Supabase work order save warning:", error.message);
   } catch (err) {
@@ -350,7 +340,7 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 2. Work Orders chunked save
+    // 2. Work Orders chunked save (only physical schema columns)
     if (orders.length > 0) {
       const ordersPayload = orders.map((o) => ({
         id: o.id,
@@ -361,10 +351,6 @@ export async function saveSupabaseBulkWorkshopData(
         diagnostic_notes: o.diagnostic_notes || null,
         entry_time: o.entry_time || new Date().toISOString(),
         items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
-        quinquennial_date: o.quinquennial_date || null,
-        chip_expiry_date: o.chip_expiry_date || null,
-        general_maintenance_service: o.general_maintenance_service || null,
-        spare_parts_services: o.spare_parts_services || null,
       }));
 
       for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
