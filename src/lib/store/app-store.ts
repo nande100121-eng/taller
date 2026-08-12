@@ -322,6 +322,7 @@ interface AppState {
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
   removeWorkOrderItem: (orderId: string, itemId: string) => void;
   markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
+  toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
 
   inventoryItems: InventoryItem[];
@@ -879,7 +880,7 @@ export const useAppStore = create<AppState>()(
           workOrders: state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const targetItem = o.items.find((i) => i.id === itemId);
-            if (targetItem && targetItem.inventory_item_id) {
+            if (targetItem && targetItem.inventory_item_id && !targetItem.dispatched) {
               get().deductStock(targetItem.inventory_item_id, targetItem.quantity);
             }
             const updatedItems = o.items.map((i) =>
@@ -887,6 +888,30 @@ export const useAppStore = create<AppState>()(
                 ? { ...i, dispatched: true, dispatched_at: new Date().toISOString() }
                 : i
             );
+            const updatedOrder = { ...o, items: updatedItems };
+            saveSupabaseWorkOrder(updatedOrder);
+            return updatedOrder;
+          }),
+        })),
+
+      toggleWorkOrderItemDispatched: (orderId, itemId) =>
+        set((state) => ({
+          workOrders: state.workOrders.map((o) => {
+            if (o.id !== orderId) return o;
+            const updatedItems = o.items.map((i) => {
+              if (i.id === itemId) {
+                const nextDispatched = !i.dispatched;
+                if (nextDispatched && i.inventory_item_id) {
+                  get().deductStock(i.inventory_item_id, i.quantity);
+                }
+                return {
+                  ...i,
+                  dispatched: nextDispatched,
+                  dispatched_at: nextDispatched ? new Date().toISOString() : undefined,
+                };
+              }
+              return i;
+            });
             const updatedOrder = { ...o, items: updatedItems };
             saveSupabaseWorkOrder(updatedOrder);
             return updatedOrder;

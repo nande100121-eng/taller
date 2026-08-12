@@ -35,11 +35,58 @@ export default function AlmacenPage() {
     workOrders,
     vehicles,
     markWorkOrderItemDispatched,
+    toggleWorkOrderItemDispatched,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
   const [scanSku, setScanSku] = useState("");
   const [scanResult, setScanResult] = useState<typeof inventoryItems[0] | null>(null);
+
+  // Manual Exit Modal states
+  const [manualExitModalOpen, setManualExitModalOpen] = useState(false);
+  const [exitForm, setExitForm] = useState({
+    itemId: "",
+    quantity: 1,
+    assignedToType: "vehicle" as "vehicle" | "responsible",
+    vehiclePlate: "",
+    responsibleName: "",
+    reason: "Caso Urgente / Auxilio Mecánico",
+  });
+
+  const handleConfirmManualExit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const item = inventoryItems.find((i) => i.id === exitForm.itemId);
+    if (!item) {
+      alert("Por favor seleccione un producto del inventario.");
+      return;
+    }
+    if (exitForm.quantity <= 0) {
+      alert("Ingrese una cantidad válida mayor a 0.");
+      return;
+    }
+
+    const assignedTarget =
+      exitForm.assignedToType === "vehicle"
+        ? `Vehículo (Placa: ${exitForm.vehiclePlate || "General"})`
+        : `Responsable: ${exitForm.responsibleName || "Taller"}`;
+
+    // Deduct stock and increment exits
+    updateInventoryItem(item.id, {
+      stock_quantity: Math.max(0, item.stock_quantity - Number(exitForm.quantity)),
+      exits: (item.exits || 0) + Number(exitForm.quantity),
+    });
+
+    alert(`¡Salida urgente registrada con éxito! ${exitForm.quantity} unidades de "${item.name}" asignadas a ${assignedTarget}.`);
+    setManualExitModalOpen(false);
+    setExitForm({
+      itemId: "",
+      quantity: 1,
+      assignedToType: "vehicle",
+      vehiclePlate: "",
+      responsibleName: "",
+      reason: "Caso Urgente / Auxilio Mecánico",
+    });
+  };
 
   // Edit & New Modal states
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -59,6 +106,33 @@ export default function AlmacenPage() {
     min_stock_alert: 2,
   });
 
+  const handleSkuInputChange = (newSku: string) => {
+    const uppercaseSku = newSku.trim().toUpperCase();
+    setItemForm((prev) => ({ ...prev, sku_barcode: uppercaseSku }));
+
+    if (uppercaseSku.length >= 3 && !editingItem) {
+      const existing = inventoryItems.find(
+        (i) => i.sku_barcode.trim().toUpperCase() === uppercaseSku
+      );
+      if (existing) {
+        setItemForm({
+          sku_barcode: existing.sku_barcode,
+          name: existing.name,
+          brand: existing.brand || "",
+          serial_number: existing.serial_number || "",
+          category: existing.category || "Repuestos",
+          unit_price: existing.unit_price,
+          initial_stock: existing.initial_stock ?? existing.stock_quantity,
+          entries: 1, // Siempre inicia en 1 para nuevo ingreso
+          exits: existing.exits || 0,
+          stock_quantity: existing.stock_quantity + 1, // Nuevo stock proyectado
+          counted_stock: existing.counted_stock ?? (existing.stock_quantity + 1),
+          min_stock_alert: existing.min_stock_alert || 2,
+        });
+      }
+    }
+  };
+
   const handleOpenNewModal = () => {
     setEditingItem(null);
     setItemForm({
@@ -68,11 +142,11 @@ export default function AlmacenPage() {
       serial_number: "",
       category: "Repuestos GNV/GLP",
       unit_price: 100,
-      initial_stock: 10,
-      entries: 0,
+      initial_stock: 0,
+      entries: 1, // Por defecto siempre 1 en entradas
       exits: 0,
-      stock_quantity: 10,
-      counted_stock: 10,
+      stock_quantity: 1,
+      counted_stock: 1,
       min_stock_alert: 2,
     });
     setEditModalOpen(true);
@@ -88,7 +162,7 @@ export default function AlmacenPage() {
       category: item.category || "Repuestos",
       unit_price: item.unit_price,
       initial_stock: item.initial_stock ?? item.stock_quantity,
-      entries: item.entries || 0,
+      entries: 1,
       exits: item.exits || 0,
       stock_quantity: item.stock_quantity,
       counted_stock: item.counted_stock ?? item.stock_quantity,
@@ -407,13 +481,17 @@ export default function AlmacenPage() {
 
                               <div className="shrink-0">
                                 {item.dispatched ? (
-                                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-black flex items-center gap-1">
+                                  <button
+                                    onClick={() => toggleWorkOrderItemDispatched(group.orderId, item.id)}
+                                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-black flex items-center gap-1.5 transition-all"
+                                    title="Haga clic para revertir estado a pendiente"
+                                  >
                                     <CheckCircle2 className="w-4 h-4" />
-                                    <span>ENTREGADO Y LISTO</span>
-                                  </span>
+                                    <span>ENTREGADO Y LISTO (Cambiar)</span>
+                                  </button>
                                 ) : (
                                   <button
-                                    onClick={() => markWorkOrderItemDispatched(group.orderId, item.id)}
+                                    onClick={() => toggleWorkOrderItemDispatched(group.orderId, item.id)}
                                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition-all"
                                   >
                                     <Check className="w-4 h-4 stroke-[3]" />
@@ -459,6 +537,14 @@ export default function AlmacenPage() {
                     className="hidden"
                   />
                 </label>
+
+                <button
+                  onClick={() => setManualExitModalOpen(true)}
+                  className="px-4 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
+                >
+                  <RotateCcw className="w-4 h-4 rotate-180" />
+                  <span>Dar Salida Manual Urgente</span>
+                </button>
 
                 <button
                   onClick={handleOpenNewModal}
@@ -731,13 +817,16 @@ export default function AlmacenPage() {
             <form onSubmit={handleSaveItemForm} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">CÓDIGO SKU *</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    CÓDIGO SKU * <span className="text-[10px] text-amber-400 font-normal">(Escriba para autocompletar)</span>
+                  </label>
                   <input
                     type="text"
                     required
+                    placeholder="Ej. KIT-GNV-5G"
                     value={itemForm.sku_barcode}
-                    onChange={(e) => setItemForm({ ...itemForm, sku_barcode: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    onChange={(e) => handleSkuInputChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono uppercase focus:border-emerald-400"
                   />
                 </div>
                 <div>
@@ -775,30 +864,20 @@ export default function AlmacenPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRECIO DE VENTA (S/)</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRECIO DE VENTA EDITABLE (S/)</label>
                   <input
                     type="number"
                     step="0.01"
                     min={0}
                     value={itemForm.unit_price}
                     onChange={(e) => setItemForm({ ...itemForm, unit_price: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono focus:border-emerald-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK INICIAL</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={itemForm.initial_stock}
-                    onChange={(e) => setItemForm({ ...itemForm, initial_stock: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK VIGENTE</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">STOCK VIGENTE / ACTUAL</label>
                   <input
                     type="number"
                     min={0}
@@ -811,7 +890,7 @@ export default function AlmacenPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS (Por defecto: 1)</label>
                   <input
                     type="number"
                     min={0}
@@ -821,13 +900,13 @@ export default function AlmacenPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS (Vía Pedidos)</label>
                   <input
                     type="number"
                     min={0}
+                    readOnly
                     value={itemForm.exits}
-                    onChange={(e) => setItemForm({ ...itemForm, exits: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3 py-2 bg-reygas-surface/50 border border-white/5 rounded-lg text-sm text-gray-400 font-mono"
                   />
                 </div>
                 <div>
@@ -855,6 +934,139 @@ export default function AlmacenPage() {
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg"
                 >
                   Guardar Fila
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Exit Modal */}
+      {manualExitModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-lg w-full space-y-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-red-400 rotate-180" />
+                <span>Salida Manual Urgente de Repuesto</span>
+              </h3>
+              <button
+                onClick={() => setManualExitModalOpen(false)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmManualExit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">PRODUCTO A DESPACHAR *</label>
+                <select
+                  required
+                  value={exitForm.itemId}
+                  onChange={(e) => setExitForm({ ...exitForm, itemId: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                >
+                  <option value="">-- Seleccionar Repuesto del Inventario --</option>
+                  {inventoryItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.sku_barcode} - {item.name} (Stock: {item.stock_quantity})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">CANTIDAD A SALIR *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={exitForm.quantity}
+                  onChange={(e) => setExitForm({ ...exitForm, quantity: Number(e.target.value) })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">TIPO DE ASIGNACIÓN *</label>
+                <div className="flex items-center gap-4 pt-1">
+                  <label className="flex items-center gap-2 text-xs text-white font-bold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignedToType"
+                      value="vehicle"
+                      checked={exitForm.assignedToType === "vehicle"}
+                      onChange={() => setExitForm({ ...exitForm, assignedToType: "vehicle" })}
+                    />
+                    <span>Asignar a Vehículo (Placa)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-white font-bold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="assignedToType"
+                      value="responsible"
+                      checked={exitForm.assignedToType === "responsible"}
+                      onChange={() => setExitForm({ ...exitForm, assignedToType: "responsible" })}
+                    />
+                    <span>Asignar a Responsable</span>
+                  </label>
+                </div>
+              </div>
+
+              {exitForm.assignedToType === "vehicle" ? (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">PLACA DEL VEHÍCULO *</label>
+                  <select
+                    value={exitForm.vehiclePlate}
+                    onChange={(e) => setExitForm({ ...exitForm, vehiclePlate: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  >
+                    <option value="">-- Seleccionar Vehículo Registrado --</option>
+                    {vehicles.map((v) => (
+                      <option key={v.plate} value={v.plate}>
+                        {v.plate} - {v.brand} {v.model} ({v.owner_name})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">NOMBRE DEL RESPONSABLE *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Técnico Carlos Mendoza / Ing. Miguel Torres"
+                    value={exitForm.responsibleName}
+                    onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">MOTIVO / NOTAS</label>
+                <input
+                  type="text"
+                  value={exitForm.reason}
+                  onChange={(e) => setExitForm({ ...exitForm, reason: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setManualExitModalOpen(false)}
+                  className="px-4 py-2 bg-reygas-surface text-gray-300 text-xs font-bold rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-reygas-red hover:bg-red-600 text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20"
+                >
+                  Confirmar Salida Urgente
                 </button>
               </div>
             </form>
