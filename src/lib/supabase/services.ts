@@ -110,6 +110,33 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
   }
 }
 
+export async function deleteSupabaseInventoryItem(id: string) {
+  try {
+    const { error } = await supabase.from("inventory_items").delete().eq("id", id);
+    if (error) console.warn("Supabase inventory delete warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase inventory delete deferred:", err);
+  }
+}
+
+export async function deleteMultipleSupabaseInventoryItems(ids: string[]) {
+  try {
+    const { error } = await supabase.from("inventory_items").delete().in("id", ids);
+    if (error) console.warn("Supabase inventory multi-delete warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase inventory multi-delete deferred:", err);
+  }
+}
+
+export async function clearSupabaseInventory() {
+  try {
+    const { error } = await supabase.from("inventory_items").delete().neq("id", "");
+    if (error) console.warn("Supabase inventory clear warning:", error.message);
+  } catch (err) {
+    console.warn("Supabase inventory clear deferred:", err);
+  }
+}
+
 // ---------------------------------------------------------------------
 // WORK ORDERS SUPABASE SYNC
 // ---------------------------------------------------------------------

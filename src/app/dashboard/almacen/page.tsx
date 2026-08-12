@@ -17,7 +17,11 @@ import {
   Edit3,
   Trash2,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  AlertCircle,
+  ShieldAlert
 } from "lucide-react";
 
 export default function AlmacenPage() {
@@ -26,6 +30,8 @@ export default function AlmacenPage() {
     addInventoryItem,
     updateInventoryItem,
     deleteInventoryItem,
+    deleteMultipleInventoryItems,
+    clearAllInventory,
     importBulkInventoryItems,
     deductStock,
     toolLoans,
@@ -41,6 +47,19 @@ export default function AlmacenPage() {
   const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
   const [scanSku, setScanSku] = useState("");
   const [scanResult, setScanResult] = useState<typeof inventoryItems[0] | null>(null);
+
+  // Checkbox Row Selection State
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+
+  // Styled Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    actionType: "delete_single" | "delete_selected" | "purge_all";
+    targetId?: string;
+    targetName?: string;
+  } | null>(null);
 
   // Manual Exit Modal states
   const [manualExitModalOpen, setManualExitModalOpen] = useState(false);
@@ -70,7 +89,6 @@ export default function AlmacenPage() {
         ? `Vehículo (Placa: ${exitForm.vehiclePlate || "General"})`
         : `Responsable: ${exitForm.responsibleName || "Taller"}`;
 
-    // Deduct stock and increment exits
     updateInventoryItem(item.id, {
       stock_quantity: Math.max(0, item.stock_quantity - Number(exitForm.quantity)),
       exits: (item.exits || 0) + Number(exitForm.quantity),
@@ -106,6 +124,69 @@ export default function AlmacenPage() {
     min_stock_alert: 2,
   });
 
+  // Row selection handlers
+  const handleToggleSelectRow = (id: string) => {
+    setSelectedRowIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedRowIds.length === inventoryItems.length) {
+      setSelectedRowIds([]);
+    } else {
+      setSelectedRowIds(inventoryItems.map((i) => i.id));
+    }
+  };
+
+  // Deletion trigger handlers opening styled web modal
+  const promptDeleteSingle = (id: string, name: string) => {
+    setConfirmModal({
+      open: true,
+      title: "Confirmar Eliminación de Fila",
+      message: `¿Estás seguro de eliminar el producto "${name}" del inventario de almacén?`,
+      actionType: "delete_single",
+      targetId: id,
+      targetName: name,
+    });
+  };
+
+  const promptDeleteSelected = () => {
+    if (selectedRowIds.length === 0) return;
+    setConfirmModal({
+      open: true,
+      title: "Confirmar Eliminación de Filas Seleccionadas",
+      message: `¿Estás seguro de eliminar de forma permanente las ${selectedRowIds.length} filas seleccionadas del inventario?`,
+      actionType: "delete_selected",
+    });
+  };
+
+  const promptPurgeAll = () => {
+    setConfirmModal({
+      open: true,
+      title: "⚠️ LIMPIAR BASE DE DATOS COMPLETA DE ALMACÉN",
+      message: "¡PRECAUCIÓN! Esta acción vaciará y borrará TODOS los productos y filas cargadas en el inventario. ¿Deseas continuar?",
+      actionType: "purge_all",
+    });
+  };
+
+  const handleExecuteConfirmedAction = () => {
+    if (!confirmModal) return;
+
+    if (confirmModal.actionType === "delete_single" && confirmModal.targetId) {
+      deleteInventoryItem(confirmModal.targetId);
+      setSelectedRowIds((prev) => prev.filter((id) => id !== confirmModal.targetId));
+    } else if (confirmModal.actionType === "delete_selected") {
+      deleteMultipleInventoryItems(selectedRowIds);
+      setSelectedRowIds([]);
+    } else if (confirmModal.actionType === "purge_all") {
+      clearAllInventory();
+      setSelectedRowIds([]);
+    }
+
+    setConfirmModal(null);
+  };
+
   const handleSkuInputChange = (newSku: string) => {
     const uppercaseSku = newSku.trim().toUpperCase();
     setItemForm((prev) => ({ ...prev, sku_barcode: uppercaseSku }));
@@ -123,9 +204,9 @@ export default function AlmacenPage() {
           category: existing.category || "Repuestos",
           unit_price: existing.unit_price,
           initial_stock: existing.initial_stock ?? existing.stock_quantity,
-          entries: 1, // Siempre inicia en 1 para nuevo ingreso
+          entries: 1,
           exits: existing.exits || 0,
-          stock_quantity: existing.stock_quantity + 1, // Nuevo stock proyectado
+          stock_quantity: existing.stock_quantity + 1,
           counted_stock: existing.counted_stock ?? (existing.stock_quantity + 1),
           min_stock_alert: existing.min_stock_alert || 2,
         });
@@ -143,7 +224,7 @@ export default function AlmacenPage() {
       category: "Repuestos GNV/GLP",
       unit_price: 100,
       initial_stock: 0,
-      entries: 1, // Por defecto siempre 1 en entradas
+      entries: 1,
       exits: 0,
       stock_quantity: 1,
       counted_stock: 1,
@@ -169,12 +250,6 @@ export default function AlmacenPage() {
       min_stock_alert: item.min_stock_alert || 2,
     });
     setEditModalOpen(true);
-  };
-
-  const handleDeleteRow = (id: string, name: string) => {
-    if (confirm(`¿Estás seguro de eliminar el producto "${name}" del inventario?`)) {
-      deleteInventoryItem(id);
-    }
   };
 
   const handleSaveItemForm = (e: React.FormEvent) => {
@@ -213,26 +288,37 @@ export default function AlmacenPage() {
     setEditModalOpen(false);
   };
 
+  // Sanitized CSV/Excel file parser preventing binary character corruption & column overflow
   const handleFileUploadExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Check if file is a binary .xlsx file without proper text encoding
+    if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+      alert("⚠️ Ha seleccionado un archivo de Excel binario (.xlsx). Para evitar caracteres extraños o símbolos raros, por favor guarde o exporte su hoja de Excel en formato CSV (.csv) y vuélvalo a cargar.");
+    }
+
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      if (!text) return;
+      let rawText = (evt.target?.result as string) || "";
+      
+      // Clean non-printable binary control characters
+      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
 
-      const lines = text.split(/\r\n|\n/);
+      const lines = rawText.split(/\r\n|\n/);
       const parsedItems: Omit<InventoryItem, "id">[] = [];
 
       lines.forEach((line, idx) => {
-        if (idx === 0 || !line.trim()) return; // skip header or empty lines
-        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+        if (idx === 0 || !line.trim()) return;
+        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1").slice(0, 100));
 
         if (cols.length >= 2) {
+          const cleanSku = cols[0].replace(/[^A-Za-z0-9_-]/g, "") || `SKU-IMP-${idx}`;
+          const cleanName = cols[1] || `Producto ${idx}`;
+
           parsedItems.push({
-            sku_barcode: cols[0] || `SKU-IMP-${idx}`,
-            name: cols[1] || `Producto ${idx}`,
+            sku_barcode: cleanSku,
+            name: cleanName,
             brand: cols[2] || "Genérico",
             serial_number: cols[3] || "S/N",
             unit_price: parseFloat(cols[4]) || 100,
@@ -249,9 +335,9 @@ export default function AlmacenPage() {
 
       if (parsedItems.length > 0) {
         importBulkInventoryItems(parsedItems);
-        alert(`¡Se importaron con éxito ${parsedItems.length} filas desde el archivo!`);
+        alert(`¡Se importaron con éxito ${parsedItems.length} filas limpias desde el archivo!`);
       } else {
-        alert("No se pudieron interpretar productos. Verifique que el archivo CSV/Excel contenga filas con formato separado por comas o tabulaciones.");
+        alert("No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por comas o tabulaciones.");
       }
     };
     reader.readAsText(file);
@@ -324,7 +410,7 @@ export default function AlmacenPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Almacén & Despacho a Taller</h1>
             <p className="text-xs text-gray-400">
-              Notificaciones de repuestos requeridos agrupadas por vehículo, confirmación de recojo y horas de solicitud/entrega.
+              Notificaciones de repuestos requeridos agrupadas por vehículo, selección múltiple y eliminación limpia de inventario.
             </p>
           </div>
         </div>
@@ -379,13 +465,14 @@ export default function AlmacenPage() {
         </div>
       </div>
 
+      {/* TAB 1: PEDIDOS POR VEHICULO */}
       {activeTab === "pedidos" && (
         <div className="space-y-6">
           <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-amber-400" />
-                <span>Solicitudes de Repuestos Agrupadadas por Vehículo</span>
+                <span>Solicitudes de Repuestos Agrupadas por Vehículo</span>
               </div>
               <span className="text-xs text-amber-400 font-bold">
                 {pendingRequisitionsCount} Repuestos Pendientes de Entrega
@@ -406,7 +493,6 @@ export default function AlmacenPage() {
                       key={group.orderId}
                       className="glass-panel p-5 rounded-2xl border border-white/10 space-y-4 hover:border-amber-500/30 transition-all"
                     >
-                      {/* Vehicle Header */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
                         <div className="flex flex-wrap items-center gap-3">
                           <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
@@ -438,7 +524,6 @@ export default function AlmacenPage() {
                         </div>
                       </div>
 
-                      {/* Items List Inside Vehicle Card */}
                       <div className="space-y-2">
                         <span className="text-[11px] font-bold uppercase text-gray-400 block">
                           Lista de Repuestos Asignados para este Vehículo:
@@ -512,24 +597,47 @@ export default function AlmacenPage() {
         </div>
       )}
 
+      {/* TAB 2: INVENTARIO & STOCK CON SELECCION MULTIPLE Y LIMPIEZA */}
       {activeTab === "inventario" && (
         <div className="space-y-6">
           <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <Package className="w-5 h-5 text-emerald-400" />
                   <span>Catálogo de Inventario de Almacén</span>
                 </h2>
                 <p className="text-xs text-gray-400">
-                  Gestión de catálogo, edición/eliminación de filas y carga masiva desde Excel o Google Sheets (CSV).
+                  Selección por casillas (checkboxes), eliminación de filas seleccionadas y vaciado completo de base de datos.
                 </p>
               </div>
 
+              {/* Action Buttons Toolbar */}
               <div className="flex flex-wrap items-center gap-3">
+                {/* Batch Delete Selection Button */}
+                {selectedRowIds.length > 0 && (
+                  <button
+                    onClick={promptDeleteSelected}
+                    className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                  </button>
+                )}
+
+                {/* Clear Database / Purge All Inventory Button */}
+                <button
+                  onClick={promptPurgeAll}
+                  className="px-4 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all"
+                  title="Vaciar y limpiar todo el inventario de la base de datos"
+                >
+                  <ShieldAlert className="w-4 h-4 text-red-400" />
+                  <span>Limpiar Base de Datos Completa</span>
+                </button>
+
                 <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all">
                   <Upload className="w-4 h-4" />
-                  <span>Cargar Excel / Google Sheets (.csv/.xlsx)</span>
+                  <span>Cargar CSV / Excel</span>
                   <input
                     type="file"
                     accept=".csv, .txt, .xlsx, .xls"
@@ -543,7 +651,7 @@ export default function AlmacenPage() {
                   className="px-4 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
                 >
                   <RotateCcw className="w-4 h-4 rotate-180" />
-                  <span>Dar Salida Manual Urgente</span>
+                  <span>Salida Urgente</span>
                 </button>
 
                 <button
@@ -551,20 +659,34 @@ export default function AlmacenPage() {
                   className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
                 >
                   <Plus className="w-4 h-4 text-emerald-400" />
-                  <span>Agregar Producto Manual</span>
+                  <span>Agregar Fila</span>
                 </button>
               </div>
             </div>
 
+            {/* Inventory Table with Overflow Protection & Max Width Truncate */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-gray-300">
+              <table className="w-full text-left text-xs text-gray-300 table-auto">
                 <thead className="bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10">
                   <tr>
-                    <th className="p-3 font-extrabold">CÓDIGO SKU</th>
-                    <th className="p-3 font-extrabold">PRODUCTO</th>
-                    <th className="p-3 font-extrabold">MARCA</th>
-                    <th className="p-3 font-extrabold">SERIE</th>
-                    <th className="p-3 font-extrabold">PRECIO DE VENTA</th>
+                    <th className="p-3 w-10 text-center">
+                      <button
+                        onClick={handleToggleSelectAll}
+                        className="text-gray-400 hover:text-white"
+                        title="Seleccionar todo"
+                      >
+                        {selectedRowIds.length > 0 && selectedRowIds.length === inventoryItems.length ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
+                    <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
+                    <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
+                    <th className="p-3 font-extrabold max-w-[120px]">SERIE</th>
+                    <th className="p-3 font-extrabold">PRECIO VENTA</th>
                     <th className="p-3 font-extrabold">STOCK INICIAL</th>
                     <th className="p-3 font-extrabold">ENTRADAS</th>
                     <th className="p-3 font-extrabold">SALIDAS</th>
@@ -574,57 +696,113 @@ export default function AlmacenPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
-                  {inventoryItems.map((item) => {
-                    const isLow = item.stock_quantity <= item.min_stock_alert;
+                  {inventoryItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="text-center py-12 text-gray-400 space-y-2">
+                        <Package className="w-10 h-10 text-gray-600 mx-auto" />
+                        <p className="font-bold text-sm">El inventario está completamente vacío.</p>
+                        <p className="text-xs text-gray-500">
+                          Utilice el botón "Agregar Fila" o "Cargar CSV / Excel" para añadir productos limpios.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    inventoryItems.map((item) => {
+                      const isLow = item.stock_quantity <= item.min_stock_alert;
+                      const isSelected = selectedRowIds.includes(item.id);
 
-                    return (
-                      <tr key={item.id} className="hover:bg-white/5 transition-colors">
-                        <td className="p-3 font-mono font-bold text-reygas-silver">
-                          {item.sku_barcode}
-                        </td>
-                        <td className="p-3 font-bold text-white">{item.name}</td>
-                        <td className="p-3 text-gray-300">{item.brand || "Generico"}</td>
-                        <td className="p-3 font-mono text-gray-400">{item.serial_number || "S/N"}</td>
-                        <td className="p-3 font-bold text-white font-mono">
-                          S/ {(item.unit_price || 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 font-mono text-gray-300">{item.initial_stock ?? item.stock_quantity}</td>
-                        <td className="p-3 font-mono text-emerald-400 font-bold">+{item.entries || 0}</td>
-                        <td className="p-3 font-mono text-red-400 font-bold">-{item.exits || 0}</td>
-                        <td className="p-3">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${
-                              isLow
-                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                            }`}
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`transition-colors ${
+                            isSelected ? "bg-emerald-950/30" : "hover:bg-white/5"
+                          }`}
+                        >
+                          <td className="p-3 text-center">
+                            <button
+                              onClick={() => handleToggleSelectRow(item.id)}
+                              className="text-gray-400 hover:text-white"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <Square className="w-4 h-4" />
+                              )}
+                            </button>
+                          </td>
+                          <td
+                            className="p-3 font-mono font-bold text-reygas-silver max-w-[140px] truncate"
+                            title={item.sku_barcode}
                           >
-                            {isLow && <AlertTriangle className="w-3 h-3" />}
-                            {item.stock_quantity} unids
-                          </span>
-                        </td>
-                        <td className="p-3 font-mono text-gray-200">{item.counted_stock ?? item.stock_quantity}</td>
-                        <td className="p-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => handleOpenEditModal(item)}
-                              className="p-1.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
-                              title="Editar Fila"
+                            {item.sku_barcode}
+                          </td>
+                          <td
+                            className="p-3 font-bold text-white max-w-[200px] truncate"
+                            title={item.name}
+                          >
+                            {item.name}
+                          </td>
+                          <td
+                            className="p-3 text-gray-300 max-w-[120px] truncate"
+                            title={item.brand || "Genérico"}
+                          >
+                            {item.brand || "Genérico"}
+                          </td>
+                          <td
+                            className="p-3 font-mono text-gray-400 max-w-[120px] truncate"
+                            title={item.serial_number || "S/N"}
+                          >
+                            {item.serial_number || "S/N"}
+                          </td>
+                          <td className="p-3 font-bold text-white font-mono">
+                            S/ {(item.unit_price || 0).toFixed(2)}
+                          </td>
+                          <td className="p-3 font-mono text-gray-300">
+                            {item.initial_stock ?? item.stock_quantity}
+                          </td>
+                          <td className="p-3 font-mono text-emerald-400 font-bold">
+                            +{item.entries || 0}
+                          </td>
+                          <td className="p-3 font-mono text-red-400 font-bold">
+                            -{item.exits || 0}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${
+                                isLow
+                                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                  : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              }`}
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRow(item.id, item.name)}
-                              className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
-                              title="Eliminar Fila"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                              {isLow && <AlertTriangle className="w-3 h-3" />}
+                              {item.stock_quantity} unids
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-gray-200">
+                            {item.counted_stock ?? item.stock_quantity}
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => handleOpenEditModal(item)}
+                                className="p-1.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
+                                title="Editar Fila"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => promptDeleteSingle(item.id, item.name)}
+                                className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                                title="Eliminar Fila"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -632,9 +810,9 @@ export default function AlmacenPage() {
         </div>
       )}
 
+      {/* TAB 3: PRESTAMO HERRAMIENTAS */}
       {activeTab === "herramientas" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* New Loan Form */}
           <div className="lg:col-span-5 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-3">
               <Wrench className="w-5 h-5 text-emerald-400" />
@@ -704,7 +882,6 @@ export default function AlmacenPage() {
             </form>
           </div>
 
-          {/* Active Loans List */}
           <div className="lg:col-span-7 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <UserCheck className="w-5 h-5 text-amber-400" />
@@ -752,6 +929,7 @@ export default function AlmacenPage() {
         </div>
       )}
 
+      {/* TAB 4: SCANNER QR / BARRAS */}
       {activeTab === "scanner" && (
         <div className="max-w-xl mx-auto glass-panel p-8 rounded-3xl border border-white/10 space-y-6 text-center">
           <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
@@ -797,6 +975,45 @@ export default function AlmacenPage() {
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* STYLED CONFIRMATION MODAL (MATCHING APP DESIGN SYSTEM) */}
+      {/* ========================================================================= */}
+      {confirmModal?.open && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-red-500/40 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+              <div className="p-3 rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30">
+                <AlertCircle className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">{confirmModal.title}</h3>
+                <span className="text-[11px] text-gray-400 font-semibold">Ventana de Confirmación Web de Almacén</span>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-200 leading-relaxed font-medium">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setConfirmModal(null)}
+                className="px-5 py-2.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 font-bold rounded-xl text-xs border border-white/10 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleExecuteConfirmedAction}
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-black rounded-xl text-xs shadow-lg shadow-red-600/30 transition-transform hover:scale-105 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sí, Confirmar Eliminación</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit / New Item Modal */}
       {editModalOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -818,7 +1035,7 @@ export default function AlmacenPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    CÓDIGO SKU * <span className="text-[10px] text-amber-400 font-normal">(Escriba para autocompletar)</span>
+                    CÓDIGO SKU * <span className="text-[10px] text-amber-400 font-normal">(Autocompleta)</span>
                   </label>
                   <input
                     type="text"
@@ -897,7 +1114,7 @@ export default function AlmacenPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS (Por defecto: 1)</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS</label>
                   <input
                     type="number"
                     min={0}
@@ -907,7 +1124,7 @@ export default function AlmacenPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS (Vía Pedidos)</label>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS</label>
                   <input
                     type="number"
                     min={0}

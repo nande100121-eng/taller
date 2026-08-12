@@ -14,6 +14,9 @@ import {
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
   fetchSupabaseErpData,
+  deleteSupabaseInventoryItem,
+  deleteMultipleSupabaseInventoryItems,
+  clearSupabaseInventory,
 } from "@/lib/supabase/services";
 
 export interface SiteTheme {
@@ -347,6 +350,8 @@ interface AppState {
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
   updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => void;
   deleteInventoryItem: (id: string) => void;
+  deleteMultipleInventoryItems: (ids: string[]) => void;
+  clearAllInventory: () => void;
   importBulkInventoryItems: (items: Omit<InventoryItem, "id">[]) => void;
   deductStock: (id: string, qty: number) => void;
 
@@ -1119,9 +1124,22 @@ export const useAppStore = create<AppState>()(
       },
 
       deleteInventoryItem: (id) => {
+        deleteSupabaseInventoryItem(id);
         set((state) => ({
           inventoryItems: state.inventoryItems.filter((i) => i.id !== id),
         }));
+      },
+
+      deleteMultipleInventoryItems: (ids) => {
+        deleteMultipleSupabaseInventoryItems(ids);
+        set((state) => ({
+          inventoryItems: state.inventoryItems.filter((i) => !ids.includes(i.id)),
+        }));
+      },
+
+      clearAllInventory: () => {
+        clearSupabaseInventory();
+        set({ inventoryItems: [] });
       },
 
       importBulkInventoryItems: (items) => {
