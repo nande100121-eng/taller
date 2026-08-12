@@ -292,6 +292,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     const { error } = await supabase.from("invoices").upsert({
       id: inv.id,
       work_order_id: inv.work_order_id,
+      vehicle_plate: inv.vehicle_plate || "SN-PLACA",
       labor_fee: inv.labor_fee,
       parts_total: inv.parts_total,
       certification_fee: inv.certification_fee,
@@ -372,6 +373,7 @@ export async function saveSupabaseBulkWorkshopData(
       const invoicesPayload = invoices.map((inv) => ({
         id: inv.id,
         work_order_id: inv.work_order_id,
+        vehicle_plate: inv.vehicle_plate || "SN-PLACA",
         labor_fee: inv.labor_fee,
         parts_total: inv.parts_total,
         certification_fee: inv.certification_fee,
