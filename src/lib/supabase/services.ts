@@ -315,27 +315,41 @@ export async function saveSupabaseInvoice(inv: Invoice) {
   }
 }
 
-// Batch Bulk Upsert for Workshop Data to avoid browser memory crash
+// Chunked Batch Upsert for Workshop Data to avoid Supabase API payload limits & browser memory crash
 export async function saveSupabaseBulkWorkshopData(
   vehicles: Vehicle[],
   orders: WorkOrder[],
   invoices: Invoice[]
 ) {
   try {
+    const CHUNK_SIZE = 250;
+
+    // 1. Vehicles chunked save
     if (vehicles.length > 0) {
-      await supabase.from("vehicles").upsert(vehicles);
+      for (let i = 0; i < vehicles.length; i += CHUNK_SIZE) {
+        const chunk = vehicles.slice(i, i + CHUNK_SIZE);
+        await supabase.from("vehicles").upsert(chunk);
+      }
     }
 
+    // 2. Work Orders chunked save
     if (orders.length > 0) {
       const ordersPayload = orders.map((o) => ({
         ...o,
         items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
       }));
-      await supabase.from("work_orders").upsert(ordersPayload);
+      for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
+        const chunk = ordersPayload.slice(i, i + CHUNK_SIZE);
+        await supabase.from("work_orders").upsert(chunk);
+      }
     }
 
+    // 3. Invoices chunked save
     if (invoices.length > 0) {
-      await supabase.from("invoices").upsert(invoices);
+      for (let i = 0; i < invoices.length; i += CHUNK_SIZE) {
+        const chunk = invoices.slice(i, i + CHUNK_SIZE);
+        await supabase.from("invoices").upsert(chunk);
+      }
     }
   } catch (err) {
     console.warn("Supabase bulk save deferred:", err);
