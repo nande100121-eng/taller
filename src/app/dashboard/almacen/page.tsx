@@ -643,22 +643,29 @@ export default function AlmacenPage() {
           (item) => item.stock_quantity === 0
         );
 
-        const displayInventoryItems = inventoryItems.filter((item) => {
-          const matchesSearch =
-            !inventorySearch ||
-            item.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-            item.sku_barcode.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-            (item.brand || "").toLowerCase().includes(inventorySearch.toLowerCase());
+        const displayInventoryItems = inventoryItems
+          .filter((item) => {
+            const matchesSearch =
+              !inventorySearch ||
+              item.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+              item.sku_barcode.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+              (item.brand || "").toLowerCase().includes(inventorySearch.toLowerCase());
 
-          const matchesStock =
-            stockFilter === "todos"
-              ? true
-              : stockFilter === "bajo"
-              ? item.stock_quantity <= item.min_stock_alert
-              : item.stock_quantity === 0;
+            const matchesStock =
+              stockFilter === "todos"
+                ? true
+                : stockFilter === "bajo"
+                ? item.stock_quantity <= item.min_stock_alert
+                : item.stock_quantity === 0;
 
-          return matchesSearch && matchesStock;
-        });
+            return matchesSearch && matchesStock;
+          })
+          .sort((a, b) =>
+            (a.sku_barcode || "").localeCompare(b.sku_barcode || "", undefined, {
+              numeric: true,
+              sensitivity: "base",
+            })
+          );
 
         return (
           <div className="space-y-6">
