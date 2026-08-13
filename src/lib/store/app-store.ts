@@ -447,6 +447,7 @@ interface AppState {
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
+  mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
 
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
@@ -1507,6 +1508,27 @@ export const useAppStore = create<AppState>()(
           };
         });
         return res;
+      },
+
+      mergeWorkshopRecords: ({ workOrders: newOrders = [], invoices: newInvoices = [], vehicles: newVehicles = [] }) => {
+        set((state) => {
+          if (newOrders.length === 0 && newInvoices.length === 0 && newVehicles.length === 0) return state;
+
+          const existingOrderIds = new Set(state.workOrders.map((o) => o.id));
+          const toAddOrders = newOrders.filter((o) => !existingOrderIds.has(o.id));
+
+          const existingInvoiceIds = new Set(state.invoices.map((i) => i.id));
+          const toAddInvoices = newInvoices.filter((i) => !existingInvoiceIds.has(i.id));
+
+          const existingPlates = new Set(state.vehicles.map((v) => v.plate?.toUpperCase()));
+          const toAddVehicles = newVehicles.filter((v) => !existingPlates.has(v.plate?.toUpperCase()));
+
+          return {
+            workOrders: toAddOrders.length > 0 ? [...toAddOrders, ...state.workOrders] : state.workOrders,
+            invoices: toAddInvoices.length > 0 ? [...toAddInvoices, ...state.invoices] : state.invoices,
+            vehicles: toAddVehicles.length > 0 ? [...toAddVehicles, ...state.vehicles] : state.vehicles,
+          };
+        });
       },
 
       payInvoice: (invoiceId) =>

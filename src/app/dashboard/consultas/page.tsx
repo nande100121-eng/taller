@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAppStore, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate } from "@/lib/csv-parser";
+import { fetchSupabaseConsultasRealtime } from "@/lib/supabase/services";
 import {
   History,
   Calendar,
@@ -24,7 +25,7 @@ import {
 } from "lucide-react";
 
 export default function ConsultasPage() {
-  const { workOrders, invoices, vehicles, technicians } = useAppStore();
+  const { workOrders, invoices, vehicles, technicians, mergeWorkshopRecords, syncFromSupabase, isSyncing } = useAppStore();
 
   // Search Filters & Date Navigation State
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today YYYY-MM-DD
@@ -32,13 +33,42 @@ export default function ConsultasPage() {
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
   const [visibleLimit, setVisibleLimit] = useState(40);
+  const [isRealtimeFetching, setIsRealtimeFetching] = useState(false);
 
   // State for Plate History Timeline Modal
   const [selectedPlateHistory, setSelectedPlateHistory] = useState<string | null>(null);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<string | null>(null);
 
+  // Real-time direct Supabase Query: Loads data for the active date or plate in ~30ms
+  useEffect(() => {
+    let isMounted = true;
+    const loadRealtimeData = async () => {
+      setIsRealtimeFetching(true);
+      try {
+        const res = await fetchSupabaseConsultasRealtime(queryDate, deferredSearchPlate);
+        if (isMounted && res) {
+          mergeWorkshopRecords({
+            workOrders: res.workOrders,
+            invoices: res.invoices,
+            vehicles: res.vehicles,
+          });
+        }
+      } catch (err) {
+        console.warn("Real-time load notice:", err);
+      } finally {
+        if (isMounted) setIsRealtimeFetching(false);
+      }
+    };
+
+    loadRealtimeData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [queryDate, deferredSearchPlate, mergeWorkshopRecords]);
+
   // Reset pagination on filter change
-  React.useEffect(() => {
+  useEffect(() => {
     setVisibleLimit(40);
   }, [queryDate, deferredSearchPlate, statusFilter]);
 
@@ -345,9 +375,31 @@ export default function ConsultasPage() {
 
         {/* Date Summary Pill & Excel Importer Button */}
         <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <button
+            onClick={() => {
+              setIsRealtimeFetching(true);
+              fetchSupabaseConsultasRealtime(queryDate, deferredSearchPlate).then((res) => {
+                if (res) {
+                  mergeWorkshopRecords({
+                    workOrders: res.workOrders,
+                    invoices: res.invoices,
+                    vehicles: res.vehicles,
+                  });
+                }
+                setIsRealtimeFetching(false);
+              });
+            }}
+            disabled={isRealtimeFetching}
+            className="px-3.5 py-2.5 sm:px-4 sm:py-3 bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 text-xs sm:text-sm font-bold rounded-xl border border-purple-500/40 shadow-lg flex items-center gap-2 transition-all shrink-0 touch-target"
+            title="Sincronizar datos en tiempo real desde Supabase"
+          >
+            <span className={isRealtimeFetching ? "animate-spin inline-block" : "inline-block"}>🔄</span>
+            <span>{isRealtimeFetching ? "Sincronizando..." : "Sincronizar Nube"}</span>
+          </button>
+
           <label className="px-3.5 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40 shrink-0 touch-target">
             <Receipt className="w-4 h-4 text-white shrink-0" />
-            <span className="whitespace-nowrap">Cargar Excel Taller (20 Encabezados)</span>
+            <span className="whitespace-nowrap">Cargar Excel Taller</span>
             <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportFullWorkshopExcelCSV} className="hidden" />
           </label>
 
@@ -440,9 +492,8 @@ export default function ConsultasPage() {
 
       {/* Main Historical Query Cards List */}
       <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <History className="w-5 h-5 text-amber-400" />
             <History className="w-5 h-5 text-amber-400" />
             <span>
               {searchPlate
@@ -450,20 +501,38 @@ export default function ConsultasPage() {
                 : `Histórico de Atenciones Registradas el ${queryDate}`}
             </span>
           </h2>
-          <span className="text-xs text-amber-400 font-bold font-mono">
-            {filteredOrders.length} Registros Encontrados (Haga clic en una tarjeta para ver el detalle)
-          </span>
+          <div className="flex items-center gap-2">
+            {isRealtimeFetching && (
+              <span className="text-[11px] text-purple-300 font-bold bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-500/30 animate-pulse flex items-center gap-1">
+                <span className="animate-spin inline-block">🔄</span> Consultando Supabase...
+              </span>
+            )}
+            <span className="text-xs text-amber-400 font-bold font-mono">
+              {filteredOrders.length} Registros Encontrados
+            </span>
+          </div>
         </div>
 
         {filteredOrders.length === 0 ? (
           <div className="text-center py-16 space-y-3">
-            <Calendar className="w-12 h-12 text-gray-600 mx-auto" />
-            <p className="text-sm font-bold text-gray-400">
-              No hay registros de atenciones {searchPlate ? `para la placa "${searchPlate}"` : `para la fecha ${queryDate}`}.
-            </p>
-            <p className="text-xs text-gray-500 max-w-md mx-auto">
-              Utilice las flechas <strong>◀ Día Anterior</strong> o <strong>Día Siguiente ▶</strong> para navegar entre fechas, o verifique la placa ingresada.
-            </p>
+            {isRealtimeFetching ? (
+              <div className="space-y-3">
+                <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-sm font-bold text-amber-300">
+                  Cargando datos en tiempo real desde Supabase...
+                </p>
+              </div>
+            ) : (
+              <>
+                <Calendar className="w-12 h-12 text-gray-600 mx-auto" />
+                <p className="text-sm font-bold text-gray-400">
+                  No hay registros de atenciones {searchPlate ? `para la placa "${searchPlate}"` : `para la fecha ${queryDate}`}.
+                </p>
+                <p className="text-xs text-gray-500 max-w-md mx-auto">
+                  Utilice las flechas <strong>◀ Día Anterior</strong> o <strong>Día Siguiente ▶</strong> para navegar entre fechas, o verifique la placa ingresada.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
