@@ -45,6 +45,9 @@ export default function PorteriaPage() {
   const [ocrSource, setOcrSource] = useState<"camera" | "upload" | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
 
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
   // Status notification message
   const [alertMessage, setAlertMessage] = useState<{ type: "success" | "info" | "warning"; text: string } | null>(null);
 
@@ -53,12 +56,12 @@ export default function PorteriaPage() {
     plate: "",
     brand: "",
     model: "",
-    year: 2022,
+    year: 2023,
     color: "",
     fuel_type: "GNV" as "GNV" | "GLP" | "Gasolina" | "Bifuel",
     owner_name: "",
     owner_phone: "",
-    current_mileage: 50000,
+    current_mileage: 0,
     problem_description: "Ingreso para mantenimiento general y revisión",
   });
 
@@ -68,42 +71,67 @@ export default function PorteriaPage() {
 
   const showAlert = (type: "success" | "info" | "warning", text: string) => {
     setAlertMessage({ type, text });
-    setTimeout(() => setAlertMessage(null), 4000);
+    setTimeout(() => setAlertMessage(null), 5000);
   };
 
   // Search existing vehicle by plate input dynamically
   const handlePlateChange = (newPlate: string) => {
     const uppercasePlate = newPlate.toUpperCase();
-    setEntryForm((prev) => ({ ...prev, plate: uppercasePlate }));
+    const cleanPlate = uppercasePlate.replace(/[^A-Z0-9]/g, "");
 
-    if (uppercasePlate.trim().length >= 5) {
-      const existingVehicle = vehicles.find((v) => v.plate === uppercasePlate);
+    if (cleanPlate.length >= 5) {
+      const existingVehicle = vehicles.find(
+        (v) => v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanPlate
+      );
+
       if (existingVehicle) {
         setEntryForm((prev) => ({
           ...prev,
-          brand: existingVehicle.brand,
-          model: existingVehicle.model,
-          year: existingVehicle.year,
-          color: existingVehicle.color,
-          fuel_type: existingVehicle.fuel_type,
-          owner_name: existingVehicle.owner_name,
-          owner_phone: existingVehicle.owner_phone,
-          current_mileage: existingVehicle.current_mileage || 50000,
+          plate: uppercasePlate,
+          brand: existingVehicle.brand || "",
+          model: existingVehicle.model || "",
+          year: existingVehicle.year || 2023,
+          color: existingVehicle.color || "",
+          fuel_type: existingVehicle.fuel_type || "GNV",
+          owner_name: existingVehicle.owner_name || "",
+          owner_phone: existingVehicle.owner_phone || "",
+          current_mileage: existingVehicle.current_mileage || 0,
         }));
         showAlert("info", `Vehículo ${uppercasePlate} encontrado en el registro. Datos cargados.`);
+        return;
       }
     }
+
+    // IF NOT FOUND or user modifies plate to an unregistered one:
+    // Reset all other fields to blank so it does NOT retain previous vehicle's data
+    setEntryForm((prev) => ({
+      ...prev,
+      plate: uppercasePlate,
+      brand: "",
+      model: "",
+      year: 2023,
+      color: "",
+      fuel_type: "GNV",
+      owner_name: "",
+      owner_phone: "",
+      current_mileage: 0,
+    }));
   };
 
   // Perform AI Camera / Image OCR Scan
   const handleScanOCR = async (imageBase64?: string) => {
+    if (!imageBase64) {
+      showAlert("warning", "Por favor seleccione o capture una fotografía del vehículo.");
+      return;
+    }
+
     setOcrLoading(true);
     try {
       const res = await fetch("/api/ocr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image: imageBase64 || "sample-plate-image",
+          image: imageBase64,
           apiKey: aiSettings?.apiKey,
           provider: aiSettings?.provider,
           model: aiSettings?.model,
@@ -111,55 +139,91 @@ export default function PorteriaPage() {
       });
 
       const result = await res.json();
-      if (result.success && result.data) {
-        const data = result.data;
-        const scannedPlate = (data.plate || "ABC-123").toUpperCase();
+      if (!result.success) {
+        // Clear fields so old data is not retained
+        setEntryForm((prev) => ({
+          ...prev,
+          brand: "",
+          model: "",
+          color: "",
+          owner_name: "",
+          owner_phone: "",
+          current_mileage: 0,
+        }));
+        showAlert("warning", result.error || "No se pudo procesar la imagen con IA. Ingrese la placa manualmente.");
+        return;
+      }
 
-        // 1. Query if vehicle is already registered in Supabase / Store
-        const existingVehicle = vehicles.find((v) => v.plate === scannedPlate);
+      const data = result.data || {};
+      const scannedPlate = (data.plate || "").toUpperCase().trim();
+      const cleanScannedPlate = scannedPlate.replace(/[^A-Z0-9]/g, "");
+
+      // 1. Check if the detected plate exists in database
+      if (cleanScannedPlate.length >= 4) {
+        const existingVehicle = vehicles.find(
+          (v) => v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanScannedPlate
+        );
 
         if (existingVehicle) {
-          // If registered: Pull ALL existing data and leave problem_description for user input
+          // If registered: Pull ALL existing data from database
           setEntryForm((prev) => ({
             ...prev,
-            plate: scannedPlate,
-            brand: existingVehicle.brand,
-            model: existingVehicle.model,
-            year: existingVehicle.year,
-            color: existingVehicle.color,
-            fuel_type: existingVehicle.fuel_type,
-            owner_name: existingVehicle.owner_name,
-            owner_phone: existingVehicle.owner_phone,
-            current_mileage: existingVehicle.current_mileage || 50000,
-            problem_description: prev.problem_description || "", // User enters reason for entry
+            plate: existingVehicle.plate || scannedPlate,
+            brand: existingVehicle.brand || "",
+            model: existingVehicle.model || "",
+            year: existingVehicle.year || 2023,
+            color: existingVehicle.color || "",
+            fuel_type: existingVehicle.fuel_type || "GNV",
+            owner_name: existingVehicle.owner_name || "",
+            owner_phone: existingVehicle.owner_phone || "",
+            current_mileage: existingVehicle.current_mileage || 0,
+            problem_description: prev.problem_description || "Ingreso para mantenimiento general",
           }));
           showAlert(
             "success",
-            `¡Vehículo Registrado! La IA detectó la placa ${scannedPlate}. Se cargaron todos sus datos (${existingVehicle.brand} ${existingVehicle.model}). Por favor ingrese el motivo de ingreso.`
+            `¡Vehículo ${existingVehicle.plate} encontrado en el sistema! Se cargaron automáticamente sus datos (${existingVehicle.brand} ${existingVehicle.model}). Ingrese el motivo de ingreso.`
           );
         } else {
-          // If NOT registered: Add plate and use AI to infer brand, model, color from photo
+          // If NOT registered in DB: Set detected plate, and fill ONLY parameters detected with confidence
           setEntryForm((prev) => ({
             ...prev,
             plate: scannedPlate,
-            brand: data.brand || "Toyota",
-            model: data.model || "Yaris",
+            brand: data.brand || "",
+            model: data.model || "",
             year: 2023,
-            color: data.color || "Plata",
+            color: data.color || "",
             fuel_type: (data.fuel_type as any) || "GNV",
-            owner_name: "", // User enters owner name
-            owner_phone: "", // User enters phone
-            current_mileage: 50000,
-            problem_description: prev.problem_description || "", // User enters reason for entry
+            owner_name: "", // Leave blank for manual entry
+            owner_phone: "", // Leave blank for manual entry
+            current_mileage: 0,
+            problem_description: prev.problem_description || "Ingreso para mantenimiento general",
           }));
           showAlert(
-            "warning",
-            `¡Placa Nueva Detectada (${scannedPlate})! La IA identificó Marca: ${data.brand || "Toyota"}, Modelo: ${data.model || "Yaris"}, Color: ${data.color || "Plata"}. Por favor complete el propietario y motivo de ingreso.`
+            "info",
+            `¡Placa ${scannedPlate} detectada por IA! (Vehículo nuevo). Complete los datos faltantes para registrar el ingreso.`
           );
         }
+      } else {
+        // Plate not clearly detected
+        setEntryForm((prev) => ({
+          ...prev,
+          plate: "",
+          brand: data.brand || "",
+          model: data.model || "",
+          year: 2023,
+          color: data.color || "",
+          fuel_type: (data.fuel_type as any) || "GNV",
+          owner_name: "",
+          owner_phone: "",
+          current_mileage: 0,
+        }));
+        showAlert(
+          "warning",
+          "No se detectó una placa legible en la imagen. Por favor escriba la placa y complete los datos manualmente."
+        );
       }
-    } catch (error) {
-      showAlert("warning", "Error en el escáner OCR. Ingrese la placa manualmente.");
+    } catch (error: any) {
+      showAlert("warning", "Error al conectar con el servicio OCR. Ingrese la placa manualmente.");
     } finally {
       setOcrLoading(false);
       setCameraOpen(false);
@@ -367,7 +431,7 @@ export default function PorteriaPage() {
             <label className="px-3.5 py-2.5 sm:px-4 sm:py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors shrink-0 touch-target">
               <Upload className="w-4 h-4 text-purple-400 shrink-0" />
               <span className="whitespace-nowrap">Subir Foto Placa</span>
-              <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
             </label>
           ) : (
             <button
@@ -380,18 +444,31 @@ export default function PorteriaPage() {
             </button>
           )}
 
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+
           <button
-            onClick={() => handleScanOCR()}
+            onClick={() => {
+              if (hasApiKey) {
+                cameraInputRef.current?.click();
+              }
+            }}
             disabled={!hasApiKey || ocrLoading}
-            title={!hasApiKey ? "Requiere configurar una API Key en Configuración de IA" : "Escanear placa por IA / OCR"}
+            title={!hasApiKey ? "Requiere configurar una API Key en Configuración de IA" : "Capturar con cámara o escanear placa por IA"}
             className={`px-3.5 py-2.5 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-bold rounded-xl border flex items-center gap-2 transition-all shrink-0 touch-target ${
               !hasApiKey
                 ? "bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-50"
                 : "bg-reygas-red hover:bg-red-700 text-white border-red-500/30 shadow-lg shadow-reygas-red/20"
             }`}
           >
-            <Sparkles className={`w-4 h-4 shrink-0 ${ocrLoading ? "animate-spin" : ""}`} />
-            <span className="whitespace-nowrap">{ocrLoading ? "Escaneando con IA..." : !hasApiKey ? "Cámara / IA (Sin API Key)" : "Escaneo OCR Cámara / IA"}</span>
+            <Camera className={`w-4 h-4 shrink-0 ${ocrLoading ? "animate-spin" : ""}`} />
+            <span className="whitespace-nowrap">{ocrLoading ? "Escaneando con IA..." : !hasApiKey ? "Cámara / IA (Sin API Key)" : "Tomar Foto / Escanear IA"}</span>
           </button>
         </div>
       </div>
