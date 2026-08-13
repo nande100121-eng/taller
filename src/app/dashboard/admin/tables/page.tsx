@@ -32,6 +32,7 @@ export default function AdminTablesPage() {
     clearAllWorkOrders,
     isSyncing,
     hasSyncedOnce,
+    syncFromSupabase,
   } = useAppStore();
 
   // Active Tab
@@ -425,6 +426,16 @@ export default function AdminTablesPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => syncFromSupabase()}
+                disabled={isSyncing}
+                className="px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 transition-all border border-indigo-400/30 disabled:opacity-50"
+                title="Sincronizar datos con la base de datos Supabase"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
+                <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
+              </button>
+
               <label className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/30">
                 <Upload className="w-4 h-4 text-white" />
                 <span>Cargar Excel Taller (20 Encabezados)</span>
