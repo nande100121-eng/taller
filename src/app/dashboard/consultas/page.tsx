@@ -123,7 +123,7 @@ export default function ConsultasPage() {
     return map;
   }, [technicians]);
 
-  // Robust pricing & discount resolver for both legacy and current workshop records
+  // Robust pricing, discount & credit resolver for both legacy and current workshop records
   const resolveOrderPricing = React.useCallback(
     (wo: any, invoice?: any) => {
       const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
@@ -140,7 +140,18 @@ export default function ConsultasPage() {
         }
       }
 
-      // 3. Detect legacy import discrepancy (e.g. partsTotal = 530, grand_total = 515)
+      // 3. Check credit amount in invoice
+      let credit = invoice?.credit_amount || 0;
+
+      // 4. Check credit embedded in diagnostic_notes
+      if (credit === 0 && wo.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:")) {
+        const match = wo.diagnostic_notes.match(/\[CREDITO\]:\s*([0-9.]+)/);
+        if (match && match[1]) {
+          credit = parseFloat(match[1]) || 0;
+        }
+      }
+
+      // 5. Detect legacy import discrepancy (e.g. partsTotal = 530, grand_total = 515)
       if (invoice?.grand_total && invoice.grand_total > 0 && invoice.grand_total < partsTotal && discount === 0) {
         discount = Math.round((partsTotal - invoice.grand_total) * 100) / 100;
       }
@@ -153,7 +164,13 @@ export default function ConsultasPage() {
         } else {
           finalAmount = invoice.grand_total;
         }
+      } else if (credit > 0 && finalAmount === 0) {
+        finalAmount = credit + certFee;
       }
+
+      // If this order is on credit:
+      const conditionUpper = (invoice?.payment_condition || "").toUpperCase();
+      const isCredit = credit > 0 || conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE");
 
       // Original base list price before discount:
       const originalSubtotal = discount > 0 ? finalAmount + discount : finalAmount;
@@ -162,6 +179,8 @@ export default function ConsultasPage() {
         partsTotal,
         certFee,
         discountAmount: discount,
+        creditAmount: credit,
+        isCredit,
         finalAmount,
         originalSubtotal,
       };
@@ -309,21 +328,23 @@ export default function ConsultasPage() {
         const price = Math.min(99999, Math.max(0, parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 0));
         const discounts = Math.min(99999, Math.max(0, parseFloat(cols[14]?.replace(/[^0-9.]/g, "")) || 0));
         const credit_amount = Math.min(99999, Math.max(0, parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0));
-        const payment_condition = cols[16] || "Contado";
+        const raw_payment_condition = cols[16] || "";
+        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : "Contado");
         const payment_method = cols[17] || "Efectivo";
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
         const observations = cols[20] || "";
 
+        const is_credit_order = credit_amount > 0 || payment_condition.toUpperCase().includes("CREDIT") || payment_condition.toUpperCase().includes("PENDIENTE");
+        const base_amount = price > 0 ? price : credit_amount;
+        const parts_total = base_amount + discounts;
+        const grand_total = base_amount;
+        const payment_status = is_credit_order && price === 0 ? "pendiente" : "pagado";
+        const order_status = is_credit_order && price === 0 ? "pendiente_pago" : "pagado_autorizado";
+
         const orderId = generateUUID();
         const invoiceId = generateUUID();
-
         const labor_fee = 0;
-        // In Workshop CSV: col[13] (price) is the FINAL COBRADO amount (e.g. 100).
-        // col[14] (discounts) is the discount applied (e.g. 30).
-        // Base subtotal without discount was (price + discounts) = 130.
-        const parts_total = price + discounts;
-        const grand_total = price;
 
         batchVehicles.push({
           plate,
@@ -341,9 +362,9 @@ export default function ConsultasPage() {
         batchWorkOrders.push({
           id: orderId,
           vehicle_plate: plate,
-          status: "pagado_autorizado",
+          status: order_status,
           problem_description: maintenance_service,
-          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
+          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}${discounts > 0 ? ` • [DESCUENTO]: ${discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
           entry_time: dateISO,
           items: spare_parts_services
             ? [
@@ -371,10 +392,10 @@ export default function ConsultasPage() {
           parts_total,
           certification_fee: 0,
           grand_total,
-          payment_status: "pagado",
+          payment_status,
           payment_method,
           issued_at: dateISO,
-          paid_at: dateISO,
+          paid_at: is_credit_order ? undefined : dateISO,
           receipt_number,
           receipt_type,
           discounts,
@@ -636,7 +657,11 @@ export default function ConsultasPage() {
                             {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
                           </span>
 
-                          {isPaid ? (
+                          {pricing.isCredit || pricing.creditAmount > 0 ? (
+                            <span className="text-[11px] font-mono text-amber-300 bg-amber-950/70 px-2.5 py-0.5 rounded-lg border border-amber-500/40 font-extrabold flex items-center gap-1">
+                              <span>🏦</span> <strong>CRÉDITO:</strong> S/ {(pricing.creditAmount > 0 ? pricing.creditAmount : pricing.finalAmount).toFixed(2)}
+                            </span>
+                          ) : isPaid ? (
                             <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
                               💳 <strong>Estado Pago:</strong> PAGADO ✓
                             </span>
@@ -668,7 +693,7 @@ export default function ConsultasPage() {
                             </div>
                           )}
 
-                          {wo.items.map((item) => (
+                          {wo.items.map((item: any) => (
                             <div
                               key={item.id}
                               className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg"
@@ -696,9 +721,13 @@ export default function ConsultasPage() {
                         </div>
                       )}
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                        {pricing.discountAmount > 0 ? "Monto Final Cobrado" : "Total Registrado"}
+                        {pricing.isCredit || pricing.creditAmount > 0
+                          ? "Monto a Crédito"
+                          : pricing.discountAmount > 0
+                          ? "Monto Final Cobrado"
+                          : "Total Registrado"}
                       </span>
-                      <span className="text-3xl font-black text-white font-mono">
+                      <span className={`text-3xl font-black font-mono ${pricing.isCredit || pricing.creditAmount > 0 ? "text-amber-400" : "text-white"}`}>
                         S/ {pricing.finalAmount.toFixed(2)}
                       </span>
                       <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
@@ -804,7 +833,11 @@ export default function ConsultasPage() {
                       </div>
 
                       <div className="flex items-center gap-3 shrink-0">
-                        {isPaid ? (
+                        {pricing.isCredit || pricing.creditAmount > 0 ? (
+                          <span className="text-[11px] font-mono text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-500/40 font-extrabold flex items-center gap-1">
+                            <span>🏦</span> CRÉDITO (S/ {pricing.finalAmount.toFixed(2)})
+                          </span>
+                        ) : isPaid ? (
                           <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold">
                             PAGADO (S/ {pricing.finalAmount.toFixed(2)})
                           </span>
@@ -897,15 +930,22 @@ export default function ConsultasPage() {
                             <div className="space-y-1 text-gray-300">
                               <p>
                                 <strong>Condición & Método:</strong>{" "}
-                                <span className="text-white font-bold">{invoice?.payment_condition || "Contado"} - {invoice?.payment_method || "Efectivo"}</span>
+                                <span className={pricing.isCredit || pricing.creditAmount > 0 ? "text-amber-300 font-bold" : "text-white font-bold"}>
+                                  {pricing.isCredit || pricing.creditAmount > 0 ? "Crédito" : (invoice?.payment_condition || "Contado")} - {invoice?.payment_method || "Efectivo"}
+                                </span>
                               </p>
                               <p>
                                 <strong>Destino de Pago:</strong>{" "}
-                                <span className="text-amber-300 font-bold">{invoice?.payment_destination || "Caja Efectivo"}</span>
+                                <span className="text-amber-300 font-bold">{invoice?.payment_destination || (pricing.isCredit ? "Pendiente Cobro" : "Caja Efectivo")}</span>
                               </p>
                               <p>
                                 <strong>Descuentos / Crédito:</strong>{" "}
-                                <span className="text-gray-300">Desc: S/ {pricing.discountAmount.toFixed(2)} | Crédito: S/ {(invoice?.credit_amount || 0).toFixed(2)}</span>
+                                <span className="text-gray-300">
+                                  Desc: S/ {pricing.discountAmount.toFixed(2)} |{" "}
+                                  <strong className={pricing.creditAmount > 0 ? "text-amber-400 font-mono font-bold" : "text-gray-300 font-mono"}>
+                                    Crédito: S/ {(pricing.creditAmount || invoice?.credit_amount || 0).toFixed(2)}
+                                  </strong>
+                                </span>
                               </p>
                             </div>
                           </div>
