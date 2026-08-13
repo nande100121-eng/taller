@@ -11,10 +11,17 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 1. Immediate sync on page load / mount
     syncFromSupabase();
 
-    // 2. Background interval polling for cross-device synchronization (every 15s to avoid overlap)
+    // 2. Background interval polling (30s interval, skipped while user is actively typing or tab is hidden)
     const interval = setInterval(() => {
+      if (typeof document !== "undefined") {
+        if (document.hidden) return;
+        const activeTag = document.activeElement?.tagName;
+        if (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT") {
+          return; // Skip sync while user is filling out forms or typing search query
+        }
+      }
       syncFromSupabase();
-    }, 15000);
+    }, 30000);
 
     // 3. Supabase Realtime WebSocket listener for immediate instant push events
     const channel = supabase
@@ -23,6 +30,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         "postgres_changes",
         { event: "*", schema: "public" },
         () => {
+          if (typeof document !== "undefined") {
+            const activeTag = document.activeElement?.tagName;
+            if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
+          }
           syncFromSupabase();
         }
       )

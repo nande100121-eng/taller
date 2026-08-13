@@ -229,26 +229,55 @@ export default function AdminTablesPage() {
     reader.readAsText(file);
   };
 
-  // Filter master records
-  const filteredOrders = workOrders.filter((wo) => {
-    if (!searchTerm) return true;
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    const veh = vehicles.find((v) => v.plate === wo.vehicle_plate);
-    const term = searchTerm.toUpperCase();
+  // O(1) Lookup maps for fast linear filtering (prevents O(N^2) lockup on 9,000+ records)
+  const invoicesByWorkOrderId = React.useMemo(() => {
+    const map = new Map<string, (typeof invoices)[0]>();
+    for (let i = 0; i < invoices.length; i++) {
+      const inv = invoices[i];
+      if (inv && inv.work_order_id) {
+        map.set(inv.work_order_id, inv);
+      }
+    }
+    return map;
+  }, [invoices]);
 
-    return (
-      wo.vehicle_plate.includes(term) ||
-      (veh?.owner_name && veh.owner_name.toUpperCase().includes(term)) ||
-      (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
-    );
-  });
+  const vehiclesByPlate = React.useMemo(() => {
+    const map = new Map<string, (typeof vehicles)[0]>();
+    for (let i = 0; i < vehicles.length; i++) {
+      const v = vehicles[i];
+      if (v && v.plate) {
+        map.set(v.plate, v);
+      }
+    }
+    return map;
+  }, [vehicles]);
+
+  // Filter master records with instant memoized lookup
+  const filteredOrders = React.useMemo(() => {
+    if (!searchTerm.trim()) return workOrders;
+    const term = searchTerm.trim().toUpperCase();
+
+    return workOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const veh = vehiclesByPlate.get(wo.vehicle_plate);
+
+      return (
+        (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) ||
+        (veh?.owner_name && veh.owner_name.toUpperCase().includes(term)) ||
+        (inv?.client_name && inv.client_name.toUpperCase().includes(term)) ||
+        (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
+      );
+    });
+  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, searchTerm]);
 
   // Calculate Pagination slice
   const totalItems = filteredOrders.length;
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
-  const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
+  const paginatedOrders = React.useMemo(() => {
+    return filteredOrders.slice(startIndex, endIndex);
+  }, [filteredOrders, startIndex, endIndex]);
 
   // Checkbox selection handlers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {

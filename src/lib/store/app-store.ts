@@ -501,16 +501,45 @@ export const useAppStore = create<AppState>()(
           const cmsData = await fetchSupabaseSiteContent();
           const erpData = await fetchSupabaseErpData();
 
-          set((state) => ({
-            siteContent: cmsData && Object.keys(cmsData).length > 0 ? { ...state.siteContent, ...cmsData } : state.siteContent,
-            technicians: erpData?.technicians !== null && erpData?.technicians !== undefined ? erpData.technicians : state.technicians,
-            inventoryItems: erpData?.inventoryItems !== null && erpData?.inventoryItems !== undefined ? erpData.inventoryItems : state.inventoryItems,
-            workOrders: erpData?.workOrders !== null && erpData?.workOrders !== undefined ? erpData.workOrders : state.workOrders,
-            appointments: erpData?.appointments !== null && erpData?.appointments !== undefined ? erpData.appointments : state.appointments,
-            invoices: erpData?.invoices !== null && erpData?.invoices !== undefined ? erpData.invoices : state.invoices,
-            vehicles: erpData?.vehicles !== null && erpData?.vehicles !== undefined ? erpData.vehicles : state.vehicles,
-            hasSyncedOnce: true,
-          }));
+          set((state) => {
+            const updates: Partial<typeof state> = { hasSyncedOnce: true };
+
+            if (cmsData && Object.keys(cmsData).length > 0) {
+              updates.siteContent = { ...state.siteContent, ...cmsData };
+            }
+            if (erpData?.technicians !== null && erpData?.technicians !== undefined) {
+              if (erpData.technicians.length !== state.technicians.length || !state.hasSyncedOnce) {
+                updates.technicians = erpData.technicians;
+              }
+            }
+            if (erpData?.inventoryItems !== null && erpData?.inventoryItems !== undefined) {
+              if (erpData.inventoryItems.length !== state.inventoryItems.length || !state.hasSyncedOnce) {
+                updates.inventoryItems = erpData.inventoryItems;
+              }
+            }
+            if (erpData?.workOrders !== null && erpData?.workOrders !== undefined) {
+              if (erpData.workOrders.length !== state.workOrders.length || !state.hasSyncedOnce) {
+                updates.workOrders = erpData.workOrders;
+              }
+            }
+            if (erpData?.invoices !== null && erpData?.invoices !== undefined) {
+              if (erpData.invoices.length !== state.invoices.length || !state.hasSyncedOnce) {
+                updates.invoices = erpData.invoices;
+              }
+            }
+            if (erpData?.appointments !== null && erpData?.appointments !== undefined) {
+              if (erpData.appointments.length !== state.appointments.length || !state.hasSyncedOnce) {
+                updates.appointments = erpData.appointments;
+              }
+            }
+            if (erpData?.vehicles !== null && erpData?.vehicles !== undefined) {
+              if (erpData.vehicles.length !== state.vehicles.length || !state.hasSyncedOnce) {
+                updates.vehicles = erpData.vehicles;
+              }
+            }
+
+            return updates;
+          });
         } catch (err) {
           console.warn("Supabase sync warning:", err);
         } finally {

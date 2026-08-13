@@ -51,31 +51,47 @@ export default function ConsultasPage() {
     setQueryDate(new Date().toISOString().slice(0, 10));
   };
 
-  // Filter orders matching the selected date and plate
-  const filteredOrders = workOrders.filter((wo) => {
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+  // O(1) Lookup map for invoices
+  const invoicesByWorkOrderId = React.useMemo(() => {
+    const map = new Map<string, (typeof invoices)[0]>();
+    for (let i = 0; i < invoices.length; i++) {
+      const inv = invoices[i];
+      if (inv && inv.work_order_id) {
+        map.set(inv.work_order_id, inv);
+      }
+    }
+    return map;
+  }, [invoices]);
 
-    // Plate match
-    const matchPlate = searchPlate ? wo.vehicle_plate.includes(searchPlate.toUpperCase()) : true;
+  // Filter orders matching the selected date and plate with memoization
+  const filteredOrders = React.useMemo(() => {
+    const term = searchPlate ? searchPlate.trim().toUpperCase() : "";
 
-    // Status match
-    const matchStatus =
-      statusFilter === "todos" ? true : statusFilter === "pagados" ? isPaid : !isPaid;
+    return workOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
 
-    // Date match comparing entry_time, invoice issued_at or paid_at with selected date
-    const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-    const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-    const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+      // Plate match
+      const matchPlate = term ? (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) : true;
 
-    const matchDate =
-      !queryDate ||
-      orderDateStr === queryDate ||
-      invoiceDateStr === queryDate ||
-      paidDateStr === queryDate;
+      // Status match
+      const matchStatus =
+        statusFilter === "todos" ? true : statusFilter === "pagados" ? isPaid : !isPaid;
 
-    return matchPlate && matchStatus && matchDate;
-  });
+      // Date match comparing entry_time, invoice issued_at or paid_at with selected date
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+
+      const matchDate =
+        !queryDate ||
+        orderDateStr === queryDate ||
+        invoiceDateStr === queryDate ||
+        paidDateStr === queryDate;
+
+      return matchPlate && matchStatus && matchDate;
+    });
+  }, [workOrders, invoicesByWorkOrderId, searchPlate, statusFilter, queryDate]);
 
   // Daily statistics for selected queryDate
   const totalRevenueOnDate = invoices
