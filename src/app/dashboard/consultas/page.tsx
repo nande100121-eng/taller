@@ -1035,7 +1035,11 @@ export default function ConsultasPage() {
                               </>
                             )}
                             <div className="flex justify-between items-center font-bold text-white">
-                              <span>Monto Total Cobrado el {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:</span>
+                              <span>
+                                {pricing.isCredit || pricing.creditAmount > 0
+                                  ? `Monto Total por Cobrar el ${wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:`
+                                  : `Monto Total Cobrado el ${wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:`}
+                              </span>
                               <span className="font-mono text-xl text-amber-400">S/ {pricing.finalAmount.toFixed(2)}</span>
                             </div>
                           </div>
