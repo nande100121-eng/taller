@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useAppStore, InventoryItem } from "@/lib/store/app-store";
+import { parseCSVRows } from "@/lib/csv-parser";
 import {
   Package,
   Barcode,
@@ -329,17 +330,12 @@ export default function AlmacenPage() {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      let rawText = (evt.target?.result as string) || "";
-      
-      // Clean non-printable binary control characters
-      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
-
-      const lines = rawText.split(/\r\n|\n/);
+      const rawText = (evt.target?.result as string) || "";
+      const rows = parseCSVRows(rawText);
       const parsedItems: Omit<InventoryItem, "id">[] = [];
 
-      lines.forEach((line, idx) => {
-        if (idx === 0 || !line.trim()) return;
-        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1").slice(0, 100));
+      rows.forEach((cols, idx) => {
+        if (idx === 0 || cols.length === 0) return;
 
         if (cols.length >= 2) {
           const cleanSku = cols[0].replace(/[^A-Za-z0-9_-]/g, "") || `SKU-IMP-${idx}`;
@@ -350,12 +346,12 @@ export default function AlmacenPage() {
             name: cleanName,
             brand: cols[2] || "Genérico",
             serial_number: cols[3] || "S/N",
-            unit_price: parseFloat(cols[4]) || 100,
-            initial_stock: parseInt(cols[5]) || 10,
-            entries: parseInt(cols[6]) || 0,
-            exits: parseInt(cols[7]) || 0,
-            stock_quantity: parseInt(cols[8]) || (parseInt(cols[5]) || 10),
-            counted_stock: parseInt(cols[9]) || (parseInt(cols[8]) || 10),
+            unit_price: parseFloat(cols[4]?.replace(/[^0-9.]/g, "") || "") || 100,
+            initial_stock: parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 10,
+            entries: parseInt(cols[6]?.replace(/[^0-9]/g, "") || "") || 0,
+            exits: parseInt(cols[7]?.replace(/[^0-9]/g, "") || "") || 0,
+            stock_quantity: parseInt(cols[8]?.replace(/[^0-9]/g, "") || "") || (parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 10),
+            counted_stock: parseInt(cols[9]?.replace(/[^0-9]/g, "") || "") || (parseInt(cols[8]?.replace(/[^0-9]/g, "") || "") || 10),
             category: "Importación Excel",
             min_stock_alert: 2,
           });

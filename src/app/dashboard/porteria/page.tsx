@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useAppStore, Appointment } from "@/lib/store/app-store";
+import { parseCSVRows } from "@/lib/csv-parser";
 import {
   ShieldAlert,
   Car,
@@ -248,51 +249,52 @@ export default function PorteriaPage() {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      let rawText = (evt.target?.result as string) || "";
-      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
-
-      const lines = rawText.split(/\r\n|\n/);
+      const rawText = (evt.target?.result as string) || "";
+      const rows = parseCSVRows(rawText);
       let importedCount = 0;
 
-      lines.forEach((line, idx) => {
-        if (idx === 0 || !line.trim()) return;
-        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+      rows.forEach((cols, idx) => {
+        if (idx === 0 || cols.length === 0) return;
 
-        if (cols.length >= 1 && cols[0]) {
-          const plate = cols[0].toUpperCase().replace(/[^A-Z0-9-]/g, "");
-          if (!plate) return;
+        // If standard 20-col workshop format, plate is in col[6], otherwise col[0]
+        const plateRaw = cols.length >= 7 && cols[6] ? cols[6] : cols[0];
+        if (!plateRaw) return;
 
-          const brand = cols[1] || "Toyota";
-          const model = cols[2] || "Yaris";
-          const year = parseInt(cols[3]) || 2022;
-          const color = cols[4] || "Plata";
-          const fuel_type = (cols[5] as any) || "GNV";
-          const owner_name = cols[6] || "Cliente Importado";
-          const owner_phone = cols[7] || "+51 900000000";
-          const current_mileage = parseInt(cols[8]) || 50000;
-          const problem_description = cols[9] || "Ingreso masivo por importación CSV";
+        const plate = plateRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+        if (!plate || plate.length < 3) return;
 
-          registerVehicle({
-            plate,
-            brand,
-            model,
-            year,
-            color,
-            fuel_type,
-            owner_name,
-            owner_phone,
-            current_mileage,
-            last_visit_date: new Date().toISOString(),
-          });
+        const isFullFormat = cols.length >= 7 && cols[6];
+        const brand = isFullFormat ? cols[4] || "Toyota" : cols[1] || "Toyota";
+        const model = isFullFormat ? "Importado" : cols[2] || "Yaris";
+        const year = isFullFormat ? 2023 : parseInt(cols[3]) || 2023;
+        const color = isFullFormat ? "Plata" : cols[4] || "Plata";
+        const fuel_type = (isFullFormat ? cols[3] : cols[5]) as any || "GNV";
+        const owner_name = isFullFormat ? cols[8] || "Cliente Importado" : cols[6] || "Cliente Importado";
+        const owner_phone = isFullFormat ? cols[9] || "+51 900000000" : cols[7] || "+51 900000000";
+        const mileageRaw = isFullFormat ? cols[5] : cols[8];
+        const current_mileage = parseInt(mileageRaw?.replace(/[^0-9]/g, "") || "") || 0;
+        const problem_description = isFullFormat ? cols[11] || "Ingreso importado" : cols[9] || "Ingreso masivo por importación CSV";
 
-          createWorkOrder({
-            vehicle_plate: plate,
-            status: "ingresado",
-            problem_description,
-          });
+        registerVehicle({
+          plate,
+          brand,
+          model,
+          year,
+          color,
+          fuel_type,
+          owner_name,
+          owner_phone,
+          current_mileage,
+          last_visit_date: new Date().toISOString(),
+        });
 
-          importedCount++;
-        }
+        createWorkOrder({
+          vehicle_plate: plate,
+          status: "ingresado",
+          problem_description,
+        });
+
+        importedCount++;
       });
 
       if (importedCount > 0) {

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, WorkshopService, generateUUID, parseISODate } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, generateUUID } from "@/lib/store/app-store";
+import { parseCSVRows, parseISODate } from "@/lib/csv-parser";
 import {
   Table,
   UserCheck,
@@ -130,10 +131,8 @@ export default function AdminTablesPage() {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      let rawText = (evt.target?.result as string) || "";
-      rawText = rawText.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u024F\u0400-\u04FF]/g, "");
-
-      const lines = rawText.split(/\r\n|\n/);
+      const rawText = (evt.target?.result as string) || "";
+      const rows = parseCSVRows(rawText);
 
       const batchVehicles: any[] = [];
       const batchWorkOrders: any[] = [];
@@ -141,9 +140,8 @@ export default function AdminTablesPage() {
 
       const timestamp = Date.now();
 
-      lines.forEach((line, idx) => {
-        if (idx === 0 || !line.trim()) return;
-        const cols = line.split(/,|\t|;/).map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+      rows.forEach((cols, idx) => {
+        if (idx === 0 || cols.length === 0) return;
 
         const plateRaw = cols[6] || cols[0];
         if (!plateRaw) return;
@@ -156,7 +154,7 @@ export default function AdminTablesPage() {
         const chip_expiry_date = cols[2] || "";
         const fuel_type = (cols[3] as any) || "GNV";
         const brand = cols[4] || "Automóvil";
-        const mileage = Math.min(999999, Math.max(0, parseInt(cols[5]) || 50000));
+        const mileage = Math.min(999999, Math.max(0, parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 0));
         const receipt_number = cols[7] || "";
         const client_name = cols[8] || "Cliente Taller";
         const client_phone = cols[9] || "+51 900000000";
@@ -170,6 +168,7 @@ export default function AdminTablesPage() {
         const payment_method = cols[17] || "Efectivo";
         const payment_destination = cols[18] || "Caja Efectivo";
         const receipt_type = cols[19] || "Boleta";
+        const observations = cols[20] || "";
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
