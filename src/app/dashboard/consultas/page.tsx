@@ -63,11 +63,12 @@ export default function ConsultasPage() {
     return map;
   }, [invoices]);
 
-  // Filter orders matching the selected date and plate with memoization
+  // Filter & sort orders matching the selected date and plate with memoization
   const filteredOrders = React.useMemo(() => {
     const term = searchPlate ? searchPlate.trim().toUpperCase() : "";
 
-    return workOrders.filter((wo) => {
+    // 1. Filter matching records
+    const filtered = workOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
 
@@ -89,7 +90,38 @@ export default function ConsultasPage() {
         invoiceDateStr === queryDate ||
         paidDateStr === queryDate;
 
-      return matchPlate && matchStatus && matchDate;
+      // If user typed a search plate, search across ALL dates for that plate.
+      // Otherwise, restrict to the selected queryDate.
+      if (term) {
+        return matchPlate && matchStatus;
+      } else {
+        return matchPlate && matchStatus && matchDate;
+      }
+    });
+
+    // 2. Sort records:
+    // When searching by plate with an active queryDate:
+    // - Priority 1: Records matching the selected queryDate come FIRST.
+    // - Priority 2: Other dates ordered descending (newest first).
+    return filtered.sort((a, b) => {
+      const invA = invoicesByWorkOrderId.get(a.id);
+      const invB = invoicesByWorkOrderId.get(b.id);
+
+      const dateAStr = a.entry_time ? a.entry_time.slice(0, 10) : (invA?.issued_at ? invA.issued_at.slice(0, 10) : "");
+      const dateBStr = b.entry_time ? b.entry_time.slice(0, 10) : (invB?.issued_at ? invB.issued_at.slice(0, 10) : "");
+
+      const isAQueryDate = queryDate && dateAStr === queryDate;
+      const isBQueryDate = queryDate && dateBStr === queryDate;
+
+      if (term && queryDate) {
+        if (isAQueryDate && !isBQueryDate) return -1;
+        if (!isAQueryDate && isBQueryDate) return 1;
+      }
+
+      // Descending by entry_time timestamp
+      const timeA = a.entry_time ? new Date(a.entry_time).getTime() : 0;
+      const timeB = b.entry_time ? new Date(b.entry_time).getTime() : 0;
+      return timeB - timeA;
     });
   }, [workOrders, invoicesByWorkOrderId, searchPlate, statusFilter, queryDate]);
 
@@ -376,10 +408,15 @@ export default function ConsultasPage() {
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <History className="w-5 h-5 text-amber-400" />
-            <span>Histórico de Atenciones Registradas el {queryDate}</span>
+            <History className="w-5 h-5 text-amber-400" />
+            <span>
+              {searchPlate
+                ? `Histórico de Atenciones para Placa "${searchPlate}"`
+                : `Histórico de Atenciones Registradas el ${queryDate}`}
+            </span>
           </h2>
           <span className="text-xs text-amber-400 font-bold font-mono">
-            {filteredOrders.length} Registros Encontrados (Haga clic en una tarjeta para ver todas sus fechas)
+            {filteredOrders.length} Registros Encontrados (Haga clic en una tarjeta para ver el detalle)
           </span>
         </div>
 
@@ -387,10 +424,10 @@ export default function ConsultasPage() {
           <div className="text-center py-16 space-y-3">
             <Calendar className="w-12 h-12 text-gray-600 mx-auto" />
             <p className="text-sm font-bold text-gray-400">
-              No hay registros de atenciones para la fecha <span className="text-amber-400 font-mono">{queryDate}</span>.
+              No hay registros de atenciones {searchPlate ? `para la placa "${searchPlate}"` : `para la fecha ${queryDate}`}.
             </p>
             <p className="text-xs text-gray-500 max-w-md mx-auto">
-              Utilice las flechas <strong>◀ Día Anterior</strong> o <strong>Día Siguiente ▶</strong> para navegar entre fechas, o limpie la búsqueda por placa.
+              Utilice las flechas <strong>◀ Día Anterior</strong> o <strong>Día Siguiente ▶</strong> para navegar entre fechas, o verifique la placa ingresada.
             </p>
           </div>
         ) : (
@@ -404,6 +441,7 @@ export default function ConsultasPage() {
               const laborFee = 150;
               const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
               const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+              const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
 
               return (
                 <div
@@ -423,9 +461,19 @@ export default function ConsultasPage() {
                             <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow inline-block group-hover:border-amber-400">
                               {wo.vehicle_plate}
                             </span>
-                            <span className="text-[10px] px-2.5 py-1 bg-amber-500/20 text-amber-300 font-extrabold rounded-full border border-amber-500/30">
-                              🔍 Click para Ver Histórico Completo
-                            </span>
+                            {searchPlate && isSelectedDate ? (
+                              <span className="text-[10px] px-2.5 py-1 bg-emerald-500/20 text-emerald-300 font-extrabold rounded-full border border-emerald-500/40 animate-pulse">
+                                ★ Fecha Seleccionada ({queryDate})
+                              </span>
+                            ) : searchPlate && !isSelectedDate ? (
+                              <span className="text-[10px] px-2.5 py-1 bg-indigo-500/20 text-indigo-300 font-extrabold rounded-full border border-indigo-500/40">
+                                📅 Otra Fecha ({wo.entry_time ? wo.entry_time.slice(0, 10) : "Histórico"})
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-2.5 py-1 bg-amber-500/20 text-amber-300 font-extrabold rounded-full border border-amber-500/30">
+                                🔍 Click para Ver Histórico Completo
+                              </span>
+                            )}
                           </div>
                           <span className="text-sm font-bold text-white block break-words">
                             {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
