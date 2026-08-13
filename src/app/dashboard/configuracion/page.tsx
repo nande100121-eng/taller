@@ -41,6 +41,17 @@ export default function ConfiguracionPage() {
     customEndpoint: aiSettings?.customEndpoint || "",
   });
 
+  React.useEffect(() => {
+    if (aiSettings) {
+      setFormData({
+        apiKey: aiSettings.apiKey || "",
+        provider: aiSettings.provider || "openai",
+        model: aiSettings.model || "gpt-4o-mini",
+        customEndpoint: aiSettings.customEndpoint || "",
+      });
+    }
+  }, [aiSettings]);
+
   // Google Drive config state
   const [driveForm, setDriveForm] = useState({
     folderUrl: "https://drive.google.com/drive/folders/1ReyGas_Backup_Empresa_2026",
@@ -56,7 +67,7 @@ export default function ConfiguracionPage() {
     e.preventDefault();
     updateAISettings(formData);
     setTestStatus("success");
-    setTestMsg("¡Configuración guardada exitosamente en el sistema ERP!");
+    setTestMsg("¡Configuración guardada y sincronizada exitosamente en Supabase (Disponible para todos los dispositivos)!");
     setTimeout(() => {
       setTestStatus("idle");
       setTestMsg(null);

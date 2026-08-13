@@ -202,12 +202,22 @@ export interface SiteContent {
   }>;
 }
 
+export interface WorkshopService {
+  id: string;
+  name: string;
+  category?: string;
+  price: number;
+  description?: string;
+  is_active?: boolean;
+}
+
 export interface Technician {
   id: string;
   full_name: string;
   specialty: string;
   phone: string;
   is_active: boolean;
+  allowed_tabs?: string[]; // Allowed dashboard stations / routes for this user
 }
 
 export interface Vehicle {
@@ -236,6 +246,7 @@ export type WorkOrderStatus =
 export interface WorkOrderItem {
   id: string;
   inventory_item_id?: string;
+  item_type?: "repuesto" | "servicio";
   description: string;
   quantity: number;
   unit_price: number;
@@ -252,6 +263,7 @@ export interface WorkOrder {
   assigned_technician_id?: string;
   problem_description: string;
   diagnostic_notes?: string;
+  observations?: string; // OBSERVACIONES ADICIONALES
   entry_time: string;
   completion_time?: string;
   items: WorkOrderItem[];
@@ -360,7 +372,7 @@ interface AppState {
   // Authentication State
   isAuthenticated: boolean;
   userRole: "admin" | "personal" | null;
-  currentUser: { name: string; email: string } | null;
+  currentUser: { name: string; email: string; technician_id?: string; allowed_tabs?: string[] } | null;
   login: (email: string, pass: string) => boolean;
   logout: () => void;
 
@@ -371,6 +383,12 @@ interface AppState {
   // AI Configuration Settings
   aiSettings: AISettings;
   updateAISettings: (settings: Partial<AISettings>) => void;
+
+  // Workshop Services Catalog (Configurable in Tabla Maestra)
+  workshopServices: WorkshopService[];
+  addWorkshopService: (service: Omit<WorkshopService, "id">) => void;
+  updateWorkshopService: (id: string, updates: Partial<WorkshopService>) => void;
+  deleteWorkshopService: (id: string) => void;
 
   // Supabase Fetch Initializer & Full Manual Save
   isSyncing: boolean;
@@ -399,6 +417,7 @@ interface AppState {
   markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   updateDiagnosticNotes: (orderId: string, notes: string) => void;
+  updateDiagnosticAndObservations: (orderId: string, notes: string, observations?: string) => void;
   toggleAllowModificationsInWorkshop: (orderId: string) => void;
   deleteWorkOrder: (id: string) => void;
   deleteMultipleWorkOrders: (ids: string[]) => void;
@@ -459,10 +478,19 @@ export const useAppStore = create<AppState>()(
           });
           return true;
         } else if (email || pass) {
+          // Find matching technician
+          const matchedTech = get().technicians.find(
+            (t) => t.full_name.toLowerCase() === email.toLowerCase() || t.id === pass
+          );
           set({
             isAuthenticated: true,
             userRole: "personal",
-            currentUser: { name: "Operador de Taller", email },
+            currentUser: {
+              name: matchedTech ? matchedTech.full_name : "Operador de Taller",
+              email,
+              technician_id: matchedTech?.id,
+              allowed_tabs: matchedTech?.allowed_tabs,
+            },
             isVisualEditing: false,
           });
           return true;
@@ -487,8 +515,44 @@ export const useAppStore = create<AppState>()(
         model: "gpt-4o-mini",
         customEndpoint: "",
       },
-      updateAISettings: (settings) =>
-        set((state) => ({ aiSettings: { ...state.aiSettings, ...settings } })),
+      updateAISettings: (settings) => {
+        const next = { ...get().aiSettings, ...settings };
+        set({ aiSettings: next });
+        saveSupabaseSiteContent("aiSettings", next);
+      },
+
+      workshopServices: [
+        { id: "ws-1", name: "Mantenimiento General GNV", category: "Mantenimiento", price: 100, description: "Revisión completa de sistema GNV, filtros y regulación" },
+        { id: "ws-2", name: "Mantenimiento General GLP", category: "Mantenimiento", price: 100, description: "Revisión de vaporizador, filtros y calibración GLP" },
+        { id: "ws-3", name: "Diagnóstico Computarizado ECU Gas", category: "Diagnóstico", price: 50, description: "Escaneo de parámetros en tiempo real y corrección de mezclas" },
+        { id: "ws-4", name: "Limpieza y Calibración de Riel de Inyectores", category: "Inyección", price: 80, description: "Limpieza por ultrasonido y verificación de pulsos" },
+        { id: "ws-5", name: "Regulación de Emulador y Variador de Avance", category: "Electrónica", price: 60, description: "Ajuste de tiempos de encendido y emulación" },
+        { id: "ws-6", name: "Cambio de Filtro de Fase Líquida y Gaseosa", category: "Filtros", price: 40, description: "Sustitución e inspección de fugas" },
+        { id: "ws-7", name: "Prueba de Hermeticidad y Detección de Fugas", category: "Seguridad", price: 30, description: "Verificación de tuberías y conexiones de alta presión" },
+      ],
+
+      addWorkshopService: (service) => {
+        const newService: WorkshopService = {
+          ...service,
+          id: `ws-${Date.now()}`,
+          is_active: service.is_active ?? true,
+        };
+        const updated = [...get().workshopServices, newService];
+        set({ workshopServices: updated });
+        saveSupabaseSiteContent("workshopServices", updated);
+      },
+
+      updateWorkshopService: (id, updates) => {
+        const updated = get().workshopServices.map((s) => (s.id === id ? { ...s, ...updates } : s));
+        set({ workshopServices: updated });
+        saveSupabaseSiteContent("workshopServices", updated);
+      },
+
+      deleteWorkshopService: (id) => {
+        const updated = get().workshopServices.filter((s) => s.id !== id);
+        set({ workshopServices: updated });
+        saveSupabaseSiteContent("workshopServices", updated);
+      },
 
       isSyncing: false,
       hasSyncedOnce: false,
@@ -506,33 +570,41 @@ export const useAppStore = create<AppState>()(
 
             if (cmsData && Object.keys(cmsData).length > 0) {
               updates.siteContent = { ...state.siteContent, ...cmsData };
+              // Sync AI Settings from Supabase if present
+              if ((cmsData as any).aiSettings) {
+                updates.aiSettings = { ...state.aiSettings, ...(cmsData as any).aiSettings };
+              }
+              // Sync Workshop Services Catalog from Supabase if present
+              if ((cmsData as any).workshopServices && Array.isArray((cmsData as any).workshopServices)) {
+                updates.workshopServices = (cmsData as any).workshopServices;
+              }
             }
-            if (erpData?.technicians !== null && erpData?.technicians !== undefined) {
+            if (Array.isArray(erpData?.technicians)) {
               if (erpData.technicians.length !== state.technicians.length || !state.hasSyncedOnce) {
                 updates.technicians = erpData.technicians;
               }
             }
-            if (erpData?.inventoryItems !== null && erpData?.inventoryItems !== undefined) {
+            if (Array.isArray(erpData?.inventoryItems)) {
               if (erpData.inventoryItems.length !== state.inventoryItems.length || !state.hasSyncedOnce) {
                 updates.inventoryItems = erpData.inventoryItems;
               }
             }
-            if (erpData?.workOrders !== null && erpData?.workOrders !== undefined) {
+            if (Array.isArray(erpData?.workOrders)) {
               if (erpData.workOrders.length !== state.workOrders.length || !state.hasSyncedOnce) {
                 updates.workOrders = erpData.workOrders;
               }
             }
-            if (erpData?.invoices !== null && erpData?.invoices !== undefined) {
+            if (Array.isArray(erpData?.invoices)) {
               if (erpData.invoices.length !== state.invoices.length || !state.hasSyncedOnce) {
                 updates.invoices = erpData.invoices;
               }
             }
-            if (erpData?.appointments !== null && erpData?.appointments !== undefined) {
+            if (Array.isArray(erpData?.appointments)) {
               if (erpData.appointments.length !== state.appointments.length || !state.hasSyncedOnce) {
                 updates.appointments = erpData.appointments;
               }
             }
-            if (erpData?.vehicles !== null && erpData?.vehicles !== undefined) {
+            if (Array.isArray(erpData?.vehicles)) {
               if (erpData.vehicles.length !== state.vehicles.length || !state.hasSyncedOnce) {
                 updates.vehicles = erpData.vehicles;
               }
@@ -1057,6 +1129,25 @@ export const useAppStore = create<AppState>()(
               const updated = {
                 ...o,
                 diagnostic_notes: notes,
+                status: "en_diagnostico" as WorkOrderStatus,
+              };
+              saveSupabaseWorkOrder(updated);
+              return updated;
+            }
+            return o;
+          });
+          return { workOrders: updatedOrders };
+        });
+      },
+
+      updateDiagnosticAndObservations: (orderId, notes, observations) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === orderId) {
+              const updated = {
+                ...o,
+                diagnostic_notes: notes,
+                observations: observations !== undefined ? observations : o.observations,
                 status: "en_diagnostico" as WorkOrderStatus,
               };
               saveSupabaseWorkOrder(updated);

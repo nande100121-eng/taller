@@ -254,9 +254,8 @@ export default function CajaPage() {
                 const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
                 const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
                 const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                const laborFee = 150;
-                const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
-                const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+                const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
                 const allowModInWorkshop = wo.allow_modifications;
 
                 return (
@@ -311,16 +310,11 @@ export default function CajaPage() {
                           </span>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            <div className="flex justify-between items-center text-gray-300 bg-white/5 p-2 rounded-lg">
-                              <span>🛠️ Mano de Obra Taller:</span>
-                              <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
-                            </div>
-
                             {wo.requires_certification && (
                               <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2 rounded-lg border border-cyan-500/30">
                                 <span>📜 Certificado ({wo.certification_type}):</span>
                                 <span className="font-mono font-bold text-cyan-300">
-                                  S/ {(wo.certification_price || 120).toFixed(2)}
+                                  S/ {(wo.certification_price || 0).toFixed(2)}
                                 </span>
                               </div>
                             )}
@@ -330,9 +324,9 @@ export default function CajaPage() {
                                 key={item.id}
                                 className="flex justify-between items-center text-gray-300 bg-white/5 p-2 rounded-lg"
                               >
-                                <span>📦 {item.description} (x{item.quantity})</span>
+                                <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                                 <span className="font-mono font-bold text-amber-300">
-                                  {item.subtotal > 0 ? `S/ ${item.subtotal.toFixed(2)}` : "En Almacén"}
+                                  {item.subtotal >= 0 ? `S/ ${item.subtotal.toFixed(2)}` : "En Almacén"}
                                 </span>
                               </div>
                             ))}
@@ -392,7 +386,7 @@ export default function CajaPage() {
                                 if (invoice) {
                                   togglePayInvoice(invoice.id);
                                 } else {
-                                  createInvoiceForOrder(wo.id, laborFee, certFee, "Efectivo / Yape");
+                                  createInvoiceForOrder(wo.id, 0, certFee, "Efectivo / Yape");
                                   setTimeout(() => {
                                     const created = invoices.find((i) => i.work_order_id === wo.id);
                                     if (created) payInvoice(created.id);
@@ -463,9 +457,8 @@ export default function CajaPage() {
                 const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
                 const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
                 const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                const laborFee = 150;
-                const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
-                const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+                const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
 
                 return (
                   <div
@@ -517,16 +510,11 @@ export default function CajaPage() {
                           </span>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            <div className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg">
-                              <span>🛠️ Mano de Obra Taller:</span>
-                              <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
-                            </div>
-
                             {wo.requires_certification && (
                               <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2 rounded-lg border border-cyan-500/30">
                                 <span>📜 Certificado ({wo.certification_type}):</span>
                                 <span className="font-mono font-bold text-cyan-300">
-                                  S/ {(wo.certification_price || 120).toFixed(2)}
+                                  S/ {(wo.certification_price || 0).toFixed(2)}
                                 </span>
                               </div>
                             )}
@@ -536,7 +524,7 @@ export default function CajaPage() {
                                 key={item.id}
                                 className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg"
                               >
-                                <span>📦 {item.description} (x{item.quantity})</span>
+                                <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                                 <span className="font-mono font-bold text-amber-300">
                                   S/ {item.subtotal.toFixed(2)}
                                 </span>

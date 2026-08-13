@@ -210,9 +210,9 @@ export default function ConsultasPage() {
         const orderId = generateUUID();
         const invoiceId = generateUUID();
 
-        const labor_fee = Math.min(99999, Math.max(0, price > 150 ? 150 : price));
-        const parts_total = Math.min(99999, Math.max(0, price - labor_fee));
-        const grand_total = Math.min(99999, Math.max(0, price - discounts));
+        const labor_fee = 0;
+        const parts_total = price;
+        const grand_total = Math.max(0, price - discounts);
 
         batchVehicles.push({
           plate,
@@ -438,9 +438,8 @@ export default function ConsultasPage() {
               const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
               const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-              const laborFee = 150;
-              const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
-              const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+              const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+              const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
               const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
 
               return (
@@ -512,16 +511,11 @@ export default function ConsultasPage() {
                         </span>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                          <div className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg">
-                            <span>🛠️ Mano de Obra Taller:</span>
-                            <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
-                          </div>
-
                           {wo.requires_certification && (
                             <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2 rounded-lg border border-cyan-500/30">
                               <span>📜 Certificado ({wo.certification_type}):</span>
                               <span className="font-mono font-bold text-cyan-300">
-                                S/ {(wo.certification_price || 120).toFixed(2)}
+                                S/ {(wo.certification_price || 0).toFixed(2)}
                               </span>
                             </div>
                           )}
@@ -531,7 +525,7 @@ export default function ConsultasPage() {
                               key={item.id}
                               className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg"
                             >
-                              <span>📦 {item.description} (x{item.quantity})</span>
+                              <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                               <span className="font-mono font-bold text-amber-300">
                                 S/ {item.subtotal.toFixed(2)}
                               </span>
@@ -607,9 +601,8 @@ export default function ConsultasPage() {
                 const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
 
                 const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                const laborFee = 150;
-                const certFee = wo.requires_certification ? wo.certification_price || 120 : 0;
-                const grandTotal = invoice?.grand_total || partsTotal + laborFee + certFee;
+                const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
 
                 return (
                   <div
@@ -731,29 +724,24 @@ export default function ConsultasPage() {
                           </span>
 
                           <div className="space-y-2 text-xs">
-                            <div className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5">
-                              <span>🛠️ Servicio de Mano de Obra Taller:</span>
-                              <span className="font-mono font-bold text-white">S/ {laborFee.toFixed(2)}</span>
-                            </div>
-
                             {wo.requires_certification && (
                               <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2.5 rounded-lg border border-cyan-500/30">
                                 <span>📜 Certificado Oficial ({wo.certification_type}):</span>
                                 <span className="font-mono font-bold text-cyan-300">
-                                  S/ {(wo.certification_price || 120).toFixed(2)}
+                                  S/ {(wo.certification_price || 0).toFixed(2)}
                                 </span>
                               </div>
                             )}
 
                             {wo.items.length === 0 ? (
-                              <p className="text-[11px] text-gray-400 italic">No se requirieron repuestos de almacén para este mantenimiento.</p>
+                              <p className="text-[11px] text-gray-400 italic">No se requirieron repuestos o servicios adicionales para este mantenimiento.</p>
                             ) : (
                               wo.items.map((item) => (
                                 <div
                                   key={item.id}
                                   className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5"
                                 >
-                                  <span>📦 {item.description} (x{item.quantity})</span>
+                                  <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                                   <span className="font-mono font-bold text-amber-300">
                                     S/ {item.subtotal.toFixed(2)}
                                   </span>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, generateUUID, parseISODate } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, generateUUID, parseISODate } from "@/lib/store/app-store";
 import {
   Table,
   UserCheck,
@@ -15,8 +15,30 @@ import {
   RefreshCw,
   Receipt,
   Layers,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Wrench,
+  ShieldCheck,
+  Sliders,
+  CheckSquare,
+  Square,
+  Edit3,
+  Check,
+  X
 } from "lucide-react";
+
+const ALL_ERP_STATIONS = [
+  { id: "/dashboard/admin/cms", label: "1. Sitio Web (CMS)" },
+  { id: "/dashboard/porteria", label: "2. Portería" },
+  { id: "/dashboard/recepcion", label: "3. Recepción" },
+  { id: "/dashboard/taller", label: "4. Taller" },
+  { id: "/dashboard/almacen", label: "5. Almacén" },
+  { id: "/dashboard/caja", label: "6. Caja" },
+  { id: "/dashboard/certificaciones", label: "7. Certificaciones" },
+  { id: "/dashboard/asistencia", label: "8. Asistencia" },
+  { id: "/dashboard/consultas", label: "9. Consultas" },
+  { id: "/dashboard/admin/tables", label: "10. Tablas Maestras" },
+  { id: "/dashboard/configuracion", label: "11. Configuración" },
+];
 
 export default function AdminTablesPage() {
   const {
@@ -24,6 +46,10 @@ export default function AdminTablesPage() {
     addTechnician,
     updateTechnician,
     toggleTechnicianActive,
+    workshopServices,
+    addWorkshopService,
+    updateWorkshopService,
+    deleteWorkshopService,
     workOrders,
     invoices,
     vehicles,
@@ -36,7 +62,7 @@ export default function AdminTablesPage() {
   } = useAppStore();
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"taller" | "personal">("taller");
+  const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios">("taller");
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState("");
@@ -148,9 +174,9 @@ export default function AdminTablesPage() {
         const orderId = generateUUID();
         const invoiceId = generateUUID();
 
-        const labor_fee = Math.min(99999, Math.max(0, price > 150 ? 150 : price));
-        const parts_total = Math.min(99999, Math.max(0, price - labor_fee));
-        const grand_total = Math.min(99999, Math.max(0, price - discounts));
+        const labor_fee = 0;
+        const parts_total = price;
+        const grand_total = Math.max(0, price - discounts);
 
         batchVehicles.push({
           plate,
@@ -171,6 +197,7 @@ export default function AdminTablesPage() {
           status: "pagado_autorizado",
           problem_description: maintenance_service,
           diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}`,
+          observations: "",
           entry_time: dateISO,
           items: spare_parts_services
             ? [
@@ -361,36 +388,48 @@ export default function AdminTablesPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="flex items-center gap-2 bg-reygas-dark p-1.5 rounded-xl border border-white/10">
+        <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1.5 rounded-xl border border-white/10">
           <button
             onClick={() => setActiveTab("taller")}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === "taller"
-                ? "bg-indigo-600 text-white shadow-lg"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
                 : "text-gray-400 hover:text-white"
             }`}
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Registros del Taller (20 Encabezados)</span>
+            <span>Registros del Taller (20 Encabezados + Obs)</span>
           </button>
 
           <button
             onClick={() => setActiveTab("personal")}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
               activeTab === "personal"
-                ? "bg-indigo-600 text-white shadow-lg"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
                 : "text-gray-400 hover:text-white"
             }`}
           >
             <UserCheck className="w-4 h-4" />
-            <span>Roster de Personal ({technicians.length})</span>
+            <span>Roster & Permisos de Personal ({technicians.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("servicios")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === "servicios"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            <Wrench className="w-4 h-4" />
+            <span>Catálogo de Servicios de Taller ({workshopServices?.length || 0})</span>
           </button>
         </div>
       </div>
 
       {alertMsg && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold ${
+          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold animate-fadeIn ${
             alertMsg.type === "success"
               ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
               : "bg-amber-950/40 border-amber-500/40 text-amber-300"
@@ -402,13 +441,13 @@ export default function AdminTablesPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 1: WORKSHOP MASTER REGISTRATION TABLE (20 HEADERS) */}
+      {/* TAB 1: WORKSHOP MASTER REGISTRATION TABLE (20 HEADERS + OBSERVACIONES) */}
       {/* ========================================================================= */}
       {activeTab === "taller" && (
         <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
           {/* Controls & Import Toolbar */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <div className="relative">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -420,78 +459,63 @@ export default function AdminTablesPage() {
                 />
               </div>
 
-              <span className="text-xs text-gray-400 font-mono font-bold">
-                {filteredOrders.length} Registros
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
               <button
                 onClick={() => syncFromSupabase()}
                 disabled={isSyncing}
-                className="px-3.5 py-2.5 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 transition-all border border-indigo-400/30 disabled:opacity-50 shrink-0 touch-target"
-                title="Sincronizar datos con la base de datos Supabase"
+                className="px-3.5 py-2 bg-reygas-surface hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all flex items-center gap-1.5 shadow"
+                title="Refrescar datos manualmente desde la base de datos Supabase"
               >
-                <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
-                <span className="whitespace-nowrap">{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
+                <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isSyncing ? "animate-spin" : ""}`} />
+                <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
               </button>
 
-              <label className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/30 shrink-0 touch-target">
-                <Upload className="w-4 h-4 text-white shrink-0" />
-                <span className="whitespace-nowrap">Cargar Excel Taller (20 Encabezados)</span>
+              {selectedIds.length > 0 && (
+                <button
+                  onClick={triggerDeleteBulk}
+                  className="px-3.5 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-red-600/30 animate-pulse"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Eliminar Seleccionados ({selectedIds.length})</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap">
+                <Upload className="w-4 h-4" />
+                <span>Cargar Excel Taller (20 Encabezados)</span>
                 <input
                   type="file"
-                  accept=".csv, .txt, .xlsx, .xls"
+                  accept=".csv,.xlsx,.xls"
                   onChange={handleImportFullWorkshopExcelCSV}
                   className="hidden"
                 />
               </label>
 
-              {selectedIds.length > 0 && (
+              {workOrders.length > 0 && (
                 <button
-                  onClick={triggerDeleteBulk}
-                  className="px-3.5 py-2.5 bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 text-xs sm:text-sm font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg animate-pulse shrink-0 touch-target"
+                  onClick={triggerClearAll}
+                  className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-300 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
+                  title="Eliminar absolutamente todos los registros de la tabla maestra"
                 >
-                  <Trash2 className="w-4 h-4 shrink-0" />
-                  <span className="whitespace-nowrap">Eliminar Seleccionados ({selectedIds.length})</span>
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Vaciar Todo</span>
                 </button>
               )}
-
-              <button
-                onClick={triggerClearAll}
-                className="px-3.5 py-2.5 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 text-xs sm:text-sm font-bold rounded-xl flex items-center gap-2 transition-colors shrink-0 touch-target"
-                title="Limpieza Total de la Tabla Maestra"
-              >
-                <Trash2 className="w-4 h-4 shrink-0" />
-                <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
-              </button>
             </div>
           </div>
 
-          {/* Sync Status Indicator */}
-          {isSyncing && !hasSyncedOnce && (
-            <div className="flex items-center justify-center gap-3 p-6 glass-panel rounded-xl border border-indigo-500/30 animate-pulse">
-              <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
-              <span className="text-indigo-300 font-semibold text-sm">Sincronizando datos desde Supabase... ({workOrders.length} registros cargados)</span>
-            </div>
-          )}
-          {isSyncing && hasSyncedOnce && (
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <RefreshCw className="w-3 h-3 animate-spin" />
-              <span>Actualizando...</span>
-            </div>
-          )}
-
-          {/* Master 20 Column Table Container */}
-          <div className="overflow-x-auto max-h-[600px] border border-white/10 rounded-xl">
-            <table className="w-full text-left text-xs text-gray-300 min-w-[1900px] relative">
-              <thead className="bg-reygas-dark text-[11px] uppercase text-amber-400 sticky top-0 z-20 border-b border-white/10 shadow-md">
+          {/* Master Table Grid */}
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full text-left text-xs text-gray-300 whitespace-nowrap">
+              <thead className="bg-reygas-dark text-[11px] uppercase tracking-wider text-gray-400 border-b border-white/10 sticky top-0 z-10">
                 <tr>
-                  <th className="p-3 w-10 text-center">
+                  <th className="p-3 text-center w-10">
                     <input
                       type="checkbox"
                       checked={
-                        filteredOrders.length > 0 && selectedIds.length === filteredOrders.length
+                        paginatedOrders.length > 0 &&
+                        paginatedOrders.every((o) => selectedIds.includes(o.id))
                       }
                       onChange={handleSelectAll}
                       className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
@@ -510,8 +534,9 @@ export default function AdminTablesPage() {
                   <th className="p-3">Celular</th>
                   <th className="p-3">Técnico</th>
                   <th className="p-3 max-w-[200px]">MANT. GENERAL / SERVICIO</th>
+                  <th className="p-3 max-w-[200px] text-amber-300 font-bold">OBSERVACIONES</th>
                   <th className="p-3 max-w-[200px]">REPUESTOS Y SERVICIOS</th>
-                  <th className="p-3">Precio</th>
+                  <th className="p-3">Precio Total</th>
                   <th className="p-3">DESCUENTOS</th>
                   <th className="p-3">Credito</th>
                   <th className="p-3">Condicion</th>
@@ -524,7 +549,7 @@ export default function AdminTablesPage() {
               <tbody className="divide-y divide-white/5 bg-black/20">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={23} className="text-center py-16 text-gray-500">
+                    <td colSpan={24} className="text-center py-16 text-gray-500">
                       <FileSpreadsheet className="w-12 h-12 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-gray-400">No hay registros cargados en la Tabla Maestra.</p>
                       <p className="text-[11px] text-gray-500">
@@ -539,7 +564,7 @@ export default function AdminTablesPage() {
                     const isSelected = selectedIds.includes(wo.id);
 
                     const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                    const grandTotal = inv?.grand_total || partsTotal + 150;
+                    const grandTotal = inv?.grand_total !== undefined ? inv.grand_total : partsTotal;
 
                     return (
                       <tr
@@ -560,55 +585,26 @@ export default function AdminTablesPage() {
                         <td className="p-3 font-mono text-purple-300">
                           {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : "-"}
                         </td>
-                        <td className="p-3 font-mono text-purple-400 font-bold">
-                          {wo.quinquennial_date || "Vigente"}
-                        </td>
-                        <td className="p-3 font-mono text-cyan-400 font-bold">
-                          {wo.chip_expiry_date || "Vigente"}
-                        </td>
+                        <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || "Vigente"}</td>
+                        <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || "Vigente"}</td>
                         <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || "GNV"}</td>
                         <td className="p-3 text-gray-200">{veh?.brand || "Automóvil"}</td>
                         <td className="p-3 font-mono">{veh?.current_mileage || 50000} KM</td>
-                        <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">
-                          {wo.vehicle_plate}
-                        </td>
-                        <td className="p-3 font-mono text-white">
-                          {inv?.receipt_number || "S/N"}
-                        </td>
-                        <td className="p-3 text-white font-semibold truncate max-w-[150px]">
-                          {veh?.owner_name || inv?.client_name || "Cliente Taller"}
-                        </td>
+                        <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">{wo.vehicle_plate}</td>
+                        <td className="p-3 font-mono text-white">{inv?.receipt_number || "S/N"}</td>
+                        <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || "Cliente Taller"}</td>
                         <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || "S/T"}</td>
-                        <td className="p-3 text-amber-300 font-bold">
-                          {wo.assigned_technician_id || "Mecánico Taller"}
-                        </td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-200">
-                          {wo.general_maintenance_service || wo.problem_description}
-                        </td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-400">
-                          {wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "Ninguno")}
-                        </td>
-                        <td className="p-3 font-mono font-bold text-white">
-                          S/ {grandTotal.toFixed(2)}
-                        </td>
-                        <td className="p-3 font-mono text-gray-400">
-                          S/ {(inv?.discounts || 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 font-mono text-amber-400 font-bold">
-                          S/ {(inv?.credit_amount || 0).toFixed(2)}
-                        </td>
-                        <td className="p-3 font-bold text-gray-200">
-                          {inv?.payment_condition || "Contado"}
-                        </td>
-                        <td className="p-3 text-emerald-300 font-bold">
-                          {inv?.payment_method || "Efectivo"}
-                        </td>
-                        <td className="p-3 text-purple-300">
-                          {inv?.payment_destination || "Caja Efectivo"}
-                        </td>
-                        <td className="p-3 font-bold text-cyan-300">
-                          {inv?.receipt_type || "Boleta"}
-                        </td>
+                        <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || "Mecánico Taller"}</td>
+                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || wo.problem_description}</td>
+                        <td className="p-3 truncate max-w-[200px] text-amber-200/90 font-medium">{wo.observations || "-"}</td>
+                        <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "Ninguno")}</td>
+                        <td className="p-3 font-mono font-bold text-white">S/ {grandTotal.toFixed(2)}</td>
+                        <td className="p-3 font-mono text-gray-400">S/ {(inv?.discounts || 0).toFixed(2)}</td>
+                        <td className="p-3 font-mono text-amber-400 font-bold">S/ {(inv?.credit_amount || 0).toFixed(2)}</td>
+                        <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || "Contado"}</td>
+                        <td className="p-3 text-emerald-300 font-bold">{inv?.payment_method || "Efectivo"}</td>
+                        <td className="p-3 text-purple-300">{inv?.payment_destination || "Caja Efectivo"}</td>
+                        <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || "Boleta"}</td>
                         <td className="p-3 text-center">
                           <button
                             onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
@@ -626,30 +622,27 @@ export default function AdminTablesPage() {
             </table>
           </div>
 
-          {/* Table Pagination Bar Controls */}
+          {/* Pagination Navigation */}
           {filteredOrders.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 glass-panel p-4 rounded-xl border border-white/10 mt-4 text-xs">
-              <div className="text-gray-400 font-medium">
-                Mostrando del <span className="font-bold text-white">#{startIndex + 1}</span> al{" "}
-                <span className="font-bold text-white">#{endIndex}</span> de{" "}
-                <span className="font-bold text-indigo-400">{totalItems}</span> registros totales
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/10 text-xs">
+              <div className="text-gray-400">
+                Mostrando registros <span className="text-white font-bold">{startIndex + 1}</span> a{" "}
+                <span className="text-white font-bold">{Math.min(endIndex, filteredOrders.length)}</span> de{" "}
+                <span className="text-white font-bold">{filteredOrders.length.toLocaleString()}</span> totales
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
+                  disabled={currentPage <= 1}
                   className="px-3.5 py-2 rounded-lg bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
                 >
                   <span>&larr;</span>
                   <span>Anterior (1,000)</span>
                 </button>
-
                 <div className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-gray-300 font-semibold">
-                  Página <span className="text-white font-bold">{currentPage}</span> de{" "}
-                  <span className="text-white font-bold">{totalPages}</span>
+                  Página <span className="text-white font-bold">{currentPage}</span> de <span className="text-white font-bold">{totalPages}</span>
                 </div>
-
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage >= totalPages}
@@ -665,7 +658,7 @@ export default function AdminTablesPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 2: PERSONAL / TECHNICIANS ROSTER TABLE */}
+      {/* TAB 2: PERSONAL & PERMISOS POR PESTAÑA */}
       {/* ========================================================================= */}
       {activeTab === "personal" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -675,105 +668,80 @@ export default function AdminTablesPage() {
               <Plus className="w-5 h-5 text-indigo-400" />
               <span>Registrar Nuevo Personal</span>
             </h2>
-
             <form onSubmit={handleAddTech} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Nombre Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Mario Alvarado"
-                  value={techForm.full_name}
-                  onChange={(e) => setTechForm({ ...techForm, full_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-                />
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Nombre Completo *</label>
+                <input type="text" required placeholder="Ej: Mario Alvarado" value={techForm.full_name} onChange={(e) => setTechForm({ ...techForm, full_name: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Especialidad Principal *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Diagnóstico ECU & Inyección Gas"
-                  value={techForm.specialty}
-                  onChange={(e) => setTechForm({ ...techForm, specialty: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-                />
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Especialidad Principal *</label>
+                <input type="text" required placeholder="Ej: Diagnóstico ECU & Inyección Gas" value={techForm.specialty} onChange={(e) => setTechForm({ ...techForm, specialty: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Teléfono de Contacto
-                </label>
-                <input
-                  type="tel"
-                  placeholder="+51 987654321"
-                  value={techForm.phone}
-                  onChange={(e) => setTechForm({ ...techForm, phone: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
-                />
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Teléfono de Contacto</label>
+                <input type="tel" placeholder="+51 987654321" value={techForm.phone} onChange={(e) => setTechForm({ ...techForm, phone: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
               </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
-              >
+              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" />
                 <span>Agregar a la Lista Maestra</span>
               </button>
             </form>
           </div>
 
-          {/* Technicians Master Grid */}
+          {/* Technicians Master Grid with Permissions Matrix */}
           <div className="lg:col-span-8 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-3">
-              <UserCheck className="w-5 h-5 text-indigo-400" />
-              <span>Roster de Personal (Edición Directa en Celda)</span>
-            </h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-indigo-400" />
+                  <span>Roster de Personal & Control de Pestañas Activas</span>
+                </h2>
+                <p className="text-xs text-gray-400">
+                  Marque o desmarque con check las estaciones operativas a las que tiene acceso cada técnico.
+                </p>
+              </div>
+            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-gray-300">
-                <thead className="bg-reygas-dark text-xs uppercase text-gray-400 border-b border-white/10">
-                  <tr>
-                    <th className="p-3">Nombre del Técnico</th>
-                    <th className="p-3">Especialidad</th>
-                    <th className="p-3">Teléfono (Editable)</th>
-                    <th className="p-3">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {technicians.map((t) => (
-                    <tr key={t.id} className="hover:bg-white/5 transition-colors">
-                      <td className="p-3 font-bold text-white">
-                        <input
-                          type="text"
-                          value={t.full_name}
-                          onChange={(e) => updateTechnician(t.id, { full_name: e.target.value })}
-                          className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-white font-bold rounded"
-                        />
-                      </td>
-                      <td className="p-3 text-xs text-gray-300">
-                        <input
-                          type="text"
-                          value={t.specialty}
-                          onChange={(e) => updateTechnician(t.id, { specialty: e.target.value })}
-                          className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-300 rounded"
-                        />
-                      </td>
-                      <td className="p-3 text-xs font-mono">
-                        <input
-                          type="tel"
-                          value={t.phone || ""}
-                          placeholder="Sin teléfono"
-                          onChange={(e) => updateTechnician(t.id, { phone: e.target.value })}
-                          className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-indigo-300 font-mono rounded"
-                        />
-                      </td>
-                      <td className="p-3">
+            <div className="space-y-4">
+              {technicians.map((t) => {
+                const allowed = t.allowed_tabs || ALL_ERP_STATIONS.map((s) => s.id);
+                const allActive = allowed.length === ALL_ERP_STATIONS.length;
+
+                return (
+                  <div
+                    key={t.id}
+                    className="p-4 rounded-xl bg-reygas-dark/80 border border-white/10 space-y-3 hover:border-indigo-500/40 transition-all"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold text-xs">
+                          {t.full_name.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                            <span>{t.full_name}</span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-gray-300 font-normal">
+                              {t.specialty}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-400 font-mono">
+                            Tel: {t.phone || "Sin teléfono"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newTabs = allActive ? [] : ALL_ERP_STATIONS.map((s) => s.id);
+                            updateTechnician(t.id, { allowed_tabs: newTabs });
+                            showAlert("success", `Permisos de ${t.full_name} actualizados.`);
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors border border-white/10"
+                        >
+                          {allActive ? "Desmarcar Todos" : "Marcar Todos"}
+                        </button>
                         <button
                           onClick={() => toggleTechnicianActive(t.id)}
                           className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
@@ -784,9 +752,169 @@ export default function AdminTablesPage() {
                         >
                           {t.is_active ? "Activo" : "Inactivo"}
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Checkboxes Grid for Stations */}
+                    <div>
+                      <span className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider block mb-2">
+                        Estaciones y Pestañas Permitidas ({allowed.length}/{ALL_ERP_STATIONS.length}):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                        {ALL_ERP_STATIONS.map((station) => {
+                          const isChecked = allowed.includes(station.id);
+                          return (
+                            <label
+                              key={station.id}
+                              className={`flex items-center gap-2 p-2 rounded-lg text-xs font-semibold cursor-pointer border transition-all ${
+                                isChecked
+                                  ? "bg-indigo-950/40 border-indigo-500/50 text-indigo-200"
+                                  : "bg-white/[0.02] border-white/5 text-gray-500 hover:text-gray-300"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  let nextTabs: string[];
+                                  if (isChecked) {
+                                    nextTabs = allowed.filter((s) => s !== station.id);
+                                  } else {
+                                    nextTabs = [...allowed, station.id];
+                                  }
+                                  updateTechnician(t.id, { allowed_tabs: nextTabs });
+                                }}
+                                className="rounded border-gray-600 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <span className="truncate">{station.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: WORKSHOP SERVICES CATALOG (CONFIGURABLE SERVICES & PRICES) */}
+      {/* ========================================================================= */}
+      {activeTab === "servicios" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Service Create / Edit Form */}
+          <div className="lg:col-span-4 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-3">
+              <Wrench className="w-5 h-5 text-indigo-400" />
+              <span>{techForm.full_name ? "Editar Servicio" : "Nuevo Servicio de Taller"}</span>
+            </h2>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const name = (form.elements.namedItem("serviceName") as HTMLInputElement).value;
+                const category = (form.elements.namedItem("serviceCategory") as HTMLInputElement).value;
+                const price = parseFloat((form.elements.namedItem("servicePrice") as HTMLInputElement).value) || 0;
+                const desc = (form.elements.namedItem("serviceDesc") as HTMLTextAreaElement).value;
+
+                addWorkshopService({
+                  name,
+                  category: category || "Mantenimiento",
+                  price,
+                  description: desc,
+                  is_active: true,
+                });
+                showAlert("success", `Servicio "${name}" registrado con precio S/ ${price.toFixed(2)}.`);
+                form.reset();
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Nombre del Servicio de Taller *</label>
+                <input name="serviceName" type="text" required placeholder="Ej: Calibración Computarizada 5ta Gen" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Categoría</label>
+                <input name="serviceCategory" type="text" defaultValue="Mantenimiento" placeholder="Ej: Diagnóstico, Inyección, Calibración..." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Precio Estándar en Taller (S/) *</label>
+                <input name="servicePrice" type="number" step="0.1" min="0" required defaultValue="80" placeholder="0.00" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono focus:border-indigo-400" />
+                <p className="text-[11px] text-gray-400 mt-1">Permite S/ 0 para servicios de cortesía o revisión inicial gratuita.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Descripción / Alcance del Servicio</label>
+                <textarea name="serviceDesc" rows={3} placeholder="Ej: Incluye escaneo de sensores, ajuste de tiempos de inyección y prueba de ruta." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400" />
+              </div>
+              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+                <Plus className="w-4 h-4" />
+                <span>Guardar Servicio en Catálogo</span>
+              </button>
+            </form>
+          </div>
+
+          {/* Services Catalog Master Grid */}
+          <div className="lg:col-span-8 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Wrench className="w-5 h-5 text-indigo-400" />
+                  <span>Catálogo de Servicios Disponibles para Taller</span>
+                </h2>
+                <p className="text-xs text-gray-400">
+                  Los precios configurados aquí aparecerán listados al solicitar servicios desde el tablero Kanban de Taller.
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-left text-xs text-gray-300">
+                <thead className="bg-reygas-dark text-[11px] uppercase tracking-wider text-gray-400 border-b border-white/10">
+                  <tr>
+                    <th className="p-3">Servicio de Taller</th>
+                    <th className="p-3">Categoría</th>
+                    <th className="p-3 font-mono text-amber-300">Precio (S/) (Editable)</th>
+                    <th className="p-3 max-w-[200px]">Descripción</th>
+                    <th className="p-3 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 bg-black/20">
+                  {(workshopServices || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-12 text-gray-500">
+                        No hay servicios registrados en el catálogo. Utilice el formulario lateral para agregar servicios.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    (workshopServices || []).map((srv) => (
+                      <tr key={srv.id} className="hover:bg-white/5 transition-colors">
+                        <td className="p-3 font-bold text-white">
+                          <input type="text" value={srv.name} onChange={(e) => updateWorkshopService(srv.id, { name: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-white font-bold rounded" />
+                        </td>
+                        <td className="p-3 text-gray-300">
+                          <input type="text" value={srv.category || "General"} onChange={(e) => updateWorkshopService(srv.id, { category: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-300 rounded" />
+                        </td>
+                        <td className="p-3 font-mono">
+                          <div className="flex items-center gap-1">
+                            <span className="text-amber-400 font-bold">S/</span>
+                            <input type="number" step="0.1" min="0" value={srv.price} onChange={(e) => updateWorkshopService(srv.id, { price: parseFloat(e.target.value) || 0 })} className="w-24 bg-reygas-surface/80 border border-white/10 hover:border-indigo-400 focus:border-indigo-400 px-2 py-1 text-amber-300 font-mono font-bold rounded" />
+                          </div>
+                        </td>
+                        <td className="p-3 text-gray-400 truncate max-w-[200px]">
+                          <input type="text" value={srv.description || ""} placeholder="Descripción breve..." onChange={(e) => updateWorkshopService(srv.id, { description: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-400 rounded" />
+                        </td>
+                        <td className="p-3 text-center">
+                          <button onClick={() => { deleteWorkshopService(srv.id); showAlert("warning", `Servicio "${srv.name}" eliminado del catálogo.`); }} className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors" title="Eliminar este servicio del catálogo">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -107,6 +107,24 @@ export default function DashboardLayout({
     },
   ];
 
+  // Permission checking
+  const isAdmin = userRole === "admin";
+  const allowedTabs = currentUser?.allowed_tabs || [];
+
+  const visibleSidebarItems = sidebarItems.filter((item) => {
+    if (isAdmin) return true;
+    if (!allowedTabs || allowedTabs.length === 0) return true;
+    return allowedTabs.includes(item.href);
+  });
+
+  const isCurrentPathAllowed = () => {
+    if (isAdmin) return true;
+    if (!allowedTabs || allowedTabs.length === 0) return true;
+    return allowedTabs.some((tab) => pathname === tab || pathname.startsWith(`${tab}/`));
+  };
+
+  const isAuthorized = isCurrentPathAllowed();
+
   return (
     <div className="min-h-screen flex bg-reygas-dark text-white">
       {/* LEFT VERTICAL SIDEBAR FOR DESKTOP & TABLETS */}
@@ -157,7 +175,7 @@ export default function DashboardLayout({
             Estaciones Operativas ERP
           </div>
 
-          {sidebarItems.map((item) => {
+          {visibleSidebarItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
 
@@ -244,7 +262,7 @@ export default function DashboardLayout({
           </div>
 
           <div className="space-y-1 overflow-y-auto flex-1">
-            {sidebarItems.map((item) => {
+            {visibleSidebarItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
 
@@ -266,9 +284,33 @@ export default function DashboardLayout({
         </div>
       )}
 
-      {/* MAIN CONTENT AREA */}
+      {/* MAIN CONTENT AREA WITH ROUTE GUARD */}
       <main className="flex-1 overflow-y-auto pt-16 md:pt-0">
-        {children}
+        {!isAuthorized ? (
+          <div className="max-w-4xl mx-auto px-4 py-16 text-center space-y-6 animate-fadeIn">
+            <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-3xl inline-block text-red-400 shadow-2xl">
+              <ShieldAlert className="w-16 h-16 mx-auto animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-black text-white">403 - Acceso No Autorizado</h1>
+              <p className="text-sm text-gray-400 max-w-md mx-auto">
+                No tienes permisos activos para acceder a esta estación operativa (<strong>{pathname}</strong>).
+                Por favor comunícate con el Administrador para habilitar esta pestaña en la Tabla Maestra de Personal.
+              </p>
+            </div>
+            <div>
+              <Link
+                href={visibleSidebarItems[0]?.href || "/dashboard/taller"}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-reygas-red hover:bg-red-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-reygas-red/30"
+              >
+                <span>Volver a mi Estación Permitida</span>
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        ) : (
+          children
+        )}
       </main>
     </div>
   );

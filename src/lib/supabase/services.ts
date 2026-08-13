@@ -84,6 +84,9 @@ export async function saveSupabaseTechnician(tech: Technician) {
       phone: tech.phone,
       is_active: tech.is_active,
     });
+    if (tech.allowed_tabs) {
+      await saveSupabaseSiteContent(`tech_perms_${tech.id}`, tech.allowed_tabs);
+    }
     if (error) console.warn("Supabase technician save warning:", error.message);
   } catch (err) {
     console.warn("Supabase technician deferred:", err);
@@ -140,17 +143,20 @@ export async function clearSupabaseInventory() {
 // ---------------------------------------------------------------------
 // WORK ORDERS SUPABASE SYNC
 // ---------------------------------------------------------------------
-// WORK ORDERS SUPABASE SYNC
-// ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
+    let diagText = order.diagnostic_notes || "";
+    if (order.observations) {
+      diagText = `${diagText}\n[OBSERVACIONES]: ${order.observations}`.trim();
+    }
+
     const { error } = await supabase.from("work_orders").upsert({
       id: order.id,
       vehicle_plate: order.vehicle_plate || "SN-PLACA",
       status: order.status || "pagado_autorizado",
       assigned_technician_id: order.assigned_technician_id || null,
       problem_description: order.problem_description || "Mantenimiento General",
-      diagnostic_notes: order.diagnostic_notes || null,
+      diagnostic_notes: diagText || null,
       entry_time: order.entry_time || new Date().toISOString(),
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
     });
@@ -178,15 +184,14 @@ export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
   }
 }
 
+export const deleteMultipleSupabaseWorkOrders = deleteSupabaseMultipleWorkOrders;
+
 export async function clearSupabaseWorkOrders() {
   try {
-    const { error: errInvoices } = await supabase.from("invoices").delete().filter("id", "not.is", null);
-    if (errInvoices) console.warn("Supabase clear invoices warning:", errInvoices.message);
-
-    const { error: errOrders } = await supabase.from("work_orders").delete().filter("id", "not.is", null);
-    if (errOrders) console.warn("Supabase clear work orders warning:", errOrders.message);
+    const { error } = await supabase.from("work_orders").delete().neq("id", "");
+    if (error) console.warn("Supabase work orders clear warning:", error.message);
   } catch (err) {
-    console.warn("Supabase clear work orders deferred:", err);
+    console.warn("Supabase work orders clear deferred:", err);
   }
 }
 
@@ -213,66 +218,101 @@ export async function saveSupabaseVehicle(v: Vehicle) {
   }
 }
 
-async function safeQuery(builder: any) {
+async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; error: any }> | any): Promise<{ data: T | null; error: any }> {
   try {
-    return await builder;
-  } catch {
-    return { data: null };
+    return await queryPromise;
+  } catch (err: any) {
+    console.warn("Supabase table query failed (table might not exist in database):", err?.message || err);
+    return { data: null, error: err };
   }
 }
 
-async function fetchAllSupabaseTable(table: string): Promise<any[] | null> {
+// Generic paginated batch fetcher for tables with > 1000 records
+async function fetchAllSupabaseTable(tableName: string) {
   try {
-    let allData: any[] = [];
-    let page = 0;
-    const pageSize = 1000;
+    const PAGE_SIZE = 1000;
+    let allRecords: any[] = [];
+    let from = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-      const { data, error } = await supabase.from(table).select("*").range(from, to);
-      if (error) {
-        console.warn(`Error fetching ${table} page ${page}:`, error.message);
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error || !data || data.length === 0) {
+        hasMore = false;
         break;
       }
-      if (data && data.length > 0) {
-        allData = allData.concat(data);
-        if (data.length < pageSize) {
-          hasMore = false;
-        } else {
-          page++;
-        }
-      } else {
+
+      allRecords = allRecords.concat(data);
+
+      if (data.length < PAGE_SIZE) {
         hasMore = false;
+      } else {
+        from += PAGE_SIZE;
       }
     }
-    return allData.length > 0 ? allData : null;
+
+    return allRecords;
   } catch (err) {
-    console.warn(`Supabase fetchAll ${table} error:`, err);
+    console.warn(`Supabase pagination fetch deferred for table ${tableName}:`, err);
     return null;
   }
 }
 
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData] = await Promise.all([
-      safeQuery(supabase.from("technicians").select("*")),
-      safeQuery(supabase.from("inventory_items").select("*")),
+    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData, contentRes] = await Promise.all([
+      safeQuery<any[]>(supabase.from("technicians").select("*")),
+      safeQuery<any[]>(supabase.from("inventory_items").select("*")),
       fetchAllSupabaseTable("work_orders"),
-      safeQuery(supabase.from("appointments").select("*")),
+      safeQuery<any[]>(supabase.from("appointments").select("*")),
       fetchAllSupabaseTable("invoices"),
       fetchAllSupabaseTable("vehicles"),
+      safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
+    // Build permissions map from site_content if any
+    const permsMap: Record<string, string[]> = {};
+    if (contentRes.data) {
+      contentRes.data.forEach((row: any) => {
+        const k = row.key || row.section_key;
+        if (k && k.startsWith("tech_perms_")) {
+          const techId = k.replace("tech_perms_", "");
+          try {
+            permsMap[techId] = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+          } catch {}
+        }
+      });
+    }
+
     return {
-      technicians: techRes.data ? techRes.data : null,
+      technicians: techRes.data
+        ? techRes.data.map((t: any) => ({
+            ...t,
+            allowed_tabs: permsMap[t.id] || t.allowed_tabs || undefined,
+          }))
+        : null,
       inventoryItems: invRes.data ? invRes.data : null,
       workOrders: orderData
-        ? orderData.map((o: any) => ({
-            ...o,
-            items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
-          }))
+        ? orderData.map((o: any) => {
+            const rawDiag = o.diagnostic_notes || "";
+            let diagNotes = rawDiag;
+            let obs = "";
+            if (rawDiag.includes("[OBSERVACIONES]:")) {
+              const parts = rawDiag.split("[OBSERVACIONES]:");
+              diagNotes = parts[0].trim();
+              obs = parts[1].trim();
+            }
+            return {
+              ...o,
+              diagnostic_notes: diagNotes,
+              observations: obs || o.observations || undefined,
+              items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
+            };
+          })
         : null,
       appointments: appRes.data ? appRes.data : null,
       invoices: invoiceData,
@@ -374,16 +414,22 @@ export async function saveSupabaseBulkWorkshopData(
 
     // 2. Work Orders chunked save (only physical schema columns)
     if (orders.length > 0) {
-      const ordersPayload = orders.map((o) => ({
-        id: o.id,
-        vehicle_plate: o.vehicle_plate || "SN-PLACA",
-        status: o.status || "pagado_autorizado",
-        assigned_technician_id: o.assigned_technician_id || null,
-        problem_description: o.problem_description || "Mantenimiento General",
-        diagnostic_notes: o.diagnostic_notes || null,
-        entry_time: o.entry_time || new Date().toISOString(),
-        items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
-      }));
+      const ordersPayload = orders.map((o) => {
+        let diagText = o.diagnostic_notes || "";
+        if (o.observations && !diagText.includes("[OBSERVACIONES]:")) {
+          diagText = `${diagText}\n[OBSERVACIONES]: ${o.observations}`.trim();
+        }
+        return {
+          id: o.id,
+          vehicle_plate: o.vehicle_plate || "SN-PLACA",
+          status: o.status || "pagado_autorizado",
+          assigned_technician_id: o.assigned_technician_id || null,
+          problem_description: o.problem_description || "Mantenimiento General",
+          diagnostic_notes: diagText || null,
+          entry_time: o.entry_time || new Date().toISOString(),
+          items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
+        };
+      });
 
       for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
         const chunk = ordersPayload.slice(i, i + CHUNK_SIZE);

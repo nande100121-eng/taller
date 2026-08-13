@@ -35,10 +35,12 @@ export default function TallerPage() {
     technicians,
     vehicles,
     inventoryItems,
+    workshopServices,
     invoices,
     addWorkOrderItem,
     removeWorkOrderItem,
     updateDiagnosticNotes,
+    updateDiagnosticAndObservations,
     requestCertificationForWorkOrder,
   } = useAppStore();
 
@@ -51,9 +53,18 @@ export default function TallerPage() {
 
   // Form states inside modals
   const [diagnosticText, setDiagnosticText] = useState("");
+  const [observationsText, setObservationsText] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
   const [certType, setCertType] = useState<"Anual GNV" | "Anual GLP" | "Prueba Hidrostática">("Anual GNV");
   const [certPrice, setCertPrice] = useState<number>(120);
+
+  // Requisition form state (Spare parts from inventory, services from catalog, or custom item)
+  const [requisitionType, setRequisitionType] = useState<"repuesto" | "servicio" | "manual">("repuesto");
+  const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "");
+  const [selectedServiceId, setSelectedServiceId] = useState(workshopServices[0]?.id || "");
+  const [customItemName, setCustomItemName] = useState("");
+  const [customItemPrice, setCustomItemPrice] = useState<number>(0);
+  const [partQty, setPartQty] = useState(1);
 
   const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
     { status: "ingresado", label: "1. Ingresado", color: "bg-blue-500" },
@@ -63,17 +74,21 @@ export default function TallerPage() {
     { status: "por_cobrar", label: "5. Por Cobrar", color: "bg-emerald-500" },
   ];
 
-  const handleOpenDiagnostic = (orderId: string, currentNotes?: string) => {
+  const handleOpenDiagnostic = (orderId: string, currentNotes?: string, currentObservations?: string) => {
     setActiveOrderModal(orderId);
     setModalMode("diagnostic");
     setDiagnosticText(currentNotes || "");
+    setObservationsText(currentObservations || "");
   };
 
   const handleOpenParts = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("parts");
-    setIsCustomPart(false);
-    setCustomPartName("");
+    setRequisitionType("repuesto");
+    setSelectedInventoryId(inventoryItems[0]?.id || "");
+    setSelectedServiceId(workshopServices[0]?.id || "");
+    setCustomItemName("");
+    setCustomItemPrice(0);
     setPartQty(1);
   };
 
@@ -103,42 +118,49 @@ export default function TallerPage() {
     }
   };
 
-  // Requisition form (Catalog or Custom text)
-  const [isCustomPart, setIsCustomPart] = useState(false);
-  const [selectedInventoryId, setSelectedInventoryId] = useState(inventoryItems[0]?.id || "custom");
-  const [customPartName, setCustomPartName] = useState("");
-  const [partQty, setPartQty] = useState(1);
-
   const handleSaveDiagnostic = () => {
     if (activeOrderModal) {
-      // Automatic status switch to "en_diagnostico" upon adding/modifying diagnostic
-      updateDiagnosticNotes(activeOrderModal, diagnosticText);
+      updateDiagnosticAndObservations(activeOrderModal, diagnosticText, observationsText);
       setActiveOrderModal(null);
     }
   };
 
-  const handleAddPartRequisition = () => {
+  const handleAddRequisition = () => {
     if (!activeOrderModal) return;
 
-    if (isCustomPart) {
-      if (!customPartName.trim()) return;
-      addWorkOrderItem(activeOrderModal, {
-        description: customPartName.trim(),
-        quantity: Number(partQty),
-        unit_price: 0,
-      });
-      updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
-    } else {
+    if (requisitionType === "repuesto") {
       const item = inventoryItems.find((i) => i.id === selectedInventoryId);
       if (item) {
         addWorkOrderItem(activeOrderModal, {
           inventory_item_id: item.id,
+          item_type: "repuesto",
           description: item.name,
           quantity: Number(partQty),
           unit_price: item.unit_price || 0,
         });
         updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
       }
+    } else if (requisitionType === "servicio") {
+      const srv = workshopServices.find((s) => s.id === selectedServiceId);
+      if (srv) {
+        addWorkOrderItem(activeOrderModal, {
+          item_type: "servicio",
+          description: srv.name,
+          quantity: Number(partQty),
+          unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
+        });
+        updateWorkOrderStatus(activeOrderModal, "en_servicio");
+      }
+    } else {
+      // Manual item or service
+      if (!customItemName.trim()) return;
+      addWorkOrderItem(activeOrderModal, {
+        item_type: "servicio",
+        description: customItemName.trim(),
+        quantity: Number(partQty),
+        unit_price: Number(customItemPrice) || 0,
+      });
+      updateWorkOrderStatus(activeOrderModal, "en_servicio");
     }
     setActiveOrderModal(null);
   };
@@ -315,22 +337,46 @@ export default function TallerPage() {
                       <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
                     </div>
 
-                    {/* Diagnostic Notes */}
-                    <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
-                      <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
-                        <span>Diagnóstico Técnico ECU:</span>
-                        {!isLocked && (
-                          <button
-                            onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
-                            className="text-[10px] text-purple-300 hover:text-white underline font-normal"
-                          >
-                            {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
-                          </button>
-                        )}
-                      </span>
-                      <p className="mt-0.5 text-xs italic">
-                        {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
-                      </p>
+                    {/* Diagnostic Notes & Observations */}
+                    <div className="space-y-2">
+                      <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
+                        <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Diagnóstico Técnico ECU:</span>
+                          </span>
+                          {!isLocked && (
+                            <button
+                              onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                              className="text-[10px] text-purple-300 hover:text-white underline font-normal"
+                            >
+                              {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
+                            </button>
+                          )}
+                        </span>
+                        <p className="mt-0.5 text-xs italic">
+                          {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
+                        </p>
+                      </div>
+
+                      {wo.observations && (
+                        <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 space-y-1">
+                          <span className="font-bold text-amber-400 block text-[11px] uppercase flex items-center justify-between">
+                            <span>Observaciones Adicionales:</span>
+                            {!isLocked && (
+                              <button
+                                onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                                className="text-[10px] text-amber-300 hover:text-white underline font-normal"
+                              >
+                                Editar Observaciones
+                              </button>
+                            )}
+                          </span>
+                          <p className="mt-0.5 text-xs">
+                            {wo.observations}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
@@ -359,13 +405,13 @@ export default function TallerPage() {
                     </div>
                   </div>
 
-                  {/* Right Column: REPUESTOS SOLICITADOS A ALMACEN & DEBAJO SERVICIO DE CERTIFICADO */}
+                  {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS & CERTIFICACION */}
                   <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
                     {/* Action buttons toolbar */}
                     {!isLocked && (
                       <div className="grid grid-cols-3 gap-2">
                         <button
-                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes)}
+                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
                           className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors"
                         >
                           <Cpu className="w-3.5 h-3.5" />
@@ -377,7 +423,7 @@ export default function TallerPage() {
                           className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors"
                         >
                           <PackagePlus className="w-3.5 h-3.5" />
-                          <span>Pedir Repuestos</span>
+                          <span>Pedir Repuesto/Servicio</span>
                         </button>
 
                         <button
@@ -394,19 +440,19 @@ export default function TallerPage() {
                       </div>
                     )}
 
-                    {/* REQUERIMIENTO #1: SECCION DE REPUESTOS SOLICITADOS */}
+                    {/* REQUERIMIENTO: SECCION DE REPUESTOS Y SERVICIOS SOLICITADOS */}
                     <div className="space-y-2 p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] uppercase font-bold text-amber-400">
-                          Repuestos Solicitados a Almacén ({wo.items.length}):
+                          Repuestos & Servicios Solicitados ({wo.items.length}):
                         </span>
                         <span className="text-xs font-mono font-bold text-white">
-                          Total: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0)}
+                          Total: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2)}
                         </span>
                       </div>
 
                       {wo.items.length === 0 ? (
-                        <p className="text-[11px] text-gray-500 italic">No hay repuestos solicitados aún.</p>
+                        <p className="text-[11px] text-gray-500 italic">No hay repuestos o servicios solicitados aún.</p>
                       ) : (
                         <div className="space-y-1 max-h-[150px] overflow-y-auto pr-1">
                           {wo.items.map((item) => (
@@ -415,7 +461,11 @@ export default function TallerPage() {
                               className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 flex items-center justify-between text-xs gap-2"
                             >
                               <div className="flex items-center gap-2 overflow-hidden">
-                                <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                {item.item_type === "servicio" ? (
+                                  <Wrench className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                ) : (
+                                  <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                )}
                                 <span className="text-white font-semibold truncate">{item.description}</span>
                                 <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
                                   x{item.quantity}
@@ -431,12 +481,12 @@ export default function TallerPage() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal}</span>
+                                <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal.toFixed(2)}</span>
                                 {!isLocked && (
                                   <button
                                     onClick={() => removeWorkOrderItem(wo.id, item.id)}
                                     className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                                    title="Quitar repuesto"
+                                    title="Quitar ítem"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -448,20 +498,20 @@ export default function TallerPage() {
                       )}
                     </div>
 
-                    {/* REQUERIMIENTO #1: SERVICIO DE CERTIFICADO DEBAJO DE REPUESTOS SOLICITADOS */}
+                    {/* SERVICIO DE CERTIFICADO DEBAJO DE REPUESTOS SOLICITADOS */}
                     {wo.requires_certification ? (
                       <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/40 space-y-1 text-xs">
                         <div className="flex items-center justify-between">
                           <span className="text-cyan-300 font-bold flex items-center gap-1.5">
                             <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                            <span>Servicio de Certificación DEBAJO de Repuestos</span>
+                            <span>Servicio de Certificación</span>
                           </span>
                           <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
                             S/ {(wo.certification_price || 0).toFixed(2)}
                           </span>
                         </div>
                         <p className="text-[11px] text-cyan-200">
-                          Tipo: <strong>{wo.certification_type}</strong> • State:{" "}
+                          Tipo: <strong>{wo.certification_type}</strong> • Estado:{" "}
                           {wo.certification_issued ? "✅ Emitido en Certificaciones" : "⏳ Notificado y Pendiente"}
                         </p>
                       </div>
@@ -493,13 +543,13 @@ export default function TallerPage() {
                 {modalMode === "diagnostic" && (
                   <>
                     <Cpu className="w-5 h-5 text-purple-400" />
-                    <span>Registrar / Editar Diagnóstico de Falla ECU</span>
+                    <span>Diagnóstico Técnico & Observaciones</span>
                   </>
                 )}
                 {modalMode === "parts" && (
                   <>
                     <PackagePlus className="w-5 h-5 text-amber-400" />
-                    <span>Solicitar Repuestos a Almacén</span>
+                    <span>Solicitar Repuesto o Servicio de Taller</span>
                   </>
                 )}
                 {modalMode === "certificate" && (
@@ -555,7 +605,7 @@ export default function TallerPage() {
                   className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Guardar Servicio de Certificado Debajo de Repuestos</span>
+                  <span>Guardar Servicio de Certificado</span>
                 </button>
               </div>
             )}
@@ -563,54 +613,94 @@ export default function TallerPage() {
             {modalMode === "diagnostic" && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-2">
-                    Notas y Códigos de Error Escáner OBD2 / ECU
+                  <label className="block text-xs font-medium text-purple-300 mb-1">
+                    1. Notas y Códigos de Error Escáner OBD2 / ECU Gas
                   </label>
                   <textarea
-                    rows={4}
-                    placeholder="Ej. Código P0300 Misfire detectado en cilindro 2. Inyector de gas tapado."
+                    rows={3}
+                    placeholder="Ej. Código P0300 Misfire detectado en cilindro 2. Inyector de gas con pulsos irregulares."
                     value={diagnosticText}
                     onChange={(e) => setDiagnosticText(e.target.value)}
                     className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-purple-400"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-amber-300 mb-1">
+                    2. Observaciones Generales / Recomendaciones al Cliente
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Ej. Se recomienda cambio preventivo de bujías y filtro de fase gaseosa en próximo mantenimiento."
+                    value={observationsText}
+                    onChange={(e) => setObservationsText(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                  />
+                </div>
+
                 <button
                   onClick={handleSaveDiagnostic}
                   className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-sm transition-colors"
                 >
-                  Guardar Diagnóstico y Seleccionar Estado "2. En Diagnóstico"
+                  Guardar Diagnóstico y Observaciones
                 </button>
               </div>
             )}
 
             {modalMode === "parts" && (
               <div className="space-y-4">
-                {/* Mode Selector: Catalog vs Custom */}
-                <div className="flex items-center gap-2 p-1 bg-reygas-dark rounded-xl border border-white/10 text-xs">
+                {/* 3-Way Mode Selector: Inventario vs Servicio de Catálogo vs Manual */}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-reygas-dark rounded-xl border border-white/10 text-xs">
                   <button
                     type="button"
-                    onClick={() => setIsCustomPart(false)}
-                    className={`flex-1 py-2 rounded-lg font-bold transition-all ${
-                      !isCustomPart ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                    onClick={() => {
+                      setRequisitionType("repuesto");
+                      if (inventoryItems.length > 0 && !selectedInventoryId) {
+                        setSelectedInventoryId(inventoryItems[0].id);
+                      }
+                    }}
+                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
+                      requisitionType === "repuesto"
+                        ? "bg-amber-500 text-black shadow"
+                        : "text-gray-400 hover:text-white"
                     }`}
                   >
-                    Seleccionar de Inventario
+                    Repuesto Almacén
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsCustomPart(true)}
-                    className={`flex-1 py-2 rounded-lg font-bold transition-all ${
-                      isCustomPart ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                    onClick={() => {
+                      setRequisitionType("servicio");
+                      if (workshopServices.length > 0 && !selectedServiceId) {
+                        setSelectedServiceId(workshopServices[0].id);
+                        setCustomItemPrice(workshopServices[0].price);
+                      }
+                    }}
+                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
+                      requisitionType === "servicio"
+                        ? "bg-indigo-600 text-white shadow"
+                        : "text-gray-400 hover:text-white"
                     }`}
                   >
-                    Ingreso Libre (Repuesto Especial)
+                    Servicio Catálogo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequisitionType("manual")}
+                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
+                      requisitionType === "manual"
+                        ? "bg-teal-600 text-white shadow"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    Concepto Libre
                   </button>
                 </div>
 
-                {!isCustomPart ? (
+                {requisitionType === "repuesto" && (
                   <div>
                     <label className="block text-xs font-medium text-gray-300 mb-2">
-                      Seleccionar Producto del Catálogo de Almacén
+                      Seleccionar Repuesto del Inventario de Almacén
                     </label>
                     <select
                       value={selectedInventoryId}
@@ -624,19 +714,81 @@ export default function TallerPage() {
                       ))}
                     </select>
                   </div>
-                ) : (
+                )}
+
+                {requisitionType === "servicio" && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-2">
+                        Seleccionar Servicio del Catálogo de Taller
+                      </label>
+                      <select
+                        value={selectedServiceId}
+                        onChange={(e) => {
+                          const srv = workshopServices.find((s) => s.id === e.target.value);
+                          setSelectedServiceId(e.target.value);
+                          if (srv) setCustomItemPrice(srv.price);
+                        }}
+                        className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400"
+                      >
+                        {workshopServices.map((srv) => (
+                          <option key={srv.id} value={srv.id}>
+                            {srv.name} ({srv.category || "Taller"}) - Precio Base: S/ {srv.price}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Precio Asignado al Servicio (S/) *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={customItemPrice}
+                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Puede ingresar S/ 0 si el servicio no tiene costo adicional.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {requisitionType === "manual" && (
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-300 mb-1">
-                        Nombre / Descripción del Repuesto Especial *
+                        Nombre / Descripción del Concepto *
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej. Kit Inyectores Hana de 4 Cilindros con Adaptador"
-                        value={customPartName}
-                        onChange={(e) => setCustomPartName(e.target.value)}
-                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
+                        placeholder="Ej. Reparación especial de cableado de sensor MAP"
+                        value={customItemName}
+                        onChange={(e) => setCustomItemName(e.target.value)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-teal-400"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Precio del Concepto (S/) *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={customItemPrice}
+                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        placeholder="0.00"
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-teal-400"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Permite S/ 0 para servicios de cortesía o revisión.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -653,11 +805,11 @@ export default function TallerPage() {
                 </div>
 
                 <button
-                  onClick={handleAddPartRequisition}
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+                  onClick={handleAddRequisition}
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg"
                 >
                   <PackagePlus className="w-4 h-4" />
-                  <span>Notificar y Enviar Pedido a Almacén</span>
+                  <span>Registrar y Asignar a la Orden de Trabajo</span>
                 </button>
               </div>
             )}
