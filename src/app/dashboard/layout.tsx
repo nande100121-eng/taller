@@ -109,10 +109,10 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen flex bg-reygas-dark text-white">
-      {/* LEFT VERTICAL SIDEBAR FOR DESKTOP */}
+      {/* LEFT VERTICAL SIDEBAR FOR DESKTOP & TABLETS */}
       <aside
         className={`hidden md:flex flex-col border-r border-white/10 glass-panel transition-all duration-300 z-40 sticky top-0 h-screen ${
-          sidebarCollapsed ? "w-20" : "w-80"
+          sidebarCollapsed ? "w-20" : "w-64 lg:w-72"
         }`}
       >
         {/* Sidebar Header */}

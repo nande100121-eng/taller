@@ -309,14 +309,14 @@ export default function ConsultasPage() {
         </div>
 
         {/* Date Summary Pill & Excel Importer Button */}
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40">
-            <Receipt className="w-4 h-4 text-white" />
-            <span>Cargar Excel Taller (20 Encabezados)</span>
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <label className="px-3.5 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40 shrink-0 touch-target">
+            <Receipt className="w-4 h-4 text-white shrink-0" />
+            <span className="whitespace-nowrap">Cargar Excel Taller (20 Encabezados)</span>
             <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportFullWorkshopExcelCSV} className="hidden" />
           </label>
 
-          <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3">
+          <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3 shrink-0">
             <Coins className="w-6 h-6 text-amber-400 shrink-0" />
             <div>
               <span className="text-[10px] text-gray-400 uppercase font-bold block">
@@ -326,7 +326,7 @@ export default function ConsultasPage() {
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/40 flex items-center gap-3">
+          <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/40 flex items-center gap-3 shrink-0">
             <Car className="w-6 h-6 text-purple-400 shrink-0" />
             <div>
               <span className="text-[10px] text-purple-300 uppercase font-bold block">Vehículos en Registro</span>
@@ -338,20 +338,20 @@ export default function ConsultasPage() {
 
       {/* Date Navigation & Search Controls Toolbar */}
       <div className="glass-panel p-4 sm:p-6 rounded-2xl border border-white/10 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Interactive Date Selector with Prev & Next Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handlePrevDay}
-              className="px-3 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all"
+              className="px-3 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs sm:text-sm font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 touch-target"
               title="Día Anterior (-1 Día)"
             >
-              <ChevronLeft className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Día Anterior</span>
+              <ChevronLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Día Anterior</span>
             </button>
 
-            <div className="flex items-center gap-2 bg-reygas-dark px-3 py-2 rounded-xl border border-amber-500/40 text-xs shadow-lg">
-              <Calendar className="w-4 h-4 text-amber-400" />
+            <div className="flex items-center gap-2 bg-reygas-dark px-3 py-2 rounded-xl border border-amber-500/40 text-xs shadow-lg shrink-0 touch-target">
+              <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
               <input
                 type="date"
                 value={queryDate}
@@ -362,11 +362,11 @@ export default function ConsultasPage() {
 
             <button
               onClick={handleNextDay}
-              className="px-3 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all"
+              className="px-3 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs sm:text-sm font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 touch-target"
               title="Día Siguiente (+1 Día)"
             >
-              <span className="hidden sm:inline">Día Siguiente</span>
-              <ChevronRight className="w-4 h-4 text-amber-400" />
+              <span>Día Siguiente</span>
+              <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
             </button>
 
             <button

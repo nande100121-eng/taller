@@ -716,31 +716,31 @@ export default function AlmacenPage() {
                 </div>
 
                 {/* Action Buttons Toolbar */}
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                   {/* Batch Delete Selection Button */}
                   {selectedRowIds.length > 0 && (
                     <button
                       onClick={promptDeleteSelected}
-                      className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse"
+                      className="px-3.5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse shrink-0 touch-target"
                     >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                      <span className="whitespace-nowrap">Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
                     </button>
                   )}
 
                   {/* Clear Database / Purge All Inventory Button */}
                   <button
                     onClick={promptPurgeAll}
-                    className="px-4 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all"
+                    className="px-3.5 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs sm:text-sm font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all shrink-0 touch-target"
                     title="Vaciar y limpiar todo el inventario de la base de datos"
                   >
-                    <ShieldAlert className="w-4 h-4 text-red-400" />
-                    <span>Limpiar Base de Datos Completa</span>
+                    <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                    <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
                   </button>
 
-                  <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all">
-                    <Upload className="w-4 h-4" />
-                    <span>Cargar CSV / Excel</span>
+                  <label className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all shrink-0 touch-target">
+                    <Upload className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">Cargar CSV / Excel</span>
                     <input
                       type="file"
                       accept=".csv, .txt, .xlsx, .xls"
@@ -751,18 +751,18 @@ export default function AlmacenPage() {
 
                   <button
                     onClick={() => setManualExitModalOpen(true)}
-                    className="px-4 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all"
+                    className="px-3.5 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all shrink-0 touch-target"
                   >
-                    <RotateCcw className="w-4 h-4 rotate-180" />
-                    <span>Salida Urgente</span>
+                    <RotateCcw className="w-4 h-4 rotate-180 shrink-0" />
+                    <span className="whitespace-nowrap">Salida Urgente</span>
                   </button>
 
                   <button
                     onClick={handleOpenNewModal}
-                    className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors"
+                    className="px-3.5 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors shrink-0 touch-target"
                   >
-                    <Plus className="w-4 h-4 text-emerald-400" />
-                    <span>Agregar Fila</span>
+                    <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="whitespace-nowrap">Agregar Fila</span>
                   </button>
                 </div>
               </div>

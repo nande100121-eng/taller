@@ -356,27 +356,27 @@ export default function PorteriaPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all">
-            <Upload className="w-4 h-4 text-white" />
-            <span>Cargar CSV Ingresos</span>
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <label className="px-3.5 py-2.5 sm:px-4 sm:py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all shrink-0 touch-target">
+            <Upload className="w-4 h-4 text-white shrink-0" />
+            <span className="whitespace-nowrap">Cargar CSV Ingresos</span>
             <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportVehiclesCSV} className="hidden" />
           </label>
 
           {hasApiKey ? (
-            <label className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors">
-              <Upload className="w-4 h-4 text-purple-400" />
-              <span>Subir Foto Placa</span>
+            <label className="px-3.5 py-2.5 sm:px-4 sm:py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors shrink-0 touch-target">
+              <Upload className="w-4 h-4 text-purple-400 shrink-0" />
+              <span className="whitespace-nowrap">Subir Foto Placa</span>
               <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
             </label>
           ) : (
             <button
               disabled
               title="Requiere configurar una API Key en Configuración de IA"
-              className="px-4 py-2.5 bg-reygas-surface text-gray-500 text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-not-allowed opacity-50"
+              className="px-3.5 py-2.5 sm:px-4 sm:py-2.5 bg-reygas-surface text-gray-500 text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-not-allowed opacity-50 shrink-0 touch-target"
             >
-              <Upload className="w-4 h-4 text-gray-500" />
-              <span>Subir Foto Placa (Sin API Key)</span>
+              <Upload className="w-4 h-4 text-gray-500 shrink-0" />
+              <span className="whitespace-nowrap">Subir Foto Placa (Sin API Key)</span>
             </button>
           )}
 
@@ -384,14 +384,14 @@ export default function PorteriaPage() {
             onClick={() => handleScanOCR()}
             disabled={!hasApiKey || ocrLoading}
             title={!hasApiKey ? "Requiere configurar una API Key en Configuración de IA" : "Escanear placa por IA / OCR"}
-            className={`px-4 py-2.5 text-xs font-bold rounded-xl border flex items-center gap-2 transition-all ${
+            className={`px-3.5 py-2.5 sm:px-4 sm:py-2.5 text-xs sm:text-sm font-bold rounded-xl border flex items-center gap-2 transition-all shrink-0 touch-target ${
               !hasApiKey
                 ? "bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-50"
                 : "bg-reygas-red hover:bg-red-700 text-white border-red-500/30 shadow-lg shadow-reygas-red/20"
             }`}
           >
-            <Sparkles className={`w-4 h-4 ${ocrLoading ? "animate-spin" : ""}`} />
-            <span>{ocrLoading ? "Escaneando con IA..." : !hasApiKey ? "Cámara / IA (Sin API Key)" : "Escaneo OCR Cámara / IA"}</span>
+            <Sparkles className={`w-4 h-4 shrink-0 ${ocrLoading ? "animate-spin" : ""}`} />
+            <span className="whitespace-nowrap">{ocrLoading ? "Escaneando con IA..." : !hasApiKey ? "Cámara / IA (Sin API Key)" : "Escaneo OCR Cámara / IA"}</span>
           </button>
         </div>
       </div>

@@ -425,20 +425,20 @@ export default function AdminTablesPage() {
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
               <button
                 onClick={() => syncFromSupabase()}
                 disabled={isSyncing}
-                className="px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 transition-all border border-indigo-400/30 disabled:opacity-50"
+                className="px-3.5 py-2.5 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 transition-all border border-indigo-400/30 disabled:opacity-50 shrink-0 touch-target"
                 title="Sincronizar datos con la base de datos Supabase"
               >
-                <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
-                <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
+                <RefreshCw className={`w-4 h-4 shrink-0 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
+                <span className="whitespace-nowrap">{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
               </button>
 
-              <label className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/30">
-                <Upload className="w-4 h-4 text-white" />
-                <span>Cargar Excel Taller (20 Encabezados)</span>
+              <label className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/30 shrink-0 touch-target">
+                <Upload className="w-4 h-4 text-white shrink-0" />
+                <span className="whitespace-nowrap">Cargar Excel Taller (20 Encabezados)</span>
                 <input
                   type="file"
                   accept=".csv, .txt, .xlsx, .xls"
@@ -450,20 +450,20 @@ export default function AdminTablesPage() {
               {selectedIds.length > 0 && (
                 <button
                   onClick={triggerDeleteBulk}
-                  className="px-4 py-2 bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 text-xs font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg animate-pulse"
+                  className="px-3.5 py-2.5 bg-red-950/80 hover:bg-red-900 border border-red-500/50 text-red-300 text-xs sm:text-sm font-bold rounded-xl flex items-center gap-2 transition-all shadow-lg animate-pulse shrink-0 touch-target"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Eliminar Seleccionados ({selectedIds.length})</span>
+                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">Eliminar Seleccionados ({selectedIds.length})</span>
                 </button>
               )}
 
               <button
                 onClick={triggerClearAll}
-                className="px-4 py-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 text-xs font-bold rounded-xl flex items-center gap-2 transition-colors"
+                className="px-3.5 py-2.5 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 text-xs sm:text-sm font-bold rounded-xl flex items-center gap-2 transition-colors shrink-0 touch-target"
                 title="Limpieza Total de la Tabla Maestra"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>Limpiar Base de Datos Completa</span>
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
               </button>
             </div>
           </div>

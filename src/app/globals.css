@@ -52,3 +52,29 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #D32F2F;
 }
+
+/* Tablet & Mobile Touch & Full Text Utilities */
+.touch-target {
+  min-height: 42px;
+}
+
+/* Force buttons to display full text without clipping on tablets */
+.btn-full-text {
+  white-space: normal !important;
+  word-break: break-word;
+  line-height: 1.25;
+}
+
+@media (min-width: 640px) and (max-width: 1024px) {
+  /* Tablet-specific container adjustments */
+  .tablet-container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  /* Make horizontal scrolling smooth on tablet touchscreens */
+  .touch-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
