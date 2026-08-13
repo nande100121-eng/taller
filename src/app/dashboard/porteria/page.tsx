@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useAppStore, Appointment } from "@/lib/store/app-store";
 import { parseCSVRows } from "@/lib/csv-parser";
+import { compressImageFile } from "@/lib/image-compressor";
 import {
   ShieldAlert,
   Car,
@@ -231,15 +232,22 @@ export default function PorteriaPage() {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      handleScanOCR(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      setOcrLoading(true);
+      showAlert("info", "Optimizando fotografía y analizando con IA...");
+      const compressedDataUrl = await compressImageFile(file, 1280, 1280, 0.82);
+      await handleScanOCR(compressedDataUrl);
+    } catch (err: any) {
+      showAlert("warning", "No se pudo procesar la imagen seleccionada.");
+      setOcrLoading(false);
+    } finally {
+      // Reset input value so the same file or a new photo can be captured again on tablet
+      e.target.value = "";
+    }
   };
 
   // Bulk Vehicle Entry Importer from CSV / Excel

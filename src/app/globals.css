@@ -18,20 +18,22 @@ body {
     rgb(var(--background-start-rgb));
   min-height: 100vh;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  touch-action: manipulation;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Glassmorphism utility */
 .glass-panel {
-  background: rgba(30, 32, 34, 0.75);
+  background: rgba(30, 32, 34, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .glass-card {
-  background: rgba(42, 45, 48, 0.6);
+  background: rgba(42, 45, 48, 0.7);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Custom scrollbar */
@@ -53,9 +55,17 @@ body {
   background: #D32F2F;
 }
 
-/* Tablet & Mobile Touch & Full Text Utilities */
+/* ==========================================================================
+   Chainway P80 Tablet & Industrial Workshop Touch Optimizations
+   ========================================================================== */
+
+/* Minimum touch target 44px for gloved and fast fingers */
 .touch-target {
-  min-height: 42px;
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Force buttons to display full text without clipping on tablets */
@@ -65,16 +75,40 @@ body {
   line-height: 1.25;
 }
 
-@media (min-width: 640px) and (max-width: 1024px) {
-  /* Tablet-specific container adjustments */
+/* Smooth kinetic scrolling for data tables & cards on touchscreens */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+}
+
+/* Chainway P80 Specific Media Query (8-inch 1280x800 / 1920x1200 Display) */
+@media (min-width: 600px) and (max-width: 1280px) {
+  /* Tablet container breathing room */
   .tablet-container {
     padding-left: 1rem;
     padding-right: 1rem;
   }
-  
-  /* Make horizontal scrolling smooth on tablet touchscreens */
-  .touch-scroll {
-    -webkit-overflow-scrolling: touch;
-    scroll-behavior: smooth;
+
+  /* Form inputs & selects sized for rugged touchscreen */
+  input[type="text"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 15px !important; /* Prevents auto-zoom on Android Webview */
+    min-height: 44px;
+  }
+
+  /* Modals on 8" tablet screen: keep within screen viewport with touch scrolling */
+  .glass-panel {
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  /* High legibility in bright garage lighting */
+  .text-xs {
+    font-size: 0.8rem;
   }
 }
