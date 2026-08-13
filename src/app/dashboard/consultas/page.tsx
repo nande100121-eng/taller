@@ -123,6 +123,52 @@ export default function ConsultasPage() {
     return map;
   }, [technicians]);
 
+  // Robust pricing & discount resolver for both legacy and current workshop records
+  const resolveOrderPricing = React.useCallback(
+    (wo: any, invoice?: any) => {
+      const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
+      const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+
+      // 1. Check direct discount in invoice
+      let discount = invoice?.discounts || 0;
+
+      // 2. Check discount embedded in diagnostic_notes
+      if (discount === 0 && wo.diagnostic_notes && wo.diagnostic_notes.includes("[DESCUENTO]:")) {
+        const match = wo.diagnostic_notes.match(/\[DESCUENTO\]:\s*([0-9.]+)/);
+        if (match && match[1]) {
+          discount = parseFloat(match[1]) || 0;
+        }
+      }
+
+      // 3. Detect legacy import discrepancy (e.g. partsTotal = 530, grand_total = 515)
+      if (invoice?.grand_total && invoice.grand_total > 0 && invoice.grand_total < partsTotal && discount === 0) {
+        discount = Math.round((partsTotal - invoice.grand_total) * 100) / 100;
+      }
+
+      // Final charged amount: In workshop business model, CSV PRECIO is the final amount paid
+      let finalAmount = partsTotal + certFee;
+      if (invoice?.grand_total && invoice.grand_total > 0) {
+        if (invoice.grand_total < partsTotal) {
+          finalAmount = partsTotal + certFee;
+        } else {
+          finalAmount = invoice.grand_total;
+        }
+      }
+
+      // Original base list price before discount:
+      const originalSubtotal = discount > 0 ? finalAmount + discount : finalAmount;
+
+      return {
+        partsTotal,
+        certFee,
+        discountAmount: discount,
+        finalAmount,
+        originalSubtotal,
+      };
+    },
+    []
+  );
+
   // Filter & sort orders matching the selected date and plate with memoization
   const filteredOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
@@ -541,11 +587,7 @@ export default function ConsultasPage() {
               const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
               const invoice = invoicesByWorkOrderId.get(wo.id);
               const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
-              const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-              const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-              const discountAmount = invoice?.discounts || 0;
-              const finalAmount = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
-              const originalSubtotal = discountAmount > 0 ? finalAmount + discountAmount : finalAmount;
+              const pricing = resolveOrderPricing(wo, invoice);
               const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
 
               return (
@@ -643,21 +685,21 @@ export default function ConsultasPage() {
 
                     {/* Total Amount Badge */}
                     <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
-                      {discountAmount > 0 && (
+                      {pricing.discountAmount > 0 && (
                         <div className="flex flex-col items-end gap-0.5">
                           <span className="text-[11px] text-gray-400 font-mono line-through">
-                            Antes: S/ {originalSubtotal.toFixed(2)}
+                            Antes: S/ {pricing.originalSubtotal.toFixed(2)}
                           </span>
                           <span className="text-[11px] text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-                            Descuento: - S/ {discountAmount.toFixed(2)}
+                            Descuento: - S/ {pricing.discountAmount.toFixed(2)}
                           </span>
                         </div>
                       )}
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                        {discountAmount > 0 ? "Monto Final Cobrado" : "Total Registrado"}
+                        {pricing.discountAmount > 0 ? "Monto Final Cobrado" : "Total Registrado"}
                       </span>
                       <span className="text-3xl font-black text-white font-mono">
-                        S/ {finalAmount.toFixed(2)}
+                        S/ {pricing.finalAmount.toFixed(2)}
                       </span>
                       <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
                         Orden #{wo.id}
@@ -731,12 +773,7 @@ export default function ConsultasPage() {
                 const invoice = invoicesByWorkOrderId.get(wo.id) || invoices.find((inv) => inv.work_order_id === wo.id);
                 const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
                 const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : technicians.find((t) => t.id === wo.assigned_technician_id);
-
-                const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const discountAmount = invoice?.discounts || 0;
-                const finalAmount = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
-                const originalSubtotal = discountAmount > 0 ? finalAmount + discountAmount : finalAmount;
+                const pricing = resolveOrderPricing(wo, invoice);
 
                 return (
                   <div
@@ -769,11 +806,11 @@ export default function ConsultasPage() {
                       <div className="flex items-center gap-3 shrink-0">
                         {isPaid ? (
                           <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold">
-                            PAGADO (S/ {finalAmount.toFixed(2)})
+                            PAGADO (S/ {pricing.finalAmount.toFixed(2)})
                           </span>
                         ) : (
                           <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2.5 py-1 rounded-lg border border-amber-500/30 font-bold">
-                            PENDIENTE (S/ {finalAmount.toFixed(2)})
+                            PENDIENTE (S/ {pricing.finalAmount.toFixed(2)})
                           </span>
                         )}
 
@@ -868,7 +905,7 @@ export default function ConsultasPage() {
                               </p>
                               <p>
                                 <strong>Descuentos / Crédito:</strong>{" "}
-                                <span className="text-gray-300">Desc: S/ {(invoice?.discounts || 0).toFixed(2)} | Crédito: S/ {(invoice?.credit_amount || 0).toFixed(2)}</span>
+                                <span className="text-gray-300">Desc: S/ {pricing.discountAmount.toFixed(2)} | Crédito: S/ {(invoice?.credit_amount || 0).toFixed(2)}</span>
                               </p>
                             </div>
                           </div>
@@ -893,36 +930,39 @@ export default function ConsultasPage() {
                             {wo.items.length === 0 ? (
                               <p className="text-[11px] text-gray-400 italic">No se requirieron repuestos o servicios adicionales para este mantenimiento.</p>
                             ) : (
-                              wo.items.map((item) => (
-                                <div
-                                  key={item.id}
-                                  className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5"
-                                >
-                                  <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
-                                  <span className="font-mono font-bold text-amber-300">
-                                    S/ {item.subtotal.toFixed(2)}
-                                  </span>
-                                </div>
-                              ))
+                              wo.items.map((item) => {
+                                const itemSubtotal = pricing.discountAmount > 0 && wo.items.length === 1 && item.subtotal === pricing.finalAmount ? pricing.originalSubtotal : item.subtotal;
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className="flex justify-between items-center text-gray-300 bg-black/30 p-2.5 rounded-lg border border-white/5"
+                                  >
+                                    <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
+                                    <span className="font-mono font-bold text-amber-300">
+                                      S/ {itemSubtotal.toFixed(2)}
+                                    </span>
+                                  </div>
+                                );
+                              })
                             )}
                           </div>
 
                           <div className="space-y-1.5 pt-3 border-t border-white/10 text-sm">
-                            {discountAmount > 0 && (
+                            {pricing.discountAmount > 0 && (
                               <>
                                 <div className="flex justify-between items-center text-xs text-gray-400">
                                   <span>Precio Regular (Antes de Descuento):</span>
-                                  <span className="font-mono line-through">S/ {originalSubtotal.toFixed(2)}</span>
+                                  <span className="font-mono line-through">S/ {pricing.originalSubtotal.toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-xs text-emerald-400 font-bold">
                                   <span>Descuento Otorgado:</span>
-                                  <span className="font-mono">- S/ {discountAmount.toFixed(2)}</span>
+                                  <span className="font-mono">- S/ {pricing.discountAmount.toFixed(2)}</span>
                                 </div>
                               </>
                             )}
                             <div className="flex justify-between items-center font-bold text-white">
                               <span>Monto Total Cobrado el {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:</span>
-                              <span className="font-mono text-xl text-amber-400">S/ {finalAmount.toFixed(2)}</span>
+                              <span className="font-mono text-xl text-amber-400">S/ {pricing.finalAmount.toFixed(2)}</span>
                             </div>
                           </div>
                         </div>
