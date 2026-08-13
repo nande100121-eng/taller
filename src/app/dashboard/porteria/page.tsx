@@ -38,6 +38,8 @@ export default function PorteriaPage() {
     aiSettings,
   } = useAppStore();
 
+  const hasApiKey = Boolean(aiSettings?.apiKey && aiSettings.apiKey.trim().length > 0);
+
   const [searchPlate, setSearchPlate] = useState("");
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrSource, setOcrSource] = useState<"camera" | "upload" | null>(null);
@@ -361,19 +363,35 @@ export default function PorteriaPage() {
             <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportVehiclesCSV} className="hidden" />
           </label>
 
-          <label className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors">
-            <Upload className="w-4 h-4 text-purple-400" />
-            <span>Subir Foto Placa</span>
-            <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-          </label>
+          {hasApiKey ? (
+            <label className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-pointer transition-colors">
+              <Upload className="w-4 h-4 text-purple-400" />
+              <span>Subir Foto Placa</span>
+              <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+            </label>
+          ) : (
+            <button
+              disabled
+              title="Requiere configurar una API Key en Configuración de IA"
+              className="px-4 py-2.5 bg-reygas-surface text-gray-500 text-xs font-bold rounded-xl border border-white/10 flex items-center gap-2 cursor-not-allowed opacity-50"
+            >
+              <Upload className="w-4 h-4 text-gray-500" />
+              <span>Subir Foto Placa (Sin API Key)</span>
+            </button>
+          )}
 
           <button
             onClick={() => handleScanOCR()}
-            disabled={ocrLoading}
-            className="px-4 py-2.5 bg-reygas-red hover:bg-red-700 text-white text-xs font-bold rounded-xl border border-red-500/30 flex items-center gap-2 transition-colors shadow-lg shadow-reygas-red/20"
+            disabled={!hasApiKey || ocrLoading}
+            title={!hasApiKey ? "Requiere configurar una API Key en Configuración de IA" : "Escanear placa por IA / OCR"}
+            className={`px-4 py-2.5 text-xs font-bold rounded-xl border flex items-center gap-2 transition-all ${
+              !hasApiKey
+                ? "bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-50"
+                : "bg-reygas-red hover:bg-red-700 text-white border-red-500/30 shadow-lg shadow-reygas-red/20"
+            }`}
           >
             <Sparkles className={`w-4 h-4 ${ocrLoading ? "animate-spin" : ""}`} />
-            <span>{ocrLoading ? "Escaneando con IA..." : "Escaneo OCR Cámara / IA"}</span>
+            <span>{ocrLoading ? "Escaneando con IA..." : !hasApiKey ? "Cámara / IA (Sin API Key)" : "Escaneo OCR Cámara / IA"}</span>
           </button>
         </div>
       </div>
