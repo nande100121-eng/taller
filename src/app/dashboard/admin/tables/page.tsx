@@ -175,8 +175,11 @@ export default function AdminTablesPage() {
         const invoiceId = generateUUID();
 
         const labor_fee = 0;
-        const parts_total = price;
-        const grand_total = Math.max(0, price - discounts);
+        // In Workshop CSV: col[13] (price) is the FINAL COBRADO amount (e.g. 100).
+        // col[14] (discounts) is the discount applied (e.g. 30).
+        // Base subtotal without discount was (price + discounts) = 130.
+        const parts_total = price + discounts;
+        const grand_total = price;
 
         batchVehicles.push({
           plate,

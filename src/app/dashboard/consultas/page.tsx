@@ -243,8 +243,11 @@ export default function ConsultasPage() {
         const invoiceId = generateUUID();
 
         const labor_fee = 0;
-        const parts_total = price;
-        const grand_total = Math.max(0, price - discounts);
+        // In Workshop CSV: col[13] (price) is the FINAL COBRADO amount (e.g. 100).
+        // col[14] (discounts) is the discount applied (e.g. 30).
+        // Base subtotal without discount was (price + discounts) = 130.
+        const parts_total = price + discounts;
+        const grand_total = price;
 
         batchVehicles.push({
           plate,
@@ -471,7 +474,9 @@ export default function ConsultasPage() {
               const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
               const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-              const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+              const discountAmount = invoice?.discounts || 0;
+              const finalAmount = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+              const originalSubtotal = discountAmount > 0 ? finalAmount + discountAmount : finalAmount;
               const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
 
               return (
@@ -568,10 +573,22 @@ export default function ConsultasPage() {
                     </div>
 
                     {/* Total Amount Badge */}
-                    <div className="flex flex-col items-end justify-center gap-2 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold block">Total Registrado</span>
+                    <div className="flex flex-col items-end justify-center gap-1.5 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
+                      {discountAmount > 0 && (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="text-[11px] text-gray-400 font-mono line-through">
+                            Antes: S/ {originalSubtotal.toFixed(2)}
+                          </span>
+                          <span className="text-[11px] text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                            Descuento: - S/ {discountAmount.toFixed(2)}
+                          </span>
+                        </div>
+                      )}
+                      <span className="text-[10px] text-gray-400 uppercase font-bold block">
+                        {discountAmount > 0 ? "Monto Final Cobrado" : "Total Registrado"}
+                      </span>
                       <span className="text-3xl font-black text-white font-mono">
-                        S/ {grandTotal.toFixed(2)}
+                        S/ {finalAmount.toFixed(2)}
                       </span>
                       <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
                         Orden #{wo.id}
@@ -642,13 +659,15 @@ export default function ConsultasPage() {
             <div className="space-y-4">
               {plateHistoryOrders.map((wo, idx) => {
                 const isSelectedDate = selectedOrderDetails === wo.id;
-                const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
+                const invoice = invoicesByWorkOrderId.get(wo.id) || invoices.find((inv) => inv.work_order_id === wo.id);
                 const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
-                const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+                const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : technicians.find((t) => t.id === wo.assigned_technician_id);
 
                 const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
                 const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+                const discountAmount = invoice?.discounts || 0;
+                const finalAmount = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+                const originalSubtotal = discountAmount > 0 ? finalAmount + discountAmount : finalAmount;
 
                 return (
                   <div
@@ -681,11 +700,11 @@ export default function ConsultasPage() {
                       <div className="flex items-center gap-3 shrink-0">
                         {isPaid ? (
                           <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold">
-                            PAGADO (S/ {grandTotal.toFixed(2)})
+                            PAGADO (S/ {finalAmount.toFixed(2)})
                           </span>
                         ) : (
                           <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2.5 py-1 rounded-lg border border-amber-500/30 font-bold">
-                            PENDIENTE (S/ {grandTotal.toFixed(2)})
+                            PENDIENTE (S/ {finalAmount.toFixed(2)})
                           </span>
                         )}
 
@@ -695,27 +714,50 @@ export default function ConsultasPage() {
                       </div>
                     </div>
 
-                    {/* Detailed Service Information Sheet (Shown when date item is clicked) */}
+                    {/* Detailed Collapsible Drawer for this Date */}
                     {isSelectedDate && (
-                      <div className="p-5 border-t border-white/10 bg-black/40 space-y-4 animate-fadeIn">
+                      <div className="p-6 border-t border-white/10 bg-black/40 space-y-6 animate-fadeIn">
+                        {/* Maintenance Summary Box */}
+                        <div className="p-4 bg-reygas-surface rounded-2xl border border-amber-500/20 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-amber-400 uppercase">
+                              🔧 Trabajo / Mantenimiento Realizado:
+                            </span>
+                            <span className="text-xs font-bold text-gray-300 bg-black/40 px-2.5 py-1 rounded-lg">
+                              Mecánico: <strong className="text-white">{tech?.full_name || wo.assigned_technician_id || "Asignado"}</strong>
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-white">
+                            {wo.general_maintenance_service || wo.problem_description}
+                          </p>
+                          {wo.diagnostic_notes && (
+                            <p className="text-xs text-gray-300">
+                              <strong>Notas / Diagnóstico:</strong> {wo.diagnostic_notes}
+                            </p>
+                          )}
+                          {wo.observations && (
+                            <p className="text-xs text-amber-200/90 font-medium">
+                              <strong>Observaciones:</strong> {wo.observations}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Three Detail Columns: Technical / Billing / Payment */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                          {/* Workshop & Technician Details */}
+                          {/* Client & Vehicle */}
                           <div className="p-3 bg-reygas-surface rounded-xl border border-white/5 space-y-2">
                             <span className="text-[11px] font-bold text-amber-400 uppercase block">
-                              ⚙️ Información de Taller & Mecánico
+                              👤 Datos de Registro
                             </span>
                             <div className="space-y-1 text-gray-300">
                               <p>
-                                <strong>Mecánico Asignado:</strong>{" "}
-                                <span className="text-white font-bold">{tech?.full_name || "Mecánico Taller"}</span>
+                                <strong>Propietario:</strong> {activePlateVehicle?.owner_name || invoice?.client_name || "Cliente"}
                               </p>
                               <p>
-                                <strong>Servicio / Mantenimiento:</strong>{" "}
-                                <span className="text-amber-300 font-semibold">{wo.general_maintenance_service || wo.problem_description}</span>
+                                <strong>Teléfono:</strong> {activePlateVehicle?.owner_phone || "S/T"}
                               </p>
                               <p>
-                                <strong>Estado de Trabajo:</strong>{" "}
-                                <span className="text-emerald-400 uppercase font-bold">{wo.status}</span>
+                                <strong>Kilometraje:</strong> {activePlateVehicle?.current_mileage || 0} KM
                               </p>
                             </div>
                           </div>
@@ -796,9 +838,23 @@ export default function ConsultasPage() {
                             )}
                           </div>
 
-                          <div className="flex justify-between items-center pt-2 border-t border-white/10 text-sm font-bold">
-                            <span className="text-white">Monto Total Facturado el {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:</span>
-                            <span className="font-mono text-xl text-amber-400">S/ {grandTotal.toFixed(2)}</span>
+                          <div className="space-y-1.5 pt-3 border-t border-white/10 text-sm">
+                            {discountAmount > 0 && (
+                              <>
+                                <div className="flex justify-between items-center text-xs text-gray-400">
+                                  <span>Precio Regular (Antes de Descuento):</span>
+                                  <span className="font-mono line-through">S/ {originalSubtotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs text-emerald-400 font-bold">
+                                  <span>Descuento Otorgado:</span>
+                                  <span className="font-mono">- S/ {discountAmount.toFixed(2)}</span>
+                                </div>
+                              </>
+                            )}
+                            <div className="flex justify-between items-center font-bold text-white">
+                              <span>Monto Total Cobrado el {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:</span>
+                              <span className="font-mono text-xl text-amber-400">S/ {finalAmount.toFixed(2)}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
