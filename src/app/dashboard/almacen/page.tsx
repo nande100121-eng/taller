@@ -56,6 +56,13 @@ export default function AlmacenPage() {
   // Inventory Filter & Low Stock Filter State
   const [stockFilter, setStockFilter] = useState<"todos" | "bajo" | "critico">("todos");
   const [inventorySearch, setInventorySearch] = useState("");
+  const deferredInventorySearch = React.useDeferredValue(inventorySearch);
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const INVENTORY_ITEMS_PER_PAGE = 50;
+
+  React.useEffect(() => {
+    setInventoryPage(1);
+  }, [deferredInventorySearch, stockFilter]);
 
   // Styled Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -642,10 +649,10 @@ export default function AlmacenPage() {
         const displayInventoryItems = inventoryItems
           .filter((item) => {
             const matchesSearch =
-              !inventorySearch ||
-              item.name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-              item.sku_barcode.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-              (item.brand || "").toLowerCase().includes(inventorySearch.toLowerCase());
+              !deferredInventorySearch ||
+              item.name.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
+              item.sku_barcode.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
+              (item.brand || "").toLowerCase().includes(deferredInventorySearch.toLowerCase());
 
             const matchesStock =
               stockFilter === "todos"
@@ -662,6 +669,14 @@ export default function AlmacenPage() {
               sensitivity: "base",
             })
           );
+
+        const totalInventoryItems = displayInventoryItems.length;
+        const totalInventoryPages = Math.ceil(totalInventoryItems / INVENTORY_ITEMS_PER_PAGE) || 1;
+        const startInvIndex = (inventoryPage - 1) * INVENTORY_ITEMS_PER_PAGE;
+        const paginatedInventoryItems = displayInventoryItems.slice(
+          startInvIndex,
+          startInvIndex + INVENTORY_ITEMS_PER_PAGE
+        );
 
         return (
           <div className="space-y-6">
@@ -864,9 +879,10 @@ export default function AlmacenPage() {
                         </td>
                       </tr>
                     ) : (
-                      displayInventoryItems.map((item, idx) => {
+                      paginatedInventoryItems.map((item, idx) => {
                         const isLow = item.stock_quantity <= item.min_stock_alert;
                         const isSelected = selectedRowIds.includes(item.id);
+                        const globalIdx = startInvIndex + idx + 1;
 
                       return (
                         <tr
@@ -888,7 +904,7 @@ export default function AlmacenPage() {
                             </button>
                           </td>
                           <td className="p-3 font-mono font-bold text-center text-amber-400 bg-amber-500/10 rounded">
-                            #{idx + 1}
+                            #{globalIdx}
                           </td>
                           <td
                             className="p-3 font-mono font-bold text-reygas-silver max-w-[140px] truncate"
@@ -966,6 +982,42 @@ export default function AlmacenPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Inventory Pagination Controls */}
+            {totalInventoryPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl glass-panel border border-white/10 text-xs">
+                <span className="text-gray-400 font-medium">
+                  Mostrando del{" "}
+                  <strong className="text-white font-mono">{startInvIndex + 1}</strong> al{" "}
+                  <strong className="text-white font-mono">
+                    {Math.min(startInvIndex + INVENTORY_ITEMS_PER_PAGE, totalInventoryItems)}
+                  </strong>{" "}
+                  de <strong className="text-emerald-400 font-mono">{totalInventoryItems}</strong> materiales
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
+                    disabled={inventoryPage === 1}
+                    className="px-3 py-1.5 rounded-lg bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold border border-white/10 transition-all touch-target"
+                  >
+                    ◀ Anterior
+                  </button>
+
+                  <span className="px-3 py-1.5 rounded-lg bg-reygas-dark text-emerald-400 font-mono font-bold border border-emerald-500/30">
+                    Página {inventoryPage} de {totalInventoryPages}
+                  </span>
+
+                  <button
+                    onClick={() => setInventoryPage((p) => Math.min(totalInventoryPages, p + 1))}
+                    disabled={inventoryPage === totalInventoryPages}
+                    className="px-3 py-1.5 rounded-lg bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold border border-white/10 transition-all touch-target"
+                  >
+                    Siguiente ▶
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );

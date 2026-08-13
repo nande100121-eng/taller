@@ -29,11 +29,18 @@ export default function ConsultasPage() {
   // Search Filters & Date Navigation State
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today YYYY-MM-DD
   const [searchPlate, setSearchPlate] = useState("");
+  const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
+  const [visibleLimit, setVisibleLimit] = useState(40);
 
   // State for Plate History Timeline Modal
   const [selectedPlateHistory, setSelectedPlateHistory] = useState<string | null>(null);
   const [selectedOrderDetails, setSelectedOrderDetails] = useState<string | null>(null);
+
+  // Reset pagination on filter change
+  React.useEffect(() => {
+    setVisibleLimit(40);
+  }, [queryDate, deferredSearchPlate, statusFilter]);
 
   // Helper functions to advance or regress date by 1 day
   const handlePrevDay = () => {
@@ -52,7 +59,7 @@ export default function ConsultasPage() {
     setQueryDate(new Date().toISOString().slice(0, 10));
   };
 
-  // O(1) Lookup map for invoices
+  // O(1) Lookup maps
   const invoicesByWorkOrderId = React.useMemo(() => {
     const map = new Map<string, (typeof invoices)[0]>();
     for (let i = 0; i < invoices.length; i++) {
@@ -64,9 +71,31 @@ export default function ConsultasPage() {
     return map;
   }, [invoices]);
 
+  const vehiclesByPlate = React.useMemo(() => {
+    const map = new Map<string, (typeof vehicles)[0]>();
+    for (let i = 0; i < vehicles.length; i++) {
+      const v = vehicles[i];
+      if (v && v.plate) {
+        map.set(v.plate.toUpperCase(), v);
+      }
+    }
+    return map;
+  }, [vehicles]);
+
+  const techniciansById = React.useMemo(() => {
+    const map = new Map<string, (typeof technicians)[0]>();
+    for (let i = 0; i < technicians.length; i++) {
+      const t = technicians[i];
+      if (t && t.id) {
+        map.set(t.id, t);
+      }
+    }
+    return map;
+  }, [technicians]);
+
   // Filter & sort orders matching the selected date and plate with memoization
   const filteredOrders = React.useMemo(() => {
-    const term = searchPlate ? searchPlate.trim().toUpperCase() : "";
+    const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
 
     // 1. Filter matching records
     const filtered = workOrders.filter((wo) => {
@@ -124,23 +153,27 @@ export default function ConsultasPage() {
       const timeB = b.entry_time ? new Date(b.entry_time).getTime() : 0;
       return timeB - timeA;
     });
-  }, [workOrders, invoicesByWorkOrderId, searchPlate, statusFilter, queryDate]);
+  }, [workOrders, invoicesByWorkOrderId, deferredSearchPlate, statusFilter, queryDate]);
 
   // Daily statistics for selected queryDate
-  const totalRevenueOnDate = invoices
-    .filter(
-      (inv) =>
-        inv.payment_status === "pagado" &&
-        ((inv.paid_at && inv.paid_at.startsWith(queryDate)) ||
-          (inv.issued_at && inv.issued_at.startsWith(queryDate)))
-    )
-    .reduce((sum, inv) => sum + inv.grand_total, 0);
+  const totalRevenueOnDate = React.useMemo(() => {
+    return invoices
+      .filter(
+        (inv) =>
+          inv.payment_status === "pagado" &&
+          ((inv.paid_at && inv.paid_at.startsWith(queryDate)) ||
+            (inv.issued_at && inv.issued_at.startsWith(queryDate)))
+      )
+      .reduce((sum, inv) => sum + inv.grand_total, 0);
+  }, [invoices, queryDate]);
 
   const totalVehiclesOnDate = filteredOrders.length;
-  const paidCountOnDate = filteredOrders.filter((wo) => {
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
-  }).length;
+  const paidCountOnDate = React.useMemo(() => {
+    return filteredOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+    }).length;
+  }, [filteredOrders, invoicesByWorkOrderId]);
 
   // Get all work orders for the selected plate sorted by date (newest first)
   const plateHistoryOrders = selectedPlateHistory
@@ -150,7 +183,7 @@ export default function ConsultasPage() {
     : [];
 
   const activePlateVehicle = selectedPlateHistory
-    ? vehicles.find((v) => v.plate === selectedPlateHistory)
+    ? vehiclesByPlate.get(selectedPlateHistory.toUpperCase()) || null
     : null;
 
   // State for alerts in Consultas page
@@ -431,10 +464,10 @@ export default function ConsultasPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {filteredOrders.map((wo) => {
-              const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
-              const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
-              const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
+            {filteredOrders.slice(0, visibleLimit).map((wo) => {
+              const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase());
+              const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
+              const invoice = invoicesByWorkOrderId.get(wo.id);
               const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
               const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
@@ -548,6 +581,20 @@ export default function ConsultasPage() {
                 </div>
               );
             })}
+
+            {filteredOrders.length > visibleLimit && (
+              <div className="pt-4 text-center">
+                <button
+                  onClick={() => setVisibleLimit((prev) => prev + 40)}
+                  className="px-6 py-3 bg-reygas-surface hover:bg-gray-700 text-amber-400 font-bold text-sm rounded-2xl border border-amber-500/30 shadow-lg transition-all touch-target inline-flex items-center gap-2"
+                >
+                  <span>Mostrar más registros (+40)</span>
+                  <span className="text-xs text-gray-400 font-mono">
+                    (Mostrando {visibleLimit} de {filteredOrders.length})
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

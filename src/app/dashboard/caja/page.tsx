@@ -41,67 +41,103 @@ export default function CajaPage() {
   
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
+  const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today
+  const [visibleLimit, setVisibleLimit] = useState(40);
+
+  // Reset limit on filter changes
+  React.useEffect(() => {
+    setVisibleLimit(40);
+  }, [deferredSearchPlate, queryDate, activeStatusFilter, activeMainTab]);
+
+  // O(1) Invoices lookup map
+  const invoicesByWorkOrderId = React.useMemo(() => {
+    const map = new Map<string, (typeof invoices)[0]>();
+    for (let i = 0; i < invoices.length; i++) {
+      const inv = invoices[i];
+      if (inv && inv.work_order_id) {
+        map.set(inv.work_order_id, inv);
+      }
+    }
+    return map;
+  }, [invoices]);
 
   // Orders that reached "por_cobrar" or "pagado_autorizado" or have an invoice registered
-  const allBillingWorkOrders = workOrders.filter(
-    (wo) =>
-      wo.status === "por_cobrar" ||
-      wo.status === "pagado_autorizado" ||
-      wo.status === "finalizado" ||
-      invoices.some((inv) => inv.work_order_id === wo.id)
-  );
+  const allBillingWorkOrders = React.useMemo(() => {
+    return workOrders.filter(
+      (wo) =>
+        wo.status === "por_cobrar" ||
+        wo.status === "pagado_autorizado" ||
+        wo.status === "finalizado" ||
+        invoicesByWorkOrderId.has(wo.id)
+    );
+  }, [workOrders, invoicesByWorkOrderId]);
 
-  // Daily cash closure calculation for today
-  const totalPaidToday = invoices
-    .filter(
-      (inv) =>
-        inv.payment_status === "pagado" &&
-        ((inv.paid_at && inv.paid_at.startsWith(queryDate)) ||
-          (inv.issued_at && inv.issued_at.startsWith(queryDate)))
-    )
-    .reduce((sum, inv) => sum + inv.grand_total, 0);
+  // Daily cash closure calculation for selected date
+  const totalPaidToday = React.useMemo(() => {
+    return invoices
+      .filter(
+        (inv) =>
+          inv.payment_status === "pagado" &&
+          ((inv.paid_at && inv.paid_at.startsWith(queryDate)) ||
+            (inv.issued_at && inv.issued_at.startsWith(queryDate)))
+      )
+      .reduce((sum, inv) => sum + inv.grand_total, 0);
+  }, [invoices, queryDate]);
 
-  const pendingCount = workOrders.filter((wo) => wo.status === "por_cobrar").length;
-  const paidCount = allBillingWorkOrders.filter((wo) => {
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
-  }).length;
+  const pendingCount = React.useMemo(() => {
+    return workOrders.filter((wo) => wo.status === "por_cobrar").length;
+  }, [workOrders]);
+
+  const paidCount = React.useMemo(() => {
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+    }).length;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId]);
 
   // Filtered orders for Caja Tab
-  const filteredCajaOrders = allBillingWorkOrders.filter((wo) => {
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+  const filteredCajaOrders = React.useMemo(() => {
+    const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
 
-    const matchPlate = searchPlate ? wo.vehicle_plate.includes(searchPlate) : true;
-    const matchStatus =
-      activeStatusFilter === "todos"
-        ? true
-        : activeStatusFilter === "pendientes"
-        ? !isPaid
-        : isPaid;
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
 
-    return matchPlate && matchStatus;
-  });
+      const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
+      const matchStatus =
+        activeStatusFilter === "todos"
+          ? true
+          : activeStatusFilter === "pendientes"
+          ? !isPaid
+          : isPaid;
+
+      return matchPlate && matchStatus;
+    });
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
-  const filteredConsultasOrders = allBillingWorkOrders.filter((wo) => {
-    const inv = invoices.find((i) => i.work_order_id === wo.id);
-    const matchPlate = searchPlate ? wo.vehicle_plate.includes(searchPlate) : true;
+  const filteredConsultasOrders = React.useMemo(() => {
+    const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
 
-    // Compare date with entry_time or invoice issued_at / paid_at
-    const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-    const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-    const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
 
-    const matchDate =
-      !queryDate ||
-      orderDateStr === queryDate ||
-      invoiceDateStr === queryDate ||
-      paidDateStr === queryDate;
+      // Compare date with entry_time or invoice issued_at / paid_at
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
 
-    return matchPlate && matchDate;
-  });
+      const matchDate =
+        !queryDate ||
+        orderDateStr === queryDate ||
+        invoiceDateStr === queryDate ||
+        paidDateStr === queryDate;
+
+      return matchPlate && matchDate;
+    });
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">

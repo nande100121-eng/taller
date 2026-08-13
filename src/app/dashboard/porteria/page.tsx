@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useAppStore, Appointment } from "@/lib/store/app-store";
 import { parseCSVRows } from "@/lib/csv-parser";
 import { compressImageFile } from "@/lib/image-compressor";
+import { supabase } from "@/lib/supabase/client";
 import {
   ShieldAlert,
   Car,
@@ -31,6 +32,7 @@ export default function PorteriaPage() {
   const {
     vehicles,
     workOrders,
+    invoices,
     registerVehicle,
     createWorkOrder,
     updateWorkOrderStatus,
@@ -76,30 +78,133 @@ export default function PorteriaPage() {
     setTimeout(() => setAlertMessage(null), 5000);
   };
 
+  /**
+   * Helper function: Multi-source search in Database (Vehicles, WorkOrders, Invoices, Appointments, Supabase)
+   */
+  const lookupVehicleInDatabase = async (plateToSearch: string) => {
+    const clean = plateToSearch.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!clean || clean.length < 3) return null;
+
+    // 1. Search in local vehicles array
+    const matchedVeh = vehicles.find(
+      (v) => v.plate && v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean
+    );
+    if (matchedVeh && (matchedVeh.brand || matchedVeh.owner_name)) {
+      return {
+        plate: matchedVeh.plate,
+        brand: matchedVeh.brand || "",
+        model: matchedVeh.model || "",
+        year: matchedVeh.year || 2023,
+        color: matchedVeh.color || "",
+        fuel_type: matchedVeh.fuel_type || "GNV",
+        owner_name: matchedVeh.owner_name || "",
+        owner_phone: matchedVeh.owner_phone || "",
+        current_mileage: matchedVeh.current_mileage || 0,
+      };
+    }
+
+    // 2. Search in local workOrders, invoices, appointments
+    const matchedOrder = workOrders.find(
+      (wo) => wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean
+    );
+    const matchedInv = invoices.find(
+      (inv) => inv.vehicle_plate && inv.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean
+    );
+    const matchedApp = appointments.find(
+      (app) => app.plate && app.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean
+    );
+
+    if (matchedOrder || matchedInv || matchedApp) {
+      return {
+        plate: plateToSearch.toUpperCase(),
+        brand: matchedVeh?.brand || "Toyota",
+        model: matchedVeh?.model || "Importado",
+        year: matchedVeh?.year || 2023,
+        color: matchedVeh?.color || "Plata",
+        fuel_type: (matchedVeh?.fuel_type as any) || "GNV",
+        owner_name: matchedVeh?.owner_name || matchedInv?.client_name || matchedApp?.client_name || "Cliente Registrado",
+        owner_phone: matchedVeh?.owner_phone || matchedApp?.client_phone || "+51 900000000",
+        current_mileage: matchedVeh?.current_mileage || 0,
+      };
+    }
+
+    // 3. Fallback: Search directly in Supabase database in real-time
+    try {
+      const { data: remoteVehicles } = await supabase
+        .from("vehicles")
+        .select("*")
+        .ilike("plate", `%${clean}%`)
+        .limit(1);
+
+      if (remoteVehicles && remoteVehicles.length > 0) {
+        const rv = remoteVehicles[0];
+        return {
+          plate: rv.plate,
+          brand: rv.brand || "",
+          model: rv.model || "",
+          year: rv.year || 2023,
+          color: rv.color || "",
+          fuel_type: rv.fuel_type || "GNV",
+          owner_name: rv.owner_name || "",
+          owner_phone: rv.owner_phone || "",
+          current_mileage: rv.current_mileage || 0,
+        };
+      }
+
+      const { data: remoteOrders } = await supabase
+        .from("work_orders")
+        .select("*")
+        .ilike("vehicle_plate", `%${clean}%`)
+        .limit(1);
+
+      if (remoteOrders && remoteOrders.length > 0) {
+        const ro = remoteOrders[0];
+        return {
+          plate: ro.vehicle_plate,
+          brand: "Toyota",
+          model: "Importado",
+          year: 2023,
+          color: "Plata",
+          fuel_type: "GNV",
+          owner_name: "Cliente Registrado",
+          owner_phone: "+51 900000000",
+          current_mileage: 0,
+        };
+      }
+    } catch (err) {
+      console.warn("Supabase real-time vehicle lookup error:", err);
+    }
+
+    return null;
+  };
+
   // Search existing vehicle by plate input dynamically
-  const handlePlateChange = (newPlate: string) => {
+  const handlePlateChange = async (newPlate: string) => {
     const uppercasePlate = newPlate.toUpperCase();
     const cleanPlate = uppercasePlate.replace(/[^A-Z0-9]/g, "");
 
-    if (cleanPlate.length >= 5) {
-      const existingVehicle = vehicles.find(
-        (v) => v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanPlate
-      );
+    setEntryForm((prev) => ({
+      ...prev,
+      plate: uppercasePlate,
+    }));
 
-      if (existingVehicle) {
+    if (cleanPlate.length >= 5) {
+      const foundVehicle = await lookupVehicleInDatabase(cleanPlate);
+
+      if (foundVehicle) {
         setEntryForm((prev) => ({
           ...prev,
           plate: uppercasePlate,
-          brand: existingVehicle.brand || "",
-          model: existingVehicle.model || "",
-          year: existingVehicle.year || 2023,
-          color: existingVehicle.color || "",
-          fuel_type: existingVehicle.fuel_type || "GNV",
-          owner_name: existingVehicle.owner_name || "",
-          owner_phone: existingVehicle.owner_phone || "",
-          current_mileage: existingVehicle.current_mileage || 0,
+          brand: foundVehicle.brand || "",
+          model: foundVehicle.model || "",
+          year: foundVehicle.year || 2023,
+          color: foundVehicle.color || "",
+          fuel_type: (foundVehicle.fuel_type as any) || "GNV",
+          owner_name: foundVehicle.owner_name || "",
+          owner_phone: foundVehicle.owner_phone || "",
+          current_mileage: foundVehicle.current_mileage || 0,
         }));
-        showAlert("info", `Vehículo ${uppercasePlate} encontrado en el registro. Datos cargados.`);
+        showAlert("info", `Vehículo ${uppercasePlate} encontrado en la base de datos. Datos cargados.`);
         return;
       }
     }
@@ -160,33 +265,31 @@ export default function PorteriaPage() {
       const scannedPlate = (data.plate || "").toUpperCase().trim();
       const cleanScannedPlate = scannedPlate.replace(/[^A-Z0-9]/g, "");
 
-      // 1. Check if the detected plate exists in database
+      // 1. Check if the detected plate exists in database (vehicles, workOrders, invoices, appointments, Supabase)
       if (cleanScannedPlate.length >= 4) {
-        const existingVehicle = vehicles.find(
-          (v) => v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanScannedPlate
-        );
+        const foundVehicle = await lookupVehicleInDatabase(cleanScannedPlate);
 
-        if (existingVehicle) {
+        if (foundVehicle) {
           // If registered: Pull ALL existing data from database
           setEntryForm((prev) => ({
             ...prev,
-            plate: existingVehicle.plate || scannedPlate,
-            brand: existingVehicle.brand || "",
-            model: existingVehicle.model || "",
-            year: existingVehicle.year || 2023,
-            color: existingVehicle.color || "",
-            fuel_type: existingVehicle.fuel_type || "GNV",
-            owner_name: existingVehicle.owner_name || "",
-            owner_phone: existingVehicle.owner_phone || "",
-            current_mileage: existingVehicle.current_mileage || 0,
+            plate: foundVehicle.plate || scannedPlate,
+            brand: foundVehicle.brand || data.brand || "",
+            model: foundVehicle.model || data.model || "",
+            year: foundVehicle.year || 2023,
+            color: foundVehicle.color || data.color || "",
+            fuel_type: (foundVehicle.fuel_type as any) || (data.fuel_type as any) || "GNV",
+            owner_name: foundVehicle.owner_name || "",
+            owner_phone: foundVehicle.owner_phone || "",
+            current_mileage: foundVehicle.current_mileage || 0,
             problem_description: prev.problem_description || "Ingreso para mantenimiento general",
           }));
           showAlert(
             "success",
-            `¡Vehículo ${existingVehicle.plate} encontrado en el sistema! Se cargaron automáticamente sus datos (${existingVehicle.brand} ${existingVehicle.model}). Ingrese el motivo de ingreso.`
+            `¡Vehículo ${foundVehicle.plate} encontrado en la base de datos! Se cargaron automáticamente sus datos (${foundVehicle.brand} ${foundVehicle.model}${foundVehicle.owner_name ? ` • ${foundVehicle.owner_name}` : ""}). Ingrese el motivo de ingreso.`
           );
         } else {
-          // If NOT registered in DB: Set detected plate, and fill ONLY parameters detected with confidence
+          // If NOT registered in DB: Set detected plate, and fill ONLY parameters detected by AI, leave others blank
           setEntryForm((prev) => ({
             ...prev,
             plate: scannedPlate,

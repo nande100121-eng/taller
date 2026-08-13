@@ -67,14 +67,15 @@ export default function AdminTablesPage() {
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearchTerm = React.useDeferredValue(searchTerm);
 
-  // Pagination state (1,000 items per page)
+  // Pagination state (250 items per page for instant mobile & tablet rendering)
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 1000;
+  const ITEMS_PER_PAGE = 250;
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [deferredSearchTerm]);
 
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -281,8 +282,8 @@ export default function AdminTablesPage() {
 
   // Filter master records with instant memoized lookup
   const filteredOrders = React.useMemo(() => {
-    if (!searchTerm.trim()) return workOrders;
-    const term = searchTerm.trim().toUpperCase();
+    if (!deferredSearchTerm.trim()) return workOrders;
+    const term = deferredSearchTerm.trim().toUpperCase();
 
     return workOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
@@ -295,7 +296,7 @@ export default function AdminTablesPage() {
         (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
       );
     });
-  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, searchTerm]);
+  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, deferredSearchTerm]);
 
   // Calculate Pagination slice
   const totalItems = filteredOrders.length;
