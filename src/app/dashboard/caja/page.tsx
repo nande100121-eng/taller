@@ -47,7 +47,7 @@ export default function CajaPage() {
   } = useAppStore();
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
-  const [activeStatusFilter, setActiveStatusFilter] = useState<"todos" | "pendientes" | "pagados">("todos");
+  const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientes" | "pagados" | "todos">("hoy");
 
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
@@ -248,25 +248,45 @@ export default function CajaPage() {
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
+  const todayCount = React.useMemo(() => {
+    const targetDate = queryDate || new Date().toISOString().slice(0, 10);
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+      return orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
+    }).length;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
+
   // Filtered orders for Caja Tab
   const filteredCajaOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
+    const targetDate = queryDate || new Date().toISOString().slice(0, 10);
 
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const isPaid = isOrderPaid(wo, inv);
 
       const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
-      const matchStatus =
-        activeStatusFilter === "todos"
-          ? true
-          : activeStatusFilter === "pendientes"
-          ? !isPaid
-          : isPaid;
+
+      let matchStatus = true;
+      if (activeStatusFilter === "hoy") {
+        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+        matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
+      } else if (activeStatusFilter === "pendientes") {
+        matchStatus = !isPaid;
+      } else if (activeStatusFilter === "pagados") {
+        matchStatus = isPaid;
+      } else {
+        matchStatus = true;
+      }
 
       return matchPlate && matchStatus;
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, isOrderPaid]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, isOrderPaid, queryDate]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
   const filteredConsultasOrders = React.useMemo(() => {
@@ -625,36 +645,53 @@ export default function CajaPage() {
               <h2 className="text-lg font-bold text-white">Comprobantes y Liquidación de Taller</h2>
             </div>
 
-            <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10 text-xs font-bold">
+            <div className="flex flex-wrap items-center gap-1.5 bg-reygas-dark p-1 rounded-xl border border-white/10 text-xs font-bold">
+              {/* 1. Comprobantes del Día (Principal / Default) */}
               <button
-                onClick={() => setActiveStatusFilter("todos")}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  activeStatusFilter === "todos"
-                    ? "bg-purple-600 text-white shadow"
+                onClick={() => setActiveStatusFilter("hoy")}
+                className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  activeStatusFilter === "hoy"
+                    ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 font-black scale-[1.02]"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                Todos ({allBillingWorkOrders.length})
+                <span>📅 Del Día / Hoy ({todayCount})</span>
               </button>
+
+              {/* 2. Pendientes */}
               <button
                 onClick={() => setActiveStatusFilter("pendientes")}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
                   activeStatusFilter === "pendientes"
-                    ? "bg-amber-500 text-black font-extrabold shadow"
+                    ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                Pendientes ({pendingCount})
+                <span>⏳ Pendientes ({pendingCount})</span>
               </button>
+
+              {/* 3. Pagados */}
               <button
                 onClick={() => setActiveStatusFilter("pagados")}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
                   activeStatusFilter === "pagados"
-                    ? "bg-emerald-600 text-white shadow"
+                    ? "bg-emerald-600 text-white font-extrabold shadow-lg shadow-emerald-600/20 scale-[1.02]"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                Pagados ({paidCount})
+                <span>✅ Pagados ({paidCount})</span>
+              </button>
+
+              {/* 4. Todos */}
+              <button
+                onClick={() => setActiveStatusFilter("todos")}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  activeStatusFilter === "todos"
+                    ? "bg-gray-700 text-white font-bold shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <span>Todos ({allBillingWorkOrders.length})</span>
               </button>
             </div>
           </div>
