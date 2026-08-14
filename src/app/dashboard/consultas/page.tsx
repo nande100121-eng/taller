@@ -353,34 +353,36 @@ export default function ConsultasPage() {
         if (!plate || plate.length < 3) return;
 
         const dateISO = parseISODate(cols[0]);
-        const quinquennial_date = cols[1] || "";
-        const chip_expiry_date = cols[2] || "";
-        const fuel_type = (cols[3] as any) || "GNV";
-        const brand = cols[4] || "Automóvil";
-        const mileage = Math.min(999999, Math.max(0, parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 0));
-        const receipt_number = cols[7] || "";
-        const client_name = cols[8] || "Cliente Taller";
-        const client_phone = cols[9] || "+51 900000000";
-        const tech_name = cols[10] || "Mecánico Asignado";
-        const maintenance_service = cols[11] || "Mantenimiento General";
-        const spare_parts_services = cols[12] || "";
-        const price = Math.min(99999, Math.max(0, parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 0));
+        const quinquennial_date = (cols[1] || "").trim();
+        const chip_expiry_date = (cols[2] || "").trim();
+        const fuel_type = (cols[3] || "").trim();
+        const brand = (cols[4] || "").trim();
+        const mileageRaw = (cols[5] || "").trim();
+        const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/[^0-9]/g, "")) || 0) : 0;
+        const receipt_number = (cols[7] || "").trim();
+        const client_name = (cols[8] || "").trim();
+        const client_phone = (cols[9] || "").trim();
+        const tech_name = (cols[10] || "").trim();
+        const maintenance_service = (cols[11] || "").trim();
+        const spare_parts_services = (cols[12] || "").trim();
+        const raw_price = (cols[13] || "").trim();
+        const price = raw_price ? (parseFloat(raw_price.replace(/[^0-9.]/g, "")) || 0) : 0;
         const raw_discounts = (cols[14] || "").trim();
-        const discounts = Math.min(99999, Math.max(0, parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0));
-        const credit_amount = Math.min(99999, Math.max(0, parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0));
+        const discounts = raw_discounts ? (parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0) : 0;
+        const raw_credit = (cols[15] || "").trim();
+        const credit_amount = raw_credit ? (parseFloat(raw_credit.replace(/[^0-9.]/g, "")) || 0) : 0;
         const raw_payment_condition = (cols[16] || "").trim();
-        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : "Contado");
-        const payment_method = cols[17] || "Efectivo";
-        const payment_destination = cols[18] || "Caja Efectivo";
-        const receipt_type = cols[19] || "Boleta";
-        const observations = cols[20] || "";
+        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : (price > 0 ? "PAGADO" : ""));
+        const payment_method = (cols[17] || "").trim();
+        const payment_destination = (cols[18] || "").trim();
+        const receipt_type = (cols[19] || "").trim();
 
         const is_credit_order = credit_amount > 0 || payment_condition.toUpperCase().includes("CREDIT") || payment_condition.toUpperCase().includes("PENDIENTE");
         const base_amount = price > 0 ? price : credit_amount;
         const parts_total = base_amount + discounts;
         const grand_total = base_amount;
-        const payment_status = is_credit_order ? "pendiente" : "pagado";
-        const order_status = is_credit_order ? "por_cobrar" : "pagado_autorizado";
+        const payment_status = is_credit_order ? "pendiente" : (price > 0 ? "pagado" : "pendiente");
+        const order_status = is_credit_order ? "por_cobrar" : (price > 0 ? "pagado_autorizado" : "en_espera");
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
@@ -389,10 +391,10 @@ export default function ConsultasPage() {
         batchVehicles.push({
           plate,
           brand,
-          model: "Importado",
-          year: 2023,
-          color: "Plata",
-          fuel_type,
+          model: "",
+          year: 0,
+          color: "",
+          fuel_type: fuel_type as any,
           owner_name: client_name,
           owner_phone: client_phone,
           current_mileage: mileage,
@@ -404,7 +406,9 @@ export default function ConsultasPage() {
           vehicle_plate: plate,
           status: order_status,
           problem_description: maintenance_service,
-          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
+          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date} • Chip Anual: ${chip_expiry_date} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
+          observations: "",
+          assigned_technician_id: tech_name,
           entry_time: dateISO,
           items: spare_parts_services
             ? [

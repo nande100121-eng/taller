@@ -160,34 +160,36 @@ export default function AdminTablesPage() {
         if (!plate || plate.length < 3) return;
 
         const dateISO = parseISODate(cols[0]);
-        const quinquennial_date = cols[1] || "";
-        const chip_expiry_date = cols[2] || "";
-        const fuel_type = (cols[3] as any) || "GNV";
-        const brand = cols[4] || "Automóvil";
-        const mileage = Math.min(999999, Math.max(0, parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 0));
-        const receipt_number = cols[7] || "";
-        const client_name = cols[8] || "Cliente Taller";
-        const client_phone = cols[9] || "+51 900000000";
-        const tech_name = cols[10] || "Mecánico Asignado";
-        const maintenance_service = cols[11] || "Mantenimiento General";
-        const spare_parts_services = cols[12] || "";
-        const price = Math.min(99999, Math.max(0, parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 0));
+        const quinquennial_date = (cols[1] || "").trim();
+        const chip_expiry_date = (cols[2] || "").trim();
+        const fuel_type = (cols[3] || "").trim();
+        const brand = (cols[4] || "").trim();
+        const mileageRaw = (cols[5] || "").trim();
+        const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/[^0-9]/g, "")) || 0) : 0;
+        const receipt_number = (cols[7] || "").trim();
+        const client_name = (cols[8] || "").trim();
+        const client_phone = (cols[9] || "").trim();
+        const tech_name = (cols[10] || "").trim();
+        const maintenance_service = (cols[11] || "").trim();
+        const spare_parts_services = (cols[12] || "").trim();
+        const raw_price = (cols[13] || "").trim();
+        const price = raw_price ? (parseFloat(raw_price.replace(/[^0-9.]/g, "")) || 0) : 0;
         const raw_discounts = (cols[14] || "").trim();
-        const discounts = Math.min(99999, Math.max(0, parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0));
-        const credit_amount = Math.min(99999, Math.max(0, parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0));
+        const discounts = raw_discounts ? (parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0) : 0;
+        const raw_credit = (cols[15] || "").trim();
+        const credit_amount = raw_credit ? (parseFloat(raw_credit.replace(/[^0-9.]/g, "")) || 0) : 0;
         const raw_payment_condition = (cols[16] || "").trim();
-        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : "Contado");
-        const payment_method = cols[17] || "Efectivo";
-        const payment_destination = cols[18] || "Caja Efectivo";
-        const receipt_type = cols[19] || "Boleta";
-        const observations = cols[20] || "";
+        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : (price > 0 ? "PAGADO" : ""));
+        const payment_method = (cols[17] || "").trim();
+        const payment_destination = (cols[18] || "").trim();
+        const receipt_type = (cols[19] || "").trim();
 
         const is_credit_order = credit_amount > 0 || payment_condition.toUpperCase().includes("CREDIT") || payment_condition.toUpperCase().includes("PENDIENTE");
         const base_amount = price > 0 ? price : credit_amount;
         const parts_total = base_amount + discounts;
         const grand_total = base_amount;
-        const payment_status = is_credit_order ? "pendiente" : "pagado";
-        const order_status = is_credit_order ? "por_cobrar" : "pagado_autorizado";
+        const payment_status = is_credit_order ? "pendiente" : (price > 0 ? "pagado" : "pendiente");
+        const order_status = is_credit_order ? "por_cobrar" : (price > 0 ? "pagado_autorizado" : "en_espera");
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
@@ -196,10 +198,10 @@ export default function AdminTablesPage() {
         batchVehicles.push({
           plate,
           brand,
-          model: "Importado",
-          year: 2023,
-          color: "Plata",
-          fuel_type,
+          model: "",
+          year: 0,
+          color: "",
+          fuel_type: fuel_type as any,
           owner_name: client_name,
           owner_phone: client_phone,
           current_mileage: mileage,
@@ -211,8 +213,9 @@ export default function AdminTablesPage() {
           vehicle_plate: plate,
           status: order_status,
           problem_description: maintenance_service,
-          diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
+          diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${quinquennial_date} • Chip Anual: ${chip_expiry_date} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
           observations: "",
+          assigned_technician_id: tech_name,
           entry_time: dateISO,
           items: spare_parts_services
             ? [
@@ -544,19 +547,18 @@ export default function AdminTablesPage() {
                   <th className="p-3">Marca</th>
                   <th className="p-3">KILOMETRAJE</th>
                   <th className="p-3 font-black text-white">PLACA</th>
-                  <th className="p-3">N° Boleta/Factura</th>
+                  <th className="p-3">N° de boleta/Factura</th>
                   <th className="p-3">Cliente</th>
                   <th className="p-3">Celular</th>
                   <th className="p-3">Técnico</th>
                   <th className="p-3 max-w-[200px]">MANT. GENERAL / SERVICIO</th>
-                  <th className="p-3 max-w-[200px] text-amber-300 font-bold">OBSERVACIONES</th>
                   <th className="p-3 max-w-[200px]">REPUESTOS Y SERVICIOS</th>
-                  <th className="p-3">Precio Total</th>
+                  <th className="p-3">Precio</th>
                   <th className="p-3">DESCUENTOS</th>
                   <th className="p-3">Credito</th>
                   <th className="p-3">Condicion</th>
-                  <th className="p-3">METODO PAGO</th>
-                  <th className="p-3">DESTINO PAGO</th>
+                  <th className="p-3">METODO DE PAGO</th>
+                  <th className="p-3">DESTINO DE PAGO</th>
                   <th className="p-3">COMPROBANTE</th>
                   <th className="p-3 text-center">Acciones</th>
                 </tr>
@@ -564,7 +566,7 @@ export default function AdminTablesPage() {
               <tbody className="divide-y divide-white/5 bg-black/20">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={24} className="text-center py-16 text-gray-500">
+                    <td colSpan={23} className="text-center py-16 text-gray-500">
                       <FileSpreadsheet className="w-12 h-12 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-gray-400">No hay registros cargados en la Tabla Maestra.</p>
                       <p className="text-[11px] text-gray-500">
@@ -574,12 +576,19 @@ export default function AdminTablesPage() {
                   </tr>
                 ) : (
                   paginatedOrders.map((wo, index) => {
-                    const veh = vehicles.find((v) => v.plate === wo.vehicle_plate);
-                    const inv = invoices.find((i) => i.work_order_id === wo.id);
+                    const veh = vehiclesByPlate.get(wo.vehicle_plate) || vehicles.find((v) => v.plate === wo.vehicle_plate);
+                    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id);
                     const isSelected = selectedIds.includes(wo.id);
 
-                    const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
-                    const grandTotal = inv?.grand_total !== undefined ? inv.grand_total : partsTotal;
+                    const priceVal = inv?.grand_total !== undefined && inv.grand_total > 0
+                      ? `S/ ${inv.grand_total.toFixed(2)}`
+                      : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : "");
+
+                    const discountVal = inv?.discounts 
+                      ? (typeof inv.discounts === "number" ? (inv.discounts > 0 ? `S/ ${inv.discounts.toFixed(2)}` : "") : String(inv.discounts))
+                      : "";
+
+                    const creditVal = inv?.credit_amount && inv.credit_amount > 0 ? `S/ ${inv.credit_amount.toFixed(2)}` : "";
 
                     return (
                       <tr
@@ -598,28 +607,27 @@ export default function AdminTablesPage() {
                         </td>
                         <td className="p-3 font-mono font-bold text-gray-400">#{startIndex + index + 1}</td>
                         <td className="p-3 font-mono text-purple-300">
-                          {wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : "-"}
+                          {wo.entry_time ? (wo.entry_time.includes("T") ? new Date(wo.entry_time).toLocaleDateString("es-PE") : wo.entry_time) : ""}
                         </td>
-                        <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || "Vigente"}</td>
-                        <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || "Vigente"}</td>
-                        <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || "GNV"}</td>
-                        <td className="p-3 text-gray-200">{veh?.brand || "Automóvil"}</td>
-                        <td className="p-3 font-mono">{veh?.current_mileage || 50000} KM</td>
+                        <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
+                        <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>
+                        <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || ""}</td>
+                        <td className="p-3 text-gray-200">{veh?.brand || ""}</td>
+                        <td className="p-3 font-mono">{veh?.current_mileage && veh.current_mileage > 0 ? `${veh.current_mileage}` : ""}</td>
                         <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">{wo.vehicle_plate}</td>
-                        <td className="p-3 font-mono text-white">{inv?.receipt_number || "S/N"}</td>
-                        <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || "Cliente Taller"}</td>
-                        <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || "S/T"}</td>
-                        <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || "Mecánico Taller"}</td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || wo.problem_description}</td>
-                        <td className="p-3 truncate max-w-[200px] text-amber-200/90 font-medium">{wo.observations || "-"}</td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "Ninguno")}</td>
-                        <td className="p-3 font-mono font-bold text-white">S/ {grandTotal.toFixed(2)}</td>
-                        <td className="p-3 font-mono text-gray-400">S/ {(inv?.discounts || 0).toFixed(2)}</td>
-                        <td className="p-3 font-mono text-amber-400 font-bold">S/ {(inv?.credit_amount || 0).toFixed(2)}</td>
-                        <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || "Contado"}</td>
-                        <td className="p-3 text-emerald-300 font-bold">{inv?.payment_method || "Efectivo"}</td>
-                        <td className="p-3 text-purple-300">{inv?.payment_destination || "Caja Efectivo"}</td>
-                        <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || "Boleta"}</td>
+                        <td className="p-3 font-mono text-white">{inv?.receipt_number || ""}</td>
+                        <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || ""}</td>
+                        <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || ""}</td>
+                        <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
+                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || wo.problem_description || ""}</td>
+                        <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
+                        <td className="p-3 font-mono font-bold text-white">{priceVal}</td>
+                        <td className="p-3 font-mono text-gray-400">{discountVal}</td>
+                        <td className="p-3 font-mono text-amber-400 font-bold">{creditVal}</td>
+                        <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || ""}</td>
+                        <td className="p-3 text-emerald-300 font-bold">{inv?.payment_method || ""}</td>
+                        <td className="p-3 text-purple-300">{inv?.payment_destination || ""}</td>
+                        <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || ""}</td>
                         <td className="p-3 text-center">
                           <button
                             onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
