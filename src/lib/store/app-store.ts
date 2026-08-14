@@ -343,6 +343,7 @@ export interface Invoice {
   raw_credit_str?: string; // Crédito original de CSV (ej: $40.00, 40, etc.)
   payment_condition?: string; // Condicion (Contado/Crédito)
   payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
+  observations?: string; // OBSERVACIONES DEL COMPROBANTE
 }
 
 export interface Appointment {

@@ -17,6 +17,7 @@ interface ThermalReceiptModalProps {
   customerName?: string;
   customerAddress?: string;
   plate?: string;
+  observations?: string;
   grandTotal?: number;
   items?: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }>;
   discountAmount?: number;
@@ -35,6 +36,7 @@ export default function ThermalReceiptModal({
   customerName,
   customerAddress,
   plate,
+  observations,
   grandTotal,
   items,
   discountAmount = 0,
@@ -49,6 +51,7 @@ export default function ThermalReceiptModal({
   // Resolve Values
   const effectivePlate = (plate || workOrder?.vehicle_plate || invoice?.vehicle_plate || "").toUpperCase();
   const effectiveType = (receiptType || invoice?.receipt_type || "Factura") as "Ticket" | "Boleta" | "Factura";
+  const effectiveObservations = observations || invoice?.observations || workOrder?.observations || "";
 
   // Determine receipt number / series format e.g. F001-00000281
   let effectiveNumber = receiptNumber || invoice?.receipt_number || "";
@@ -124,10 +127,114 @@ export default function ThermalReceiptModal({
     customerDoc: effectiveDoc,
   });
 
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=${encodeURIComponent(sunatQrString)}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(sunatQrString)}`;
 
+  // Bulletproof 1-Page 80mm Print Trigger using Isolated Hidden Frame
   const handlePrint = () => {
-    window.print();
+    const printable = document.getElementById("thermal-receipt-printable");
+    if (!printable) {
+      window.print();
+      return;
+    }
+
+    let printFrame = document.getElementById("thermal-print-iframe") as HTMLIFrameElement;
+    if (!printFrame) {
+      printFrame = document.createElement("iframe");
+      printFrame.id = "thermal-print-iframe";
+      printFrame.style.position = "fixed";
+      printFrame.style.right = "0";
+      printFrame.style.bottom = "0";
+      printFrame.style.width = "0";
+      printFrame.style.height = "0";
+      printFrame.style.border = "0";
+      printFrame.style.opacity = "0";
+      document.body.appendChild(printFrame);
+    }
+
+    const doc = printFrame.contentWindow?.document || printFrame.contentDocument;
+    if (!doc) {
+      window.print();
+      return;
+    }
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${effectiveType} - ${effectiveNumber}</title>
+          <style>
+            @page {
+              size: 80mm 297mm;
+              margin: 0;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              width: 80mm;
+              max-width: 80mm;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              color: #000;
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 10px;
+              line-height: 1.15;
+            }
+            .paper {
+              width: 72mm;
+              max-width: 72mm;
+              margin: 0 auto;
+              padding: 3mm 1mm 8mm 1mm;
+            }
+            .center { text-align: center; }
+            .left { text-align: left; }
+            .right { text-align: right; }
+            .bold { font-weight: bold; }
+            .uppercase { text-transform: uppercase; }
+            .border-t { border-top: 1px dashed #000; padding-top: 2px; margin-top: 2px; }
+            .border-b { border-bottom: 1px dashed #000; padding-bottom: 2px; margin-bottom: 2px; }
+            .border-t-solid { border-top: 1px solid #000; padding-top: 3px; margin-top: 3px; }
+            .border-b-solid { border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; }
+            .logo-img {
+              max-height: 48px;
+              max-width: 170px;
+              display: block;
+              margin: 0 auto 3px auto;
+              object-fit: contain;
+            }
+            .qr-img {
+              width: 105px;
+              height: 105px;
+              display: block;
+              margin: 0 auto;
+              object-fit: contain;
+            }
+            table { width: 100%; border-collapse: collapse; }
+            table.items th { border-bottom: 1px dashed #000; padding: 2px 0; font-size: 9px; }
+            table.items td { padding: 1.5px 0; font-size: 9px; vertical-align: top; }
+            .table-totals { width: 100%; font-size: 9px; }
+            .table-totals td { padding: 0.5px 0; }
+            .total-row { font-size: 11px; font-weight: bold; border-top: 1px solid #000; padding-top: 3px; }
+          </style>
+        </head>
+        <body>
+          <div class="paper">
+            ${printable.innerHTML}
+          </div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      printFrame.contentWindow?.focus();
+      printFrame.contentWindow?.print();
+    }, 300);
   };
 
   const handleCopyEscPos = () => {
@@ -163,25 +270,25 @@ export default function ThermalReceiptModal({
           <div
             ref={receiptRef}
             id="thermal-receipt-printable"
-            className="w-full max-w-[330px] bg-white text-black p-5 pb-8 rounded-xl shadow-2xl font-mono text-[11px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
+            className="w-full max-w-[310px] bg-white text-black p-4 pb-8 rounded-xl shadow-2xl font-mono text-[10px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
           >
-            {/* 1. Header with Logo from logo.jpg */}
-            <div className="text-center space-y-1">
+            {/* 1. Header with Centered Logo from logo.jpg */}
+            <div className="flex flex-col items-center justify-center text-center space-y-1 w-full">
               <img
                 src="/logo.jpg"
                 alt="REYGAS AUTOGAS EQUIPMENT"
-                className="max-h-16 mx-auto object-contain mb-1"
+                className="max-h-14 max-w-[170px] w-auto mx-auto block object-contain mb-1"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = "none";
                 }}
               />
 
               <div className="font-bold text-xs uppercase tracking-wide">REYGAS S.A.C.</div>
-              <div className="text-[9.5px] text-gray-900 leading-tight">
+              <div className="text-[9px] text-gray-900 leading-tight">
                 AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA
               </div>
               
-              <div className="border-t border-gray-400 pt-0.5 mt-1 font-bold text-[10px]">
+              <div className="border-t border-gray-400 pt-0.5 mt-1 font-bold text-[9.5px]">
                 RUC 20600982860
               </div>
             </div>
@@ -199,7 +306,7 @@ export default function ThermalReceiptModal({
             </div>
 
             {/* 3. Client & Document Info */}
-            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9.5px]">
+            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9px]">
               <div>
                 <strong>CLIENTE:</strong> {effectiveClient}
               </div>
@@ -220,100 +327,103 @@ export default function ThermalReceiptModal({
               <div>
                 <strong>MONEDA:</strong> SOLES
               </div>
+              <div>
+                <strong>PLACA:</strong> {effectivePlate || "S/P"}
+              </div>
+              {effectiveObservations ? (
+                <div className="border-t border-gray-300 pt-0.5 mt-0.5 text-[9px]">
+                  <strong>OBSERVACION:</strong> {effectiveObservations}
+                </div>
+              ) : null}
             </div>
 
-            {/* 4. Observacion / Vehicle Plate */}
-            <div className="border-t border-gray-400 pt-0.5 text-[9.5px] font-bold">
-              OBSERVACION: {effectivePlate || "S/P"}
-            </div>
-
-            {/* 5. Items Table (CANT. P.UNIT. IMPORTE) */}
+            {/* 4. Items Table (CANT. P.UNIT. IMPORTE) */}
             <div className="border-t border-gray-400 pt-1">
-              <div className="flex justify-between font-bold border-b border-gray-400 pb-0.5 text-[9.5px]">
-                <span className="w-16 text-left">CANT.</span>
-                <span className="flex-1 text-center">P.UNIT.</span>
+              <div className="flex justify-between font-bold border-b border-gray-400 pb-0.5 text-[9px]">
+                <span className="w-12 text-left">CANT.</span>
+                <span className="flex-1 text-right pr-2">P.UNIT.</span>
                 <span className="w-16 text-right">IMPORTE</span>
               </div>
 
-              <div className="py-1 space-y-1.5">
+              <div className="py-1 space-y-1">
                 {effectiveItems.map((item, idx) => (
                   <div key={idx} className="space-y-0.5">
-                    <div className="font-bold text-[9.5px] uppercase break-words leading-tight">
+                    <div className="font-bold text-[9px] uppercase break-words leading-tight">
                       {item.description}
                     </div>
-                    <div className="flex justify-between text-[9.5px] font-mono">
-                      <span className="w-16 text-left">{item.quantity.toFixed(2)}</span>
-                      <span className="flex-1 text-center">{item.unit_price.toFixed(2)}</span>
-                      <span className="w-16 text-right font-bold">{item.subtotal.toFixed(2)}</span>
+                    <div className="flex justify-between text-[9px] font-mono">
+                      <span className="w-12 text-left">{Number(item.quantity).toFixed(2)}</span>
+                      <span className="flex-1 text-right pr-2">{Number(item.unit_price).toFixed(2)}</span>
+                      <span className="w-16 text-right font-bold">{Number(item.subtotal).toFixed(2)}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* 6. Tax Breakdown / Totals */}
-            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9.5px]">
+            {/* 5. Tax Breakdown / Totals */}
+            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9px]">
               <div className="flex justify-between">
                 <span>OP. GRAVADAS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;{opGravadas.toFixed(2)}</span>
+                <span className="font-mono text-right">S/ {opGravadas.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. EXONERADAS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+                <span className="font-mono text-right">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. INAFECTAS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+                <span className="font-mono text-right">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. GRATUITAS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+                <span className="font-mono text-right">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>SUBTOTAL:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;{opGravadas.toFixed(2)}</span>
+                <span className="font-mono text-right">S/ {opGravadas.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>DESCUENTOS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;{discountAmount.toFixed(2)}</span>
+                <span className="font-mono text-right">S/ {discountAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>IGV 18.0%:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;{igvAmount.toFixed(2)}</span>
+                <span className="font-mono text-right">S/ {igvAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>ICBPER:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+                <span className="font-mono text-right">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>ADELANTOS:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+                <span className="font-mono text-right">S/ 0.00</span>
               </div>
-              <div className="flex justify-between font-black text-xs border-t border-black pt-1 mt-0.5">
+              <div className="flex justify-between font-black text-[11px] border-t border-black pt-1 mt-0.5">
                 <span>TOTAL:</span>
-                <span className="font-mono">S/ &nbsp;&nbsp;{effectiveTotal.toFixed(2)}</span>
+                <span className="font-mono text-right font-black">S/ {effectiveTotal.toFixed(2)}</span>
               </div>
             </div>
 
-            {/* 7. SUNAT Dynamic Fiscal QR Code */}
+            {/* 6. SUNAT Dynamic Fiscal QR Code */}
             <div className="flex flex-col items-center justify-center py-2 border-t border-gray-400 space-y-1">
               <img
                 src={qrImageUrl}
                 alt="Código QR Fiscal SUNAT"
-                className="w-28 h-28 object-contain bg-white"
+                className="w-24 h-24 object-contain bg-white mx-auto block"
               />
-              <span className="text-[8px] text-gray-600 font-sans tracking-tight">
+              <span className="text-[8px] text-gray-600 font-sans tracking-tight text-center block">
                 Código QR Fiscal SUNAT
               </span>
             </div>
 
-            {/* 8. Amount in words (SON OCHENTA CON 00/100 SOLES) */}
-            <div className="border-t border-b border-black py-1 text-[9.5px] font-bold uppercase text-center tracking-tight">
+            {/* 7. Amount in words (SON OCHENTA CON 00/100 SOLES) */}
+            <div className="border-t border-b border-black py-1 text-[9px] font-bold uppercase text-center tracking-tight">
               {amountInWords}
             </div>
 
-            {/* 9. Footer Legal Notes */}
-            <div className="pt-1 text-center space-y-0.5 text-[8.5px] text-gray-800">
+            {/* 8. Footer Legal Notes */}
+            <div className="pt-1 text-center space-y-0.5 text-[8px] text-gray-800">
               <div className="font-bold">Representación impresa de la {effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica</div>
               <div>Autorizado mediante Resolución de Superintendencia</div>
               <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
@@ -360,28 +470,21 @@ export default function ThermalReceiptModal({
         </div>
       </div>
 
-      {/* Global CSS for Clean 80mm Thermal POS Printing */}
+      {/* Direct Media Print rules */}
       <style jsx global>{`
+        @page {
+          size: 80mm 297mm;
+          margin: 0;
+        }
         @media print {
-          body * {
-            visibility: hidden;
-          }
-          #thermal-receipt-printable,
-          #thermal-receipt-printable * {
-            visibility: visible;
-          }
-          #thermal-receipt-printable {
-            position: absolute;
-            left: 0;
-            top: 0;
+          html, body {
             width: 80mm !important;
             max-width: 80mm !important;
             margin: 0 !important;
-            padding: 3mm !important;
-            border: none !important;
-            box-shadow: none !important;
-            background: white !important;
-            color: black !important;
+            padding: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            overflow: visible !important;
           }
         }
       `}</style>

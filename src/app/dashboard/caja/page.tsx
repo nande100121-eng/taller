@@ -75,6 +75,7 @@ export default function CajaPage() {
     customerDoc: string;
     customerName: string;
     customerAddress: string;
+    observations: string;
     isSearchingRuc?: boolean;
   } | null>(null);
 
@@ -89,6 +90,7 @@ export default function CajaPage() {
     customerName?: string;
     customerAddress?: string;
     plate?: string;
+    observations?: string;
     grandTotal?: number;
     items?: any[];
     discountAmount?: number;
@@ -423,6 +425,7 @@ export default function CajaPage() {
       customerDoc: inv?.customer_doc || "",
       customerName: inv?.client_name || vehicle?.owner_name || (initialType === "Ticket" ? "CLIENTES VARIOS" : ""),
       customerAddress: inv?.customer_address || "-",
+      observations: inv?.observations || wo.observations || "",
       isSearchingRuc: false,
     });
   };
@@ -506,6 +509,7 @@ export default function CajaPage() {
     const currentName = paymentModal.customerName;
     const currentAddress = paymentModal.customerAddress;
     const currentType = paymentModal.receiptType;
+    const currentObs = paymentModal.observations;
 
     setPaymentModal(null);
 
@@ -520,6 +524,7 @@ export default function CajaPage() {
       customerName: currentName,
       customerAddress: currentAddress,
       plate: currentWo?.vehicle_plate,
+      observations: currentObs,
       grandTotal: currentTotal,
       items: currentItems,
       paymentMethod: currentMethod,
@@ -547,6 +552,7 @@ export default function CajaPage() {
       customerName: inv?.client_name || vehicle?.owner_name || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente"),
       customerAddress: inv?.customer_address || "-",
       plate: wo.vehicle_plate,
+      observations: inv?.observations || wo.observations || "",
       grandTotal: total,
       paymentMethod: inv?.payment_method || "Efectivo",
       issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
@@ -1224,6 +1230,20 @@ export default function CajaPage() {
                 </div>
               </div>
 
+              {/* 4. Observaciones en el Comprobante (Concepto adicional escrito por el cajero) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1">
+                  4. Observaciones en Comprobante (Opcional / Concepto libre)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Mantenimiento y calibración de gas / Pago a cuenta"
+                  value={paymentModal.observations}
+                  onChange={(e) => setPaymentModal({ ...paymentModal, observations: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
+                />
+              </div>
+
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
                 <button
@@ -1261,6 +1281,7 @@ export default function CajaPage() {
           customerName={activeReceiptModal.customerName}
           customerAddress={activeReceiptModal.customerAddress}
           plate={activeReceiptModal.plate}
+          observations={activeReceiptModal.observations}
           grandTotal={activeReceiptModal.grandTotal}
           items={activeReceiptModal.items}
           discountAmount={activeReceiptModal.discountAmount}
