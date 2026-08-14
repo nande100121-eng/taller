@@ -178,6 +178,7 @@ export default function AdminTablesPage() {
           year: 0,
           color: "",
           fuel_type: record.fuelType as any,
+          vehicle_type: record.vehicleType,
           owner_name: record.clientName,
           owner_phone: record.clientPhone,
           current_mileage: record.mileage,
@@ -193,6 +194,7 @@ export default function AdminTablesPage() {
           observations: "",
           assigned_technician_id: record.technicianName,
           entry_time: record.dateISO,
+          vehicle_type: record.vehicleType,
           items: record.sparePartsServices || record.maintenanceService
             ? [
                 {
@@ -477,7 +479,7 @@ export default function AdminTablesPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <label className="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap">
                 <Upload className="w-4 h-4" />
-                <span>Cargar Excel Taller (20 Encabezados)</span>
+                <span>Cargar Excel Taller (21 Encabezados)</span>
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xls"
@@ -519,6 +521,7 @@ export default function AdminTablesPage() {
                   <th className="p-3">Fecha</th>
                   <th className="p-3">FECHA QUINTENAL</th>
                   <th className="p-3">FECHA CHIP ANUAL</th>
+                  <th className="p-3">TIPO</th>
                   <th className="p-3">Sistema</th>
                   <th className="p-3">Marca</th>
                   <th className="p-3">KILOMETRAJE</th>
@@ -542,11 +545,11 @@ export default function AdminTablesPage() {
               <tbody className="divide-y divide-white/5 bg-black/20">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={23} className="text-center py-16 text-gray-500">
+                    <td colSpan={24} className="text-center py-16 text-gray-500">
                       <FileSpreadsheet className="w-12 h-12 mx-auto mb-2 opacity-40" />
                       <p className="font-bold text-gray-400">No hay registros cargados en la Tabla Maestra.</p>
                       <p className="text-[11px] text-gray-500">
-                        Utilice el botón <strong>"Cargar Excel Taller (20 Encabezados)"</strong> para importar su historial.
+                        Utilice el botón <strong>"Cargar Excel Taller (21 Encabezados)"</strong> para importar su historial.
                       </p>
                     </td>
                   </tr>
@@ -587,6 +590,7 @@ export default function AdminTablesPage() {
                         </td>
                         <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
                         <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>
+                        <td className="p-3 text-cyan-300 font-semibold">{wo.vehicle_type || veh?.vehicle_type || ""}</td>
                         <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || ""}</td>
                         <td className="p-3 text-gray-200">{veh?.brand || ""}</td>
                         <td className="p-3 font-mono">{veh?.current_mileage && veh.current_mileage > 0 ? `${veh.current_mileage}` : ""}</td>

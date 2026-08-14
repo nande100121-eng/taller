@@ -371,6 +371,7 @@ export default function ConsultasPage() {
           year: 0,
           color: "",
           fuel_type: record.fuelType as any,
+          vehicle_type: record.vehicleType,
           owner_name: record.clientName,
           owner_phone: record.clientPhone,
           current_mileage: record.mileage,
@@ -386,6 +387,7 @@ export default function ConsultasPage() {
           observations: "",
           assigned_technician_id: record.technicianName,
           entry_time: record.dateISO,
+          vehicle_type: record.vehicleType,
           items: record.sparePartsServices || record.maintenanceService
             ? [
                 {

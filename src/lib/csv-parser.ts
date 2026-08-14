@@ -72,23 +72,24 @@ export interface ParsedWorkshopRecord {
   rawDate: string;
   quinquennialDate: string;
   chipExpiryDate: string;
-  fuelType: string;
-  brand: string;
-  mileage: number;
-  plate: string;
-  receiptNumber: string;
-  clientName: string;
-  clientPhone: string;
-  technicianName: string;
-  maintenanceService: string;
-  sparePartsServices: string;
-  price: number;
-  discounts: string | number;
-  creditAmount: number;
-  paymentCondition: string;
-  paymentMethod: string;
-  paymentDestination: string;
-  receiptType: string;
+  vehicleType: string; // TIPO (column 4 / index 3)
+  fuelType: string; // Sistema (column 5 / index 4)
+  brand: string; // Marca (column 6 / index 5)
+  mileage: number; // KILOMETRAJE (column 7 / index 6)
+  plate: string; // PLACA (column 8 / index 7)
+  receiptNumber: string; // N° de boleta/Factura (column 9 / index 8)
+  clientName: string; // Cliente (column 10 / index 9)
+  clientPhone: string; // Celular (column 11 / index 10)
+  technicianName: string; // Técnico (column 12 / index 11)
+  maintenanceService: string; // MANT. GENERAL / SERVICIO (column 13 / index 12)
+  sparePartsServices: string; // REPUESTOS Y SERVICIOS (column 14 / index 13)
+  price: number; // Precio (column 15 / index 14)
+  discounts: string | number; // DESCUENTOS (column 16 / index 15)
+  creditAmount: number; // Credito (column 17 / index 16)
+  paymentCondition: string; // Condicion (column 18 / index 17)
+  paymentMethod: string; // METODO DE PAGO (column 19 / index 18)
+  paymentDestination: string; // DESTINO DE PAGO (column 20 / index 19)
+  receiptType: string; // COMPROBANTE (column 21 / index 20)
 }
 
 export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
@@ -99,148 +100,64 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   if (!rawDate || rawDate.toLowerCase().includes("fecha")) return null;
   const dateISO = parseISODate(rawDate);
 
-  // 2. Find Plate Column dynamically (between index 5 and index 10)
-  let plateIdx = -1;
-  for (let i = 5; i < Math.min(cols.length, 12); i++) {
-    const val = (cols[i] || "").trim().toUpperCase();
-    if (!val) continue;
-    if (val === "VENTA" || /^[A-Z0-9]{2,4}-?[A-Z0-9]{2,4}$/.test(val)) {
-      const nextVal = (cols[i + 1] || "").trim();
-      if (/^[0-9]+$/.test(nextVal) || nextVal === "S/N" || nextVal === "0" || nextVal === "") {
-        plateIdx = i;
-        break;
-      }
-    }
-  }
+  // When standard 21 columns are provided:
+  // 0: Fecha, 1: Quinquenal, 2: Chip, 3: Tipo, 4: Sistema, 5: Marca, 6: Km, 7: Placa, 8: Recibo, 9: Cliente, 10: Celular, 11: Técnico, 12: Mant Gral, 13: Repuestos, 14: Precio, 15: Descuentos, 16: Credito, 17: Condicion, 18: Metodo, 19: Destino, 20: Comprobante
 
-  // Fallback scan for hyphenated plate
-  if (plateIdx === -1) {
-    for (let i = 5; i < Math.min(cols.length, 10); i++) {
+  // Find Plate index dynamically (usually 7 in 21-col format)
+  let plateIdx = 7;
+  if (cols.length >= 8 && cols[7] && cols[7].trim()) {
+    plateIdx = 7;
+  } else {
+    for (let i = 5; i < Math.min(cols.length, 12); i++) {
       const val = (cols[i] || "").trim().toUpperCase();
-      if (val.length >= 3 && val.includes("-")) {
+      if (!val) continue;
+      if (val === "VENTA" || /^[A-Z0-9]{2,4}-?[A-Z0-9]{2,4}$/.test(val)) {
         plateIdx = i;
         break;
       }
     }
-    if (plateIdx === -1) plateIdx = 6;
   }
 
   const rawPlate = (cols[plateIdx] || "").trim().toUpperCase();
   const plate = rawPlate.replace(/[^A-Z0-9-]/g, "");
   if (!plate || plate.length < 3) return null;
 
-  // 3. Pre-Plate Columns: Quinquenal, Chip, Fuel, Brand, Mileage
   const quinquennialDate = (cols[1] || "").trim();
   const chipExpiryDate = (cols[2] || "").trim();
+  const vehicleType = (cols[3] || "").trim();
+  const fuelType = (cols[4] || "").trim();
+  const brand = (cols[5] || "").trim();
+  const mileageRaw = (cols[6] || "").trim();
+  const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/[^0-9]/g, ""), 10) || 0) : 0;
 
-  let fuelType = "";
-  let brand = "";
-  let mileage = 0;
+  const receiptNumber = (cols[8] || cols[plateIdx + 1] || "").trim();
+  const clientName = (cols[9] || cols[plateIdx + 2] || "").trim();
+  const clientPhone = (cols[10] || cols[plateIdx + 3] || "").trim();
+  const technicianName = (cols[11] || cols[plateIdx + 4] || "").trim();
 
-  for (let i = 3; i < plateIdx; i++) {
-    const val = (cols[i] || "").trim();
-    if (!val) continue;
-    const upper = val.toUpperCase();
-    if (upper === "GNV" || upper === "GLP" || upper === "GASOLINA" || upper === "DUAL") {
-      fuelType = upper;
-    } else if (upper.includes("KM") || /^[0-9,.]+$/.test(val)) {
-      mileage = parseInt(val.replace(/[^0-9]/g, ""), 10) || 0;
-    } else if (val !== "-" && !brand) {
-      brand = val;
-    }
-  }
+  const maintenanceService = (cols[12] || "").trim();
+  const sparePartsServices = (cols[13] || "").trim();
 
-  // 4. Post-Plate Columns: Receipt, Client, Phone, Tech
-  const receiptNumber = (cols[plateIdx + 1] || "").trim();
-  const clientName = (cols[plateIdx + 2] || "").trim();
-  const clientPhone = (cols[plateIdx + 3] || "").trim();
-  const technicianName = (cols[plateIdx + 4] || "").trim();
+  const rawPrice = (cols[14] || "").trim();
+  const price = rawPrice ? (parseFloat(rawPrice.replace(/[^0-9.]/g, "")) || 0) : 0;
 
-  // 5. Post-Tech Columns: Find Condition (PAGADO / PENDIENTE / CREDITO)
-  let conditionIdx = -1;
-  for (let i = plateIdx + 5; i < cols.length; i++) {
-    const upper = (cols[i] || "").trim().toUpperCase();
-    if (upper === "PAGADO" || upper === "PENDIENTE" || upper === "CREDITO" || upper.includes("PAGADO") || upper.includes("PENDIENTE")) {
-      conditionIdx = i;
-      break;
-    }
-  }
+  const rawDiscounts = (cols[15] || "").trim();
+  const discounts = rawDiscounts;
 
-  let paymentCondition = "";
-  let paymentMethod = "";
-  let paymentDestination = "";
-  let receiptType = "";
-  let price = 0;
-  let discounts: string | number = "";
-  let creditAmount = 0;
-  let maintenanceService = "";
-  let sparePartsServices = "";
+  const rawCredit = (cols[16] || "").trim();
+  const creditAmount = rawCredit ? (parseFloat(rawCredit.replace(/[^0-9.]/g, "")) || 0) : 0;
 
-  if (conditionIdx !== -1) {
-    paymentCondition = (cols[conditionIdx] || "").trim();
-    paymentMethod = (cols[conditionIdx + 1] || "").trim();
-    paymentDestination = (cols[conditionIdx + 2] || "").trim();
-    receiptType = (cols[conditionIdx + 3] || "").trim();
-
-    const creditRaw = (cols[conditionIdx - 1] || "").trim();
-    const discountRaw = (cols[conditionIdx - 2] || "").trim();
-    const priceRaw = (cols[conditionIdx - 3] || "").trim();
-
-    if (creditRaw) {
-      creditAmount = parseFloat(creditRaw.replace(/[^0-9.]/g, "")) || 0;
-    }
-    if (discountRaw) {
-      discounts = discountRaw;
-    }
-    if (priceRaw) {
-      price = parseFloat(priceRaw.replace(/[^0-9.]/g, "")) || 0;
-    } else {
-      for (let i = plateIdx + 5; i < conditionIdx; i++) {
-        const cVal = (cols[i] || "").trim();
-        if (cVal.startsWith("$") || /^[0-9,.]+$/.test(cVal.replace("$", ""))) {
-          const num = parseFloat(cVal.replace(/[^0-9.]/g, "")) || 0;
-          if (num > 0 || cVal.includes("0")) {
-            price = num;
-            break;
-          }
-        }
-      }
-    }
-
-    const serviceStrings: string[] = [];
-    for (let i = plateIdx + 5; i < conditionIdx - 3; i++) {
-      const s = (cols[i] || "").trim();
-      if (s && !s.startsWith("$") && isNaN(Number(s.replace(/[^0-9.]/g, "")))) {
-        serviceStrings.push(s);
-      }
-    }
-    if (serviceStrings.length > 0) {
-      maintenanceService = serviceStrings[0] || "";
-      sparePartsServices = serviceStrings.slice(1).join(" + ") || serviceStrings[0];
-    }
-  } else {
-    maintenanceService = (cols[11] || "").trim();
-    sparePartsServices = (cols[12] || "").trim();
-    const rawPrice = (cols[13] || "").trim();
-    price = parseFloat(rawPrice.replace(/[^0-9.]/g, "")) || 0;
-    discounts = (cols[14] || "").trim();
-    const rawCredit = (cols[15] || "").trim();
-    creditAmount = parseFloat(rawCredit.replace(/[^0-9.]/g, "")) || 0;
-    paymentCondition = (cols[16] || "").trim();
-    paymentMethod = (cols[17] || "").trim();
-    paymentDestination = (cols[18] || "").trim();
-    receiptType = (cols[19] || "").trim();
-  }
-
-  if (creditAmount > 0 && !paymentCondition) {
-    paymentCondition = "PENDIENTE";
-  }
+  const paymentCondition = (cols[17] || "").trim();
+  const paymentMethod = (cols[18] || "").trim();
+  const paymentDestination = (cols[19] || "").trim();
+  const receiptType = (cols[20] || "").trim();
 
   return {
     dateISO,
     rawDate,
     quinquennialDate,
     chipExpiryDate,
+    vehicleType,
     fuelType,
     brand,
     mileage,

@@ -233,6 +233,7 @@ export interface Vehicle {
   current_mileage: number;
   last_visit_date: string;
   photos?: string[];
+  vehicle_type?: string; // TIPO (e.g. Automóvil, Moto, etc.)
 }
 
 export type WorkOrderStatus =
@@ -275,6 +276,7 @@ export interface WorkOrder {
   certification_issued?: boolean;
   certification_id?: string;
   allow_modifications?: boolean;
+  vehicle_type?: string; // TIPO
   quinquennial_date?: string; // FECHA QUINTENAL
   chip_expiry_date?: string; // FECHA CHIP ANUAL
   general_maintenance_service?: string; // MANT. GENERAL / SERVICIO
