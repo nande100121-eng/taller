@@ -1001,32 +1001,7 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      vehicles: [
-        {
-          plate: "ABC-123",
-          brand: "Toyota",
-          model: "Yaris",
-          year: 2021,
-          color: "Plata Metallic",
-          fuel_type: "GNV",
-          owner_name: "Luis Fernando Alva",
-          owner_phone: "+51 998877665",
-          current_mileage: 45200,
-          last_visit_date: new Date().toISOString(),
-        },
-        {
-          plate: "XYZ-987",
-          brand: "Hyundai",
-          model: "Elantra",
-          year: 2020,
-          color: "Negro Azabache",
-          fuel_type: "GLP",
-          owner_name: "Mariana Torres",
-          owner_phone: "+51 987654321",
-          current_mileage: 62000,
-          last_visit_date: new Date().toISOString(),
-        },
-      ],
+      vehicles: [],
 
       registerVehicle: (v) =>
         set((state) => {
@@ -1038,63 +1013,7 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
-      workOrders: [
-        {
-          id: "ot-1001",
-          vehicle_plate: "ABC-123",
-          status: "en_servicio",
-          assigned_technician_id: "tech-1",
-          problem_description: "Falta de potencia en subida a GNV y tirones a 3000 RPM",
-          diagnostic_notes: "Inyectores de gas obstruidos y presión de regulador baja a 1.1 bar.",
-          entry_time: new Date(Date.now() - 3600000 * 3).toISOString(),
-          items: [
-            {
-              id: "item-1",
-              inventory_item_id: "inv-3",
-              description: "Filtro de Gas Línea 14mm GNV/GLP",
-              quantity: 1,
-              unit_price: 35,
-              subtotal: 35,
-              dispatched: true,
-            },
-            {
-              id: "item-2",
-              description: "Limpieza y calibración de Rampa de Inyectores Valtek",
-              quantity: 1,
-              unit_price: 80,
-              subtotal: 80,
-              dispatched: true,
-            },
-          ],
-        },
-        {
-          id: "ot-1002",
-          vehicle_plate: "XYZ-987",
-          status: "por_cobrar",
-          assigned_technician_id: "tech-2",
-          problem_description: "Certificación Anual GLP y mantenimiento de 15,000 km",
-          diagnostic_notes: "Prueba de hermeticidad aprobada sin fugas. Emisiones dentro del rango.",
-          entry_time: new Date(Date.now() - 3600000 * 5).toISOString(),
-          items: [
-            {
-              id: "item-3",
-              description: "Servicio de Mantenimiento Preventivo 15k GLP",
-              quantity: 1,
-              unit_price: 150,
-              subtotal: 150,
-              dispatched: true,
-            },
-            {
-              id: "item-4",
-              description: "Derecho de Certificación Anual GLP",
-              quantity: 1,
-              unit_price: 90,
-              subtotal: 90,
-              dispatched: true,
-            },
-          ],
-        },
-      ],
+      workOrders: [],
 
       createWorkOrder: (order) => {
         const newOrder: WorkOrder = {
@@ -1517,21 +1436,7 @@ export const useAppStore = create<AppState>()(
           ),
         })),
 
-      invoices: [
-        {
-          id: "inv-2001",
-          work_order_id: "ot-1002",
-          vehicle_plate: "XYZ-987",
-          client_name: "Mariana Torres",
-          labor_fee: 150,
-          parts_total: 0,
-          certification_fee: 90,
-          grand_total: 240,
-          payment_status: "pendiente",
-          payment_method: "Efectivo",
-          issued_at: new Date().toISOString(),
-        },
-      ],
+      invoices: [],
 
       createInvoice: (invoiceData) =>
         set((state) => {
