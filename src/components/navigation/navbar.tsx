@@ -45,10 +45,11 @@ export const Navbar: React.FC = () => {
     { name: "4. Taller & Kanban", href: "/dashboard/taller", icon: Wrench, color: "text-amber-400" },
     { name: "5. Almacén & Herramientas", href: "/dashboard/almacen", icon: Package, color: "text-emerald-400" },
     { name: "6. Caja & Facturación", href: "/dashboard/caja", icon: CreditCard, color: "text-purple-400" },
-    { name: "7. Certificaciones GNV/GLP", href: "/dashboard/certificaciones", icon: Award, color: "text-teal-400" },
-    { name: "8. Asistencia Biométrica", href: "/dashboard/asistencia", icon: Clock, color: "text-cyan-400" },
-    { name: "9. Consultas & Histórico por Día", href: "/dashboard/consultas", icon: Clock, color: "text-amber-400" },
-    { name: "10. Tablas Maestras", href: "/dashboard/admin/tables", icon: Table, color: "text-indigo-400" },
+    { name: "7. Reportes de Caja & Arqueo", href: "/dashboard/reportes", icon: Table, color: "text-amber-400" },
+    { name: "8. Certificaciones GNV/GLP", href: "/dashboard/certificaciones", icon: Award, color: "text-teal-400" },
+    { name: "9. Asistencia Biométrica", href: "/dashboard/asistencia", icon: Clock, color: "text-cyan-400" },
+    { name: "10. Consultas & Histórico por Día", href: "/dashboard/consultas", icon: Clock, color: "text-amber-400" },
+    { name: "11. Tablas Maestras", href: "/dashboard/admin/tables", icon: Table, color: "text-indigo-400" },
   ];
 
   return (

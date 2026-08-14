@@ -9,19 +9,16 @@ import {
   CheckCircle2,
   Lock,
   Unlock,
-  Printer,
-  ShieldCheck,
   Coins,
-  Package,
-  Wrench,
   Clock,
   Search,
   Calendar,
-  Filter,
   History,
-  FileText,
-  User,
-  Phone
+  AlertCircle,
+  X,
+  Building,
+  UserCheck,
+  Tag
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -31,24 +28,37 @@ export default function CajaPage() {
     vehicles,
     technicians,
     createInvoiceForOrder,
-    payInvoice,
     togglePayInvoice,
+    confirmInvoicePayment,
     toggleAllowModificationsInWorkshop,
   } = useAppStore();
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
   const [activeStatusFilter, setActiveStatusFilter] = useState<"todos" | "pendientes" | "pagados">("todos");
-  
+
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today
-  const [visibleLimit, setVisibleLimit] = useState(40);
 
-  // Reset limit on filter changes
-  React.useEffect(() => {
-    setVisibleLimit(40);
-  }, [deferredSearchPlate, queryDate, activeStatusFilter, activeMainTab]);
+  // Modal State for Mandatory Payment Confirmation
+  const [paymentModal, setPaymentModal] = useState<{
+    isOpen: boolean;
+    workOrder: any;
+    invoice: any;
+    grandTotal: number;
+    paymentMethod: "Efectivo" | "Yape" | "Transferencia" | "Culqi";
+    paymentDestination: string;
+    receiptNumber: string;
+    receiptType: "Boleta" | "Factura" | "Nota de Venta";
+  } | null>(null);
+
+  // Alert State
+  const [alertMsg, setAlertMsg] = useState<{ type: "success" | "warning"; text: string } | null>(null);
+  const showAlert = (type: "success" | "warning", text: string) => {
+    setAlertMsg({ type, text });
+    setTimeout(() => setAlertMsg(null), 4000);
+  };
 
   // O(1) Invoices lookup map
   const invoicesByWorkOrderId = React.useMemo(() => {
@@ -62,11 +72,34 @@ export default function CajaPage() {
     return map;
   }, [invoices]);
 
-  // Orders that reached "por_cobrar" or "pagado_autorizado" or have an invoice registered
+  // List of eligible payment destinations: EMPRESA + staff with can_receive_payment
+  const eligibleDestinations = React.useMemo(() => {
+    const list = ["EMPRESA"];
+    technicians
+      .filter((t) => t.is_active && t.can_receive_payment)
+      .forEach((t) => {
+        const name = t.full_name.toUpperCase();
+        if (!list.includes(name)) list.push(name);
+      });
+    return list;
+  }, [technicians]);
+
+  // Accurate function to determine if order is paid
+  const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
+    if (inv) {
+      if (inv.payment_status === "pendiente") return false;
+      if (inv.payment_status === "pagado") return true;
+    }
+    if (wo.status === "pagado_autorizado" || wo.status === "finalizado") return true;
+    return false;
+  }, []);
+
+  // Orders that reached billing or have an invoice registered
   const allBillingWorkOrders = React.useMemo(() => {
     return workOrders.filter(
       (wo) =>
         wo.status === "por_cobrar" ||
+        wo.status === "pendiente_pago" ||
         wo.status === "pagado_autorizado" ||
         wo.status === "finalizado" ||
         invoicesByWorkOrderId.has(wo.id)
@@ -86,15 +119,18 @@ export default function CajaPage() {
   }, [invoices, queryDate]);
 
   const pendingCount = React.useMemo(() => {
-    return workOrders.filter((wo) => wo.status === "por_cobrar").length;
-  }, [workOrders]);
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      return !isOrderPaid(wo, inv);
+    }).length;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
   const paidCount = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      return wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+      return isOrderPaid(wo, inv);
     }).length;
-  }, [allBillingWorkOrders, invoicesByWorkOrderId]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
   // Filtered orders for Caja Tab
   const filteredCajaOrders = React.useMemo(() => {
@@ -102,7 +138,7 @@ export default function CajaPage() {
 
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+      const isPaid = isOrderPaid(wo, inv);
 
       const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
       const matchStatus =
@@ -114,7 +150,7 @@ export default function CajaPage() {
 
       return matchPlate && matchStatus;
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, isOrderPaid]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
   const filteredConsultasOrders = React.useMemo(() => {
@@ -139,8 +175,64 @@ export default function CajaPage() {
     });
   }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate]);
 
+  // Handle open payment confirmation modal
+  const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0) => {
+    setPaymentModal({
+      isOpen: true,
+      workOrder: wo,
+      invoice: inv,
+      grandTotal: total,
+      paymentMethod: (inv?.payment_method as any) || "Efectivo",
+      paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+      receiptNumber: inv?.receipt_number || "",
+      receiptType: (inv?.receipt_type as any) || "Boleta",
+    });
+  };
+
+  // Submit payment confirmation
+  const handleConfirmPaymentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentModal) return;
+
+    if (!paymentModal.paymentMethod) {
+      showAlert("warning", "Debe seleccionar un Método de Pago.");
+      return;
+    }
+
+    if (!paymentModal.paymentDestination) {
+      showAlert("warning", "Debe seleccionar el Destino del Pago (Personal o Empresa).");
+      return;
+    }
+
+    confirmInvoicePayment({
+      invoiceId: paymentModal.invoice?.id,
+      workOrderId: paymentModal.workOrder?.id,
+      paymentMethod: paymentModal.paymentMethod,
+      paymentDestination: paymentModal.paymentDestination,
+      receiptNumber: paymentModal.receiptNumber,
+      receiptType: paymentModal.receiptType,
+    });
+
+    showAlert("success", `¡Pago de S/ ${paymentModal.grandTotal.toFixed(2)} confirmado correctamente!`);
+    setPaymentModal(null);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Alert Notifications */}
+      {alertMsg && (
+        <div
+          className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 transition-all animate-fadeIn ${
+            alertMsg.type === "success"
+              ? "bg-emerald-950/90 text-emerald-300 border border-emerald-500/50"
+              : "bg-amber-950/90 text-amber-300 border border-amber-500/50"
+          }`}
+        >
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{alertMsg.text}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-2xl border border-white/10">
         <div className="flex items-center gap-3">
@@ -148,9 +240,9 @@ export default function CajaPage() {
             <CreditCard className="w-8 h-8" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white">Estación de Caja, Facturación & Histórico de Consultas</h1>
+            <h1 className="text-2xl font-black text-white">Estación de Caja, Facturación & Cobros</h1>
             <p className="text-xs text-gray-400">
-              Gestión centralizada de cobros, histórico diario por fecha y buscador por placa.
+              Gestión obligatoria de métodos de pago, destino por personal/empresa y liquidación diaria.
             </p>
           </div>
         </div>
@@ -170,7 +262,7 @@ export default function CajaPage() {
           <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3">
             <Clock className="w-6 h-6 text-amber-400 shrink-0" />
             <div>
-              <span className="text-[10px] text-amber-300 uppercase font-bold block">Por Cobrar en Taller</span>
+              <span className="text-[10px] text-amber-300 uppercase font-bold block">Pendientes de Pago</span>
               <span className="text-xl font-black text-amber-400">{pendingCount} Vehículos</span>
             </div>
           </div>
@@ -201,7 +293,7 @@ export default function CajaPage() {
             }`}
           >
             <History className="w-4 h-4" />
-            <span>📊 Consultas & Histórico por Día</span>
+            <span>📊 Histórico por Fecha</span>
           </button>
         </div>
 
@@ -238,7 +330,7 @@ export default function CajaPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div className="flex items-center gap-2">
               <DollarSign className="w-6 h-6 text-emerald-400" />
-              <h2 className="text-lg font-bold text-white">Comprobantes y Cuentas por Cobrar de Taller</h2>
+              <h2 className="text-lg font-bold text-white">Comprobantes y Liquidación de Taller</h2>
             </div>
 
             <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10 text-xs font-bold">
@@ -260,7 +352,7 @@ export default function CajaPage() {
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                Por Cobrar ({pendingCount})
+                Pendientes ({pendingCount})
               </button>
               <button
                 onClick={() => setActiveStatusFilter("pagados")}
@@ -279,7 +371,7 @@ export default function CajaPage() {
             <div className="text-center py-12 space-y-3">
               <Receipt className="w-12 h-12 text-gray-500 mx-auto" />
               <p className="text-sm font-bold text-gray-400">
-                No hay vehículos registradas en Caja con los filtros seleccionados.
+                No hay vehículos en Caja con los filtros seleccionados.
               </p>
             </div>
           ) : (
@@ -288,10 +380,12 @@ export default function CajaPage() {
                 const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
                 const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
                 const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
-                const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
-                const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
+                const isPaid = isOrderPaid(wo, invoice);
+                const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
                 const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+                const grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
+                  ? invoice.grand_total
+                  : partsTotal + certFee;
                 const allowModInWorkshop = wo.allow_modifications;
 
                 return (
@@ -324,12 +418,16 @@ export default function CajaPage() {
                               {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
                             </span>
 
-                            {isPaid && (
+                            {isPaid ? (
                               <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
                                 💳 <strong>Pago Confirmado:</strong>{" "}
                                 {invoice?.paid_at
                                   ? new Date(invoice.paid_at).toLocaleString()
                                   : new Date().toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
+                                ⏳ <strong>Estado:</strong> PENDIENTE DE PAGO
                               </span>
                             )}
 
@@ -355,26 +453,37 @@ export default function CajaPage() {
                               </div>
                             )}
 
-                            {wo.items.map((item) => (
+                            {wo.items.map((item: any) => (
                               <div
                                 key={item.id}
                                 className="flex justify-between items-center text-gray-300 bg-white/5 p-2 rounded-lg"
                               >
                                 <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                                 <span className="font-mono font-bold text-amber-300">
-                                  {item.subtotal >= 0 ? `S/ ${item.subtotal.toFixed(2)}` : "En Almacén"}
+                                  S/ {(item.subtotal > 0 ? item.subtotal : grandTotal).toFixed(2)}
                                 </span>
                               </div>
                             ))}
                           </div>
+
+                          {/* Payment Metadata pill if paid */}
+                          {isPaid && invoice && (
+                            <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-gray-300 border-t border-white/5 font-mono">
+                              <span>💳 <strong>Método:</strong> {invoice.payment_method || "Efectivo"}</span>
+                              <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{invoice.payment_destination || "EMPRESA"}</strong></span>
+                              {invoice.receipt_number && <span>🧾 <strong>Recibo/Comp:</strong> {invoice.receipt_number} ({invoice.receipt_type || "Boleta"})</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      {/* Total Amount & Action Buttons (Payment & Modification Unlock) */}
+                      {/* Total Amount & Action Buttons */}
                       <div className="flex flex-col items-end justify-center gap-3 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
                         <div className="text-right">
-                          <span className="text-[10px] text-gray-400 uppercase font-bold block">Monto Total</span>
-                          <span className="text-3xl font-black text-white font-mono">
+                          <span className="text-[10px] text-gray-400 uppercase font-bold block">
+                            {isPaid ? "Monto Cobrado" : "Monto por Cobrar"}
+                          </span>
+                          <span className={`text-3xl font-black font-mono ${isPaid ? "text-white" : "text-amber-400"}`}>
                             S/ {grandTotal.toFixed(2)}
                           </span>
                         </div>
@@ -385,16 +494,14 @@ export default function CajaPage() {
                               <button
                                 onClick={() => {
                                   if (invoice) togglePayInvoice(invoice.id);
-                                  else payInvoice(wo.id);
                                 }}
                                 className="px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-black flex items-center gap-2 transition-all"
-                                title="Haga clic para revertir estado a pendiente por cobrar"
+                                title="Haga clic para revertir estado a pendiente"
                               >
                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                                 <span>PAGADO (Desmarcar Pago)</span>
                               </button>
 
-                              {/* REQUERIMIENTO #3: BOTON EN CAJA PARA PERMITIR MODIFICAR EN TALLER */}
                               <button
                                 onClick={() => toggleAllowModificationsInWorkshop(wo.id)}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
@@ -418,21 +525,11 @@ export default function CajaPage() {
                             </>
                           ) : (
                             <button
-                              onClick={() => {
-                                if (invoice) {
-                                  togglePayInvoice(invoice.id);
-                                } else {
-                                  createInvoiceForOrder(wo.id, 0, certFee, "Efectivo / Yape");
-                                  setTimeout(() => {
-                                    const created = invoices.find((i) => i.work_order_id === wo.id);
-                                    if (created) payInvoice(created.id);
-                                  }, 100);
-                                }
-                              }}
+                              onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
                               className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
                             >
                               <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                              <span>Confirmar Cobro & Habilitar Salida</span>
+                              <span>Confirmar Cobro (Método & Destino)</span>
                             </button>
                           )}
                         </div>
@@ -491,10 +588,12 @@ export default function CajaPage() {
                 const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
                 const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
                 const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
-                const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
-                const partsTotal = wo.items.reduce((sum, item) => sum + item.subtotal, 0);
+                const isPaid = isOrderPaid(wo, invoice);
+                const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
                 const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const grandTotal = invoice?.grand_total !== undefined ? invoice.grand_total : partsTotal + certFee;
+                const grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
+                  ? invoice.grand_total
+                  : partsTotal + certFee;
 
                 return (
                   <div
@@ -529,7 +628,7 @@ export default function CajaPage() {
                               </span>
                             ) : (
                               <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
-                                ⏳ <strong>Estado Pago:</strong> POR COBRAR
+                                ⏳ <strong>Estado Pago:</strong> PENDIENTE
                               </span>
                             )}
 
@@ -555,14 +654,14 @@ export default function CajaPage() {
                               </div>
                             )}
 
-                            {wo.items.map((item) => (
+                            {wo.items.map((item: any) => (
                               <div
                                 key={item.id}
                                 className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg"
                               >
                                 <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
                                 <span className="font-mono font-bold text-amber-300">
-                                  S/ {item.subtotal.toFixed(2)}
+                                  S/ {(item.subtotal > 0 ? item.subtotal : grandTotal).toFixed(2)}
                                 </span>
                               </div>
                             ))}
@@ -572,8 +671,10 @@ export default function CajaPage() {
 
                       {/* Total Amount Badge */}
                       <div className="flex flex-col items-end justify-center gap-2 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold block">Total Registrado</span>
-                        <span className="text-3xl font-black text-white font-mono">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold block">
+                          {isPaid ? "Monto Cobrado" : "Monto por Cobrar"}
+                        </span>
+                        <span className={`text-3xl font-black font-mono ${isPaid ? "text-white" : "text-amber-400"}`}>
                           S/ {grandTotal.toFixed(2)}
                         </span>
                         <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
@@ -586,6 +687,145 @@ export default function CajaPage() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MANDATORY PAYMENT CONFIRMATION MODAL */}
+      {/* ========================================================================= */}
+      {paymentModal && paymentModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg glass-panel bg-reygas-dark border border-emerald-500/40 rounded-3xl p-6 shadow-2xl shadow-emerald-500/10 space-y-6">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <CreditCard className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Confirmación Obligatoria de Cobro</h3>
+                  <p className="text-xs text-gray-400">
+                    Placa: <strong className="text-white font-mono">{paymentModal.workOrder?.vehicle_plate}</strong> • Total: <strong className="text-emerald-400 font-mono text-sm">S/ {paymentModal.grandTotal.toFixed(2)}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmPaymentSubmit} className="space-y-4">
+              {/* Payment Method (Obligatorio) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">
+                  1. Método de Pago (Obligatorio) *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(["Efectivo", "Yape", "Transferencia", "Culqi"] as const).map((method) => {
+                    const isSelected = paymentModal.paymentMethod === method;
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method })}
+                        className={`p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                          isSelected
+                            ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                        }`}
+                      >
+                        <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : "💳"}</span>
+                        <span>{method}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Payment Destination / Responsable (Obligatorio) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>2. Destino del Pago / Responsable *</span>
+                  <span className="text-[10px] text-amber-400 font-normal">Personal habilitado en Tablas Maestras</span>
+                </label>
+                <div className="relative">
+                  <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <select
+                    value={paymentModal.paymentDestination}
+                    onChange={(e) => setPaymentModal({ ...paymentModal, paymentDestination: e.target.value })}
+                    required
+                    className="w-full pl-9 pr-4 py-2.5 bg-reygas-surface border border-white/10 rounded-xl text-sm font-bold text-white focus:border-emerald-400"
+                  >
+                    {eligibleDestinations.map((dest) => (
+                      <option key={dest} value={dest}>
+                        {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Receipt Details (Opcional) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">Tipo de Comprobante</label>
+                  <select
+                    value={paymentModal.receiptType}
+                    onChange={(e) => setPaymentModal({ ...paymentModal, receiptType: e.target.value as any })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white"
+                  >
+                    <option value="Boleta">Boleta</option>
+                    <option value="Factura">Factura</option>
+                    <option value="Nota de Venta">Nota de Venta / Recibo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 mb-1">N° de Recibo / Comprobante</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: B001-004523"
+                    value={paymentModal.receiptNumber}
+                    onChange={(e) => setPaymentModal({ ...paymentModal, receiptNumber: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Summary of what will be recorded */}
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs space-y-1 text-gray-300">
+                <div className="flex justify-between">
+                  <span>Monto Total a Confirmar:</span>
+                  <span className="font-mono font-black text-emerald-400 text-sm">S/ {paymentModal.grandTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-gray-400">
+                  <span>Método & Destino:</span>
+                  <span className="text-white font-bold">{paymentModal.paymentMethod} &rarr; {paymentModal.paymentDestination}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setPaymentModal(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirmar y Registrar Cobro</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -218,6 +218,7 @@ export interface Technician {
   phone: string;
   is_active: boolean;
   allowed_tabs?: string[]; // Allowed dashboard stations / routes for this user
+  can_receive_payment?: boolean; // Habilitado como destino de pago (personal / empresa)
 }
 
 export interface Vehicle {
@@ -240,6 +241,7 @@ export type WorkOrderStatus =
   | "esperando_repuestos"
   | "en_servicio"
   | "por_cobrar"
+  | "pendiente_pago"
   | "pagado_autorizado"
   | "finalizado";
 
@@ -446,6 +448,14 @@ interface AppState {
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
+  confirmInvoicePayment: (params: {
+    invoiceId?: string;
+    workOrderId?: string;
+    paymentMethod: string;
+    paymentDestination: string;
+    receiptNumber?: string;
+    receiptType?: string;
+  }) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
 
@@ -1586,6 +1596,71 @@ export const useAppStore = create<AppState>()(
               const updatedOrder = { ...o, status: nextOrderStatus };
               saveSupabaseWorkOrder(updatedOrder);
               return updatedOrder;
+            }
+            return o;
+          });
+
+          return {
+            invoices: updatedInvoices,
+            workOrders: updatedOrders,
+          };
+        }),
+
+      confirmInvoicePayment: ({ invoiceId, workOrderId, paymentMethod, paymentDestination, receiptNumber, receiptType }) =>
+        set((state) => {
+          let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+          if (!targetInvoice && workOrderId) {
+            targetInvoice = state.invoices.find((i) => i.work_order_id === workOrderId);
+          }
+
+          const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
+          const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
+          const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
+
+          const nowISO = new Date().toISOString();
+          let updatedInvoices = [...state.invoices];
+
+          if (targetInvoice) {
+            const updated = {
+              ...targetInvoice,
+              payment_status: "pagado" as const,
+              payment_method: paymentMethod || targetInvoice.payment_method || "Efectivo",
+              payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
+              receipt_number: receiptNumber || targetInvoice.receipt_number || "",
+              receipt_type: receiptType || targetInvoice.receipt_type || "Boleta",
+              paid_at: nowISO,
+            };
+            saveSupabaseInvoice(updated);
+            updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice!.id ? updated : i));
+          } else if (targetOrder) {
+            const partsTotal = (targetOrder.items || []).reduce((sum, item) => sum + item.subtotal, 0);
+            const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
+            const newInvoice: Invoice = {
+              id: `inv-${Date.now()}`,
+              work_order_id: targetOrder.id,
+              vehicle_plate: targetOrder.vehicle_plate,
+              client_name: vehicle?.owner_name || "Cliente Taller",
+              labor_fee: 0,
+              parts_total: partsTotal,
+              certification_fee: certFee,
+              grand_total: partsTotal + certFee,
+              payment_status: "pagado",
+              payment_method: paymentMethod || "Efectivo",
+              payment_destination: paymentDestination || "EMPRESA",
+              receipt_number: receiptNumber || "",
+              receipt_type: receiptType || "Boleta",
+              issued_at: targetOrder.entry_time || nowISO,
+              paid_at: nowISO,
+            };
+            saveSupabaseInvoice(newInvoice);
+            updatedInvoices = [newInvoice, ...state.invoices];
+          }
+
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === effectiveWorkOrderId) {
+              const updated = { ...o, status: "pagado_autorizado" as WorkOrderStatus };
+              saveSupabaseWorkOrder(updated);
+              return updated;
             }
             return o;
           });

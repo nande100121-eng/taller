@@ -28,15 +28,15 @@ import {
 } from "lucide-react";
 
 const ALL_ERP_STATIONS = [
-  { id: "/dashboard/admin/cms", label: "1. Sitio Web (CMS)" },
-  { id: "/dashboard/porteria", label: "2. Portería" },
-  { id: "/dashboard/recepcion", label: "3. Recepción" },
-  { id: "/dashboard/taller", label: "4. Taller" },
-  { id: "/dashboard/almacen", label: "5. Almacén" },
-  { id: "/dashboard/caja", label: "6. Caja" },
-  { id: "/dashboard/certificaciones", label: "7. Certificaciones" },
-  { id: "/dashboard/asistencia", label: "8. Asistencia" },
-  { id: "/dashboard/consultas", label: "9. Consultas" },
+  { id: "/dashboard/porteria", label: "1. Portería" },
+  { id: "/dashboard/recepcion", label: "2. Recepción" },
+  { id: "/dashboard/taller", label: "3. Taller" },
+  { id: "/dashboard/almacen", label: "4. Almacén" },
+  { id: "/dashboard/caja", label: "5. Caja" },
+  { id: "/dashboard/certificaciones", label: "6. Certificaciones" },
+  { id: "/dashboard/asistencia", label: "7. Asistencia" },
+  { id: "/dashboard/consultas", label: "8. Consultas" },
+  { id: "/dashboard/reportes", label: "9. Reportes" },
   { id: "/dashboard/admin/tables", label: "10. Tablas Maestras" },
   { id: "/dashboard/configuracion", label: "11. Configuración" },
 ];
@@ -107,6 +107,7 @@ export default function AdminTablesPage() {
     full_name: "",
     specialty: "Master GNV 5ta Generación",
     phone: "",
+    can_receive_payment: false,
   });
 
   const handleAddTech = (e: React.FormEvent) => {
@@ -116,13 +117,15 @@ export default function AdminTablesPage() {
       specialty: techForm.specialty,
       phone: techForm.phone,
       is_active: true,
+      can_receive_payment: techForm.can_receive_payment,
     });
     setTechForm({
       full_name: "",
       specialty: "Master GNV 5ta Generación",
       phone: "",
+      can_receive_payment: false,
     });
-    showAlert("success", "Técnico registrado con éxito en la lista maestra.");
+    showAlert("success", "Personal registrado con éxito en la lista maestra.");
   };
 
   // Importer for 20 Workshop Columns from CSV / Excel (Batch Processing for Performance)
@@ -686,6 +689,15 @@ export default function AdminTablesPage() {
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Teléfono de Contacto</label>
                 <input type="tel" placeholder="+51 987654321" value={techForm.phone} onChange={(e) => setTechForm({ ...techForm, phone: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
               </div>
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-950/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={techForm.can_receive_payment}
+                  onChange={(e) => setTechForm({ ...techForm, can_receive_payment: e.target.checked })}
+                  className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>💳 Habilitado como Destino de Cobro (Caja / Reportes)</span>
+              </label>
               <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
                 <Plus className="w-4 h-4" />
                 <span>Agregar a la Lista Maestra</span>
@@ -702,7 +714,7 @@ export default function AdminTablesPage() {
                   <span>Roster de Personal & Control de Pestañas Activas</span>
                 </h2>
                 <p className="text-xs text-gray-400">
-                  Marque o desmarque con check las estaciones operativas a las que tiene acceso cada técnico.
+                  Marque o desmarque con check las estaciones operativas y la autorización para recibir pagos de cada personal.
                 </p>
               </div>
             </div>
@@ -735,7 +747,19 @@ export default function AdminTablesPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-950/70 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!t.can_receive_payment}
+                            onChange={(e) => {
+                              updateTechnician(t.id, { can_receive_payment: e.target.checked });
+                              showAlert("success", `${t.full_name} ${e.target.checked ? "habilitado" : "deshabilitado"} como destino de pago.`);
+                            }}
+                            className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>💳 Cobro</span>
+                        </label>
                         <button
                           type="button"
                           onClick={() => {
