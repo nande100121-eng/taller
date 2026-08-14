@@ -84,13 +84,31 @@ export default function CajaPage() {
     return list;
   }, [technicians]);
 
-  // Accurate function to determine if order is paid
+  // Accurate function to determine if order is paid or pending credit
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
-    if (inv) {
-      if (inv.payment_status === "pendiente") return false;
-      if (inv.payment_status === "pagado") return true;
-    }
-    if (wo.status === "pagado_autorizado" || wo.status === "finalizado") return true;
+    // 1. If invoice has payment_status explicitly 'pendiente'
+    if (inv?.payment_status === "pendiente") return false;
+
+    // 2. If invoice has condition PENDIENTE or credit
+    const condition = (inv?.payment_condition || "").toUpperCase().trim();
+    if (condition === "PENDIENTE" || condition.includes("CREDIT")) return false;
+
+    // 3. If credit amount > 0
+    if ((inv?.credit_amount || 0) > 0) return false;
+
+    // 4. If credit embedded in diagnostic notes
+    if (wo?.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:")) return false;
+
+    // 5. If problem description has PENDIENTE
+    if (wo?.problem_description && /PENDIENTE\s+\d+/i.test(wo.problem_description)) return false;
+
+    // 6. If work order status is explicitly not paid
+    if (wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") return false;
+
+    // 7. If paid
+    if (inv?.payment_status === "pagado") return true;
+    if (wo?.status === "pagado_autorizado" || wo?.status === "finalizado") return true;
+
     return false;
   }, []);
 

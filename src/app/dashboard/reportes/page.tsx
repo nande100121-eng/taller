@@ -87,6 +87,66 @@ export default function ReportesCajaPage() {
     }
   }, [selectedDate]);
 
+  // Parser for split payments encoded in discounts or method column (e.g., C 70 E 230)
+  const parsePaymentBreakdown = (
+    methodRaw: string = "",
+    discountsRaw: any = "",
+    notesRaw: string = "",
+    totalAmount: number = 0,
+    isPending: boolean = false
+  ) => {
+    if (isPending) {
+      return { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
+    }
+
+    const result = { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
+    const methodUpper = (methodRaw || "EFECTIVO").toUpperCase();
+
+    // Check discount string or diagnostic notes for split codes (e.g. C 70 E 230)
+    const combinedStr = `${typeof discountsRaw === "string" ? discountsRaw : ""} ${notesRaw}`.toUpperCase();
+    const regex = /([CEYTPB])\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)/gi;
+    const matches = [...combinedStr.matchAll(regex)];
+
+    if (matches.length >= 2) {
+      matches.forEach((m) => {
+        const code = m[1].toUpperCase();
+        const val = parseFloat(m[2]) || 0;
+        if (code === "E") result.efectivo += val;
+        else if (code === "Y" || code === "P") result.yape += val;
+        else if (code === "T" || code === "B") result.transferencia += val;
+        else if (code === "C") result.culqi += val;
+      });
+
+      const sum = result.efectivo + result.yape + result.transferencia + result.culqi;
+      if (sum > 0) {
+        return result;
+      }
+    }
+
+    // Single payment allocation fallback
+    if (methodUpper.includes("YAPE") || methodUpper.includes("PLIN")) {
+      result.yape = totalAmount;
+    } else if (
+      methodUpper.includes("TRANSFERENCIA") ||
+      methodUpper.includes("BCP") ||
+      methodUpper.includes("BBVA") ||
+      methodUpper.includes("BANCO")
+    ) {
+      result.transferencia = totalAmount;
+    } else if (
+      methodUpper.includes("CULQI") ||
+      methodUpper.includes("QULQUI") ||
+      methodUpper.includes("TARJETA") ||
+      methodUpper.includes("POS")
+    ) {
+      result.culqi = totalAmount;
+    } else {
+      result.efectivo = totalAmount;
+    }
+
+    return result;
+  };
+
   // Build daily records for Table 1
   const dailyReportRows = useMemo(() => {
     // Collect all orders or standalone invoices matching selectedDate
@@ -121,37 +181,42 @@ export default function ReportesCajaPage() {
       else if (wo.problem_description?.toLowerCase().includes("venta")) serviceType = "VENTA";
       else serviceType = "SERVICIO";
 
-      // Determine price & discount
+      // Determine price & credit
       let grandTotal = inv?.grand_total !== undefined && inv.grand_total > 0 ? inv.grand_total : partsTotal + certFee;
       if (grandTotal === 0 && (inv?.credit_amount || 0) > 0) {
         grandTotal = inv!.credit_amount!;
       }
 
-      // Check if paid or pending
-      const isPaid = (wo.status === "pagado_autorizado" || inv?.payment_status === "pagado") && inv?.payment_status !== "pendiente";
-      const isCredit = (inv?.credit_amount || 0) > 0 || (inv?.payment_condition || "").toUpperCase().includes("CREDIT") || (inv?.payment_condition || "").toUpperCase().includes("PENDIENTE");
+      // Check if paid or pending/credit
+      const condition = (inv?.payment_condition || "").toUpperCase().trim();
+      const hasCredit = (inv?.credit_amount || 0) > 0 || (wo.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:"));
+      const isPending =
+        inv?.payment_status === "pendiente" ||
+        condition === "PENDIENTE" ||
+        condition.includes("CREDIT") ||
+        hasCredit ||
+        wo.status === "por_cobrar" ||
+        (wo.status as any) === "pendiente_pago" ||
+        (wo.problem_description && /PENDIENTE\s+\d+/i.test(wo.problem_description));
 
-      const method = (inv?.payment_method || "Efectivo").toUpperCase();
-      const destination = (inv?.payment_destination || (isCredit ? "PENDIENTE" : "EMPRESA")).toUpperCase();
+      const isPaid = !isPending && (inv?.payment_status === "pagado" || wo.status === "pagado_autorizado" || wo.status === "finalizado");
 
-      let efectivo = 0;
-      let yape = 0;
-      let transferencia = 0;
-      let culqi = 0;
+      const method = inv?.payment_method || "Efectivo";
+      const destination = (inv?.payment_destination || (isPending ? "PENDIENTE" : "EMPRESA")).toUpperCase();
+
       let pendiente = 0;
+      let breakdown = { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
 
-      if (!isPaid || isCredit) {
+      if (isPending) {
         pendiente = grandTotal;
       } else {
-        if (method.includes("YAPE") || method.includes("PLIN")) {
-          yape = grandTotal;
-        } else if (method.includes("TRANSFERENCIA") || method.includes("BCP") || method.includes("BBVA") || method.includes("BANCO")) {
-          transferencia = grandTotal;
-        } else if (method.includes("CULQI") || method.includes("TARJETA") || method.includes("POS")) {
-          culqi = grandTotal;
-        } else {
-          efectivo = grandTotal;
-        }
+        breakdown = parsePaymentBreakdown(
+          method,
+          inv?.discounts,
+          wo.diagnostic_notes || "",
+          grandTotal,
+          false
+        );
       }
 
       return {
@@ -162,10 +227,10 @@ export default function ReportesCajaPage() {
         detalleItems: (wo.items || []).map((i: any) => i.description).join(" + ") || wo.problem_description || "Servicio General",
         total: grandTotal,
         pendiente,
-        efectivo,
-        yape,
-        transferencia,
-        culqi,
+        efectivo: breakdown.efectivo,
+        yape: breakdown.yape,
+        transferencia: breakdown.transferencia,
+        culqi: breakdown.culqi,
         responsable: destination,
         isPaid,
         clientName: vehicle?.owner_name || inv?.client_name || "Cliente",

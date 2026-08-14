@@ -353,9 +353,10 @@ export default function ConsultasPage() {
         const maintenance_service = cols[11] || "Mantenimiento General";
         const spare_parts_services = cols[12] || "";
         const price = Math.min(99999, Math.max(0, parseFloat(cols[13]?.replace(/[^0-9.]/g, "")) || 0));
-        const discounts = Math.min(99999, Math.max(0, parseFloat(cols[14]?.replace(/[^0-9.]/g, "")) || 0));
+        const raw_discounts = (cols[14] || "").trim();
+        const discounts = Math.min(99999, Math.max(0, parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0));
         const credit_amount = Math.min(99999, Math.max(0, parseFloat(cols[15]?.replace(/[^0-9.]/g, "")) || 0));
-        const raw_payment_condition = cols[16] || "";
+        const raw_payment_condition = (cols[16] || "").trim();
         const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : "Contado");
         const payment_method = cols[17] || "Efectivo";
         const payment_destination = cols[18] || "Caja Efectivo";
@@ -366,8 +367,8 @@ export default function ConsultasPage() {
         const base_amount = price > 0 ? price : credit_amount;
         const parts_total = base_amount + discounts;
         const grand_total = base_amount;
-        const payment_status = is_credit_order && price === 0 ? "pendiente" : "pagado";
-        const order_status = is_credit_order && price === 0 ? "pendiente_pago" : "pagado_autorizado";
+        const payment_status = is_credit_order ? "pendiente" : "pagado";
+        const order_status = is_credit_order ? "por_cobrar" : "pagado_autorizado";
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
@@ -391,7 +392,7 @@ export default function ConsultasPage() {
           vehicle_plate: plate,
           status: order_status,
           problem_description: maintenance_service,
-          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}${discounts > 0 ? ` • [DESCUENTO]: ${discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
+          diagnostic_notes: `Registro Histórico Importado. Quinquenal: ${quinquennial_date || "N/A"} • Chip Anual: ${chip_expiry_date || "N/A"} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
           entry_time: dateISO,
           items: spare_parts_services
             ? [
@@ -425,7 +426,7 @@ export default function ConsultasPage() {
           paid_at: is_credit_order ? undefined : dateISO,
           receipt_number,
           receipt_type,
-          discounts,
+          discounts: raw_discounts ? (raw_discounts as any) : discounts,
           credit_amount,
           payment_condition,
           payment_destination,
