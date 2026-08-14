@@ -1489,22 +1489,30 @@ export const useAppStore = create<AppState>()(
       importBulkWorkshopData: async ({ vehicles: newVehicles, workOrders: newOrders, invoices: newInvoices }) => {
         const res = await saveSupabaseBulkWorkshopData(newVehicles, newOrders, newInvoices);
         set((state) => {
-          // Merge vehicles by plate without duplicates
-          const existingPlates = new Set(state.vehicles.map((v) => v.plate));
-          const filteredVehicles = newVehicles.filter((v) => !existingPlates.has(v.plate));
-
-          // Merge work orders by id without duplicates
-          const existingOrderIds = new Set(state.workOrders.map((o) => o.id));
-          const filteredOrders = newOrders.filter((o) => !existingOrderIds.has(o.id));
-
-          // Merge invoices by id without duplicates
-          const existingInvoiceIds = new Set(state.invoices.map((i) => i.id));
-          const filteredInvoices = newInvoices.filter((i) => !existingInvoiceIds.has(i.id));
+          // Merge vehicles by plate with latest non-empty attributes
+          const vehicleMap = new Map(state.vehicles.map((v) => [v.plate, v]));
+          newVehicles.forEach((nv) => {
+            const existing = vehicleMap.get(nv.plate);
+            if (existing) {
+              vehicleMap.set(nv.plate, {
+                ...existing,
+                brand: nv.brand || existing.brand,
+                owner_name: nv.owner_name || existing.owner_name,
+                owner_phone: nv.owner_phone || existing.owner_phone,
+                vehicle_type: nv.vehicle_type || existing.vehicle_type,
+                fuel_type: nv.fuel_type || existing.fuel_type,
+                current_mileage: nv.current_mileage > 0 ? nv.current_mileage : existing.current_mileage,
+                last_visit_date: nv.last_visit_date || existing.last_visit_date,
+              });
+            } else {
+              vehicleMap.set(nv.plate, nv);
+            }
+          });
 
           return {
-            vehicles: [...filteredVehicles, ...state.vehicles],
-            workOrders: [...filteredOrders, ...state.workOrders],
-            invoices: [...filteredInvoices, ...state.invoices],
+            vehicles: Array.from(vehicleMap.values()),
+            workOrders: newOrders,
+            invoices: newInvoices,
           };
         });
         return res;

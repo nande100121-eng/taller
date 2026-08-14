@@ -158,12 +158,12 @@ export default function ThermalReceiptModal({
         </div>
 
         {/* Scrollable Printable Receipt Canvas */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-gray-900/50 flex justify-center">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-black/70 flex flex-col items-center">
           {/* Exact Thermal 80mm / POS Ticket Container matching the provided photo */}
           <div
             ref={receiptRef}
             id="thermal-receipt-printable"
-            className="w-full max-w-[320px] bg-white text-black p-4 rounded-lg shadow-2xl font-mono text-[11px] leading-[1.3] space-y-1.5 border border-gray-300"
+            className="w-full max-w-[330px] bg-white text-black p-5 pb-8 rounded-xl shadow-2xl font-mono text-[11px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
           >
             {/* 1. Header with Logo from logo.jpg */}
             <div className="text-center space-y-1">

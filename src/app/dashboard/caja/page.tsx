@@ -171,7 +171,13 @@ export default function CajaPage() {
       return false;
     }
 
-    // 2. Explicit payment_status / status
+    // 2. If grandTotal is 0 and no credit amount -> Fully covered / paid (warranty/courtesy)
+    const grandTotal = inv?.grand_total !== undefined ? inv.grand_total : (wo?.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+    if (grandTotal === 0 && !hasCredit) {
+      return true;
+    }
+
+    // 3. Explicit payment_status / status
     if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
       return true;
     }
@@ -180,7 +186,7 @@ export default function CajaPage() {
       return false;
     }
 
-    // 3. If there is a receipt number and no credit -> Paid
+    // 4. If there is a receipt number and no credit -> Paid
     const receiptNum = (inv?.receipt_number || "").trim();
     if (receiptNum && receiptNum !== "0" && !hasCredit) {
       return true;
@@ -809,7 +815,7 @@ export default function CajaPage() {
                               DEUDA CANCELADA ✓
                             </span>
                           </div>
-                        ) : settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || !isPaid ? (
+                        ) : settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || (!isPaid && grandTotal > 0) ? (
                           <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
                             <div className="flex items-center gap-2">
                               <span className="text-lg">🏦</span>
