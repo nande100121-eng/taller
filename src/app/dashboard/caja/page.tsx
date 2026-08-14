@@ -536,12 +536,11 @@ export default function CajaPage() {
   // Open receipt viewer from card
   const handleOpenReceiptViewer = (wo: any, inv?: any, total: number = 0) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
-    const rType = ((inv?.receipt_type as any) || (inv?.receipt_number?.startsWith("F") ? "Factura" : inv?.receipt_number?.startsWith("B") ? "Boleta" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+    const rawType = (inv?.receipt_type || "").toUpperCase().trim();
+    const rType = (rawType.includes("FACTURA") ? "Factura" : rawType.includes("BOLETA") ? "Boleta" : (inv?.receipt_number?.startsWith("F") ? "Factura" : inv?.receipt_number?.startsWith("B") ? "Boleta" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
 
-    let rNum = inv?.receipt_number || "";
-    if (!rNum || rNum === "0" || rNum.toLowerCase() === "s/n") {
-      rNum = "S/N";
-    }
+    const rNum = inv?.receipt_number || "";
+    const clientName = inv?.client_name || vehicle?.owner_name || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General");
 
     setActiveReceiptModal({
       isOpen: true,
@@ -549,12 +548,13 @@ export default function CajaPage() {
       invoice: inv,
       receiptType: rType,
       receiptNumber: rNum,
-      customerDoc: inv?.customer_doc || (rType === "Factura" ? "20600000000" : "00000000"),
-      customerName: inv?.client_name || vehicle?.owner_name || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente"),
+      customerDoc: inv?.customer_doc || (rType === "Factura" ? "20600982860" : "00000000"),
+      customerName: clientName,
       customerAddress: inv?.customer_address || "-",
       plate: wo.vehicle_plate,
       observations: inv?.observations || wo.observations || "",
-      grandTotal: total,
+      grandTotal: total > 0 ? total : (inv?.grand_total || 0),
+      items: wo.items && wo.items.length > 0 ? wo.items : undefined,
       paymentMethod: inv?.payment_method || "Efectivo",
       issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
     });

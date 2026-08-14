@@ -48,27 +48,56 @@ export default function ThermalReceiptModal({
 
   if (!isOpen) return null;
 
-  // Resolve Values
-  const effectivePlate = (plate || workOrder?.vehicle_plate || invoice?.vehicle_plate || "").toUpperCase();
-  const effectiveType = (receiptType || invoice?.receipt_type || "Factura") as "Ticket" | "Boleta" | "Factura";
+  // Resolve Values accurately from props / invoice / workOrder
+  const effectivePlate = (plate || workOrder?.vehicle_plate || invoice?.vehicle_plate || "").toUpperCase().trim();
+  
+  // Normalize Receipt Type case-insensitively (FACTURA -> Factura, BOLETA -> Boleta, TICKET -> Ticket)
+  const rawType = (receiptType || invoice?.receipt_type || "").toUpperCase().trim();
+  const effectiveType: "Ticket" | "Boleta" | "Factura" = rawType.includes("FACTURA")
+    ? "Factura"
+    : rawType.includes("BOLETA")
+    ? "Boleta"
+    : "Ticket";
+
   const effectiveObservations = observations || invoice?.observations || workOrder?.observations || "";
 
-  // Determine receipt number / series format e.g. F001-00000281
-  let effectiveNumber = receiptNumber || invoice?.receipt_number || "";
-  if (!effectiveNumber || effectiveNumber === "0" || effectiveNumber.toLowerCase() === "s/n") {
-    if (effectiveType === "Factura") effectiveNumber = "F001-00000281";
-    else if (effectiveType === "Boleta") effectiveNumber = "B001-00000259";
-    else effectiveNumber = "TK01-00004513";
-  } else if (!effectiveNumber.includes("-")) {
-    if (effectiveType === "Factura") effectiveNumber = `F001-${effectiveNumber.padStart(8, "0")}`;
-    else if (effectiveType === "Boleta") effectiveNumber = `B001-${effectiveNumber.padStart(8, "0")}`;
-    else effectiveNumber = `TK01-${effectiveNumber.padStart(8, "0")}`;
+  // Determine receipt number & series format accurately from record (e.g. 281 -> F001-00000281)
+  let rawNumber = (receiptNumber || invoice?.receipt_number || "").trim();
+  let effectiveNumber = "";
+
+  if (rawNumber && rawNumber !== "0" && rawNumber.toLowerCase() !== "s/n") {
+    if (rawNumber.includes("-")) {
+      effectiveNumber = rawNumber;
+    } else {
+      const cleanDigits = rawNumber.replace(/[^0-9]/g, "");
+      if (effectiveType === "Factura") {
+        effectiveNumber = `F001-${cleanDigits.padStart(8, "0")}`;
+      } else if (effectiveType === "Boleta") {
+        effectiveNumber = `B001-${cleanDigits.padStart(8, "0")}`;
+      } else {
+        effectiveNumber = `TK01-${cleanDigits.padStart(8, "0")}`;
+      }
+    }
+  } else {
+    // Default fallback series if not specified
+    if (effectiveType === "Factura") effectiveNumber = "F001-00000001";
+    else if (effectiveType === "Boleta") effectiveNumber = "B001-00000001";
+    else effectiveNumber = "TK01-00000001";
   }
 
-  // Customer info
-  const effectiveClient = customerName || invoice?.client_name || (effectiveType === "Factura" ? "CORPORACION MEFRAK S.A.C." : "CLIENTES VARIOS");
-  const effectiveDoc = customerDoc || invoice?.customer_doc || (effectiveType === "Factura" ? "20613454595" : "00000000");
-  const effectiveAddress = customerAddress || invoice?.customer_address || (effectiveType === "Factura" ? "CAL. AMBROSIO VUCETICH 130 - Z.I. SEC PARQUE INDUSTRIAL MZA. K LOTE. 2 INT. 906 A ESPALDAS DEL MERCADO GRATERSA AREQUIPA-AREQUIPA-AREQUIPA" : "-");
+  // Customer info from real record
+  const effectiveClient = (
+    customerName ||
+    invoice?.client_name ||
+    (effectiveType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")
+  ).toUpperCase();
+
+  const effectiveDoc =
+    customerDoc ||
+    invoice?.customer_doc ||
+    (effectiveType === "Factura" ? "20600982860" : "00000000");
+
+  const effectiveAddress = customerAddress || invoice?.customer_address || "-";
 
   // Items
   const effectiveItems =
