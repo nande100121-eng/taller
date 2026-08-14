@@ -3,6 +3,10 @@
 import React, { useState } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import {
+  buildVehicleCreditSettlementMap,
+  parseSplitPaymentString,
+} from "@/lib/utils/credit-tracker";
+import {
   CreditCard,
   DollarSign,
   Receipt,
@@ -84,9 +88,18 @@ export default function CajaPage() {
     return list;
   }, [technicians]);
 
+  // Cross-order credit settlement index (matches earlier credits with subsequent debt cancellations)
+  const creditSettlementMap = React.useMemo(() => {
+    return buildVehicleCreditSettlementMap(workOrders, invoicesByWorkOrderId);
+  }, [workOrders, invoicesByWorkOrderId]);
+
   // Comprehensive, real-time function to determine if order is paid or pending credit
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
     if (!wo && !inv) return false;
+
+    // 0. If credit was settled/paid in a subsequent debt cancellation visit -> Paid!
+    const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
+    if (settledInfo?.isSettled) return true;
 
     // 1. Explicitly pending payment_status
     if (inv?.payment_status === "pendiente") return false;
@@ -134,7 +147,7 @@ export default function CajaPage() {
     }
 
     return false;
-  }, []);
+  }, [creditSettlementMap]);
 
   // Orders that reached billing or have an invoice registered
   const allBillingWorkOrders = React.useMemo(() => {
@@ -425,12 +438,18 @@ export default function CajaPage() {
                 const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
                 const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
                 const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
-                const isPaid = isOrderPaid(wo, invoice);
+                const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
+                const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
                 const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
                 const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
+                let grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
                   ? invoice.grand_total
                   : partsTotal + certFee;
+                if (grandTotal === 0 && (invoice?.credit_amount || 0) > 0) {
+                  grandTotal = invoice!.credit_amount!;
+                }
+                const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, grandTotal);
+                const isPaid = settledInfo?.isSettled || isOrderPaid(wo, invoice);
                 const allowModInWorkshop = wo.allow_modifications;
 
                 return (
@@ -463,16 +482,30 @@ export default function CajaPage() {
                               {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
                             </span>
 
-                            {isPaid ? (
-                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                            {settledInfo?.isSettled ? (
+                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/50 font-black flex items-center gap-1 shadow">
+                                <span>✅</span> <strong>CRÉDITO CANCELADO EL {settledInfo.settledDate}</strong> (S/ {settledInfo.settledAmount?.toFixed(2)})
+                              </span>
+                            ) : cancellationInfo?.isCancellation ? (
+                              <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50 font-black flex items-center gap-1 shadow">
+                                <span>💳</span> <strong>PAGO DE DEUDA:</strong> Atención {cancellationInfo.originalDate}
+                              </span>
+                            ) : isPaid ? (
+                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 font-bold">
                                 💳 <strong>Pago Confirmado:</strong>{" "}
                                 {invoice?.paid_at
                                   ? new Date(invoice.paid_at).toLocaleString()
                                   : new Date().toLocaleString()}
                               </span>
                             ) : (
-                              <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
+                              <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30 font-bold">
                                 ⏳ <strong>Estado:</strong> PENDIENTE DE PAGO
+                              </span>
+                            )}
+
+                            {splitPayment.hasSplit && (
+                              <span className="text-[11px] font-mono text-fuchsia-300 bg-fuchsia-950/70 px-2 py-0.5 rounded-md border border-fuchsia-500/40 font-bold">
+                                {splitPayment.formattedSummary}
                               </span>
                             )}
 

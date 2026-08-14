@@ -5,6 +5,12 @@ import { useAppStore, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate } from "@/lib/csv-parser";
 import { fetchSupabaseConsultasRealtime } from "@/lib/supabase/services";
 import {
+  buildVehicleCreditSettlementMap,
+  parseSplitPaymentString,
+  CreditSettlementInfo,
+  CancellationInfo,
+} from "@/lib/utils/credit-tracker";
+import {
   History,
   Calendar,
   ChevronLeft,
@@ -215,6 +221,11 @@ export default function ConsultasPage() {
     []
   );
 
+  // Cross-order credit settlement index (matches earlier credits with subsequent cancellations)
+  const creditSettlementMap = React.useMemo(() => {
+    return buildVehicleCreditSettlementMap(workOrders, invoicesByWorkOrderId);
+  }, [workOrders, invoicesByWorkOrderId]);
+
   // Filter & sort orders matching the selected date and plate with memoization
   const filteredOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
@@ -222,7 +233,8 @@ export default function ConsultasPage() {
     // 1. Filter matching records
     const filtered = workOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      const isPaid = wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
+      const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
+      const isPaid = settledInfo?.isSettled || wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";
 
       // Plate match
       const matchPlate = term ? (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) : true;
@@ -635,8 +647,11 @@ export default function ConsultasPage() {
               const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase());
               const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
               const invoice = invoicesByWorkOrderId.get(wo.id);
-              const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const pricing = resolveOrderPricing(wo, invoice);
+              const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
+              const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
+              const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, pricing.finalAmount);
+              const isPaid = settledInfo?.isSettled || wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
 
               return (
@@ -685,9 +700,17 @@ export default function ConsultasPage() {
                             {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
                           </span>
 
-                          {pricing.isCredit || pricing.creditAmount > 0 ? (
+                          {settledInfo?.isSettled ? (
+                            <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/50 font-black flex items-center gap-1 shadow">
+                              <span>✅</span> <strong>CRÉDITO CANCELADO EL {settledInfo.settledDate}</strong> (S/ {settledInfo.settledAmount?.toFixed(2)})
+                            </span>
+                          ) : cancellationInfo?.isCancellation ? (
+                            <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50 font-black flex items-center gap-1 shadow">
+                              <span>💳</span> <strong>PAGO DE DEUDA:</strong> Atención {cancellationInfo.originalDate}
+                            </span>
+                          ) : pricing.isCredit || pricing.creditAmount > 0 ? (
                             <span className="text-[11px] font-mono text-amber-300 bg-amber-950/70 px-2.5 py-0.5 rounded-lg border border-amber-500/40 font-extrabold flex items-center gap-1">
-                              <span>🏦</span> <strong>CRÉDITO:</strong> S/ {(pricing.creditAmount > 0 ? pricing.creditAmount : pricing.finalAmount).toFixed(2)}
+                              <span>🏦</span> <strong>CRÉDITO PENDIENTE:</strong> S/ {(pricing.creditAmount > 0 ? pricing.creditAmount : pricing.finalAmount).toFixed(2)}
                             </span>
                           ) : isPaid ? (
                             <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
@@ -696,6 +719,12 @@ export default function ConsultasPage() {
                           ) : (
                             <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
                               ⏳ <strong>Estado Pago:</strong> PENDIENTE
+                            </span>
+                          )}
+
+                          {splitPayment.hasSplit && (
+                            <span className="text-[11px] font-mono text-fuchsia-300 bg-fuchsia-950/70 px-2 py-0.5 rounded-md border border-fuchsia-500/40 font-bold">
+                              {splitPayment.formattedSummary}
                             </span>
                           )}
 
@@ -831,9 +860,12 @@ export default function ConsultasPage() {
               {plateHistoryOrders.map((wo, idx) => {
                 const isSelectedDate = selectedOrderDetails === wo.id;
                 const invoice = invoicesByWorkOrderId.get(wo.id) || invoices.find((inv) => inv.work_order_id === wo.id);
-                const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
-                const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : technicians.find((t) => t.id === wo.assigned_technician_id);
                 const pricing = resolveOrderPricing(wo, invoice);
+                const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
+                const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
+                const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, pricing.finalAmount);
+                const isPaid = settledInfo?.isSettled || wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
+                const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : technicians.find((t) => t.id === wo.assigned_technician_id);
 
                 return (
                   <div
@@ -863,10 +895,18 @@ export default function ConsultasPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        {pricing.isCredit || pricing.creditAmount > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {settledInfo?.isSettled ? (
+                          <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/50 font-black flex items-center gap-1 shadow">
+                            <span>✅</span> <strong>CRÉDITO CANCELADO EL {settledInfo.settledDate}</strong> (S/ {settledInfo.settledAmount?.toFixed(2)})
+                          </span>
+                        ) : cancellationInfo?.isCancellation ? (
+                          <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50 font-black flex items-center gap-1 shadow">
+                            <span>💳</span> <strong>PAGO DE DEUDA:</strong> Atención {cancellationInfo.originalDate}
+                          </span>
+                        ) : pricing.isCredit || pricing.creditAmount > 0 ? (
                           <span className="text-[11px] font-mono text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-500/40 font-extrabold flex items-center gap-1">
-                            <span>🏦</span> CRÉDITO (S/ {pricing.finalAmount.toFixed(2)})
+                            <span>🏦</span> CRÉDITO PENDIENTE (S/ {pricing.finalAmount.toFixed(2)})
                           </span>
                         ) : isPaid ? (
                           <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold">
@@ -875,6 +915,12 @@ export default function ConsultasPage() {
                         ) : (
                           <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2.5 py-1 rounded-lg border border-amber-500/30 font-bold">
                             PENDIENTE (S/ {pricing.finalAmount.toFixed(2)})
+                          </span>
+                        )}
+
+                        {splitPayment.hasSplit && (
+                          <span className="text-[11px] font-mono text-fuchsia-300 bg-fuchsia-950/70 px-2 py-0.5 rounded-md border border-fuchsia-500/40 font-bold">
+                            {splitPayment.formattedSummary}
                           </span>
                         )}
 
