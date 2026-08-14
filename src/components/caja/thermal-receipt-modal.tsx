@@ -237,6 +237,10 @@ export default function ThermalReceiptModal({
           <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
         </div>`;
 
+    // Print/Save timestamp (captured at the moment of printing)
+    const printTimestamp = new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const printTimestampHtml = `<div style="text-align:center;font-size:8px;color:#555;padding-top:6px;border-top:1px dashed #aaa;margin-top:4px;">Fecha y hora de impresión: ${printTimestamp}</div>`;
+
     // Address section (only for Factura)
     const addressHtml = effectiveAddress && effectiveAddress !== "-" && effectiveType === "Factura"
       ? `<div><b>DIRECCION:</b> ${effectiveAddress}</div>` : "";
@@ -342,6 +346,9 @@ export default function ThermalReceiptModal({
 
   <!-- FOOTER -->
   ${footerHtml}
+
+  <!-- PRINT TIMESTAMP -->
+  ${printTimestampHtml}
 
 </div>
 </body>
@@ -558,6 +565,11 @@ export default function ThermalReceiptModal({
                   <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
                 </>
               )}
+            </div>
+
+            {/* 9. Print/Save Timestamp */}
+            <div className="text-center text-[8px] text-gray-500 pt-1.5 mt-1 border-t border-dashed border-gray-300">
+              Fecha y hora de impresión: {new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
             </div>
           </div>
         </div>
