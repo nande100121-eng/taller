@@ -558,13 +558,15 @@ export default function CajaPage() {
 
     const effectiveMethod = inv?.payment_method || csvRec?.method || "Efectivo";
 
+    const effectiveDoc = inv?.customer_doc || csvRec?.rucFactura || "";
+
     setActiveReceiptModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       receiptType: rType,
       receiptNumber: effectiveReceiptNum,
-      customerDoc: inv?.customer_doc || (rType === "Factura" ? "20600982860" : "00000000"),
+      customerDoc: effectiveDoc,
       customerName: clientName,
       customerAddress: inv?.customer_address || "-",
       plate: wo.vehicle_plate,

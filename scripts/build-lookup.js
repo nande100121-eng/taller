@@ -45,6 +45,7 @@ lines.forEach((line, idx) => {
   const method = (cols[18] || '').trim();
   const dest = (cols[19] || '').trim();
   const receiptType = (cols[20] || '').trim();
+  const rucFactura = (cols[21] || '').replace(/[^0-9]/g, '').trim();
   const quinquennial = (cols[1] || '').trim();
   const chipExpiry = (cols[2] || '').trim();
   const brand = (cols[5] || '').trim();
@@ -65,6 +66,7 @@ lines.forEach((line, idx) => {
     condition,
     method: method || 'Efectivo',
     destination: dest || 'EMPRESA',
+    rucFactura,
     quinquennial,
     chipExpiry,
     brand
@@ -90,6 +92,7 @@ const fileContent = 'export interface WorkshopCSVRecord {\n' +
   '  condition: string;\n' +
   '  method: string;\n' +
   '  destination: string;\n' +
+  '  rucFactura: string;\n' +
   '  quinquennial: string;\n' +
   '  chipExpiry: string;\n' +
   '  brand: string;\n' +

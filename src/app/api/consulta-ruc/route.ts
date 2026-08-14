@@ -20,11 +20,16 @@ export async function GET(request: NextRequest) {
 
     if (response.ok) {
       const data = await response.json();
+      const rawDir = (data.direccion || data.direccionCompleta || "").trim();
+      const locParts = [data.distrito, data.provincia, data.departamento].filter(Boolean);
+      const locStr = locParts.length > 0 ? locParts.join(" - ") : "";
+      const fullDir = rawDir ? (locStr && !rawDir.includes(data.distrito) ? `${rawDir} - ${locStr}` : rawDir) : "-";
+
       return NextResponse.json({
         success: true,
-        ruc: data.numero || ruc,
+        ruc: data.numeroDocumento || data.numero || ruc,
         razonSocial: data.nombre || data.razonSocial || "",
-        direccion: data.direccion || data.direccionCompleta || "-",
+        direccion: fullDir,
         estado: data.estado || "ACTIVO",
         condicion: data.condicion || "HABIDO",
       });
@@ -33,7 +38,7 @@ export async function GET(request: NextRequest) {
     // Fallback if network/external API is unavailable
   }
 
-  // Graceful fallback for mock / offline testing
+  // Graceful fallback for offline testing
   return NextResponse.json({
     success: true,
     ruc,

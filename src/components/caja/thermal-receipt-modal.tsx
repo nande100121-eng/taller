@@ -45,12 +45,8 @@ export default function ThermalReceiptModal({
 }: ThermalReceiptModalProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
   const [copiedEscPos, setCopiedEscPos] = useState(false);
+  const [sunatData, setSunatData] = useState<{ razonSocial?: string; direccion?: string } | null>(null);
 
-  if (!isOpen) return null;
-
-  // Resolve Values accurately from props / invoice / workOrder
-  const effectivePlate = (plate || workOrder?.vehicle_plate || invoice?.vehicle_plate || "").toUpperCase().trim();
-  
   // Normalize Receipt Type case-insensitively (FACTURA -> Factura, BOLETA -> Boleta, TICKET -> Ticket)
   const rawType = (receiptType || invoice?.receipt_type || "").toUpperCase().trim();
   const effectiveType: "Ticket" | "Boleta" | "Factura" = rawType.includes("FACTURA")
@@ -59,7 +55,30 @@ export default function ThermalReceiptModal({
     ? "Boleta"
     : "Ticket";
 
-  const effectiveObservations = observations || invoice?.observations || workOrder?.observations || "";
+  const rawDoc = (customerDoc || invoice?.customer_doc || "").replace(/[^0-9]/g, "").trim();
+  const effectiveDoc = rawDoc && rawDoc !== "0" && rawDoc !== "00000000" && rawDoc !== "20600982860" ? rawDoc : "";
+
+  // Auto-query SUNAT if 11-digit RUC is available
+  React.useEffect(() => {
+    if (!isOpen) return;
+    if (effectiveDoc && effectiveDoc.length === 11) {
+      fetch(`/api/consulta-ruc?ruc=${effectiveDoc}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.razonSocial) {
+            setSunatData({
+              razonSocial: data.razonSocial,
+              direccion: data.direccion && data.direccion !== "-" ? data.direccion : undefined,
+            });
+          }
+        })
+        .catch(() => {});
+    } else {
+      setSunatData(null);
+    }
+  }, [isOpen, effectiveDoc]);
+
+  if (!isOpen) return null;
 
   // Determine receipt number & series format accurately from record (e.g. 281 -> F001-00000281)
   let rawNumber = (receiptNumber || invoice?.receipt_number || "").trim();
@@ -85,19 +104,25 @@ export default function ThermalReceiptModal({
     else effectiveNumber = "TK01-00000001";
   }
 
-  // Customer info from real record
+  // Resolve Values accurately from props / invoice / workOrder
+  const effectivePlate = (plate || workOrder?.vehicle_plate || invoice?.vehicle_plate || "").toUpperCase().trim();
+  const effectiveObservations = observations || invoice?.observations || workOrder?.observations || "";
+
+  // Customer info from real record or SUNAT lookup
   const effectiveClient = (
-    customerName ||
-    invoice?.client_name ||
-    (effectiveType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")
+    (effectiveType === "Factura" && sunatData?.razonSocial)
+      ? sunatData.razonSocial
+      : (customerName && customerName !== "Cliente Taller" && customerName !== "Cliente General"
+          ? customerName
+          : (invoice?.client_name && invoice.client_name !== "Cliente Taller"
+              ? invoice.client_name
+              : (effectiveType === "Ticket" ? "CLIENTES VARIOS" : (effectiveType === "Factura" ? "-" : "Cliente General"))))
   ).toUpperCase();
 
-  const effectiveDoc =
-    customerDoc ||
-    invoice?.customer_doc ||
-    (effectiveType === "Factura" ? "20600982860" : "00000000");
-
-  const effectiveAddress = customerAddress || invoice?.customer_address || "-";
+  const rawAddress = (effectiveType === "Factura" && sunatData?.direccion)
+    ? sunatData.direccion
+    : (customerAddress || invoice?.customer_address || "");
+  const effectiveAddress = rawAddress && rawAddress !== "-" ? rawAddress.toUpperCase() : "";
 
   // Items
   const effectiveItems =
@@ -241,9 +266,15 @@ export default function ThermalReceiptModal({
     const printTimestamp = new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     const printTimestampHtml = `<div style="text-align:center;font-size:8px;color:#555;padding-top:6px;border-top:1px dashed #aaa;margin-top:4px;">Fecha y hora de impresión: ${printTimestamp}</div>`;
 
-    // Address section (only for Factura)
-    const addressHtml = effectiveAddress && effectiveAddress !== "-" && effectiveType === "Factura"
+    // Address section (only if address is present)
+    const addressHtml = effectiveAddress && effectiveAddress !== "-"
       ? `<div><b>DIRECCION:</b> ${effectiveAddress}</div>` : "";
+
+    const docRowHtml = effectiveType === "Factura"
+      ? `<div><b>RUC:</b> ${effectiveDoc || "-"}</div>`
+      : effectiveType === "Boleta"
+      ? `<div><b>DNI:</b> ${effectiveDoc || "-"}</div>`
+      : "";
 
     // Observation section
     const observationHtml = effectiveObservations
@@ -297,7 +328,7 @@ export default function ThermalReceiptModal({
   <!-- CLIENT & DOCUMENT INFO -->
   <div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;font-size:10px;line-height:1.35;">
     <div><b>CLIENTE:</b> ${effectiveClient}</div>
-    <div><b>${effectiveType === "Factura" ? "RUC:" : "DNI:"}</b> ${effectiveDoc}</div>
+    ${docRowHtml}
     ${addressHtml}
     <div><b>FECHA DE EMISIÓN:</b> ${dateFormatted}</div>
     <div><b>FORMA DE PAGO:</b> ${paymentMethod || "Efectivo"}</div>
@@ -438,9 +469,15 @@ export default function ThermalReceiptModal({
               <div>
                 <strong>CLIENTE:</strong> {effectiveClient}
               </div>
-              <div>
-                <strong>{effectiveType === "Factura" ? "RUC:" : "DNI:"}</strong> {effectiveDoc}
-              </div>
+              {effectiveType === "Factura" ? (
+                <div>
+                  <strong>RUC:</strong> {effectiveDoc || "-"}
+                </div>
+              ) : effectiveType === "Boleta" ? (
+                <div>
+                  <strong>DNI:</strong> {effectiveDoc || "-"}
+                </div>
+              ) : null}
               {effectiveAddress && effectiveAddress !== "-" && (
                 <div>
                   <strong>DIRECCION:</strong> {effectiveAddress}
