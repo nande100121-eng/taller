@@ -183,15 +183,16 @@ export default function ThermalReceiptModal({
               min-height: 0 !important;
               background: #fff;
               color: #000;
-              font-family: 'Courier New', Courier, monospace;
-              font-size: 10px;
-              line-height: 1.15;
+              font-family: 'Arial Narrow', Arial, 'Helvetica Neue', sans-serif;
+              font-size: 11px;
+              line-height: 1.2;
+              -webkit-font-smoothing: antialiased;
             }
             .paper {
               width: 72mm;
               max-width: 72mm;
               margin: 0 auto;
-              padding: 2mm 1mm 3mm 1mm;
+              padding: 2mm 2mm 4mm 2mm;
               height: auto !important;
             }
             .center { text-align: center; }
@@ -199,30 +200,39 @@ export default function ThermalReceiptModal({
             .right { text-align: right; }
             .bold { font-weight: bold; }
             .uppercase { text-transform: uppercase; }
-            .border-t { border-top: 1px dashed #000; padding-top: 2px; margin-top: 2px; }
-            .border-b { border-bottom: 1px dashed #000; padding-bottom: 2px; margin-bottom: 2px; }
+            .border-t { border-top: 1px dashed #000; padding-top: 3px; margin-top: 3px; }
+            .border-b { border-bottom: 1px dashed #000; padding-bottom: 3px; margin-bottom: 3px; }
             .border-t-solid { border-top: 1px solid #000; padding-top: 3px; margin-top: 3px; }
             .border-b-solid { border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; }
             .logo-img {
-              max-height: 48px;
+              max-height: 52px;
               max-width: 170px;
               display: block;
-              margin: 0 auto 3px auto;
+              margin: 0 auto;
               object-fit: contain;
             }
+            .spacer-2lines {
+              height: 12px;
+            }
             .qr-img {
-              width: 105px;
-              height: 105px;
+              width: 115px;
+              height: 115px;
               display: block;
               margin: 0 auto;
               object-fit: contain;
             }
             table { width: 100%; border-collapse: collapse; }
-            table.items th { border-bottom: 1px dashed #000; padding: 2px 0; font-size: 9px; }
-            table.items td { padding: 1.5px 0; font-size: 9px; vertical-align: top; }
-            .table-totals { width: 100%; font-size: 9px; }
-            .table-totals td { padding: 0.5px 0; }
-            .total-row { font-size: 11px; font-weight: bold; border-top: 1px solid #000; padding-top: 3px; }
+            table.items th { border-bottom: 1px dashed #000; padding: 3px 2px; font-size: 10.5px; font-weight: bold; }
+            table.items td { padding: 2px 2px; font-size: 10.5px; vertical-align: top; }
+            .col-cant { width: 18%; text-align: left; }
+            .col-punit { width: 42%; text-align: right; padding-right: 6px; }
+            .col-imp { width: 40%; text-align: right; padding-right: 2px; }
+            .table-totals { width: 100%; font-size: 10.5px; }
+            .table-totals td { padding: 1px 2px; }
+            .table-totals td.val { text-align: right; padding-right: 2px; font-weight: bold; }
+            .total-row { font-size: 12.5px; font-weight: bold; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 2px; margin-top: 3px; }
+            .amount-words { font-size: 10px; font-weight: bold; text-align: center; text-transform: uppercase; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 1px; margin: 4px 0; }
+            .legal-footer { font-size: 9px; text-align: center; color: #000; margin-top: 4px; line-height: 1.15; }
           </style>
         </head>
         <body>
@@ -269,47 +279,51 @@ export default function ThermalReceiptModal({
 
         {/* Scrollable Printable Receipt Canvas */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-black/70 flex flex-col items-center">
-          {/* Exact Thermal 80mm / POS Ticket Container matching the provided photo */}
+          {/* Exact Thermal 80mm / POS Ticket Container with Arial Narrow Typography */}
           <div
             ref={receiptRef}
             id="thermal-receipt-printable"
-            className="w-full max-w-[310px] bg-white text-black p-4 pb-3 rounded-xl shadow-2xl font-mono text-[10px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
+            style={{ fontFamily: "'Arial Narrow', Arial, 'Helvetica Neue', sans-serif" }}
+            className="w-full max-w-[310px] bg-white text-black p-4 pb-3 rounded-xl shadow-2xl text-[11px] leading-tight space-y-1.5 border border-gray-300 shrink-0 my-2"
           >
-            {/* 1. Header with Centered Logo from logo.jpg */}
-            <div className="flex flex-col items-center justify-center text-center space-y-1 w-full">
+            {/* 1. Header with Centered Logo */}
+            <div className="flex flex-col items-center justify-center text-center w-full">
               <img
                 src="/logo.jpg"
                 alt="REYGAS AUTOGAS EQUIPMENT"
-                className="max-h-14 max-w-[170px] w-auto mx-auto block object-contain mb-1"
+                className="max-h-14 max-w-[170px] w-auto mx-auto block object-contain"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = "none";
                 }}
               />
 
+              {/* 2 Rows Separation between Logo and Razón Social */}
+              <div className="h-3.5 w-full"></div>
+
+              {/* Centered and Bold: Razón Social, Dirección, RUC, Tipo Comprobante, Número */}
               <div className="font-bold text-xs uppercase tracking-wide">REYGAS S.A.C.</div>
-              <div className="text-[9px] text-gray-900 leading-tight">
+              <div className="font-bold text-[9.5px] text-black leading-tight">
                 AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA
               </div>
-              
-              <div className="border-t border-gray-400 pt-0.5 mt-1 font-bold text-[9.5px]">
-                RUC 20600982860
+              <div className="font-bold text-[10px] text-black pt-0.5">
+                RUC: 20600982860
               </div>
             </div>
 
-            {/* 2. Document Title & Correlative */}
-            <div className="border-t border-gray-400 pt-1 text-center font-bold">
-              <div className="text-xs uppercase tracking-wider">
+            {/* 2. Document Title & Correlative (Centered & Bold) */}
+            <div className="border-t border-dashed border-black pt-1 text-center font-bold">
+              <div className="text-xs uppercase font-black tracking-wider">
                 {effectiveType === "Factura"
                   ? "FACTURA ELECTRÓNICA"
                   : effectiveType === "Boleta"
                   ? "BOLETA DE VENTA ELECTRÓNICA"
                   : "TICKET DE VENTA"}
               </div>
-              <div className="text-xs font-mono font-black">{effectiveNumber}</div>
+              <div className="text-xs font-bold font-mono tracking-wider">{effectiveNumber}</div>
             </div>
 
             {/* 3. Client & Document Info */}
-            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9px]">
+            <div className="border-t border-dashed border-black pt-1 space-y-0.5 text-[10px]">
               <div>
                 <strong>CLIENTE:</strong> {effectiveClient}
               </div>
@@ -334,117 +348,131 @@ export default function ThermalReceiptModal({
                 <strong>PLACA:</strong> {effectivePlate || "S/P"}
               </div>
               {effectiveObservations ? (
-                <div className="border-t border-gray-300 pt-0.5 mt-0.5 text-[9px]">
+                <div className="border-t border-dashed border-gray-400 pt-0.5 mt-0.5 text-[9.5px]">
                   <strong>OBSERVACION:</strong> {effectiveObservations}
                 </div>
               ) : null}
             </div>
 
-            {/* 4. Items Table (CANT. P.UNIT. IMPORTE) */}
-            <div className="border-t border-gray-400 pt-1">
-              <div className="flex justify-between font-bold border-b border-gray-400 pb-0.5 text-[9px]">
-                <span className="w-12 text-left">CANT.</span>
-                <span className="flex-1 text-right pr-2">P.UNIT.</span>
-                <span className="w-16 text-right">IMPORTE</span>
+            {/* 4. Items Table (CANT. P.UNIT. IMPORTE aligned horizontally and in bold) */}
+            <div className="border-t border-dashed border-black pt-1">
+              <div className="flex justify-between font-bold border-b border-dashed border-black pb-1 text-[10px]">
+                <span className="w-14 text-left font-black">CANT.</span>
+                <span className="flex-1 text-right pr-4 font-black">P.UNIT.</span>
+                <span className="w-16 text-right pr-1 font-black">IMPORTE</span>
               </div>
 
               <div className="py-1 space-y-1">
                 {effectiveItems.map((item, idx) => (
                   <div key={idx} className="space-y-0.5">
-                    <div className="font-bold text-[9px] uppercase break-words leading-tight">
+                    <div className="font-bold text-[10px] uppercase break-words leading-tight">
                       {item.description}
                     </div>
-                    <div className="flex justify-between text-[9px] font-mono">
-                      <span className="w-12 text-left">{Number(item.quantity).toFixed(2)}</span>
-                      <span className="flex-1 text-right pr-2">{Number(item.unit_price).toFixed(2)}</span>
-                      <span className="w-16 text-right font-bold">{Number(item.subtotal).toFixed(2)}</span>
+                    <div className="flex justify-between text-[10px]">
+                      <span className="w-14 text-left">{Number(item.quantity).toFixed(2)}</span>
+                      <span className="flex-1 text-right pr-4">{Number(item.unit_price).toFixed(2)}</span>
+                      <span className="w-16 text-right pr-1 font-bold">{Number(item.subtotal).toFixed(2)}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* 5. Tax Breakdown / Totals */}
-            <div className="border-t border-gray-400 pt-1 space-y-0.5 text-[9px]">
+            {/* 5. Tax Breakdown / Totals (Prices aligned to right margin with comfort padding) */}
+            <div className="border-t border-dashed border-black pt-1 space-y-0.5 text-[10px]">
               <div className="flex justify-between">
                 <span>OP. GRAVADAS:</span>
-                <span className="font-mono text-right">S/ {opGravadas.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {opGravadas.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. EXONERADAS:</span>
-                <span className="font-mono text-right">S/ 0.00</span>
+                <span className="text-right pr-1">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. INAFECTAS:</span>
-                <span className="font-mono text-right">S/ 0.00</span>
+                <span className="text-right pr-1">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. GRATUITAS:</span>
-                <span className="font-mono text-right">S/ 0.00</span>
+                <span className="text-right pr-1">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>SUBTOTAL:</span>
-                <span className="font-mono text-right">S/ {opGravadas.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {opGravadas.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>DESCUENTOS:</span>
-                <span className="font-mono text-right">S/ {discountAmount.toFixed(2)}</span>
+                <span className="text-right pr-1">S/ {discountAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>IGV 18.0%:</span>
-                <span className="font-mono text-right">S/ {igvAmount.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {igvAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>ICBPER:</span>
-                <span className="font-mono text-right">S/ 0.00</span>
+                <span className="text-right pr-1">S/ 0.00</span>
               </div>
               <div className="flex justify-between">
                 <span>ADELANTOS:</span>
-                <span className="font-mono text-right">S/ 0.00</span>
+                <span className="text-right pr-1">S/ 0.00</span>
               </div>
-              <div className="flex justify-between font-black text-[11px] border-t border-black pt-1 mt-0.5">
+              <div className="flex justify-between font-black text-xs border-t border-b border-black py-1 mt-0.5">
                 <span>TOTAL:</span>
-                <span className="font-mono text-right font-black">S/ {effectiveTotal.toFixed(2)}</span>
+                <span className="text-right pr-1 font-black">S/ {effectiveTotal.toFixed(2)}</span>
               </div>
             </div>
 
-            {/* 6. SUNAT Dynamic Fiscal QR Code */}
-            <div className="flex flex-col items-center justify-center py-2 border-t border-gray-400 space-y-1">
-              <img
-                src={qrImageUrl}
-                alt="Código QR Fiscal SUNAT"
-                className="w-24 h-24 object-contain bg-white mx-auto block"
-              />
-              <span className="text-[8px] text-gray-600 font-sans tracking-tight text-center block">
-                Código QR Fiscal SUNAT
-              </span>
-            </div>
+            {/* 6. SUNAT Dynamic Fiscal QR Code (ONLY for Boleta and Factura, NOT for Ticket) */}
+            {effectiveType !== "Ticket" && (
+              <div className="flex flex-col items-center justify-center py-2 border-b border-dashed border-black space-y-1">
+                <img
+                  src={qrImageUrl}
+                  alt="Código QR Fiscal SUNAT"
+                  className="w-24 h-24 object-contain bg-white mx-auto block"
+                />
+                <span className="text-[8.5px] text-black font-bold tracking-tight text-center block">
+                  Código QR Fiscal SUNAT
+                </span>
+              </div>
+            )}
 
             {/* 7. Amount in words (SON OCHENTA CON 00/100 SOLES) */}
-            <div className="border-t border-b border-black py-1 text-[9px] font-bold uppercase text-center tracking-tight">
+            <div className="border-b border-black py-1 text-[9.5px] font-bold uppercase text-center tracking-tight">
               {amountInWords}
             </div>
 
             {/* 8. Footer Legal Notes */}
-            <div className="pt-1 text-center space-y-0.5 text-[8px] text-gray-800">
-              <div className="font-bold">Representación impresa de la {effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica</div>
-              <div>Autorizado mediante Resolución de Superintendencia</div>
-              <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
+            <div className="pt-1 text-center space-y-0.5 text-[8.5px] text-black leading-tight">
+              <div className="font-bold">
+                {effectiveType === "Ticket"
+                  ? "Gracias por su preferencia"
+                  : `Representación impresa de la ${effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica`}
+              </div>
+              {effectiveType !== "Ticket" && (
+                <>
+                  <div>Autorizado mediante Resolución de Superintendencia</div>
+                  <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         {/* Modal Bottom Action Bar */}
         <div className="p-4 bg-reygas-surface border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
-          {/* ESC/POS Raw Command Tool */}
-          <button
-            onClick={handleCopyEscPos}
-            className="px-3.5 py-2 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow"
-            title="Copiar Secuencia de Comandos Nativos ESC/POS (Epson/Generic QR)"
-          >
-            {copiedEscPos ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedEscPos ? "¡Comandos ESC/POS Copiados!" : "Copiar ESC/POS QR"}</span>
-          </button>
+          {/* ESC/POS Raw Command Tool (Only for Boleta/Factura) */}
+          {effectiveType !== "Ticket" ? (
+            <button
+              onClick={handleCopyEscPos}
+              className="px-3.5 py-2 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow"
+              title="Copiar Secuencia de Comandos Nativos ESC/POS (Epson/Generic QR)"
+            >
+              {copiedEscPos ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedEscPos ? "¡Comandos ESC/POS Copiados!" : "Copiar ESC/POS QR"}</span>
+            </button>
+          ) : (
+            <div />
+          )}
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
