@@ -18,13 +18,17 @@ import {
   HardDrive,
   Database,
   FileSpreadsheet,
-  FolderArchive
+  FolderArchive,
+  Receipt,
+  Hash
 } from "lucide-react";
 
 export default function ConfiguracionPage() {
   const {
     aiSettings,
     updateAISettings,
+    correlativeConfig,
+    updateCorrelativeConfig,
     vehicles,
     workOrders,
     inventoryItems,
@@ -33,6 +37,40 @@ export default function ConfiguracionPage() {
     appointments,
     certifications,
   } = useAppStore();
+
+  // Correlative Settings State
+  const [correlativeForm, setCorrelativeForm] = useState({
+    ticketSeries: correlativeConfig?.ticketSeries || "TK01",
+    ticketLastNumber: correlativeConfig?.ticketLastNumber || 4545,
+    boletaSeries: correlativeConfig?.boletaSeries || "B001",
+    boletaLastNumber: correlativeConfig?.boletaLastNumber || 259,
+    facturaSeries: correlativeConfig?.facturaSeries || "F001",
+    facturaLastNumber: correlativeConfig?.facturaLastNumber || 282,
+    lastUpdateDate: correlativeConfig?.lastUpdateDate || new Date().toISOString().slice(0, 10),
+  });
+
+  const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
+
+  React.useEffect(() => {
+    if (correlativeConfig) {
+      setCorrelativeForm({
+        ticketSeries: correlativeConfig.ticketSeries || "TK01",
+        ticketLastNumber: correlativeConfig.ticketLastNumber || 4545,
+        boletaSeries: correlativeConfig.boletaSeries || "B001",
+        boletaLastNumber: correlativeConfig.boletaLastNumber || 259,
+        facturaSeries: correlativeConfig.facturaSeries || "F001",
+        facturaLastNumber: correlativeConfig.facturaLastNumber || 282,
+        lastUpdateDate: correlativeConfig.lastUpdateDate || new Date().toISOString().slice(0, 10),
+      });
+    }
+  }, [correlativeConfig]);
+
+  const handleSaveCorrelatives = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateCorrelativeConfig(correlativeForm);
+    setCorrelativeSaveMsg(true);
+    setTimeout(() => setCorrelativeSaveMsg(false), 4000);
+  };
 
   const [formData, setFormData] = useState({
     apiKey: aiSettings?.apiKey || "",
@@ -209,6 +247,170 @@ export default function ConfiguracionPage() {
           </div>
         </div>
       )}
+
+      {/* SECTION 0: CORRELATIVE NUMBERING & RECEIPT SERIES CONFIGURATION */}
+      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-amber-500/30 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-amber-400" />
+              <span>Configuración de Series y Correlativos de Comprobantes</span>
+            </h2>
+            <p className="text-xs text-gray-400">
+              Establezca la fecha base y el último número correlativo emitido para <strong>Ticket</strong>, <strong>Boleta</strong> y <strong>Factura</strong>. A partir de estos valores, el sistema continuará la numeración correlativa automática en cada cobro.
+            </p>
+          </div>
+
+          <button
+            onClick={handleSaveCorrelatives}
+            className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-transform hover:scale-105 shrink-0"
+          >
+            <Save className="w-4 h-4" />
+            <span>Guardar Correlativos</span>
+          </button>
+        </div>
+
+        {correlativeSaveMsg && (
+          <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>¡Correlativos actualizados exitosamente! La siguiente emisión continuará con la numeración configurada.</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveCorrelatives} className="space-y-6">
+          {/* Base Date */}
+          <div className="max-w-xs space-y-1.5">
+            <label className="text-xs font-bold text-gray-300 block">
+              📅 Fecha Base de los Correlativos:
+            </label>
+            <input
+              type="date"
+              value={correlativeForm.lastUpdateDate}
+              onChange={(e) => setCorrelativeForm({ ...correlativeForm, lastUpdateDate: e.target.value })}
+              className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Ticket de Venta */}
+            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-sm font-black text-white">🎟️ Ticket de Venta</span>
+                <span className="text-[10px] px-2 py-0.5 bg-gray-800 text-gray-300 font-bold rounded-lg border border-white/10">
+                  Interno
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Serie del Ticket:</label>
+                  <input
+                    type="text"
+                    value={correlativeForm.ticketSeries}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, ticketSeries: e.target.value.toUpperCase() })}
+                    placeholder="TK01"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={correlativeForm.ticketLastNumber}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, ticketLastNumber: parseInt(e.target.value) || 0 })}
+                    placeholder="4545"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-amber-300 font-mono">
+                  Siguiente Ticket: <strong>{correlativeForm.ticketSeries}-{(correlativeForm.ticketLastNumber + 1).toString().padStart(8, "0")}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Boleta de Venta Electrónica */}
+            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-sm font-black text-white">🧾 Boleta Electrónica</span>
+                <span className="text-[10px] px-2 py-0.5 bg-blue-950 text-blue-300 font-bold rounded-lg border border-blue-500/30">
+                  SUNAT / DNI
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Serie de Boleta:</label>
+                  <input
+                    type="text"
+                    value={correlativeForm.boletaSeries}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, boletaSeries: e.target.value.toUpperCase() })}
+                    placeholder="B001"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={correlativeForm.boletaLastNumber}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, boletaLastNumber: parseInt(e.target.value) || 0 })}
+                    placeholder="259"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-blue-300 font-mono">
+                  Siguiente Boleta: <strong>{correlativeForm.boletaSeries}-{(correlativeForm.boletaLastNumber + 1).toString().padStart(8, "0")}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Factura Electrónica */}
+            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-sm font-black text-white">📑 Factura Electrónica</span>
+                <span className="text-[10px] px-2 py-0.5 bg-purple-950 text-purple-300 font-bold rounded-lg border border-purple-500/30">
+                  SUNAT / RUC
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Serie de Factura:</label>
+                  <input
+                    type="text"
+                    value={correlativeForm.facturaSeries}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, facturaSeries: e.target.value.toUpperCase() })}
+                    placeholder="F001"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={correlativeForm.facturaLastNumber}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, facturaLastNumber: parseInt(e.target.value) || 0 })}
+                    placeholder="282"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-purple-300 font-mono">
+                  Siguiente Factura: <strong>{correlativeForm.facturaSeries}-{(correlativeForm.facturaLastNumber + 1).toString().padStart(8, "0")}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
 
       {/* SECTION 1: EXPORT SYSTEM TABLES & HISTORIALS */}
       <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-white/10 space-y-6">

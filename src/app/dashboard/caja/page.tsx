@@ -6,6 +6,7 @@ import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
 } from "@/lib/utils/credit-tracker";
+import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
 import {
   CreditCard,
   DollarSign,
@@ -22,7 +23,13 @@ import {
   X,
   Building,
   UserCheck,
-  Tag
+  Tag,
+  Printer,
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  SearchCheck
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -31,6 +38,8 @@ export default function CajaPage() {
     invoices,
     vehicles,
     technicians,
+    correlativeConfig,
+    getAndIncrementReceiptNumber,
     createInvoiceForOrder,
     togglePayInvoice,
     confirmInvoicePayment,
@@ -57,10 +66,34 @@ export default function CajaPage() {
     workOrder: any;
     invoice: any;
     grandTotal: number;
+    breakdownItems: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }>;
+    discountAmount: number;
     paymentMethod: "Efectivo" | "Yape" | "Transferencia" | "Culqi";
     paymentDestination: string;
     receiptNumber: string;
-    receiptType: "Boleta" | "Factura" | "Nota de Venta";
+    receiptType: "Ticket" | "Boleta" | "Factura";
+    customerDoc: string;
+    customerName: string;
+    customerAddress: string;
+    isSearchingRuc?: boolean;
+  } | null>(null);
+
+  // Modal State for Viewing / Printing Thermal Receipt
+  const [activeReceiptModal, setActiveReceiptModal] = useState<{
+    isOpen: boolean;
+    workOrder?: any;
+    invoice?: any;
+    receiptType?: "Ticket" | "Boleta" | "Factura";
+    receiptNumber?: string;
+    customerDoc?: string;
+    customerName?: string;
+    customerAddress?: string;
+    plate?: string;
+    grandTotal?: number;
+    items?: any[];
+    discountAmount?: number;
+    paymentMethod?: string;
+    issuedAt?: string;
   } | null>(null);
 
   // Alert State
@@ -258,18 +291,128 @@ export default function CajaPage() {
     });
   }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate]);
 
+  // Helper to compute next correlative preview based on type
+  const getCorrelativePreview = (type: "Ticket" | "Boleta" | "Factura") => {
+    const config = correlativeConfig || {
+      ticketSeries: "TK01",
+      ticketLastNumber: 4545,
+      boletaSeries: "B001",
+      boletaLastNumber: 259,
+      facturaSeries: "F001",
+      facturaLastNumber: 282,
+    };
+    if (type === "Factura") {
+      return `${config.facturaSeries || "F001"}-${((config.facturaLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+    } else if (type === "Boleta") {
+      return `${config.boletaSeries || "B001"}-${((config.boletaLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+    } else {
+      return `${config.ticketSeries || "TK01"}-${((config.ticketLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+    }
+  };
+
   // Handle open payment confirmation modal
   const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0) => {
+    const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
+    const initialType: "Ticket" | "Boleta" | "Factura" = (inv?.receipt_type as any) || "Ticket";
+
+    // Build itemized breakdown
+    const breakdown: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }> = [];
+    if (wo.problem_description || wo.general_maintenance_service) {
+      const desc = wo.general_maintenance_service || wo.problem_description;
+      const partsSum = (wo.items || []).reduce((s: number, it: any) => s + (it.subtotal || 0), 0);
+      const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
+      const servicePrice = Math.max(0, total - partsSum - certFee);
+      if (servicePrice > 0) {
+        breakdown.push({
+          description: desc,
+          quantity: 1,
+          unit_price: servicePrice,
+          subtotal: servicePrice,
+        });
+      }
+    }
+
+    if (wo.items && wo.items.length > 0) {
+      wo.items.forEach((it: any) => {
+        breakdown.push({
+          description: it.description,
+          quantity: it.quantity || 1,
+          unit_price: it.unit_price || it.subtotal,
+          subtotal: it.subtotal || 0,
+        });
+      });
+    }
+
+    if (wo.requires_certification && wo.certification_price && wo.certification_price > 0) {
+      breakdown.push({
+        description: `CERTIFICACIÓN (${wo.certification_type || "GNV/GLP"})`,
+        quantity: 1,
+        unit_price: wo.certification_price,
+        subtotal: wo.certification_price,
+      });
+    }
+
+    if (breakdown.length === 0) {
+      breakdown.push({
+        description: wo.problem_description || "SERVICIO DE TALLER",
+        quantity: 1,
+        unit_price: total,
+        subtotal: total,
+      });
+    }
+
+    const previewNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
+      ? inv.receipt_number
+      : getCorrelativePreview(initialType);
+
     setPaymentModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       grandTotal: total,
+      breakdownItems: breakdown,
+      discountAmount: inv?.discounts || 0,
       paymentMethod: (inv?.payment_method as any) || "Efectivo",
       paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
-      receiptNumber: inv?.receipt_number || "",
-      receiptType: (inv?.receipt_type as any) || "Boleta",
+      receiptNumber: previewNum,
+      receiptType: initialType,
+      customerDoc: inv?.customer_doc || "",
+      customerName: inv?.client_name || vehicle?.owner_name || (initialType === "Ticket" ? "CLIENTES VARIOS" : ""),
+      customerAddress: inv?.customer_address || "-",
+      isSearchingRuc: false,
     });
+  };
+
+  // Query SUNAT RUC
+  const handleLookupRuc = async () => {
+    if (!paymentModal?.customerDoc || paymentModal.customerDoc.length !== 11) {
+      showAlert("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
+      return;
+    }
+    setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: true } : null));
+    try {
+      const res = await fetch(`/api/consulta-ruc?ruc=${paymentModal.customerDoc}`);
+      const data = await res.json();
+      if (data.success) {
+        setPaymentModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                isSearchingRuc: false,
+                customerName: data.razonSocial || prev.customerName,
+                customerAddress: data.direccion || prev.customerAddress,
+              }
+            : null
+        );
+        showAlert("success", `RUC verificado: ${data.razonSocial}`);
+      } else {
+        setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
+        showAlert("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
+      }
+    } catch (err) {
+      setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
+      showAlert("warning", "Error de conexión al consultar RUC.");
+    }
   };
 
   // Submit payment confirmation
@@ -287,17 +430,83 @@ export default function CajaPage() {
       return;
     }
 
+    if (paymentModal.receiptType === "Factura" && (!paymentModal.customerDoc || paymentModal.customerDoc.length !== 11)) {
+      showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
+      return;
+    }
+
+    // Auto-advance correlative sequence in store
+    const assignedReceiptNum = getAndIncrementReceiptNumber(paymentModal.receiptType);
+
     confirmInvoicePayment({
       invoiceId: paymentModal.invoice?.id,
       workOrderId: paymentModal.workOrder?.id,
       paymentMethod: paymentModal.paymentMethod,
       paymentDestination: paymentModal.paymentDestination,
-      receiptNumber: paymentModal.receiptNumber,
+      receiptNumber: assignedReceiptNum,
       receiptType: paymentModal.receiptType,
+      customerDoc: paymentModal.customerDoc,
+      customerName: paymentModal.customerName,
+      customerAddress: paymentModal.customerAddress,
     });
 
-    showAlert("success", `¡Pago de S/ ${paymentModal.grandTotal.toFixed(2)} confirmado correctamente!`);
+    showAlert("success", `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
+
+    // Prepare active receipt modal for immediate print / download
+    const currentWo = paymentModal.workOrder;
+    const currentInv = paymentModal.invoice;
+    const currentTotal = paymentModal.grandTotal;
+    const currentItems = paymentModal.breakdownItems;
+    const currentMethod = paymentModal.paymentMethod;
+    const currentDoc = paymentModal.customerDoc;
+    const currentName = paymentModal.customerName;
+    const currentAddress = paymentModal.customerAddress;
+    const currentType = paymentModal.receiptType;
+
     setPaymentModal(null);
+
+    // Open Thermal Receipt modal for printing
+    setActiveReceiptModal({
+      isOpen: true,
+      workOrder: currentWo,
+      invoice: currentInv,
+      receiptType: currentType,
+      receiptNumber: assignedReceiptNum,
+      customerDoc: currentDoc,
+      customerName: currentName,
+      customerAddress: currentAddress,
+      plate: currentWo?.vehicle_plate,
+      grandTotal: currentTotal,
+      items: currentItems,
+      paymentMethod: currentMethod,
+      issuedAt: new Date().toISOString(),
+    });
+  };
+
+  // Open receipt viewer from card
+  const handleOpenReceiptViewer = (wo: any, inv?: any, total: number = 0) => {
+    const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
+    const rType = ((inv?.receipt_type as any) || (inv?.receipt_number?.startsWith("F") ? "Factura" : inv?.receipt_number?.startsWith("B") ? "Boleta" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+
+    let rNum = inv?.receipt_number || "";
+    if (!rNum || rNum === "0" || rNum.toLowerCase() === "s/n") {
+      rNum = "S/N";
+    }
+
+    setActiveReceiptModal({
+      isOpen: true,
+      workOrder: wo,
+      invoice: inv,
+      receiptType: rType,
+      receiptNumber: rNum,
+      customerDoc: inv?.customer_doc || (rType === "Factura" ? "20600000000" : "00000000"),
+      customerName: inv?.client_name || vehicle?.owner_name || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente"),
+      customerAddress: inv?.customer_address || "-",
+      plate: wo.vehicle_plate,
+      grandTotal: total,
+      paymentMethod: inv?.payment_method || "Efectivo",
+      issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
+    });
   };
 
   return (
@@ -627,6 +836,15 @@ export default function CajaPage() {
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
+                          <button
+                            onClick={() => handleOpenReceiptViewer(wo, invoice, grandTotal)}
+                            className="px-3.5 py-2 rounded-xl bg-blue-950/60 text-blue-300 hover:bg-blue-900/80 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all shadow hover:scale-105"
+                            title="Visualizar o Imprimir Comprobante Térmico / PDF"
+                          >
+                            <Eye className="w-4 h-4 text-blue-400" />
+                            <span>Ver Comprobante ({invoice?.receipt_number && invoice.receipt_number !== "0" ? invoice.receipt_number : "S/N"})</span>
+                          </button>
+
                           {isPaid ? (
                             <>
                               <button
@@ -833,6 +1051,15 @@ export default function CajaPage() {
                         <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
                           Orden #{wo.id}
                         </span>
+
+                        <button
+                          onClick={() => handleOpenReceiptViewer(wo, invoice, grandTotal)}
+                          className="mt-1 px-3 py-1.5 rounded-xl bg-blue-950/60 text-blue-300 hover:bg-blue-900/80 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all shadow hover:scale-105"
+                          title="Visualizar o Imprimir Comprobante Térmico / PDF"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Ver Comprobante ({invoice?.receipt_number && invoice.receipt_number !== "0" ? invoice.receipt_number : "S/N"})</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -844,37 +1071,217 @@ export default function CajaPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MANDATORY PAYMENT CONFIRMATION MODAL */}
+      {/* MANDATORY PAYMENT CONFIRMATION MODAL WITH ITEM BREAKDOWN & RUC/DNI */}
       {/* ========================================================================= */}
       {paymentModal && paymentModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="relative w-full max-w-lg glass-panel bg-reygas-dark border border-emerald-500/40 rounded-3xl p-6 shadow-2xl shadow-emerald-500/10 space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div className="relative w-full max-w-xl glass-panel bg-reygas-dark border border-emerald-500/40 rounded-3xl p-6 shadow-2xl shadow-emerald-500/10 space-y-5 max-h-[95vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-3">
-                <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  <CreditCard className="w-6 h-6" />
+                <div className="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white">Confirmación Obligatoria de Cobro</h3>
+                  <h3 className="text-base font-black text-white">Confirmación y Emisión de Cobro</h3>
                   <p className="text-xs text-gray-400">
-                    Placa: <strong className="text-white font-mono">{paymentModal.workOrder?.vehicle_plate}</strong> • Total: <strong className="text-emerald-400 font-mono text-sm">S/ {paymentModal.grandTotal.toFixed(2)}</strong>
+                    Vehículo: <strong className="text-white font-mono">{paymentModal.workOrder?.vehicle_plate}</strong>
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setPaymentModal(null)}
-                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleConfirmPaymentSubmit} className="space-y-4">
+              {/* Service & Items Breakdown Table */}
+              <div className="p-3.5 bg-black/40 rounded-2xl border border-white/10 space-y-2">
+                <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[11px] font-bold text-amber-400 uppercase">
+                  <span>Detalle de Servicios & Repuestos a Cobrar</span>
+                  <span className="font-mono text-white">Placa: {paymentModal.workOrder?.vehicle_plate}</span>
+                </div>
+
+                <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1">
+                  {paymentModal.breakdownItems.map((it, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs pt-1">
+                      <span className="text-gray-300">
+                        {it.description} <strong className="text-gray-400 font-mono">(x{it.quantity})</strong>
+                      </span>
+                      <span className="font-mono font-bold text-white">
+                        S/ {it.subtotal.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-white/10 pt-2 flex justify-between items-center font-bold text-xs">
+                  <span className="text-gray-300">MONTO TOTAL A COBRAR:</span>
+                  <span className="font-mono font-black text-emerald-400 text-base">
+                    S/ {paymentModal.grandTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Receipt Type Selection */}
+              <div>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                  1. Tipo de Comprobante a Emitir *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["Ticket", "Boleta", "Factura"] as const).map((type) => {
+                    const isSelected = paymentModal.receiptType === type;
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          const nextNum = getCorrelativePreview(type);
+                          setPaymentModal({
+                            ...paymentModal,
+                            receiptType: type,
+                            receiptNumber: nextNum,
+                            customerName:
+                              type === "Ticket" && !paymentModal.customerName
+                                ? "CLIENTES VARIOS"
+                                : paymentModal.customerName,
+                          });
+                        }}
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                          isSelected
+                            ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                        }`}
+                      >
+                        <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : "📑"}</span>
+                        <span>{type}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dynamic Inputs according to Receipt Type */}
+              <div className="p-3.5 bg-reygas-surface/60 rounded-2xl border border-white/10 space-y-3 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 font-bold uppercase text-[11px]">
+                    Correlativo Asignado:
+                  </span>
+                  <span className="font-mono font-bold text-amber-300 text-sm">
+                    {paymentModal.receiptNumber}
+                  </span>
+                </div>
+
+                {/* Boleta DNI */}
+                {paymentModal.receiptType === "Boleta" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold">DNI del Cliente (8 dígitos):</label>
+                      <input
+                        type="text"
+                        maxLength={8}
+                        placeholder="Ej: 72137177"
+                        value={paymentModal.customerDoc}
+                        onChange={(e) =>
+                          setPaymentModal({ ...paymentModal, customerDoc: e.target.value.replace(/\D/g, "") })
+                        }
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold">Nombres y Apellidos:</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Fernando García"
+                        value={paymentModal.customerName}
+                        onChange={(e) => setPaymentModal({ ...paymentModal, customerName: e.target.value })}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Factura RUC & Consulta RUC */}
+                {paymentModal.receiptType === "Factura" && (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold">
+                        RUC de la Empresa (11 dígitos) *:
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={11}
+                          placeholder="Ej: 20600982860"
+                          value={paymentModal.customerDoc}
+                          onChange={(e) =>
+                            setPaymentModal({ ...paymentModal, customerDoc: e.target.value.replace(/\D/g, "") })
+                          }
+                          className="flex-1 px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-purple-400 font-bold"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleLookupRuc}
+                          disabled={paymentModal.isSearchingRuc}
+                          className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl flex items-center gap-1.5 transition-all shrink-0"
+                        >
+                          {paymentModal.isSearchingRuc ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <SearchCheck className="w-4 h-4" />
+                          )}
+                          <span>Consultar RUC</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold">Razón Social:</label>
+                      <input
+                        type="text"
+                        placeholder="Razón Social de la Empresa"
+                        value={paymentModal.customerName}
+                        onChange={(e) => setPaymentModal({ ...paymentModal, customerName: e.target.value })}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-purple-400 font-bold uppercase"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold">Dirección Fiscal:</label>
+                      <input
+                        type="text"
+                        placeholder="Dirección Fiscal"
+                        value={paymentModal.customerAddress}
+                        onChange={(e) => setPaymentModal({ ...paymentModal, customerAddress: e.target.value })}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-purple-400 text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Ticket Cliente */}
+                {paymentModal.receiptType === "Ticket" && (
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Nombre del Cliente / Receptor:</label>
+                    <input
+                      type="text"
+                      placeholder="CLIENTES VARIOS"
+                      value={paymentModal.customerName}
+                      onChange={(e) => setPaymentModal({ ...paymentModal, customerName: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Payment Method (Obligatorio) */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">
-                  1. Método de Pago (Obligatorio) *
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                  2. Método de Pago *
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(["Efectivo", "Yape", "Transferencia", "Culqi"] as const).map((method) => {
@@ -884,7 +1291,7 @@ export default function CajaPage() {
                         key={method}
                         type="button"
                         onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method })}
-                        className={`p-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 ${
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
                           isSelected
                             ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
                             : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
@@ -901,8 +1308,7 @@ export default function CajaPage() {
               {/* Payment Destination / Responsable (Obligatorio) */}
               <div>
                 <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>2. Destino del Pago / Responsable *</span>
-                  <span className="text-[10px] text-amber-400 font-normal">Personal habilitado en Tablas Maestras</span>
+                  <span>3. Destino del Pago / Responsable *</span>
                 </label>
                 <div className="relative">
                   <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -910,7 +1316,7 @@ export default function CajaPage() {
                     value={paymentModal.paymentDestination}
                     onChange={(e) => setPaymentModal({ ...paymentModal, paymentDestination: e.target.value })}
                     required
-                    className="w-full pl-9 pr-4 py-2.5 bg-reygas-surface border border-white/10 rounded-xl text-sm font-bold text-white focus:border-emerald-400"
+                    className="w-full pl-9 pr-4 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
                   >
                     {eligibleDestinations.map((dest) => (
                       <option key={dest} value={dest}>
@@ -918,45 +1324,6 @@ export default function CajaPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-              </div>
-
-              {/* Receipt Details (Opcional) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">Tipo de Comprobante</label>
-                  <select
-                    value={paymentModal.receiptType}
-                    onChange={(e) => setPaymentModal({ ...paymentModal, receiptType: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white"
-                  >
-                    <option value="Boleta">Boleta</option>
-                    <option value="Factura">Factura</option>
-                    <option value="Nota de Venta">Nota de Venta / Recibo</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-400 mb-1">N° de Recibo / Comprobante</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: B001-004523"
-                    value={paymentModal.receiptNumber}
-                    onChange={(e) => setPaymentModal({ ...paymentModal, receiptNumber: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Summary of what will be recorded */}
-              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs space-y-1 text-gray-300">
-                <div className="flex justify-between">
-                  <span>Monto Total a Confirmar:</span>
-                  <span className="font-mono font-black text-emerald-400 text-sm">S/ {paymentModal.grandTotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-[11px] text-gray-400">
-                  <span>Método & Destino:</span>
-                  <span className="text-white font-bold">{paymentModal.paymentMethod} &rarr; {paymentModal.paymentDestination}</span>
                 </div>
               </div>
 
@@ -971,16 +1338,40 @@ export default function CajaPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirmar y Registrar Cobro</span>
+                  <span>Confirmar, Cobrar e Imprimir</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* THERMAL 80MM RECEIPT VIEWER / PRINT MODAL */}
+      {/* ========================================================================= */}
+      {activeReceiptModal && (
+        <ThermalReceiptModal
+          isOpen={activeReceiptModal.isOpen}
+          onClose={() => setActiveReceiptModal(null)}
+          workOrder={activeReceiptModal.workOrder}
+          invoice={activeReceiptModal.invoice}
+          receiptType={activeReceiptModal.receiptType}
+          receiptNumber={activeReceiptModal.receiptNumber}
+          customerDoc={activeReceiptModal.customerDoc}
+          customerName={activeReceiptModal.customerName}
+          customerAddress={activeReceiptModal.customerAddress}
+          plate={activeReceiptModal.plate}
+          grandTotal={activeReceiptModal.grandTotal}
+          items={activeReceiptModal.items}
+          discountAmount={activeReceiptModal.discountAmount}
+          paymentMethod={activeReceiptModal.paymentMethod}
+          issuedAt={activeReceiptModal.issuedAt}
+        />
+      )}
     </div>
   );
 }
+

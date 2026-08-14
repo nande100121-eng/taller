@@ -308,11 +308,23 @@ export interface ToolLoan {
   notes?: string;
 }
 
+export interface CorrelativeConfig {
+  ticketSeries: string;
+  ticketLastNumber: number;
+  boletaSeries: string;
+  boletaLastNumber: number;
+  facturaSeries: string;
+  facturaLastNumber: number;
+  lastUpdateDate: string;
+}
+
 export interface Invoice {
   id: string;
   work_order_id: string;
   vehicle_plate: string;
   client_name: string;
+  customer_doc?: string; // DNI (8 dígitos) o RUC (11 dígitos)
+  customer_address?: string; // Dirección fiscal o domicilio
   labor_fee: number;
   parts_total: number;
   certification_fee: number;
@@ -321,12 +333,12 @@ export interface Invoice {
   payment_method: string;
   issued_at: string;
   paid_at?: string;
-  receipt_number?: string; // N° de boleta/Factura
-  receipt_type?: string; // COMPROBANTE (Boleta/Factura/Nota)
+  receipt_number?: string; // N° de boleta/Factura/Ticket (ej: TK01-00004545, B001-00000259, F001-00000282)
+  receipt_type?: string; // COMPROBANTE ("Ticket" | "Boleta" | "Factura")
   discounts?: number; // DESCUENTOS
   credit_amount?: number; // Credito
   payment_condition?: string; // Condicion (Contado/Crédito)
-  payment_destination?: string; // DESTINO DE PAGO (BCP, BBVA, Yape, Caja)
+  payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
 }
 
 export interface Appointment {
@@ -443,6 +455,10 @@ interface AppState {
   addToolLoan: (loan: Omit<ToolLoan, "id" | "borrowed_at" | "status">) => void;
   returnTool: (loanId: string) => void;
 
+  correlativeConfig: CorrelativeConfig;
+  updateCorrelativeConfig: (config: Partial<CorrelativeConfig>) => void;
+  getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura") => string;
+
   invoices: Invoice[];
   createInvoice: (invoice: Omit<Invoice, "id">) => void;
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
@@ -455,6 +471,9 @@ interface AppState {
     paymentDestination: string;
     receiptNumber?: string;
     receiptType?: string;
+    customerDoc?: string;
+    customerName?: string;
+    customerAddress?: string;
   }) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
@@ -531,6 +550,67 @@ export const useAppStore = create<AppState>()(
         const next = { ...get().aiSettings, ...settings };
         set({ aiSettings: next });
         saveSupabaseSiteContent("aiSettings", next);
+      },
+
+      correlativeConfig: {
+        ticketSeries: "TK01",
+        ticketLastNumber: 4545,
+        boletaSeries: "B001",
+        boletaLastNumber: 259,
+        facturaSeries: "F001",
+        facturaLastNumber: 282,
+        lastUpdateDate: new Date().toISOString().slice(0, 10),
+      },
+      updateCorrelativeConfig: (config) => {
+        const next = { ...get().correlativeConfig, ...config };
+        set({ correlativeConfig: next });
+      },
+      getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura") => {
+        const current = get().correlativeConfig || {
+          ticketSeries: "TK01",
+          ticketLastNumber: 4545,
+          boletaSeries: "B001",
+          boletaLastNumber: 259,
+          facturaSeries: "F001",
+          facturaLastNumber: 282,
+          lastUpdateDate: new Date().toISOString().slice(0, 10),
+        };
+
+        let nextNum = 1;
+        let series = "TK01";
+
+        if (type === "Factura") {
+          nextNum = (current.facturaLastNumber || 0) + 1;
+          series = current.facturaSeries || "F001";
+          set({
+            correlativeConfig: {
+              ...current,
+              facturaLastNumber: nextNum,
+            },
+          });
+        } else if (type === "Boleta") {
+          nextNum = (current.boletaLastNumber || 0) + 1;
+          series = current.boletaSeries || "B001";
+          set({
+            correlativeConfig: {
+              ...current,
+              boletaLastNumber: nextNum,
+            },
+          });
+        } else {
+          // Ticket
+          nextNum = (current.ticketLastNumber || 0) + 1;
+          series = current.ticketSeries || "TK01";
+          set({
+            correlativeConfig: {
+              ...current,
+              ticketLastNumber: nextNum,
+            },
+          });
+        }
+
+        const padded = nextNum.toString().padStart(8, "0");
+        return `${series}-${padded}`;
       },
 
       workshopServices: [
@@ -1615,7 +1695,17 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
-      confirmInvoicePayment: ({ invoiceId, workOrderId, paymentMethod, paymentDestination, receiptNumber, receiptType }) =>
+      confirmInvoicePayment: ({
+        invoiceId,
+        workOrderId,
+        paymentMethod,
+        paymentDestination,
+        receiptNumber,
+        receiptType,
+        customerDoc,
+        customerName,
+        customerAddress,
+      }) =>
         set((state) => {
           let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
           if (!targetInvoice && workOrderId) {
@@ -1630,13 +1720,16 @@ export const useAppStore = create<AppState>()(
           let updatedInvoices = [...state.invoices];
 
           if (targetInvoice) {
-            const updated = {
+            const updated: Invoice = {
               ...targetInvoice,
+              client_name: customerName || targetInvoice.client_name || vehicle?.owner_name || "Cliente Taller",
+              customer_doc: customerDoc !== undefined ? customerDoc : targetInvoice.customer_doc,
+              customer_address: customerAddress !== undefined ? customerAddress : targetInvoice.customer_address,
               payment_status: "pagado" as const,
               payment_method: paymentMethod || targetInvoice.payment_method || "Efectivo",
               payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
               receipt_number: receiptNumber || targetInvoice.receipt_number || "",
-              receipt_type: receiptType || targetInvoice.receipt_type || "Boleta",
+              receipt_type: receiptType || targetInvoice.receipt_type || "Ticket",
               paid_at: nowISO,
             };
             saveSupabaseInvoice(updated);
@@ -1648,7 +1741,9 @@ export const useAppStore = create<AppState>()(
               id: `inv-${Date.now()}`,
               work_order_id: targetOrder.id,
               vehicle_plate: targetOrder.vehicle_plate,
-              client_name: vehicle?.owner_name || "Cliente Taller",
+              client_name: customerName || vehicle?.owner_name || "Cliente Taller",
+              customer_doc: customerDoc || "",
+              customer_address: customerAddress || "",
               labor_fee: 0,
               parts_total: partsTotal,
               certification_fee: certFee,
@@ -1657,7 +1752,7 @@ export const useAppStore = create<AppState>()(
               payment_method: paymentMethod || "Efectivo",
               payment_destination: paymentDestination || "EMPRESA",
               receipt_number: receiptNumber || "",
-              receipt_type: receiptType || "Boleta",
+              receipt_type: receiptType || "Ticket",
               issued_at: targetOrder.entry_time || nowISO,
               paid_at: nowISO,
             };
