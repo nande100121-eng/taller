@@ -7,6 +7,7 @@ import {
   parseSplitPaymentString,
 } from "@/lib/utils/credit-tracker";
 import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   CreditCard,
   DollarSign,
@@ -646,15 +647,10 @@ export default function CajaPage() {
             />
           </div>
 
-          <div className="relative flex-1 sm:flex-none">
-            <Calendar className="w-4 h-4 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="date"
-              value={queryDate}
-              onChange={(e) => setQueryDate(e.target.value)}
-              className="w-full sm:w-44 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-mono"
-            />
-          </div>
+          <MiniDatePicker
+            value={queryDate}
+            onChange={(newDate) => setQueryDate(newDate)}
+          />
         </div>
       </div>
 

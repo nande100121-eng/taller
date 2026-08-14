@@ -1219,12 +1219,16 @@ export const useAppStore = create<AppState>()(
           const targetOrder = state.workOrders.find((o) => o.id === orderId);
           if (!targetOrder) return state;
 
+          const veh = state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate);
+          const inv = state.invoices.find((i) => i.work_order_id === orderId);
+          const clientName = veh?.owner_name || inv?.client_name || "Cliente Taller";
+
           const certId = `cert-${Date.now()}`;
           const newCert: Certification = {
             id: certId,
             work_order_id: orderId,
             vehicle_plate: targetOrder.vehicle_plate,
-            client_name: "Cliente Taller",
+            client_name: clientName,
             chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
             cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
             certification_type: certType,

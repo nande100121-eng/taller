@@ -28,6 +28,7 @@ import {
   Calendar,
   Filter,
 } from "lucide-react";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 
 export default function TallerPage() {
   const {
@@ -329,19 +330,14 @@ export default function TallerPage() {
           </div>
 
           {/* Date picker */}
-          <div className="relative">
-            <Calendar className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="date"
-              value={queryDate}
-              onChange={(e) => {
-                setQueryDate(e.target.value);
-                setTimeFilter("hoy");
-                setVisibleLimit(30);
-              }}
-              className="pl-9 pr-3 py-1.5 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-mono font-bold"
-            />
-          </div>
+          <MiniDatePicker
+            value={queryDate}
+            onChange={(newDate) => {
+              setQueryDate(newDate);
+              setTimeFilter("hoy");
+              setVisibleLimit(30);
+            }}
+          />
         </div>
 
         {/* Search & Dropdown Filter */}
