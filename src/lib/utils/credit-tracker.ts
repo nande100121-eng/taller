@@ -162,52 +162,12 @@ export function buildVehicleCreditSettlementMap(
       service: string;
     }> = [];
 
-    sorted.forEach((wo) => {
+    // First pass: identify explicit credit orders
+    for (let i = 0; i < sorted.length; i++) {
+      const wo = sorted[i];
       const inv = getInvoice(wo.id);
+      const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((it) => it.description).join(" ")} ${wo.diagnostic_notes || ""}`.toUpperCase();
 
-      // Check if this order is a debt cancellation payment
-      const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((i) => i.description).join(" ")} ${wo.diagnostic_notes || ""}`.toUpperCase();
-      const isCancellationPayment =
-        desc.includes("CANCELACION DE DEUDA") ||
-        desc.includes("CANCELACION DE SU DEUDA") ||
-        desc.includes("CANCELACION DEUDA") ||
-        desc.includes("CANCELACION DE");
-
-      const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, i) => s + (i.subtotal || 0), 0);
-      const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "";
-
-      if (isCancellationPayment && pendingCreditsQueue.length > 0) {
-        // Find best matching pending credit from earlier visits
-        const matchedIndex = pendingCreditsQueue.findIndex(
-          (pc) => Math.abs(pc.creditAmount - paidAmount) < 5 || pc.creditAmount <= paidAmount || pendingCreditsQueue.length === 1
-        );
-
-        const target = matchedIndex >= 0 ? pendingCreditsQueue.splice(matchedIndex, 1)[0] : pendingCreditsQueue.shift()!;
-
-        if (target) {
-          // Mark earlier order as settled
-          settledOrdersMap.set(target.order.id, {
-            isSettled: true,
-            settledDate: dateStr || "Fecha posterior",
-            settledAmount: paidAmount,
-            settledByOrderId: wo.id,
-            originalCreditAmount: target.creditAmount,
-            hasCredit: true,
-            creditAmount: target.creditAmount,
-          });
-
-          // Mark cancellation order with info about the original service
-          cancellationsMap.set(wo.id, {
-            isCancellation: true,
-            cancelsOrderId: target.order.id,
-            originalService: target.service,
-            originalDate: target.dateStr,
-            amount: paidAmount,
-          });
-        }
-      }
-
-      // Check if this order has a credit/pending amount
       let credit = inv?.credit_amount || 0;
       const diag = `${wo.diagnostic_notes || ""} ${wo.observations || ""}`.toUpperCase();
       if (credit === 0 && diag.includes("[CREDITO]:")) {
@@ -223,10 +183,11 @@ export function buildVehicleCreditSettlementMap(
       const isCreditCondition = conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE") || diag.includes("[CONDICION]: PENDIENTE");
 
       if (credit > 0 || isCreditCondition) {
-        const serviceName = (wo.items || []).map((i) => i.description).join(" + ") || wo.problem_description || "Servicio Taller";
+        const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
+        const serviceName = (wo.items || []).map((it) => it.description).join(" + ") || wo.problem_description || "Servicio Taller";
         const recordedCredit = credit > 0 ? credit : paidAmount;
+        const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "Visita anterior";
 
-        // Register in settledOrdersMap as pending credit initially (if not settled later)
         if (!settledOrdersMap.has(wo.id)) {
           settledOrdersMap.set(wo.id, {
             isSettled: false,
@@ -240,11 +201,71 @@ export function buildVehicleCreditSettlementMap(
           order: wo,
           invoice: inv,
           creditAmount: recordedCredit,
-          dateStr: dateStr || "Visita anterior",
+          dateStr,
           service: serviceName,
         });
       }
-    });
+    }
+
+    // Second pass: match cancellation payments
+    for (let i = 0; i < sorted.length; i++) {
+      const wo = sorted[i];
+      const inv = getInvoice(wo.id);
+      const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((it) => it.description).join(" ")} ${wo.diagnostic_notes || ""}`.toUpperCase();
+
+      const isCancellationPayment =
+        desc.includes("CANCELACION DE DEUDA") ||
+        desc.includes("CANCELACION DE SU DEUDA") ||
+        desc.includes("CANCELACION DEUDA") ||
+        desc.includes("CANCELACION DE") ||
+        desc.includes("CANCELACION");
+
+      if (isCancellationPayment) {
+        const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
+        const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "Fecha posterior";
+
+        let target = pendingCreditsQueue.length > 0 ? pendingCreditsQueue.shift() : null;
+
+        // Fallback: match with previous non-cancellation visit if queue was empty
+        if (!target) {
+          for (let j = i - 1; j >= 0; j--) {
+            const prevWo = sorted[j];
+            if (!settledOrdersMap.has(prevWo.id) || !settledOrdersMap.get(prevWo.id)?.isSettled) {
+              const prevService = (prevWo.items || []).map((it) => it.description).join(" + ") || prevWo.problem_description || "Servicio Taller";
+              const prevDate = prevWo.entry_time ? new Date(prevWo.entry_time).toLocaleDateString("es-PE") : "Visita anterior";
+              target = {
+                order: prevWo,
+                invoice: getInvoice(prevWo.id),
+                creditAmount: paidAmount,
+                dateStr: prevDate,
+                service: prevService,
+              };
+              break;
+            }
+          }
+        }
+
+        if (target) {
+          settledOrdersMap.set(target.order.id, {
+            isSettled: true,
+            settledDate: dateStr,
+            settledAmount: paidAmount,
+            settledByOrderId: wo.id,
+            originalCreditAmount: target.creditAmount || paidAmount,
+            hasCredit: true,
+            creditAmount: target.creditAmount || paidAmount,
+          });
+
+          cancellationsMap.set(wo.id, {
+            isCancellation: true,
+            cancelsOrderId: target.order.id,
+            originalService: target.service,
+            originalDate: target.dateStr,
+            amount: paidAmount,
+          });
+        }
+      }
+    }
   });
 
   return {

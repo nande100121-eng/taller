@@ -43,7 +43,13 @@ export default function CajaPage() {
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
+  const [visibleLimit, setVisibleLimit] = useState(30);
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today
+
+  // Reset pagination on search or tab change
+  React.useEffect(() => {
+    setVisibleLimit(30);
+  }, [deferredSearchPlate, activeStatusFilter]);
 
   // Modal State for Mandatory Payment Confirmation
   const [paymentModal, setPaymentModal] = useState<{
@@ -75,6 +81,25 @@ export default function CajaPage() {
     }
     return map;
   }, [invoices]);
+
+  // Fast O(1) Lookups for Vehicles and Technicians
+  const vehiclesByPlate = React.useMemo(() => {
+    const map = new Map<string, any>();
+    for (let i = 0; i < vehicles.length; i++) {
+      const v = vehicles[i];
+      if (v?.plate) map.set(v.plate.toUpperCase().trim(), v);
+    }
+    return map;
+  }, [vehicles]);
+
+  const techniciansById = React.useMemo(() => {
+    const map = new Map<string, any>();
+    for (let i = 0; i < technicians.length; i++) {
+      const t = technicians[i];
+      if (t?.id) map.set(t.id, t);
+    }
+    return map;
+  }, [technicians]);
 
   // List of eligible payment destinations: EMPRESA + staff with can_receive_payment
   const eligibleDestinations = React.useMemo(() => {
@@ -433,11 +458,12 @@ export default function CajaPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {filteredCajaOrders.map((wo) => {
-                const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
-                const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
-                const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
+            <>
+              <div className="grid grid-cols-1 gap-4">
+              {filteredCajaOrders.slice(0, visibleLimit).map((wo) => {
+                const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
+                const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
+                const invoice = invoicesByWorkOrderId.get(wo.id);
                 const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
                 const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
                 const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
@@ -651,7 +677,22 @@ export default function CajaPage() {
                 );
               })}
             </div>
-          )}
+
+            {filteredCajaOrders.length > visibleLimit && (
+              <div className="pt-4 text-center">
+                <button
+                  onClick={() => setVisibleLimit((prev) => prev + 30)}
+                  className="px-6 py-3 bg-reygas-surface hover:bg-gray-700 text-amber-400 font-bold text-sm rounded-2xl border border-amber-500/30 shadow-lg transition-all touch-target inline-flex items-center gap-2"
+                >
+                  <span>Mostrar más comprobantes (+30)</span>
+                  <span className="text-xs text-gray-400 font-mono">
+                    (Mostrando {visibleLimit} de {filteredCajaOrders.length})
+                  </span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
         </div>
       )}
 
