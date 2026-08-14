@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, generateUUID } from "@/lib/store/app-store";
-import { parseCSVRows, parseISODate } from "@/lib/csv-parser";
+import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import {
   Table,
   UserCheck,
@@ -153,106 +153,82 @@ export default function AdminTablesPage() {
       rows.forEach((cols, idx) => {
         if (idx === 0 || cols.length === 0) return;
 
-        const plateRaw = cols[6] || cols[0];
-        if (!plateRaw) return;
+        const record = parseWorkshopRow(cols);
+        if (!record || !record.plate) return;
 
-        const plate = plateRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "");
-        if (!plate || plate.length < 3) return;
+        const is_credit_order = record.creditAmount > 0 ||
+          record.paymentCondition.toUpperCase().includes("CREDIT") ||
+          record.paymentCondition.toUpperCase().includes("PENDIENTE");
 
-        const dateISO = parseISODate(cols[0]);
-        const quinquennial_date = (cols[1] || "").trim();
-        const chip_expiry_date = (cols[2] || "").trim();
-        const fuel_type = (cols[3] || "").trim();
-        const brand = (cols[4] || "").trim();
-        const mileageRaw = (cols[5] || "").trim();
-        const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/[^0-9]/g, "")) || 0) : 0;
-        const receipt_number = (cols[7] || "").trim();
-        const client_name = (cols[8] || "").trim();
-        const client_phone = (cols[9] || "").trim();
-        const tech_name = (cols[10] || "").trim();
-        const maintenance_service = (cols[11] || "").trim();
-        const spare_parts_services = (cols[12] || "").trim();
-        const raw_price = (cols[13] || "").trim();
-        const price = raw_price ? (parseFloat(raw_price.replace(/[^0-9.]/g, "")) || 0) : 0;
-        const raw_discounts = (cols[14] || "").trim();
-        const discounts = raw_discounts ? (parseFloat(raw_discounts.replace(/[^0-9.]/g, "")) || 0) : 0;
-        const raw_credit = (cols[15] || "").trim();
-        const credit_amount = raw_credit ? (parseFloat(raw_credit.replace(/[^0-9.]/g, "")) || 0) : 0;
-        const raw_payment_condition = (cols[16] || "").trim();
-        const payment_condition = raw_payment_condition || (credit_amount > 0 ? "Crédito" : (price > 0 ? "PAGADO" : ""));
-        const payment_method = (cols[17] || "").trim();
-        const payment_destination = (cols[18] || "").trim();
-        const receipt_type = (cols[19] || "").trim();
-
-        const is_credit_order = credit_amount > 0 || payment_condition.toUpperCase().includes("CREDIT") || payment_condition.toUpperCase().includes("PENDIENTE");
-        const base_amount = price > 0 ? price : credit_amount;
-        const parts_total = base_amount + discounts;
+        const base_amount = record.price > 0 ? record.price : record.creditAmount;
+        const discountNum = typeof record.discounts === "number" ? record.discounts : (parseFloat(String(record.discounts).replace(/[^0-9.]/g, "")) || 0);
+        const parts_total = base_amount + discountNum;
         const grand_total = base_amount;
-        const payment_status = is_credit_order ? "pendiente" : (price > 0 ? "pagado" : "pendiente");
-        const order_status = is_credit_order ? "por_cobrar" : (price > 0 ? "pagado_autorizado" : "en_espera");
+        const payment_status = is_credit_order ? "pendiente" : (record.price > 0 ? "pagado" : "pendiente");
+        const order_status = is_credit_order ? "por_cobrar" : (record.price > 0 ? "pagado_autorizado" : "en_espera");
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
         const labor_fee = 0;
 
         batchVehicles.push({
-          plate,
-          brand,
+          plate: record.plate,
+          brand: record.brand,
           model: "",
           year: 0,
           color: "",
-          fuel_type: fuel_type as any,
-          owner_name: client_name,
-          owner_phone: client_phone,
-          current_mileage: mileage,
-          last_visit_date: dateISO,
+          fuel_type: record.fuelType as any,
+          owner_name: record.clientName,
+          owner_phone: record.clientPhone,
+          current_mileage: record.mileage,
+          last_visit_date: record.dateISO,
         });
 
         batchWorkOrders.push({
           id: orderId,
-          vehicle_plate: plate,
+          vehicle_plate: record.plate,
           status: order_status,
-          problem_description: maintenance_service,
-          diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${quinquennial_date} • Chip Anual: ${chip_expiry_date} • Técnico: ${tech_name}${raw_discounts ? ` • [DESCUENTO]: ${raw_discounts}` : ""}${credit_amount > 0 ? ` • [CREDITO]: ${credit_amount}` : ""}`,
+          problem_description: record.maintenanceService,
+          diagnostic_notes: `Registro Histórico Tabla Maestra. Quinquenal: ${record.quinquennialDate} • Chip Anual: ${record.chipExpiryDate} • Técnico: ${record.technicianName}${record.discounts ? ` • [DESCUENTO]: ${record.discounts}` : ""}${record.creditAmount > 0 ? ` • [CREDITO]: ${record.creditAmount}` : ""}`,
           observations: "",
-          assigned_technician_id: tech_name,
-          entry_time: dateISO,
-          items: spare_parts_services
+          assigned_technician_id: record.technicianName,
+          entry_time: record.dateISO,
+          items: record.sparePartsServices || record.maintenanceService
             ? [
                 {
                   id: `item-${timestamp}-${idx}`,
-                  description: spare_parts_services,
+                  description: record.sparePartsServices || record.maintenanceService,
                   quantity: 1,
                   unit_price: parts_total,
                   subtotal: parts_total,
                 },
               ]
             : [],
-          quinquennial_date,
-          chip_expiry_date,
-          general_maintenance_service: maintenance_service,
-          spare_parts_services,
+          quinquennial_date: record.quinquennialDate,
+          chip_expiry_date: record.chipExpiryDate,
+          general_maintenance_service: record.maintenanceService,
+          spare_parts_services: record.sparePartsServices,
         });
 
         batchInvoices.push({
           id: invoiceId,
           work_order_id: orderId,
-          vehicle_plate: plate,
-          client_name,
+          vehicle_plate: record.plate,
+          client_name: record.clientName,
           labor_fee,
           parts_total,
           certification_fee: 0,
           grand_total,
           payment_status,
-          payment_method,
-          issued_at: dateISO,
-          paid_at: is_credit_order ? undefined : dateISO,
-          receipt_number,
-          receipt_type,
-          discounts: raw_discounts ? (raw_discounts as any) : discounts,
-          credit_amount,
-          payment_condition,
-          payment_destination,
+          payment_method: record.paymentMethod,
+          issued_at: record.dateISO,
+          paid_at: is_credit_order ? undefined : record.dateISO,
+          receipt_number: record.receiptNumber,
+          receipt_type: record.receiptType,
+          discounts: record.discounts,
+          credit_amount: record.creditAmount,
+          payment_condition: record.paymentCondition,
+          payment_destination: record.paymentDestination,
         });
       });
 

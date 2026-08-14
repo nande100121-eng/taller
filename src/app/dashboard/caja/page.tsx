@@ -224,15 +224,51 @@ export default function CajaPage() {
 
   // Daily cash closure calculation for selected date
   const totalPaidToday = React.useMemo(() => {
-    return invoices
-      .filter(
-        (inv) =>
-          inv.payment_status === "pagado" &&
-          ((inv.paid_at && inv.paid_at.startsWith(queryDate)) ||
-            (inv.issued_at && inv.issued_at.startsWith(queryDate)))
-      )
-      .reduce((sum, inv) => sum + inv.grand_total, 0);
-  }, [invoices, queryDate]);
+    return allBillingWorkOrders
+      .filter((wo) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+        const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate || paidDateStr === queryDate;
+        return matchesDate && isOrderPaid(wo, inv);
+      })
+      .reduce((sum, wo) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const total = inv?.grand_total !== undefined && inv.grand_total > 0
+          ? inv.grand_total
+          : (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+        return sum + total;
+      }, 0);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
+
+  const totalPendingToday = React.useMemo(() => {
+    return allBillingWorkOrders
+      .filter((wo) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate;
+        return matchesDate && !isOrderPaid(wo, inv);
+      })
+      .reduce((sum, wo) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const credit = inv?.credit_amount && inv.credit_amount > 0
+          ? inv.credit_amount
+          : (inv?.grand_total || (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0));
+        return sum + credit;
+      }, 0);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
+
+  const pendingCountToday = React.useMemo(() => {
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate;
+      return matchesDate && !isOrderPaid(wo, inv);
+    }).length;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
 
   const pendingCount = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
@@ -559,23 +595,38 @@ export default function CajaPage() {
           </div>
         </div>
 
-        {/* Cash Closure Summary Pill */}
+        {/* Cash Closure Summary Pills */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* 1. Recaudado en la fecha */}
           <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/40 flex items-center gap-3">
             <Coins className="w-6 h-6 text-purple-400 shrink-0" />
             <div>
               <span className="text-[10px] text-gray-400 uppercase font-bold block">
                 Recaudado ({queryDate === new Date().toISOString().slice(0, 10) ? "Hoy" : queryDate})
               </span>
-              <span className="text-xl font-black text-white">S/ {totalPaidToday.toFixed(2)}</span>
+              <span className="text-xl font-black text-emerald-400">S/ {totalPaidToday.toFixed(2)}</span>
             </div>
           </div>
 
+          {/* 2. Por Cobrar / Pendiente en la fecha */}
           <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center gap-3">
             <Clock className="w-6 h-6 text-amber-400 shrink-0" />
             <div>
-              <span className="text-[10px] text-amber-300 uppercase font-bold block">Pendientes de Pago</span>
-              <span className="text-xl font-black text-amber-400">{pendingCount} Vehículos</span>
+              <span className="text-[10px] text-amber-300 uppercase font-bold block">
+                Por Cobrar ({queryDate === new Date().toISOString().slice(0, 10) ? "Hoy" : queryDate})
+              </span>
+              <span className="text-xl font-black text-amber-400">
+                S/ {totalPendingToday.toFixed(2)} <span className="text-xs font-normal text-amber-300/80">({pendingCountToday})</span>
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Total General Pendientes */}
+          <div className="p-3.5 rounded-xl bg-red-950/30 border border-red-500/30 flex items-center gap-3">
+            <AlertCircle className="w-6 h-6 text-red-400 shrink-0" />
+            <div>
+              <span className="text-[10px] text-red-300 uppercase font-bold block">Total Pendientes Histórico</span>
+              <span className="text-xl font-black text-red-400">{pendingCount} Vehículos</span>
             </div>
           </div>
         </div>
