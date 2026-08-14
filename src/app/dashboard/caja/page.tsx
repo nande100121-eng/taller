@@ -581,32 +581,11 @@ export default function CajaPage() {
         </div>
       </div>
 
-      {/* Main Tab Navigation Header */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-reygas-dark p-2 rounded-2xl border border-white/10">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button
-            onClick={() => setActiveMainTab("caja")}
-            className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 ${
-              activeMainTab === "caja"
-                ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
-                : "text-gray-400 hover:text-white hover:bg-white/5"
-            }`}
-          >
-            <DollarSign className="w-4 h-4" />
-            <span>📌 Caja & Cobros Activos ({allBillingWorkOrders.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveMainTab("consultas")}
-            className={`flex-1 sm:flex-none px-6 py-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 ${
-              activeMainTab === "consultas"
-                ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
-                : "text-gray-400 hover:text-white hover:bg-white/5"
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>📊 Histórico por Fecha</span>
-          </button>
+      {/* Search & Date Filter Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-reygas-dark p-3 rounded-2xl border border-white/10">
+        <div className="flex items-center gap-2 text-xs font-bold text-gray-300">
+          <DollarSign className="w-4 h-4 text-emerald-400" />
+          <span>Control de Comprobantes ({allBillingWorkOrders.length} registros en total)</span>
         </div>
 
         {/* Global Search Filters (Plate & Date) */}
@@ -618,7 +597,7 @@ export default function CajaPage() {
               placeholder="Buscar por placa..."
               value={searchPlate}
               onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
-              className="w-full sm:w-44 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400"
+              className="w-full sm:w-48 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400"
             />
           </div>
 
@@ -628,17 +607,16 @@ export default function CajaPage() {
               type="date"
               value={queryDate}
               onChange={(e) => setQueryDate(e.target.value)}
-              className="w-full sm:w-40 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
+              className="w-full sm:w-44 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-mono"
             />
           </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* TAB 1: CAJA & COBROS ACTIVOS */}
+      {/* CAJA & COBROS DE COMPROBANTES */}
       {/* ========================================================================= */}
-      {activeMainTab === "caja" && (
-        <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+      <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
             <div className="flex items-center gap-2">
               <DollarSign className="w-6 h-6 text-emerald-400" />
@@ -948,164 +926,7 @@ export default function CajaPage() {
             )}
           </>
         )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 2: CONSULTAS & HISTORICO POR DIA (CARDS DE HISTORIAL) */}
-      {/* ========================================================================= */}
-      {activeMainTab === "consultas" && (
-        <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2">
-              <History className="w-6 h-6 text-amber-400" />
-              <div>
-                <h2 className="text-lg font-bold text-white">Histórico de Consultas por Día & Placa</h2>
-                <p className="text-xs text-gray-400">
-                  Mostrando registros de vehículos y comprobantes registrados el día{" "}
-                  <strong className="text-amber-400 font-mono">{queryDate}</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 bg-reygas-dark px-3 py-1.5 rounded-xl border border-white/10 text-xs">
-              <Calendar className="w-4 h-4 text-amber-400" />
-              <span className="text-gray-300 font-bold">Día de Consulta:</span>
-              <input
-                type="date"
-                value={queryDate}
-                onChange={(e) => setQueryDate(e.target.value)}
-                className="bg-transparent text-white font-mono font-bold focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {filteredConsultasOrders.length === 0 ? (
-            <div className="text-center py-12 space-y-3">
-              <Calendar className="w-12 h-12 text-gray-600 mx-auto" />
-              <p className="text-sm font-bold text-gray-400">
-                No hay registros ni vehículos ingresados en la fecha <span className="text-amber-400">{queryDate}</span>.
-              </p>
-              <p className="text-xs text-gray-500 max-w-md mx-auto">
-                Seleccione otra fecha en el selector superior o limpie la búsqueda por placa para explorar el histórico.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {filteredConsultasOrders.map((wo) => {
-                const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
-                const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
-                const invoice = invoices.find((inv) => inv.work_order_id === wo.id);
-                const isPaid = isOrderPaid(wo, invoice);
-                const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
-                const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                const grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
-                  ? invoice.grand_total
-                  : partsTotal + certFee;
-
-                return (
-                  <div
-                    key={wo.id}
-                    className="p-5 rounded-2xl border border-white/10 glass-panel bg-reygas-dark/90 space-y-4 hover:border-amber-500/40 transition-all"
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                      {/* Vehicle & Client Info */}
-                      <div className="space-y-3 flex-1">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                            {wo.vehicle_plate}
-                          </span>
-                          <div>
-                            <span className="text-sm font-bold text-white block">
-                              {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
-                            </span>
-                            <span className="text-xs text-reygas-red font-semibold">
-                              Propietario: {vehicle?.owner_name || "Cliente Taller"} • Contacto: {vehicle?.owner_phone || "S/T"}
-                            </span>
-                          </div>
-
-                          <div className="flex flex-col items-end gap-1 ml-auto">
-                            <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
-                              📅 <strong>Fecha Ingreso:</strong>{" "}
-                              {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
-                            </span>
-
-                            {isPaid ? (
-                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
-                                💳 <strong>Estado Pago:</strong> PAGADO ✓
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
-                                ⏳ <strong>Estado Pago:</strong> PENDIENTE
-                              </span>
-                            )}
-
-                            <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
-                              Mecánico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Concept Breakdown */}
-                        <div className="p-3 bg-reygas-surface/80 rounded-xl border border-white/5 space-y-2">
-                          <span className="text-[11px] font-bold uppercase text-amber-400 block">
-                            Resumen de Servicios & Repuestos en la Consulta:
-                          </span>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            {wo.requires_certification && (
-                              <div className="flex justify-between items-center text-cyan-200 bg-cyan-950/40 p-2 rounded-lg border border-cyan-500/30">
-                                <span>📜 Certificado ({wo.certification_type}):</span>
-                                <span className="font-mono font-bold text-cyan-300">
-                                  S/ {(wo.certification_price || 0).toFixed(2)}
-                                </span>
-                              </div>
-                            )}
-
-                            {wo.items.map((item: any) => (
-                              <div
-                                key={item.id}
-                                className="flex justify-between items-center text-gray-300 bg-black/20 p-2 rounded-lg"
-                              >
-                                <span>{item.item_type === "servicio" ? "🛠️" : "📦"} {item.description} (x{item.quantity})</span>
-                                <span className="font-mono font-bold text-amber-300">
-                                  S/ {(item.subtotal > 0 ? item.subtotal : grandTotal).toFixed(2)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Total Amount Badge */}
-                      <div className="flex flex-col items-end justify-center gap-2 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                          {isPaid ? "Monto Cobrado" : "Monto por Cobrar"}
-                        </span>
-                        <span className={`text-3xl font-black font-mono ${isPaid ? "text-white" : "text-amber-400"}`}>
-                          S/ {grandTotal.toFixed(2)}
-                        </span>
-                        <span className="text-[11px] px-3 py-1 rounded-full bg-reygas-surface text-gray-300 font-bold border border-white/10">
-                          Orden #{wo.id}
-                        </span>
-
-                        <button
-                          onClick={() => handleOpenReceiptViewer(wo, invoice, grandTotal)}
-                          className="mt-1 px-3 py-1.5 rounded-xl bg-blue-950/60 text-blue-300 hover:bg-blue-900/80 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all shadow hover:scale-105"
-                          title="Visualizar o Imprimir Comprobante Térmico / PDF"
-                        >
-                          <Eye className="w-3.5 h-3.5 text-blue-400" />
-                          <span>Ver Comprobante ({invoice?.receipt_number && invoice.receipt_number !== "0" ? invoice.receipt_number : "S/N"})</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      </div>
 
       {/* ========================================================================= */}
       {/* MANDATORY PAYMENT CONFIRMATION MODAL WITH ITEM BREAKDOWN & RUC/DNI */}
