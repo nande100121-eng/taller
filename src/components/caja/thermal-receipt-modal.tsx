@@ -166,7 +166,7 @@ export default function ThermalReceiptModal({
           <title>${effectiveType} - ${effectiveNumber}</title>
           <style>
             @page {
-              size: 80mm 297mm;
+              size: auto;
               margin: 0;
             }
             * {
@@ -175,10 +175,12 @@ export default function ThermalReceiptModal({
               print-color-adjust: exact !important;
             }
             html, body {
-              width: 80mm;
-              max-width: 80mm;
+              width: 76mm;
+              max-width: 76mm;
               margin: 0;
               padding: 0;
+              height: auto !important;
+              min-height: 0 !important;
               background: #fff;
               color: #000;
               font-family: 'Courier New', Courier, monospace;
@@ -189,7 +191,8 @@ export default function ThermalReceiptModal({
               width: 72mm;
               max-width: 72mm;
               margin: 0 auto;
-              padding: 3mm 1mm 8mm 1mm;
+              padding: 2mm 1mm 3mm 1mm;
+              height: auto !important;
             }
             .center { text-align: center; }
             .left { text-align: left; }
@@ -270,7 +273,7 @@ export default function ThermalReceiptModal({
           <div
             ref={receiptRef}
             id="thermal-receipt-printable"
-            className="w-full max-w-[310px] bg-white text-black p-4 pb-8 rounded-xl shadow-2xl font-mono text-[10px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
+            className="w-full max-w-[310px] bg-white text-black p-4 pb-3 rounded-xl shadow-2xl font-mono text-[10px] leading-tight space-y-2 border border-gray-300 shrink-0 my-2"
           >
             {/* 1. Header with Centered Logo from logo.jpg */}
             <div className="flex flex-col items-center justify-center text-center space-y-1 w-full">
@@ -473,13 +476,15 @@ export default function ThermalReceiptModal({
       {/* Direct Media Print rules */}
       <style jsx global>{`
         @page {
-          size: 80mm 297mm;
+          size: auto;
           margin: 0;
         }
         @media print {
           html, body {
-            width: 80mm !important;
-            max-width: 80mm !important;
+            width: 76mm !important;
+            max-width: 76mm !important;
+            height: auto !important;
+            min-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
