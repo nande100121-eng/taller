@@ -159,48 +159,30 @@ export default function CajaPage() {
     const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
     if (settledInfo?.isSettled) return true;
 
-    // 1. Explicitly pending payment_status
-    if (inv?.payment_status === "pendiente") return false;
-
-    // 2. Explicit condition PENDIENTE or CREDITO
+    // 1. Explicit condition from CSV: If payment_condition says PAGADO and no credit amount -> Paid!
     const condition = (inv?.payment_condition || "").toUpperCase().trim();
-    if (condition === "PENDIENTE" || condition.includes("CREDIT")) return false;
+    const hasCredit = (inv?.credit_amount || 0) > 0;
 
-    // 3. Explicit credit amount registered
-    if ((inv?.credit_amount || 0) > 0) return false;
+    if (condition.includes("PAGADO") && !hasCredit) {
+      return true;
+    }
 
-    // 4. Tagged in diagnostic notes
-    const diagNotes = (wo?.diagnostic_notes || "").toUpperCase();
-    if (diagNotes.includes("[CREDITO]:") || diagNotes.includes("[CONDICION]: PENDIENTE")) return false;
-
-    // 5. Text patterns in descriptions or items (e.g. 'PENDIENTE 35', 'DEUDA', 'A CUENTA', 'RESPONSABLE DE PAGO', 'CANCELE')
-    const probDesc = (wo?.problem_description || "").toUpperCase();
-    const spareDesc = (wo?.spare_parts_services || "").toUpperCase();
-    const itemDescs = (wo?.items || []).map((i: any) => (i.description || "").toUpperCase()).join(" ");
-
-    const combinedText = `${probDesc} ${spareDesc} ${itemDescs} ${diagNotes}`;
-    if (
-      combinedText.includes("PENDIENTE") ||
-      combinedText.includes("CREDITO") ||
-      combinedText.includes("RESPONSABLE DE PAGO") ||
-      combinedText.includes("A CUENTA") ||
-      combinedText.includes("CANCELE EL MONTO")
-    ) {
+    if (condition.includes("PENDIENTE") || condition.includes("CREDIT") || hasCredit) {
       return false;
     }
 
-    // 6. Explicit pending statuses
-    if (wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") return false;
-
-    // 7. Non-billing zero inspection entries (no total, no items, receipt is 0 or empty) -> Not a paid invoice
-    const grandTotal = inv?.grand_total || (wo?.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
-    const receiptNum = (inv?.receipt_number || "").trim();
-    if (grandTotal === 0 && (!receiptNum || receiptNum === "0") && (wo?.items || []).length === 0) {
-      return false;
-    }
-
-    // 8. Completed paid invoice
+    // 2. Explicit payment_status / status
     if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
+      return true;
+    }
+
+    if (inv?.payment_status === "pendiente" || wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") {
+      return false;
+    }
+
+    // 3. If there is a receipt number and no credit -> Paid
+    const receiptNum = (inv?.receipt_number || "").trim();
+    if (receiptNum && receiptNum !== "0" && !hasCredit) {
       return true;
     }
 

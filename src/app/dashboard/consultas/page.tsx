@@ -349,16 +349,23 @@ export default function ConsultasPage() {
         const record = parseWorkshopRow(cols);
         if (!record || !record.plate) return;
 
-        const is_credit_order = record.creditAmount > 0 ||
+        const is_explicit_paid = record.paymentCondition.toUpperCase().includes("PAGADO");
+        const is_credit_order = !is_explicit_paid && (
+          record.creditAmount > 0 ||
           record.paymentCondition.toUpperCase().includes("CREDIT") ||
-          record.paymentCondition.toUpperCase().includes("PENDIENTE");
+          record.paymentCondition.toUpperCase().includes("PENDIENTE")
+        );
 
         const base_amount = record.price > 0 ? record.price : record.creditAmount;
         const discountNum = typeof record.discounts === "number" ? record.discounts : (parseFloat(String(record.discounts).replace(/[^0-9.]/g, "")) || 0);
         const parts_total = base_amount + discountNum;
         const grand_total = base_amount;
-        const payment_status = is_credit_order ? "pendiente" : (record.price > 0 ? "pagado" : "pendiente");
-        const order_status = is_credit_order ? "por_cobrar" : (record.price > 0 ? "pagado_autorizado" : "en_espera");
+        const payment_status = is_explicit_paid
+          ? "pagado"
+          : (is_credit_order ? "pendiente" : (record.price > 0 ? "pagado" : (record.receiptNumber && record.receiptNumber !== "0" ? "pagado" : "pendiente")));
+        const order_status = is_explicit_paid
+          ? "pagado_autorizado"
+          : (is_credit_order ? "por_cobrar" : (record.price > 0 ? "pagado_autorizado" : (record.receiptNumber && record.receiptNumber !== "0" ? "pagado_autorizado" : "en_espera")));
 
         const orderId = generateUUID();
         const invoiceId = generateUUID();
