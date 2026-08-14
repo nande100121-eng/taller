@@ -129,14 +129,9 @@ export default function ThermalReceiptModal({
 
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${encodeURIComponent(sunatQrString)}`;
 
-  // Bulletproof 1-Page 80mm Print Trigger using Isolated Hidden Frame
+  // Bulletproof 1-Page 80mm Print Trigger using Isolated Hidden Frame with FULLY INLINE STYLES
+  // This generates its own HTML so it doesn't depend on Tailwind classes from the web preview.
   const handlePrint = () => {
-    const printable = document.getElementById("thermal-receipt-printable");
-    if (!printable) {
-      window.print();
-      return;
-    }
-
     let printFrame = document.getElementById("thermal-print-iframe") as HTMLIFrameElement;
     if (!printFrame) {
       printFrame = document.createElement("iframe");
@@ -157,97 +152,177 @@ export default function ThermalReceiptModal({
       return;
     }
 
+    // Build items rows HTML
+    const itemsHtml = effectiveItems.map((item) => `
+      <tr>
+        <td colspan="3" style="padding:2px 0 0 0;font-weight:bold;font-size:10.5px;text-transform:uppercase;word-break:break-word;">${item.description}</td>
+      </tr>
+      <tr>
+        <td style="width:20%;text-align:left;padding:1px 0;font-size:10.5px;">${Number(item.quantity).toFixed(2)}</td>
+        <td style="width:40%;text-align:right;padding:1px 6px 1px 0;font-size:10.5px;">${Number(item.unit_price).toFixed(2)}</td>
+        <td style="width:40%;text-align:right;padding:1px 4px 1px 0;font-size:10.5px;font-weight:bold;">${Number(item.subtotal).toFixed(2)}</td>
+      </tr>
+    `).join("");
+
+    // Build totals rows
+    const totalsData = [
+      { label: "OP. GRAVADAS:", value: `S/ ${opGravadas.toFixed(2)}`, bold: true },
+      { label: "OP. EXONERADAS:", value: "S/ 0.00", bold: false },
+      { label: "OP. INAFECTAS:", value: "S/ 0.00", bold: false },
+      { label: "OP. GRATUITAS:", value: "S/ 0.00", bold: false },
+      { label: "SUBTOTAL:", value: `S/ ${opGravadas.toFixed(2)}`, bold: true },
+      { label: "DESCUENTOS:", value: `S/ ${discountAmount.toFixed(2)}`, bold: false },
+      { label: "IGV 18.0%:", value: `S/ ${igvAmount.toFixed(2)}`, bold: true },
+      { label: "ICBPER:", value: "S/ 0.00", bold: false },
+      { label: "ADELANTOS:", value: "S/ 0.00", bold: false },
+    ];
+
+    const totalsHtml = totalsData.map((row) => `
+      <tr>
+        <td style="padding:1px 0;font-size:10.5px;">${row.label}</td>
+        <td style="text-align:right;padding:1px 4px 1px 0;font-size:10.5px;${row.bold ? "font-weight:bold;" : ""}">${row.value}</td>
+      </tr>
+    `).join("");
+
+    // Document type label
+    const docTypeLabel = effectiveType === "Factura"
+      ? "FACTURA ELECTRÓNICA"
+      : effectiveType === "Boleta"
+      ? "BOLETA DE VENTA ELECTRÓNICA"
+      : "TICKET DE VENTA";
+
+    // QR section (only for Boleta / Factura)
+    const qrSection = effectiveType !== "Ticket" ? `
+      <div style="text-align:center;padding:6px 0;border-bottom:1px dashed #000;">
+        <img src="${qrImageUrl}" alt="QR" style="width:115px;height:115px;display:block;margin:0 auto;" />
+        <div style="font-size:8.5px;font-weight:bold;margin-top:2px;">Código QR Fiscal SUNAT</div>
+      </div>
+    ` : "";
+
+    // Footer
+    const footerHtml = effectiveType === "Ticket"
+      ? `<div style="text-align:center;font-size:9px;padding-top:4px;font-weight:bold;">Gracias por su preferencia</div>`
+      : `<div style="text-align:center;font-size:8.5px;padding-top:4px;line-height:1.15;">
+          <div style="font-weight:bold;">Representación impresa de la ${effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica</div>
+          <div>Autorizado mediante Resolución de Superintendencia</div>
+          <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
+        </div>`;
+
+    // Address section (only for Factura)
+    const addressHtml = effectiveAddress && effectiveAddress !== "-" && effectiveType === "Factura"
+      ? `<div><b>DIRECCION:</b> ${effectiveAddress}</div>` : "";
+
+    // Observation section
+    const observationHtml = effectiveObservations
+      ? `<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;"><b>OBSERVACION:</b> ${effectiveObservations}</div>` : "";
+
     doc.open();
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${effectiveType} - ${effectiveNumber}</title>
-          <style>
-            @page {
-              size: auto;
-              margin: 0;
-            }
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            html, body {
-              width: 76mm;
-              max-width: 76mm;
-              margin: 0;
-              padding: 0;
-              height: auto !important;
-              min-height: 0 !important;
-              background: #fff;
-              color: #000;
-              font-family: 'Arial Narrow', Arial, 'Helvetica Neue', sans-serif;
-              font-size: 11px;
-              line-height: 1.2;
-              -webkit-font-smoothing: antialiased;
-            }
-            .paper {
-              width: 72mm;
-              max-width: 72mm;
-              margin: 0 auto;
-              padding: 2mm 2mm 4mm 2mm;
-              height: auto !important;
-            }
-            .center { text-align: center; }
-            .left { text-align: left; }
-            .right { text-align: right; }
-            .bold { font-weight: bold; }
-            .uppercase { text-transform: uppercase; }
-            .border-t { border-top: 1px dashed #000; padding-top: 3px; margin-top: 3px; }
-            .border-b { border-bottom: 1px dashed #000; padding-bottom: 3px; margin-bottom: 3px; }
-            .border-t-solid { border-top: 1px solid #000; padding-top: 3px; margin-top: 3px; }
-            .border-b-solid { border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 3px; }
-            .logo-img {
-              max-height: 52px;
-              max-width: 170px;
-              display: block;
-              margin: 0 auto;
-              object-fit: contain;
-            }
-            .spacer-2lines {
-              height: 12px;
-            }
-            .qr-img {
-              width: 115px;
-              height: 115px;
-              display: block;
-              margin: 0 auto;
-              object-fit: contain;
-            }
-            table { width: 100%; border-collapse: collapse; }
-            table.items th { border-bottom: 1px dashed #000; padding: 3px 2px; font-size: 10.5px; font-weight: bold; }
-            table.items td { padding: 2px 2px; font-size: 10.5px; vertical-align: top; }
-            .col-cant { width: 18%; text-align: left; }
-            .col-punit { width: 42%; text-align: right; padding-right: 6px; }
-            .col-imp { width: 40%; text-align: right; padding-right: 2px; }
-            .table-totals { width: 100%; font-size: 10.5px; }
-            .table-totals td { padding: 1px 2px; }
-            .table-totals td.val { text-align: right; padding-right: 2px; font-weight: bold; }
-            .total-row { font-size: 12.5px; font-weight: bold; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 2px; margin-top: 3px; }
-            .amount-words { font-size: 10px; font-weight: bold; text-align: center; text-transform: uppercase; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 1px; margin: 4px 0; }
-            .legal-footer { font-size: 9px; text-align: center; color: #000; margin-top: 4px; line-height: 1.15; }
-          </style>
-        </head>
-        <body>
-          <div class="paper">
-            ${printable.innerHTML}
-          </div>
-        </body>
-      </html>
-    `);
+    doc.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${effectiveType} - ${effectiveNumber}</title>
+<style>
+  @page { size: 80mm auto; margin: 0; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body {
+    width: 76mm; max-width: 76mm; margin: 0; padding: 0;
+    height: auto !important; min-height: 0 !important;
+    background: #fff; color: #000;
+    font-family: 'Arial Narrow', Arial, 'Helvetica Neue', Helvetica, sans-serif;
+    font-size: 11px; line-height: 1.25;
+    -webkit-font-smoothing: antialiased;
+  }
+  .paper { width: 72mm; max-width: 72mm; margin: 0 auto; padding: 2mm 2mm 3mm 2mm; }
+</style>
+</head>
+<body>
+<div class="paper">
+
+  <!-- LOGO -->
+  <div style="text-align:center;">
+    <img src="/logo.jpg" alt="REYGAS" style="max-height:52px;max-width:170px;display:block;margin:0 auto;object-fit:contain;"
+         onerror="this.style.display='none'" />
+  </div>
+
+  <!-- 2-LINE SPACER between logo and razón social -->
+  <div style="height:14px;"></div>
+
+  <!-- HEADER: Razón Social, Dirección, RUC (CENTERED + BOLD) -->
+  <div style="text-align:center;font-weight:bold;">
+    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">REYGAS S.A.C.</div>
+    <div style="font-size:9.5px;line-height:1.15;">AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA</div>
+    <div style="font-size:10px;padding-top:1px;">RUC: 20600982860</div>
+  </div>
+
+  <!-- DOCUMENT TYPE & CORRELATIVE (CENTERED + BOLD) -->
+  <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;text-align:center;font-weight:bold;">
+    <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:900;">${docTypeLabel}</div>
+    <div style="font-size:11.5px;font-family:'Courier New',monospace;letter-spacing:1px;font-weight:bold;">${effectiveNumber}</div>
+  </div>
+
+  <!-- CLIENT & DOCUMENT INFO -->
+  <div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;font-size:10px;line-height:1.35;">
+    <div><b>CLIENTE:</b> ${effectiveClient}</div>
+    <div><b>${effectiveType === "Factura" ? "RUC:" : "DNI:"}</b> ${effectiveDoc}</div>
+    ${addressHtml}
+    <div><b>FECHA DE EMISIÓN:</b> ${dateFormatted}</div>
+    <div><b>FORMA DE PAGO:</b> ${paymentMethod || "Efectivo"}</div>
+    <div><b>MONEDA:</b> SOLES</div>
+    <div><b>PLACA:</b> ${effectivePlate || "S/P"}</div>
+    ${observationHtml}
+  </div>
+
+  <!-- ITEMS TABLE HEADER (CENTERED + BOLD) -->
+  <div style="border-top:1px dashed #000;margin-top:3px;padding-top:3px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:1px dashed #000;">
+          <th style="width:20%;text-align:left;padding:3px 0;font-size:10.5px;font-weight:900;">CANT.</th>
+          <th style="width:40%;text-align:right;padding:3px 6px 3px 0;font-size:10.5px;font-weight:900;">P.UNIT.</th>
+          <th style="width:40%;text-align:right;padding:3px 4px 3px 0;font-size:10.5px;font-weight:900;">IMPORTE</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- TAX BREAKDOWN & TOTALS (amounts aligned to right margin) -->
+  <div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;">
+    <table style="width:100%;border-collapse:collapse;">
+      ${totalsHtml}
+      <tr>
+        <td colspan="2" style="padding:0;"><div style="border-top:1px solid #000;margin-top:3px;"></div></td>
+      </tr>
+      <tr style="font-weight:900;font-size:13px;">
+        <td style="padding:4px 0;border-bottom:1px solid #000;">TOTAL:</td>
+        <td style="text-align:right;padding:4px 4px 4px 0;border-bottom:1px solid #000;">S/ ${effectiveTotal.toFixed(2)}</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- QR CODE (only Boleta / Factura) -->
+  ${qrSection}
+
+  <!-- AMOUNT IN WORDS -->
+  <div style="border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 1px;margin:4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;text-align:center;">
+    ${amountInWords}
+  </div>
+
+  <!-- FOOTER -->
+  ${footerHtml}
+
+</div>
+</body>
+</html>`);
     doc.close();
 
     setTimeout(() => {
       printFrame.contentWindow?.focus();
       printFrame.contentWindow?.print();
-    }, 300);
+    }, 350);
   };
 
   const handleCopyEscPos = () => {
