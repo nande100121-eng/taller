@@ -18,8 +18,7 @@ import {
   X,
   Building,
   UserCheck,
-  Tag,
-  RefreshCw
+  Tag
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -32,12 +31,10 @@ export default function CajaPage() {
     togglePayInvoice,
     confirmInvoicePayment,
     toggleAllowModificationsInWorkshop,
-    setBulkWorkshopData,
   } = useAppStore();
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
   const [activeStatusFilter, setActiveStatusFilter] = useState<"todos" | "pendientes" | "pagados">("todos");
-  const [isSyncing, setIsSyncing] = useState(false);
 
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
@@ -61,32 +58,6 @@ export default function CajaPage() {
   const showAlert = (type: "success" | "warning", text: string) => {
     setAlertMsg({ type, text });
     setTimeout(() => setAlertMsg(null), 4000);
-  };
-
-  // Sync CSV data directly from server
-  const handleSyncWorkshopData = async (notify: boolean = true) => {
-    try {
-      setIsSyncing(true);
-      const res = await fetch("/api/sync-workshop-csv");
-      const data = await res.json();
-      if (data.success && Array.isArray(data.workOrders)) {
-        setBulkWorkshopData({
-          vehicles: data.vehicles,
-          workOrders: data.workOrders,
-          invoices: data.invoices,
-        });
-        if (notify) {
-          showAlert("success", `¡Sincronización Exitosa! ${data.totalRecords} registros actualizados (${data.pendingCount} pendientes y ${data.paidCount} pagados).`);
-        }
-      } else {
-        if (notify) showAlert("warning", "No se pudo sincronizar: " + (data.error || "Error"));
-      }
-    } catch (err: any) {
-      console.error("Error syncing workshop data:", err);
-      if (notify) showAlert("warning", "Error de conexión al sincronizar.");
-    } finally {
-      setIsSyncing(false);
-    }
   };
 
   // O(1) Invoices lookup map
@@ -113,45 +84,72 @@ export default function CajaPage() {
     return list;
   }, [technicians]);
 
-  // Accurate function to determine if order is paid or pending credit
+  // Comprehensive, real-time function to determine if order is paid or pending credit
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
-    // 1. If invoice has payment_status explicitly 'pendiente'
+    if (!wo && !inv) return false;
+
+    // 1. Explicitly pending payment_status
     if (inv?.payment_status === "pendiente") return false;
 
-    // 2. If invoice has condition PENDIENTE or credit
+    // 2. Explicit condition PENDIENTE or CREDITO
     const condition = (inv?.payment_condition || "").toUpperCase().trim();
     if (condition === "PENDIENTE" || condition.includes("CREDIT")) return false;
 
-    // 3. If credit amount > 0
+    // 3. Explicit credit amount registered
     if ((inv?.credit_amount || 0) > 0) return false;
 
-    // 4. If credit embedded in diagnostic notes
-    if (wo?.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:")) return false;
+    // 4. Tagged in diagnostic notes
+    const diagNotes = (wo?.diagnostic_notes || "").toUpperCase();
+    if (diagNotes.includes("[CREDITO]:") || diagNotes.includes("[CONDICION]: PENDIENTE")) return false;
 
-    // 5. If problem description has PENDIENTE
-    if (wo?.problem_description && /PENDIENTE\s+\d+/i.test(wo.problem_description)) return false;
+    // 5. Text patterns in descriptions or items (e.g. 'PENDIENTE 35', 'DEUDA', 'A CUENTA', 'RESPONSABLE DE PAGO', 'CANCELE')
+    const probDesc = (wo?.problem_description || "").toUpperCase();
+    const spareDesc = (wo?.spare_parts_services || "").toUpperCase();
+    const itemDescs = (wo?.items || []).map((i: any) => (i.description || "").toUpperCase()).join(" ");
 
-    // 6. If work order status is explicitly not paid
+    const combinedText = `${probDesc} ${spareDesc} ${itemDescs} ${diagNotes}`;
+    if (
+      combinedText.includes("PENDIENTE") ||
+      combinedText.includes("CREDITO") ||
+      combinedText.includes("RESPONSABLE DE PAGO") ||
+      combinedText.includes("A CUENTA") ||
+      combinedText.includes("CANCELE EL MONTO")
+    ) {
+      return false;
+    }
+
+    // 6. Explicit pending statuses
     if (wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") return false;
 
-    // 7. If paid
-    if (inv?.payment_status === "pagado") return true;
-    if (wo?.status === "pagado_autorizado" || wo?.status === "finalizado") return true;
+    // 7. Non-billing zero inspection entries (no total, no items, receipt is 0 or empty) -> Not a paid invoice
+    const grandTotal = inv?.grand_total || (wo?.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
+    const receiptNum = (inv?.receipt_number || "").trim();
+    if (grandTotal === 0 && (!receiptNum || receiptNum === "0") && (wo?.items || []).length === 0) {
+      return false;
+    }
+
+    // 8. Completed paid invoice
+    if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
+      return true;
+    }
 
     return false;
   }, []);
 
   // Orders that reached billing or have an invoice registered
   const allBillingWorkOrders = React.useMemo(() => {
-    return workOrders.filter(
-      (wo) =>
-        wo.status === "por_cobrar" ||
-        wo.status === "pendiente_pago" ||
-        wo.status === "pagado_autorizado" ||
-        wo.status === "finalizado" ||
-        invoicesByWorkOrderId.has(wo.id)
-    );
-  }, [workOrders, invoicesByWorkOrderId]);
+    return workOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const total = inv?.grand_total || (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+      const hasItems = (wo.items || []).length > 0;
+      const receiptNum = (inv?.receipt_number || "").trim();
+      const hasReceipt = receiptNum && receiptNum !== "0";
+      const isPaid = isOrderPaid(wo, inv);
+
+      // Include if it's a valid billing order (has items or price or receipt) OR if it is pending payment
+      return total > 0 || hasItems || hasReceipt || !isPaid;
+    });
+  }, [workOrders, invoicesByWorkOrderId, isOrderPaid]);
 
   // Daily cash closure calculation for selected date
   const totalPaidToday = React.useMemo(() => {
@@ -178,13 +176,6 @@ export default function CajaPage() {
       return isOrderPaid(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
-
-  // Auto-sync once on mount if no pending orders detected despite large dataset
-  React.useEffect(() => {
-    if (workOrders.length > 500 && pendingCount === 0) {
-      handleSyncWorkshopData(false);
-    }
-  }, [workOrders.length, pendingCount]);
 
   // Filtered orders for Caja Tab
   const filteredCajaOrders = React.useMemo(() => {
@@ -373,16 +364,6 @@ export default function CajaPage() {
               className="w-full sm:w-40 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
             />
           </div>
-
-          <button
-            onClick={() => handleSyncWorkshopData(true)}
-            disabled={isSyncing}
-            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-            title="Sincronizar base de datos completa de 9,285 registros desde el archivo maestro"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
-            <span>{isSyncing ? "Sincronizando..." : "Sincronizar Excel Taller"}</span>
-          </button>
         </div>
       </div>
 
