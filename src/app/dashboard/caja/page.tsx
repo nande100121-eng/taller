@@ -6,6 +6,7 @@ import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
 } from "@/lib/utils/credit-tracker";
+import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
@@ -535,27 +536,42 @@ export default function CajaPage() {
 
   // Open receipt viewer from card
   const handleOpenReceiptViewer = (wo: any, inv?: any, total: number = 0) => {
+    const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
-    const rawType = (inv?.receipt_type || "").toUpperCase().trim();
-    const rType = (rawType.includes("FACTURA") ? "Factura" : rawType.includes("BOLETA") ? "Boleta" : (inv?.receipt_number?.startsWith("F") ? "Factura" : inv?.receipt_number?.startsWith("B") ? "Boleta" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
 
-    const rNum = inv?.receipt_number || "";
-    const clientName = inv?.client_name || vehicle?.owner_name || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General");
+    const effectiveReceiptNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number !== "S/N" 
+      ? inv.receipt_number 
+      : (csvRec?.receiptNumber || "");
+
+    const rawType = (inv?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
+    const rType = (rawType.includes("FACTURA") 
+      ? "Factura" 
+      : rawType.includes("BOLETA") 
+      ? "Boleta" 
+      : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+
+    const clientName = inv?.client_name && inv.client_name !== "Cliente Taller"
+      ? inv.client_name
+      : (vehicle?.owner_name && vehicle.owner_name !== "Cliente Taller"
+          ? vehicle.owner_name
+          : (csvRec?.clientName || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")));
+
+    const effectiveMethod = inv?.payment_method || csvRec?.method || "Efectivo";
 
     setActiveReceiptModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       receiptType: rType,
-      receiptNumber: rNum,
+      receiptNumber: effectiveReceiptNum,
       customerDoc: inv?.customer_doc || (rType === "Factura" ? "20600982860" : "00000000"),
       customerName: clientName,
       customerAddress: inv?.customer_address || "-",
       plate: wo.vehicle_plate,
       observations: inv?.observations || wo.observations || "",
-      grandTotal: total > 0 ? total : (inv?.grand_total || 0),
+      grandTotal: total > 0 ? total : (inv?.grand_total || csvRec?.price || 80),
       items: wo.items && wo.items.length > 0 ? wo.items : undefined,
-      paymentMethod: inv?.payment_method || "Efectivo",
+      paymentMethod: effectiveMethod,
       issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
     });
   };
@@ -743,6 +759,38 @@ export default function CajaPage() {
                 const isPaid = settledInfo?.isSettled || isOrderPaid(wo, invoice);
                 const allowModInWorkshop = wo.allow_modifications;
 
+                const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
+
+                const effectiveClient = invoice?.client_name && invoice.client_name !== "Cliente Taller" 
+                  ? invoice.client_name 
+                  : (vehicle?.owner_name && vehicle.owner_name !== "Cliente Taller" 
+                      ? vehicle.owner_name 
+                      : (csvRec?.clientName || "Cliente General"));
+
+                const effectivePhone = vehicle?.owner_phone && vehicle.owner_phone !== "S/T" && vehicle.owner_phone !== "+51 900000000" 
+                  ? vehicle.owner_phone 
+                  : (csvRec?.clientPhone || "S/T");
+
+                const effectiveBrand = vehicle?.brand && vehicle.brand !== "Automóvil" ? vehicle.brand : (csvRec?.brand || "Automóvil");
+
+                const effectiveReceiptNum = invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N" 
+                  ? invoice.receipt_number 
+                  : (csvRec?.receiptNumber || "");
+
+                const rawType = (invoice?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
+                const effectiveReceiptType = rawType.includes("FACTURA") 
+                  ? "Factura" 
+                  : rawType.includes("BOLETA") 
+                  ? "Boleta" 
+                  : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket");
+
+                const effectiveMethod = invoice?.payment_method || csvRec?.method || "Efectivo";
+                const effectiveDestination = invoice?.payment_destination || csvRec?.destination || "EMPRESA";
+
+                const buttonReceiptLabel = effectiveReceiptNum && effectiveReceiptNum !== "0"
+                  ? (effectiveReceiptType === "Factura" ? `F001-${effectiveReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : effectiveReceiptNum)
+                  : "S/N";
+
                 return (
                   <div
                     key={wo.id}
@@ -762,10 +810,10 @@ export default function CajaPage() {
                             </span>
                             <div>
                               <span className="text-sm font-bold text-white block">
-                                {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
+                                {effectiveBrand} {vehicle?.model || ""} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
                               </span>
                               <span className="text-xs text-reygas-red font-semibold">
-                                Cliente: {vehicle?.owner_name || "Cliente Taller"} • Teléfono: {vehicle?.owner_phone || "S/T"}
+                                Cliente: {effectiveClient} • Teléfono: {effectivePhone}
                               </span>
                             </div>
                           </div>
@@ -777,7 +825,7 @@ export default function CajaPage() {
                             </span>
 
                             <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
-                              Técnico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
+                              Técnico: <strong className="text-amber-400">{tech?.full_name || csvRec?.technician || "Asignado"}</strong>
                             </span>
                           </div>
                         </div>
@@ -872,10 +920,12 @@ export default function CajaPage() {
                                 💰 {splitPayment.formattedSummary}
                               </span>
                             ) : (
-                              <span>💳 <strong>Método:</strong> {invoice?.payment_method || "Efectivo"}</span>
+                              <span>💳 <strong>Método:</strong> {effectiveMethod}</span>
                             )}
-                            <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{invoice?.payment_destination || "EMPRESA"}</strong></span>
-                            {invoice?.receipt_number && <span>🧾 <strong>Recibo/Comp:</strong> {invoice.receipt_number} ({invoice.receipt_type || "Boleta"})</span>}
+                            <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{effectiveDestination}</strong></span>
+                            {effectiveReceiptNum && (
+                              <span>🧾 <strong>Recibo/Comp:</strong> {effectiveReceiptNum} ({effectiveReceiptType})</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -898,7 +948,7 @@ export default function CajaPage() {
                             title="Visualizar o Imprimir Comprobante Térmico / PDF"
                           >
                             <Eye className="w-4 h-4 text-blue-400" />
-                            <span>Ver Comprobante ({invoice?.receipt_number && invoice.receipt_number !== "0" ? invoice.receipt_number : "S/N"})</span>
+                            <span>Ver Comprobante ({buttonReceiptLabel})</span>
                           </button>
 
                           {isPaid ? (
