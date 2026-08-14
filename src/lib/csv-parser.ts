@@ -76,6 +76,7 @@ export interface ParsedWorkshopRecord {
   fuelType: string; // Sistema (column 5 / index 4)
   brand: string; // Marca (column 6 / index 5)
   mileage: number; // KILOMETRAJE (column 7 / index 6)
+  rawMileage: string;
   plate: string; // PLACA (column 8 / index 7)
   receiptNumber: string; // N° de boleta/Factura (column 9 / index 8)
   clientName: string; // Cliente (column 10 / index 9)
@@ -84,8 +85,10 @@ export interface ParsedWorkshopRecord {
   maintenanceService: string; // MANT. GENERAL / SERVICIO (column 13 / index 12)
   sparePartsServices: string; // REPUESTOS Y SERVICIOS (column 14 / index 13)
   price: number; // Precio (column 15 / index 14)
+  rawPrice: string;
   discounts: string | number; // DESCUENTOS (column 16 / index 15)
   creditAmount: number; // Credito (column 17 / index 16)
+  rawCredit: string;
   paymentCondition: string; // Condicion (column 18 / index 17)
   paymentMethod: string; // METODO DE PAGO (column 19 / index 18)
   paymentDestination: string; // DESTINO DE PAGO (column 20 / index 19)
@@ -99,9 +102,6 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   const rawDate = (cols[0] || "").trim();
   if (!rawDate || rawDate.toLowerCase().includes("fecha")) return null;
   const dateISO = parseISODate(rawDate);
-
-  // When standard 21 columns are provided:
-  // 0: Fecha, 1: Quinquenal, 2: Chip, 3: Tipo, 4: Sistema, 5: Marca, 6: Km, 7: Placa, 8: Recibo, 9: Cliente, 10: Celular, 11: Técnico, 12: Mant Gral, 13: Repuestos, 14: Precio, 15: Descuentos, 16: Credito, 17: Condicion, 18: Metodo, 19: Destino, 20: Comprobante
 
   // Find Plate index dynamically (usually 7 in 21-col format)
   let plateIdx = 7;
@@ -127,8 +127,8 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   const vehicleType = (cols[3] || "").trim();
   const fuelType = (cols[4] || "").trim();
   const brand = (cols[5] || "").trim();
-  const mileageRaw = (cols[6] || "").trim();
-  const mileage = mileageRaw ? (parseInt(mileageRaw.replace(/[^0-9]/g, ""), 10) || 0) : 0;
+  const rawMileage = (cols[6] || "").trim();
+  const mileage = rawMileage ? (parseInt(rawMileage.replace(/[^0-9]/g, ""), 10) || 0) : 0;
 
   const receiptNumber = (cols[8] || cols[plateIdx + 1] || "").trim();
   const clientName = (cols[9] || cols[plateIdx + 2] || "").trim();
@@ -139,13 +139,15 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   const sparePartsServices = (cols[13] || "").trim();
 
   const rawPrice = (cols[14] || "").trim();
-  const price = rawPrice ? (parseFloat(rawPrice.replace(/[^0-9.]/g, "")) || 0) : 0;
+  const priceClean = rawPrice.replace(/[$S/,\s]/g, "");
+  const price = priceClean && !isNaN(Number(priceClean)) ? parseFloat(priceClean) : 0;
 
   const rawDiscounts = (cols[15] || "").trim();
   const discounts = rawDiscounts;
 
   const rawCredit = (cols[16] || "").trim();
-  const creditAmount = rawCredit ? (parseFloat(rawCredit.replace(/[^0-9.]/g, "")) || 0) : 0;
+  const creditClean = rawCredit.replace(/[$S/,\s]/g, "");
+  const creditAmount = creditClean && !isNaN(Number(creditClean)) ? parseFloat(creditClean) : 0;
 
   const paymentCondition = (cols[17] || "").trim();
   const paymentMethod = (cols[18] || "").trim();
@@ -161,6 +163,7 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
     fuelType,
     brand,
     mileage,
+    rawMileage,
     plate,
     receiptNumber,
     clientName,
@@ -169,8 +172,10 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
     maintenanceService,
     sparePartsServices,
     price,
+    rawPrice,
     discounts,
     creditAmount,
+    rawCredit,
     paymentCondition,
     paymentMethod,
     paymentDestination,

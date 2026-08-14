@@ -422,6 +422,8 @@ export default function ConsultasPage() {
           receipt_type: record.receiptType,
           discounts: record.discounts,
           credit_amount: record.creditAmount,
+          raw_price_str: record.rawPrice,
+          raw_credit_str: record.rawCredit,
           payment_condition: record.paymentCondition,
           payment_destination: record.paymentDestination,
         });

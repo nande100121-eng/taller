@@ -337,8 +337,10 @@ export interface Invoice {
   paid_at?: string;
   receipt_number?: string; // N° de boleta/Factura/Ticket (ej: TK01-00004545, B001-00000259, F001-00000282)
   receipt_type?: string; // COMPROBANTE ("Ticket" | "Boleta" | "Factura")
-  discounts?: number; // DESCUENTOS
+  discounts?: string | number; // DESCUENTOS
   credit_amount?: number; // Credito
+  raw_price_str?: string; // Precio original de CSV (ej: $80.00, 80, 0, etc.)
+  raw_credit_str?: string; // Crédito original de CSV (ej: $40.00, 40, etc.)
   payment_condition?: string; // Condicion (Contado/Crédito)
   payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
 }

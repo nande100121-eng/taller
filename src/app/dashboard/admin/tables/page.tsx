@@ -229,6 +229,8 @@ export default function AdminTablesPage() {
           receipt_type: record.receiptType,
           discounts: record.discounts,
           credit_amount: record.creditAmount,
+          raw_price_str: record.rawPrice,
+          raw_credit_str: record.rawCredit,
           payment_condition: record.paymentCondition,
           payment_destination: record.paymentDestination,
         });
@@ -559,15 +561,23 @@ export default function AdminTablesPage() {
                     const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id);
                     const isSelected = selectedIds.includes(wo.id);
 
-                    const priceVal = inv?.grand_total !== undefined && inv.grand_total > 0
-                      ? `S/ ${inv.grand_total.toFixed(2)}`
-                      : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : "");
+                    const priceVal = inv?.raw_price_str !== undefined && inv.raw_price_str !== ""
+                      ? (inv.raw_price_str.startsWith("$") || inv.raw_price_str.startsWith("S/")
+                          ? inv.raw_price_str
+                          : `S/ ${parseFloat(inv.raw_price_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
+                      : (inv?.grand_total !== undefined && inv.grand_total > 0
+                          ? `S/ ${inv.grand_total.toFixed(2)}`
+                          : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
 
-                    const discountVal = inv?.discounts 
-                      ? (typeof inv.discounts === "number" ? (inv.discounts > 0 ? `S/ ${inv.discounts.toFixed(2)}` : "") : String(inv.discounts))
+                    const discountVal = inv?.discounts !== undefined && inv.discounts !== ""
+                      ? String(inv.discounts)
                       : "";
 
-                    const creditVal = inv?.credit_amount && inv.credit_amount > 0 ? `S/ ${inv.credit_amount.toFixed(2)}` : "";
+                    const creditVal = inv?.raw_credit_str !== undefined && inv.raw_credit_str !== ""
+                      ? (inv.raw_credit_str.startsWith("$") || inv.raw_credit_str.startsWith("S/")
+                          ? inv.raw_credit_str
+                          : `S/ ${parseFloat(inv.raw_credit_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
+                      : (inv?.credit_amount && inv.credit_amount > 0 ? `S/ ${inv.credit_amount.toFixed(2)}` : "");
 
                     return (
                       <tr
