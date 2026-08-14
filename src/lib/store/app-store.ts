@@ -458,6 +458,7 @@ interface AppState {
   }) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
+  setBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => void;
 
   appointments: Appointment[];
   addAppointment: (app: Omit<Appointment, "id" | "status">) => void;
@@ -1538,6 +1539,14 @@ export const useAppStore = create<AppState>()(
             invoices: toAddInvoices.length > 0 ? [...toAddInvoices, ...state.invoices] : state.invoices,
             vehicles: toAddVehicles.length > 0 ? [...toAddVehicles, ...state.vehicles] : state.vehicles,
           };
+        });
+      },
+
+      setBulkWorkshopData: ({ vehicles, workOrders, invoices }) => {
+        set({
+          vehicles,
+          workOrders,
+          invoices,
         });
       },
 

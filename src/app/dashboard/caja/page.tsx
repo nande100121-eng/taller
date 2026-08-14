@@ -18,7 +18,8 @@ import {
   X,
   Building,
   UserCheck,
-  Tag
+  Tag,
+  RefreshCw
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -31,10 +32,12 @@ export default function CajaPage() {
     togglePayInvoice,
     confirmInvoicePayment,
     toggleAllowModificationsInWorkshop,
+    setBulkWorkshopData,
   } = useAppStore();
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
   const [activeStatusFilter, setActiveStatusFilter] = useState<"todos" | "pendientes" | "pagados">("todos");
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
@@ -58,6 +61,32 @@ export default function CajaPage() {
   const showAlert = (type: "success" | "warning", text: string) => {
     setAlertMsg({ type, text });
     setTimeout(() => setAlertMsg(null), 4000);
+  };
+
+  // Sync CSV data directly from server
+  const handleSyncWorkshopData = async (notify: boolean = true) => {
+    try {
+      setIsSyncing(true);
+      const res = await fetch("/api/sync-workshop-csv");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.workOrders)) {
+        setBulkWorkshopData({
+          vehicles: data.vehicles,
+          workOrders: data.workOrders,
+          invoices: data.invoices,
+        });
+        if (notify) {
+          showAlert("success", `¡Sincronización Exitosa! ${data.totalRecords} registros actualizados (${data.pendingCount} pendientes y ${data.paidCount} pagados).`);
+        }
+      } else {
+        if (notify) showAlert("warning", "No se pudo sincronizar: " + (data.error || "Error"));
+      }
+    } catch (err: any) {
+      console.error("Error syncing workshop data:", err);
+      if (notify) showAlert("warning", "Error de conexión al sincronizar.");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // O(1) Invoices lookup map
@@ -149,6 +178,13 @@ export default function CajaPage() {
       return isOrderPaid(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
+
+  // Auto-sync once on mount if no pending orders detected despite large dataset
+  React.useEffect(() => {
+    if (workOrders.length > 500 && pendingCount === 0) {
+      handleSyncWorkshopData(false);
+    }
+  }, [workOrders.length, pendingCount]);
 
   // Filtered orders for Caja Tab
   const filteredCajaOrders = React.useMemo(() => {
@@ -337,6 +373,16 @@ export default function CajaPage() {
               className="w-full sm:w-40 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
             />
           </div>
+
+          <button
+            onClick={() => handleSyncWorkshopData(true)}
+            disabled={isSyncing}
+            className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Sincronizar base de datos completa de 9,285 registros desde el archivo maestro"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-amber-400" : ""}`} />
+            <span>{isSyncing ? "Sincronizando..." : "Sincronizar Excel Taller"}</span>
+          </button>
         </div>
       </div>
 
