@@ -21,6 +21,7 @@ import {
   deleteSupabaseMultipleWorkOrders,
   clearSupabaseWorkOrders,
   saveSupabaseBulkWorkshopData,
+  saveSupabaseCertification,
 } from "@/lib/supabase/services";
 
 export function generateUUID(): string {
@@ -364,10 +365,11 @@ export interface Certification {
   client_name: string;
   chip_code: string;
   cylinder_serial: string;
-  certification_type: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática";
+  certification_type: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática" | string;
   issue_date: string;
-  expiry_date: string;
-  status: "Vigente" | "Vencido" | "Por Vencer" | "Solicitado";
+  expiry_date: string; // Fecha de Anual
+  quinquennial_date?: string; // Fecha de Quinquenal
+  status: "Vigente" | "Vencido" | "Por Vencer" | "Solicitado" | string;
   price?: number;
   is_ready?: boolean;
 }
@@ -492,6 +494,8 @@ interface AppState {
 
   certifications: Certification[];
   addCertification: (cert: Omit<Certification, "id">) => void;
+  updateCertificationPrice: (id: string, price: number) => void;
+  updateCertification: (id: string, updates: Partial<Certification>) => void;
 
   attendanceLogs: AttendanceLog[];
   addAttendanceLogs: (logs: Omit<AttendanceLog, "id">[]) => void;
@@ -680,35 +684,26 @@ export const useAppStore = create<AppState>()(
                 updates.workshopServices = (cmsData as any).workshopServices;
               }
             }
-            if (Array.isArray(erpData?.technicians)) {
-              if (erpData.technicians.length !== state.technicians.length || !state.hasSyncedOnce) {
-                updates.technicians = erpData.technicians;
-              }
+            if (Array.isArray(erpData?.technicians) && erpData.technicians.length > 0) {
+              updates.technicians = erpData.technicians;
             }
-            if (Array.isArray(erpData?.inventoryItems)) {
-              if (erpData.inventoryItems.length !== state.inventoryItems.length || !state.hasSyncedOnce) {
-                updates.inventoryItems = erpData.inventoryItems;
-              }
+            if (Array.isArray(erpData?.inventoryItems) && erpData.inventoryItems.length > 0) {
+              updates.inventoryItems = erpData.inventoryItems;
             }
-            if (Array.isArray(erpData?.workOrders)) {
-              if (erpData.workOrders.length !== state.workOrders.length || !state.hasSyncedOnce) {
-                updates.workOrders = erpData.workOrders;
-              }
+            if (Array.isArray(erpData?.workOrders) && erpData.workOrders.length > 0) {
+              updates.workOrders = erpData.workOrders;
             }
-            if (Array.isArray(erpData?.invoices)) {
-              if (erpData.invoices.length !== state.invoices.length || !state.hasSyncedOnce) {
-                updates.invoices = erpData.invoices;
-              }
+            if (Array.isArray(erpData?.invoices) && erpData.invoices.length > 0) {
+              updates.invoices = erpData.invoices;
             }
-            if (Array.isArray(erpData?.appointments)) {
-              if (erpData.appointments.length !== state.appointments.length || !state.hasSyncedOnce) {
-                updates.appointments = erpData.appointments;
-              }
+            if (Array.isArray(erpData?.appointments) && erpData.appointments.length > 0) {
+              updates.appointments = erpData.appointments;
             }
-            if (Array.isArray(erpData?.vehicles)) {
-              if (erpData.vehicles.length !== state.vehicles.length || !state.hasSyncedOnce) {
-                updates.vehicles = erpData.vehicles;
-              }
+            if (Array.isArray(erpData?.vehicles) && erpData.vehicles.length > 0) {
+              updates.vehicles = erpData.vehicles;
+            }
+            if (Array.isArray(erpData?.certifications) && erpData.certifications.length > 0) {
+              updates.certifications = erpData.certifications;
             }
 
             return updates;
@@ -1795,13 +1790,77 @@ export const useAppStore = create<AppState>()(
         },
       ],
 
-      addCertification: (cert) =>
+      addCertification: (cert) => {
+        const newCert: Certification = {
+          ...cert,
+          id: `cert-${Date.now()}`,
+          price: cert.price || 80,
+        };
+        saveSupabaseCertification(newCert);
         set((state) => ({
-          certifications: [
-            ...state.certifications,
-            { ...cert, id: `cert-${Date.now()}` },
-          ],
-        })),
+          certifications: [newCert, ...state.certifications],
+        }));
+      },
+
+      updateCertificationPrice: (id, price) => {
+        set((state) => {
+          const targetCert = state.certifications.find((c) => c.id === id);
+          if (!targetCert) return state;
+
+          const updatedCert = { ...targetCert, price };
+          saveSupabaseCertification(updatedCert);
+
+          // Update linked workshop order
+          const updatedOrders = state.workOrders.map((wo) => {
+            if (
+              wo.id === targetCert.work_order_id ||
+              (wo.vehicle_plate === targetCert.vehicle_plate && wo.requires_certification)
+            ) {
+              const u = { ...wo, certification_price: price };
+              saveSupabaseWorkOrder(u);
+              return u;
+            }
+            return wo;
+          });
+
+          // Update linked invoice
+          const updatedInvoices = state.invoices.map((inv) => {
+            if (
+              inv.work_order_id === targetCert.work_order_id ||
+              inv.vehicle_plate === targetCert.vehicle_plate
+            ) {
+              const u = {
+                ...inv,
+                certification_fee: price,
+                grand_total: (inv.labor_fee || 0) + (inv.parts_total || 0) + price,
+              };
+              saveSupabaseInvoice(u);
+              return u;
+            }
+            return inv;
+          });
+
+          return {
+            certifications: state.certifications.map((c) => (c.id === id ? updatedCert : c)),
+            workOrders: updatedOrders,
+            invoices: updatedInvoices,
+          };
+        });
+      },
+
+      updateCertification: (id, updates) => {
+        set((state) => {
+          const updatedList = state.certifications.map((c) => {
+            if (c.id === id) {
+              const u = { ...c, ...updates };
+              saveSupabaseCertification(u);
+              return u;
+            }
+            return c;
+          });
+          return { certifications: updatedList };
+        });
+      },
 
       attendanceLogs: [
         {

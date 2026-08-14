@@ -1,38 +1,77 @@
 "use client";
 
-import React, { useState } from "react";
-import { useAppStore, Certification } from "@/lib/store/app-store";
+import React, { useState, useMemo } from "react";
+import { useAppStore, Certification, WorkOrder } from "@/lib/store/app-store";
 import {
   Award,
   ShieldCheck,
-  FileText,
   CheckCircle2,
   Clock,
   Plus,
   Printer,
   Search,
   AlertCircle,
-  Car,
   User,
   Phone,
-  Wrench,
   X,
-  Cpu,
   Calendar as CalendarIcon,
-  Filter,
+  Edit2,
+  Check,
+  CalendarDays,
+  CalendarRange,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
-import { saveSupabaseWorkOrder } from "@/lib/supabase/services";
+import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
+
+const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
+
+// Helper to parse dates in format DD/MM/YYYY, DD/MM/YY, or YYYY-MM-DD
+function parseFlexibleDate(dateStr?: string): Date | null {
+  if (!dateStr || dateStr === "-" || dateStr === "0" || dateStr.toLowerCase() === "s/n") return null;
+  const str = dateStr.trim();
+  if (str.includes("/")) {
+    const parts = str.split("/");
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      let year = parseInt(parts[2], 10);
+      if (year < 100) year += 2000;
+      const d = new Date(year, month, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  } else if (str.includes("-")) {
+    const d = new Date(`${str}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
 
 export default function CertificacionesPage() {
-  const { certifications, addCertification, vehicles, workOrders, technicians } = useAppStore();
+  const {
+    certifications,
+    addCertification,
+    updateCertificationPrice,
+    vehicles,
+    workOrders,
+  } = useAppStore();
 
-  // Filters State
-  const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "emitidos" | "todos">("hoy");
+  // Active Filter Tabs
+  const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "esta_semana" | "este_mes" | "emitidos" | "todos">("hoy");
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal State for Emitting / Editing a Certificate
+  // Custom Month & Year Selector for Expiry Lookahead
+  const today = new Date();
+  const [selectedMonth, setSelectedMonth] = useState<number>(today.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(today.getFullYear());
+
+  // Inline Price Editing State { certId: editingPriceString }
+  const [editingPrices, setEditingPrices] = useState<Record<string, string>>({});
+
+  // Modal State for Official Emission Flow
   const [activeEmitModal, setActiveEmitModal] = useState<{
     isOpen: boolean;
     certification: Certification | null;
@@ -56,6 +95,7 @@ export default function CertificacionesPage() {
     price: 80,
     issue_date: new Date().toISOString().slice(0, 10),
     expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+    quinquennial_date: "-",
   });
 
   // Alert State
@@ -65,8 +105,8 @@ export default function CertificacionesPage() {
     setTimeout(() => setAlertMsg(null), 4500);
   };
 
-  // Fast lookups
-  const vehiclesMap = React.useMemo(() => {
+  // Vehicles and Work Orders Map
+  const vehiclesMap = useMemo(() => {
     const map = new Map<string, any>();
     vehicles.forEach((v) => {
       if (v?.plate) map.set(v.plate.toUpperCase().trim(), v);
@@ -74,81 +114,262 @@ export default function CertificacionesPage() {
     return map;
   }, [vehicles]);
 
-  const workOrdersMap = React.useMemo(() => {
-    const map = new Map<string, any>();
+  const workOrdersByPlateMap = useMemo(() => {
+    const map = new Map<string, WorkOrder>();
     workOrders.forEach((wo) => {
-      if (wo?.id) map.set(wo.id, wo);
+      if (wo?.vehicle_plate) {
+        const clean = wo.vehicle_plate.toUpperCase().trim();
+        // Keep the latest or certification-bearing order
+        const prev = map.get(clean);
+        if (!prev || wo.requires_certification || new Date(wo.entry_time).getTime() > new Date(prev.entry_time).getTime()) {
+          map.set(clean, wo);
+        }
+      }
     });
     return map;
   }, [workOrders]);
 
-  const techniciansMap = React.useMemo(() => {
-    const map = new Map<string, any>();
-    technicians.forEach((t) => {
-      if (t?.id) map.set(t.id, t);
-    });
-    return map;
-  }, [technicians]);
+  // Combine Certifications from store + WorkOrders requesting certification
+  const allCards = useMemo(() => {
+    const list: Array<{
+      id: string;
+      certId?: string;
+      workOrderId?: string;
+      plate: string;
+      clientName: string;
+      clientPhone?: string;
+      certificationType: string;
+      price: number;
+      status: "Solicitado" | "Vigente" | "Vencido";
+      isReady: boolean;
+      issueDate: string;
+      expiryDate: string; // Fecha de Anual
+      quinquennialDate: string; // Fecha de Quinquenal
+      rawCert?: Certification;
+      rawOrder?: WorkOrder;
+    }> = [];
 
-  // Combined list of all certifications (from store)
-  const allCertifications = React.useMemo(() => {
-    return [...certifications].sort(
-      (a, b) => new Date(b.issue_date || "").getTime() - new Date(a.issue_date || "").getTime()
-    );
-  }, [certifications]);
+    const processedPlateSet = new Set<string>();
 
-  // Counts
-  const counts = React.useMemo(() => {
-    const todayStr = queryDate || new Date().toISOString().slice(0, 10);
-    const hoyCount = allCertifications.filter((c) => (c.issue_date || "").slice(0, 10) === todayStr).length;
-    const pendientesCount = allCertifications.filter((c) => c.status === "Solicitado" || c.is_ready === false).length;
-    const emitidosCount = allCertifications.filter((c) => c.status === "Vigente" || c.is_ready === true).length;
-    return {
-      hoy: hoyCount,
-      pendientes: pendientesCount,
-      emitidos: emitidosCount,
-      todos: allCertifications.length,
-    };
-  }, [allCertifications, queryDate]);
+    // 1. Explicit certifications in store
+    certifications.forEach((c) => {
+      const cleanPlate = (c.vehicle_plate || "").toUpperCase().trim();
+      const wo = c.work_order_id ? workOrders.find((w) => w.id === c.work_order_id) : workOrdersByPlateMap.get(cleanPlate);
+      const veh = vehiclesMap.get(cleanPlate);
 
-  // Filtered list
-  const filteredCertifications = React.useMemo(() => {
-    return allCertifications.filter((c) => {
-      // Tab filter
-      if (activeTab === "hoy") {
-        const certDate = (c.issue_date || "").slice(0, 10);
-        if (certDate !== queryDate) return false;
-      } else if (activeTab === "pendientes") {
-        if (c.status !== "Solicitado" && c.is_ready !== false) return false;
-      } else if (activeTab === "emitidos") {
-        if (c.status !== "Vigente" && c.is_ready !== true) return false;
+      // Extract Fecha Anual and Fecha Quinquenal
+      let fechaAnual = c.expiry_date || wo?.chip_expiry_date || "-";
+      let fechaQuinquenal = c.quinquennial_date || wo?.quinquennial_date || "-";
+
+      if (fechaAnual === "-" && wo?.diagnostic_notes) {
+        const match = wo.diagnostic_notes.match(/Chip Anual:\s*([^\s•]+)/i);
+        if (match) fechaAnual = match[1];
+      }
+      if (fechaQuinquenal === "-" && wo?.diagnostic_notes) {
+        const match = wo.diagnostic_notes.match(/Quinquenal:\s*([^\s•]+)/i);
+        if (match) fechaQuinquenal = match[1];
       }
 
-      // Search query
+      list.push({
+        id: c.id,
+        certId: c.id,
+        workOrderId: c.work_order_id,
+        plate: cleanPlate,
+        clientName: c.client_name || veh?.owner_name || "Cliente Taller",
+        clientPhone: veh?.owner_phone,
+        certificationType: c.certification_type || "Certificado Anual GNV",
+        price: typeof c.price === "number" && !isNaN(c.price) ? c.price : 80,
+        status: (c.status === "Solicitado" || c.is_ready === false ? "Solicitado" : "Vigente") as any,
+        isReady: c.is_ready ?? (c.status !== "Solicitado"),
+        issueDate: (c.issue_date || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+        expiryDate: fechaAnual,
+        quinquennialDate: fechaQuinquenal,
+        rawCert: c,
+        rawOrder: wo,
+      });
+
+      processedPlateSet.add(cleanPlate);
+    });
+
+    // 2. Work orders requesting certification not yet in certifications array
+    workOrders.forEach((wo) => {
+      if (wo.requires_certification) {
+        const cleanPlate = (wo.vehicle_plate || "").toUpperCase().trim();
+        if (!processedPlateSet.has(cleanPlate)) {
+          const veh = vehiclesMap.get(cleanPlate);
+
+          let fechaAnual = wo.chip_expiry_date || "-";
+          let fechaQuinquenal = wo.quinquennial_date || "-";
+
+          if (fechaAnual === "-" && wo.diagnostic_notes) {
+            const match = wo.diagnostic_notes.match(/Chip Anual:\s*([^\s•]+)/i);
+            if (match) fechaAnual = match[1];
+          }
+          if (fechaQuinquenal === "-" && wo.diagnostic_notes) {
+            const match = wo.diagnostic_notes.match(/Quinquenal:\s*([^\s•]+)/i);
+            if (match) fechaQuinquenal = match[1];
+          }
+
+          list.push({
+            id: `wo-cert-${wo.id}`,
+            workOrderId: wo.id,
+            plate: cleanPlate,
+            clientName: veh?.owner_name || "Cliente Taller",
+            clientPhone: veh?.owner_phone,
+            certificationType: wo.certification_type || "Certificado Anual GNV",
+            price: wo.certification_price || 80,
+            status: wo.certification_issued ? "Vigente" : "Solicitado",
+            isReady: !!wo.certification_issued,
+            issueDate: (wo.entry_time || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+            expiryDate: fechaAnual,
+            quinquennialDate: fechaQuinquenal,
+            rawOrder: wo,
+          });
+        }
+      }
+    });
+
+    return list.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+  }, [certifications, workOrders, vehiclesMap, workOrdersByPlateMap]);
+
+  // Expiry Date Calculations for Filters (This Week & This Month)
+  const now = new Date();
+  const currentWeekStart = new Date(now);
+  currentWeekStart.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1)); // Monday
+  currentWeekStart.setHours(0, 0, 0, 0);
+
+  const currentWeekEnd = new Date(currentWeekStart);
+  currentWeekEnd.setDate(currentWeekStart.getDate() + 6); // Sunday
+  currentWeekEnd.setHours(23, 59, 59, 999);
+
+  // Counts
+  const counts = useMemo(() => {
+    const hoyStr = queryDate || now.toISOString().slice(0, 10);
+    let hoy = 0;
+    let pendientes = 0;
+    let estaSemana = 0;
+    let esteMes = 0;
+    let emitidos = 0;
+
+    allCards.forEach((c) => {
+      if (c.issueDate === hoyStr) hoy++;
+      if (c.status === "Solicitado" || !c.isReady) pendientes++;
+      if (c.status === "Vigente" || c.isReady) emitidos++;
+
+      // Check expiry of Fecha de Anual or Fecha de Quinquenal
+      const dAnual = parseFlexibleDate(c.expiryDate);
+      const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
+
+      const checkInWeek = (d: Date | null) => d && d >= currentWeekStart && d <= currentWeekEnd;
+      const checkInMonth = (d: Date | null) => d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+
+      if (checkInWeek(dAnual) || checkInWeek(dQuinquenal)) {
+        estaSemana++;
+      }
+      if (checkInMonth(dAnual) || checkInMonth(dQuinquenal)) {
+        esteMes++;
+      }
+    });
+
+    return {
+      hoy,
+      pendientes,
+      estaSemana,
+      esteMes,
+      emitidos,
+      todos: allCards.length,
+    };
+  }, [allCards, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, now]);
+
+  // Filtered Cards
+  const filteredCards = useMemo(() => {
+    return allCards.filter((c) => {
+      // 1. Tab Filter
+      if (activeTab === "hoy") {
+        if (c.issueDate !== queryDate) return false;
+      } else if (activeTab === "pendientes") {
+        if (c.status !== "Solicitado" && c.isReady) return false;
+      } else if (activeTab === "esta_semana") {
+        const dAnual = parseFlexibleDate(c.expiryDate);
+        const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
+        const inWeek = (d: Date | null) => d && d >= currentWeekStart && d <= currentWeekEnd;
+        if (!inWeek(dAnual) && !inWeek(dQuinquenal)) return false;
+      } else if (activeTab === "este_mes") {
+        const dAnual = parseFlexibleDate(c.expiryDate);
+        const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
+        const inMonth = (d: Date | null) => d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+        if (!inMonth(dAnual) && !inMonth(dQuinquenal)) return false;
+      } else if (activeTab === "emitidos") {
+        if (c.status !== "Vigente" && !c.isReady) return false;
+      }
+
+      // 2. Search query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toUpperCase().trim();
-        const plate = (c.vehicle_plate || "").toUpperCase();
-        const client = (c.client_name || "").toUpperCase();
-        const type = (c.certification_type || "").toUpperCase();
-        const chip = (c.chip_code || "").toUpperCase();
-        if (!plate.includes(q) && !client.includes(q) && !type.includes(q) && !chip.includes(q)) {
+        const plate = c.plate.toUpperCase();
+        const client = c.clientName.toUpperCase();
+        const type = c.certificationType.toUpperCase();
+        if (!plate.includes(q) && !client.includes(q) && !type.includes(q)) {
           return false;
         }
       }
 
       return true;
     });
-  }, [allCertifications, activeTab, queryDate, searchQuery]);
+  }, [allCards, activeTab, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, searchQuery]);
 
-  // Handle open emit modal
-  const handleOpenEmitModal = (cert: Certification) => {
-    const wo = cert.work_order_id ? workOrdersMap.get(cert.work_order_id) : undefined;
-    const veh = vehiclesMap.get(cert.vehicle_plate?.toUpperCase().trim());
+  // Handle Save Edited Price in Real Time
+  const handleSavePrice = (card: typeof allCards[0]) => {
+    const val = editingPrices[card.id];
+    if (val === undefined) return;
+    const newPrice = parseFloat(val);
+    if (isNaN(newPrice) || newPrice < 0) {
+      showAlert("warning", "Ingrese un precio numérico válido.");
+      return;
+    }
+
+    if (card.certId) {
+      updateCertificationPrice(card.certId, newPrice);
+    } else if (card.rawOrder) {
+      // If certification not yet created, update on workOrder
+      const updatedWo = { ...card.rawOrder, certification_price: newPrice };
+      saveSupabaseWorkOrder(updatedWo);
+      useAppStore.setState((state) => ({
+        workOrders: state.workOrders.map((wo) => (wo.id === card.rawOrder?.id ? updatedWo : wo)),
+      }));
+    }
+
+    setEditingPrices((prev) => {
+      const next = { ...prev };
+      delete next[card.id];
+      return next;
+    });
+
+    showAlert("success", `¡Precio actualizado a S/ ${newPrice.toFixed(2)} para placa ${card.plate}!`);
+  };
+
+  // Open Official Emission Modal
+  const handleOpenEmitModal = (card: typeof allCards[0]) => {
+    const veh = vehiclesMap.get(card.plate);
+    const cert = card.rawCert || {
+      id: `cert-${Date.now()}`,
+      work_order_id: card.workOrderId,
+      vehicle_plate: card.plate,
+      client_name: card.clientName,
+      chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
+      cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
+      certification_type: card.certificationType,
+      issue_date: new Date().toISOString().slice(0, 10),
+      expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+      status: "Solicitado",
+      price: card.price,
+      is_ready: false,
+    };
 
     setActiveEmitModal({
       isOpen: true,
       certification: cert,
-      workOrder: wo,
+      workOrder: card.rawOrder,
       vehicle: veh,
       chipCode: cert.chip_code || `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
       cylinderSerial: cert.cylinder_serial || `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -158,7 +379,7 @@ export default function CertificacionesPage() {
     });
   };
 
-  // Submit emission confirmation
+  // Confirm Emission and Broadcast in Real Time
   const handleConfirmEmission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeEmitModal?.certification) return;
@@ -173,14 +394,17 @@ export default function CertificacionesPage() {
       is_ready: true,
     };
 
+    saveSupabaseCertification(updatedCert);
+
     useAppStore.setState((state) => {
-      const updatedCerts = state.certifications.map((item) =>
-        item.id === cert.id ? updatedCert : item
-      );
+      const exists = state.certifications.some((item) => item.id === cert.id);
+      const updatedCerts = exists
+        ? state.certifications.map((item) => (item.id === cert.id ? updatedCert : item))
+        : [updatedCert, ...state.certifications];
 
       const updatedWorkOrders = state.workOrders.map((wo) => {
         if (wo.id === cert.work_order_id || wo.vehicle_plate === cert.vehicle_plate) {
-          const uWo = { ...wo, certification_issued: true };
+          const uWo = { ...wo, certification_issued: true, certification_id: cert.id };
           saveSupabaseWorkOrder(uWo);
           return uWo;
         }
@@ -195,7 +419,7 @@ export default function CertificacionesPage() {
 
     showAlert(
       "success",
-      `¡Certificado "${cert.certification_type}" para ${cert.vehicle_plate} emitido con éxito! Notificado a Taller y Caja.`
+      `¡Certificado emitido para ${cert.vehicle_plate}! Sincronizado en tiempo real con Taller y Caja.`
     );
     setActiveEmitModal(null);
   };
@@ -216,6 +440,7 @@ export default function CertificacionesPage() {
       certification_type: manualForm.certification_type,
       issue_date: manualForm.issue_date,
       expiry_date: manualForm.expiry_date,
+      quinquennial_date: manualForm.quinquennial_date,
       price: manualForm.price,
       status: "Vigente",
       is_ready: true,
@@ -250,7 +475,7 @@ export default function CertificacionesPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Certificaciones Vehiculares</h1>
             <p className="text-xs text-gray-400">
-              Notificaciones de emisión de certificados requeridas por Taller, chips de carga e inspecciones reglamentarias.
+              Control en tiempo real de inspecciones, emisión oficial y vencimientos anuales / quinquenales.
             </p>
           </div>
         </div>
@@ -264,15 +489,15 @@ export default function CertificacionesPage() {
         </button>
       </div>
 
-      {/* Filter Toolbar with Tabs, Mini Calendar, and Search */}
+      {/* Filter Toolbar with Interactive Tabs, Week/Month Filters, and Mini Calendar */}
       <div className="bg-reygas-dark p-3.5 rounded-2xl border border-white/10 space-y-3">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          {/* Status Tabs: Del Día / Hoy vs Pendientes vs Emitidos vs Todos */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-reygas-surface p-1 rounded-xl border border-white/10 text-xs font-bold w-full sm:w-auto">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-3">
+          {/* Status & Expiry Tabs */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-reygas-surface p-1 rounded-xl border border-white/10 text-xs font-bold w-full lg:w-auto">
             {/* 1. Del Día / Hoy */}
             <button
               onClick={() => setActiveTab("hoy")}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                 activeTab === "hoy"
                   ? "bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg shadow-cyan-600/30 font-black scale-[1.02]"
                   : "text-gray-400 hover:text-white"
@@ -295,7 +520,33 @@ export default function CertificacionesPage() {
               <span>Pendientes ({counts.pendientes})</span>
             </button>
 
-            {/* 3. Emitidos */}
+            {/* 3. Vencen Esta Semana */}
+            <button
+              onClick={() => setActiveTab("esta_semana")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === "esta_semana"
+                  ? "bg-purple-600 text-white font-black shadow-lg shadow-purple-600/30 scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              <span>Vencen Esta Semana ({counts.estaSemana})</span>
+            </button>
+
+            {/* 4. Vencen Este Mes */}
+            <button
+              onClick={() => setActiveTab("este_mes")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === "este_mes"
+                  ? "bg-pink-600 text-white font-black shadow-lg shadow-pink-600/30 scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <CalendarRange className="w-3.5 h-3.5" />
+              <span>Vencen en el Mes ({counts.esteMes})</span>
+            </button>
+
+            {/* 5. Emitidos */}
             <button
               onClick={() => setActiveTab("emitidos")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -308,7 +559,7 @@ export default function CertificacionesPage() {
               <span>Emitidos ({counts.emitidos})</span>
             </button>
 
-            {/* 4. Todos */}
+            {/* 6. Todos */}
             <button
               onClick={() => setActiveTab("todos")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -321,15 +572,45 @@ export default function CertificacionesPage() {
             </button>
           </div>
 
-          {/* Mini Calendar Picker (Web Dark Theme) */}
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <MiniDatePicker
-              value={queryDate}
-              onChange={(newDate) => {
-                setQueryDate(newDate);
-                setActiveTab("hoy");
-              }}
-            />
+          {/* Month & Year Selectors (when inspecting monthly expiry) + Mini Calendar & Search */}
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-end">
+            {activeTab === "este_mes" && (
+              <div className="flex items-center gap-1.5 bg-reygas-surface p-1 rounded-xl border border-white/10 text-xs">
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                  className="bg-reygas-dark text-white font-bold px-2 py-1 rounded-lg border border-white/10 focus:border-cyan-400 text-xs"
+                >
+                  {MONTH_NAMES.map((name, idx) => (
+                    <option key={idx} value={idx}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                  className="bg-reygas-dark text-white font-mono font-bold px-2 py-1 rounded-lg border border-white/10 focus:border-cyan-400 text-xs"
+                >
+                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {activeTab === "hoy" && (
+              <MiniDatePicker
+                value={queryDate}
+                onChange={(newDate) => {
+                  setQueryDate(newDate);
+                  setActiveTab("hoy");
+                }}
+              />
+            )}
 
             {/* Search Input */}
             <div className="relative flex-1 sm:flex-none">
@@ -339,7 +620,7 @@ export default function CertificacionesPage() {
                 placeholder="Buscar placa, cliente, tipo..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full sm:w-56 pl-9 pr-3 py-1.5 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-cyan-400 font-bold"
+                className="w-full sm:w-48 pl-9 pr-3 py-1.5 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-cyan-400 font-bold"
               />
             </div>
           </div>
@@ -348,7 +629,7 @@ export default function CertificacionesPage() {
 
       {/* Cards Grid Representation */}
       <div className="space-y-4">
-        {filteredCertifications.length === 0 ? (
+        {filteredCards.length === 0 ? (
           <div className="glass-panel p-12 text-center text-gray-400 space-y-3 rounded-2xl border border-white/10">
             <ShieldCheck className="w-12 h-12 text-gray-600 mx-auto" />
             <p className="text-sm font-semibold">No hay certificaciones que coincidan con los filtros seleccionados.</p>
@@ -363,27 +644,25 @@ export default function CertificacionesPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredCertifications.map((c) => {
-              const veh = vehiclesMap.get(c.vehicle_plate?.toUpperCase().trim());
-              const wo = c.work_order_id ? workOrdersMap.get(c.work_order_id) : undefined;
-              const tech = wo?.assigned_technician_id ? techniciansMap.get(wo.assigned_technician_id) : undefined;
-              const isPending = c.status === "Solicitado" || c.is_ready === false;
+            {filteredCards.map((card) => {
+              const isPending = card.status === "Solicitado" || !card.isReady;
+              const isEditingPrice = editingPrices[card.id] !== undefined;
 
               return (
                 <div
-                  key={c.id}
+                  key={card.id}
                   className={`glass-panel p-5 rounded-2xl border transition-all space-y-4 shadow-xl ${
                     isPending
                       ? "border-cyan-500/50 bg-cyan-950/20 hover:border-cyan-400"
                       : "border-emerald-500/30 bg-emerald-950/10 hover:border-emerald-500/50"
                   }`}
                 >
-                  {/* Card Header: Plate, Status & Type */}
+                  {/* Card Header: Plate, Status, Type & Editable Price */}
                   <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono font-black text-xl text-white bg-reygas-surface px-3 py-0.5 rounded-xl border border-white/10 tracking-wider shadow">
-                          {c.vehicle_plate}
+                          {card.plate}
                         </span>
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
@@ -398,72 +677,109 @@ export default function CertificacionesPage() {
 
                       <h3 className="text-sm font-extrabold text-cyan-300 flex items-center gap-1.5 pt-0.5">
                         <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
-                        <span>{c.certification_type}</span>
+                        <span>{card.certificationType}</span>
                       </h3>
                     </div>
 
+                    {/* Editable Price Widget */}
                     <div className="text-right shrink-0">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold block">Monto</span>
-                      <span className="font-mono font-black text-base text-amber-300 bg-reygas-dark px-2.5 py-1 rounded-xl border border-amber-500/30">
-                        S/ {(c.price || 80).toFixed(2)}
+                      <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">
+                        Monto a Cobrar
                       </span>
+
+                      {isEditingPrice ? (
+                        <div className="flex items-center gap-1 bg-black/60 p-1 rounded-xl border border-amber-400">
+                          <span className="text-xs font-bold text-amber-300 pl-1">S/</span>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            autoFocus
+                            value={editingPrices[card.id]}
+                            onChange={(e) =>
+                              setEditingPrices({ ...editingPrices, [card.id]: e.target.value })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSavePrice(card);
+                              if (e.key === "Escape") {
+                                setEditingPrices((prev) => {
+                                  const next = { ...prev };
+                                  delete next[card.id];
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="w-16 px-1 py-0.5 bg-reygas-dark text-white font-mono font-bold text-xs rounded border-none focus:outline-none"
+                          />
+                          <button
+                            onClick={() => handleSavePrice(card)}
+                            className="p-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
+                            title="Guardar monto"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <span className="font-mono font-black text-base text-amber-300 bg-reygas-dark px-2.5 py-1 rounded-xl border border-amber-500/30">
+                            S/ {card.price.toFixed(2)}
+                          </span>
+                          <button
+                            onClick={() =>
+                              setEditingPrices({ ...editingPrices, [card.id]: card.price.toString() })
+                            }
+                            className="p-1.5 rounded-lg bg-reygas-surface hover:bg-white/10 text-gray-400 hover:text-amber-400 border border-white/10 transition-colors"
+                            title="Editar monto (acuerdos / ofertas)"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Vehicle & Customer Details Grid */}
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="space-y-1 bg-reygas-dark/60 p-2.5 rounded-xl border border-white/5">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
-                        <User className="w-3 h-3 text-cyan-400" />
-                        <span>Cliente / Propietario:</span>
-                      </span>
-                      <p className="font-bold text-white truncate">
-                        {c.client_name || veh?.owner_name || "Cliente Particular"}
-                      </p>
-                      <p className="text-[11px] text-gray-400 flex items-center gap-1 font-mono">
+                  {/* Customer Information */}
+                  <div className="bg-reygas-dark/60 p-3 rounded-xl border border-white/5 space-y-1">
+                    <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
+                      <User className="w-3 h-3 text-cyan-400" />
+                      <span>Cliente / Propietario:</span>
+                    </span>
+                    <p className="font-bold text-white text-sm truncate">{card.clientName}</p>
+                    {card.clientPhone && (
+                      <p className="text-[11px] text-gray-400 flex items-center gap-1 font-mono pt-0.5">
                         <Phone className="w-3 h-3 text-gray-500" />
-                        <span>{veh?.owner_phone || "Sin celular"}</span>
+                        <span>{card.clientPhone}</span>
                       </p>
-                    </div>
-
-                    <div className="space-y-1 bg-reygas-dark/60 p-2.5 rounded-xl border border-white/5">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
-                        <Car className="w-3 h-3 text-amber-400" />
-                        <span>Vehículo:</span>
-                      </span>
-                      <p className="font-bold text-white truncate">
-                        {veh ? `${veh.brand} ${veh.model}` : "Gas Vehicular"}
-                      </p>
-                      <p className="text-[11px] text-amber-300 font-semibold">
-                        {veh?.fuel_type || "GNV"} • {veh?.color || "Color s/e"}
-                      </p>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Technical & Chips Info */}
-                  <div className="p-2.5 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1.5 text-xs font-mono">
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-gray-400">Código Chip:</span>
-                      <span className="font-bold text-cyan-300">{c.chip_code || "Sin asignar"}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-gray-400">Serie Cilindro:</span>
-                      <span className="font-bold text-white">{c.cylinder_serial || "Sin asignar"}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[11px] border-t border-white/5 pt-1">
-                      <span className="text-gray-400 font-sans">Fecha Emisión:</span>
-                      <span className="text-gray-200">{(c.issue_date || "").slice(0, 10)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[11px]">
-                      <span className="text-gray-400 font-sans">Vencimiento:</span>
-                      <span className="text-amber-400 font-bold">{(c.expiry_date || "").slice(0, 10)}</span>
-                    </div>
-                    {tech && (
-                      <div className="flex justify-between items-center text-[11px] border-t border-white/5 pt-1 font-sans">
-                        <span className="text-gray-400">Mecánico de Taller:</span>
-                        <span className="text-gray-200 font-semibold">{tech.full_name}</span>
+                  {/* Vencimientos: Fecha de Anual & Fecha de Quinquenal from Registro Taller */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Fecha de Anual */}
+                    <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
+                          <CalendarIcon className="w-3 h-3 text-cyan-400" />
+                          <span>Fecha de Anual:</span>
+                        </span>
                       </div>
-                    )}
+                      <p className="font-mono font-black text-sm text-cyan-300">
+                        {card.expiryDate || "-"}
+                      </p>
+                    </div>
+
+                    {/* Fecha de Quinquenal */}
+                    <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-purple-400" />
+                          <span>Fecha de Quinquenal:</span>
+                        </span>
+                      </div>
+                      <p className="font-mono font-black text-sm text-purple-300">
+                        {card.quinquennialDate || "-"}
+                      </p>
+                    </div>
                   </div>
 
                   {/* Action Buttons */}
@@ -475,7 +791,7 @@ export default function CertificacionesPage() {
                     <div className="flex items-center gap-2">
                       {isPending ? (
                         <button
-                          onClick={() => handleOpenEmitModal(c)}
+                          onClick={() => handleOpenEmitModal(card)}
                           className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-transform hover:scale-105"
                         >
                           <CheckCircle2 className="w-4 h-4" />
@@ -499,7 +815,7 @@ export default function CertificacionesPage() {
         )}
       </div>
 
-      {/* MODAL: EMIT OFFICIAL CERTIFICATE (CERTIFICADOR FLOW) */}
+      {/* MODAL: EMIT OFFICIAL CERTIFICATE */}
       {activeEmitModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-reygas-dark border border-cyan-500/50 max-w-lg w-full rounded-3xl p-6 space-y-5 shadow-2xl">
@@ -558,7 +874,7 @@ export default function CertificacionesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Fecha de Vencimiento</label>
+                  <label className="block text-gray-300 font-bold mb-1">Fecha de Vencimiento Anual</label>
                   <input
                     type="date"
                     value={activeEmitModal.expiryDate}
@@ -682,41 +998,21 @@ export default function CertificacionesPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Código Chip de Carga</label>
-                  <input
-                    type="text"
-                    value={manualForm.chip_code}
-                    onChange={(e) => setManualForm({ ...manualForm, chip_code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 font-bold mb-1">Serie Cilindro</label>
-                  <input
-                    type="text"
-                    value={manualForm.cylinder_serial}
-                    onChange={(e) => setManualForm({ ...manualForm, cylinder_serial: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-gray-300 font-bold mb-1">Fecha de Emisión</label>
-                  <input
-                    type="date"
-                    value={manualForm.issue_date}
-                    onChange={(e) => setManualForm({ ...manualForm, issue_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-300 font-bold mb-1">Fecha de Vencimiento</label>
+                  <label className="block text-gray-300 font-bold mb-1">Fecha de Anual (Vencimiento)</label>
                   <input
                     type="date"
                     value={manualForm.expiry_date}
                     onChange={(e) => setManualForm({ ...manualForm, expiry_date: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold mb-1">Fecha de Quinquenal</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. 12/08/2026"
+                    value={manualForm.quinquennial_date}
+                    onChange={(e) => setManualForm({ ...manualForm, quinquennial_date: e.target.value })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
                   />
                 </div>

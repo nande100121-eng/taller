@@ -160,6 +160,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       entry_time: order.entry_time || new Date().toISOString(),
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
     });
+    broadcastRealtimeChange("work_order_updated");
     if (error) console.warn("Supabase work order save warning:", error.message);
   } catch (err) {
     console.warn("Supabase work order deferred:", err);
@@ -336,20 +337,65 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
   }
 }
 
+// Broadcast instant real-time signal to all other connected devices/tablets
+export async function broadcastRealtimeChange(eventType: string = "db_update") {
+  try {
+    const channel = supabase.channel("global-erp-sync");
+    await channel.send({
+      type: "broadcast",
+      event: "db_update",
+      payload: { eventType, timestamp: Date.now() },
+    });
+  } catch (err) {
+    // deferred
+  }
+}
+
+// ---------------------------------------------------------------------
+// CERTIFICATIONS SUPABASE SYNC
+// ---------------------------------------------------------------------
+export async function saveSupabaseCertification(cert: Certification) {
+  try {
+    // 1. Try dedicated table
+    await supabase.from("certifications").upsert({
+      id: cert.id,
+      work_order_id: cert.work_order_id || null,
+      vehicle_plate: cert.vehicle_plate,
+      client_name: cert.client_name,
+      chip_code: cert.chip_code,
+      cylinder_serial: cert.cylinder_serial,
+      certification_type: cert.certification_type,
+      issue_date: cert.issue_date,
+      expiry_date: cert.expiry_date,
+      status: cert.status,
+      price: cert.price || 80,
+      is_ready: cert.is_ready ?? true,
+    });
+    // 2. Also save to site_content fallback
+    await saveSupabaseSiteContent(`cert_${cert.id}`, cert, "certifications");
+    broadcastRealtimeChange("certification_updated");
+  } catch (err) {
+    console.warn("Supabase certification deferred:", err);
+  }
+}
+
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData, contentRes] = await Promise.all([
+    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("technicians").select("*")),
       safeQuery<any[]>(supabase.from("inventory_items").select("*")),
       fetchAllSupabaseTable("work_orders"),
       safeQuery<any[]>(supabase.from("appointments").select("*")),
       fetchAllSupabaseTable("invoices"),
       fetchAllSupabaseTable("vehicles"),
+      safeQuery<any[]>(supabase.from("certifications").select("*")),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
-    // Build permissions map from site_content if any
+    // Build permissions and certifications from site_content if any
     const permsMap: Record<string, string[]> = {};
+    const fallbackCerts: any[] = [];
+
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
         const k = row.key || row.section_key;
@@ -358,9 +404,16 @@ export async function fetchSupabaseErpData() {
           try {
             permsMap[techId] = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
           } catch {}
+        } else if (k && k.startsWith("cert_")) {
+          try {
+            const certObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            if (certObj && certObj.id) fallbackCerts.push(certObj);
+          } catch {}
         }
       });
     }
+
+    const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
     return {
       technicians: techRes.data
@@ -391,6 +444,7 @@ export async function fetchSupabaseErpData() {
       appointments: appRes.data ? appRes.data : null,
       invoices: invoiceData,
       vehicles: vehicleData,
+      certifications: mergedCerts.length > 0 ? mergedCerts : null,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);
@@ -446,6 +500,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_method: inv.payment_method || "Efectivo",
       issued_at: inv.issued_at || new Date().toISOString(),
     });
+    broadcastRealtimeChange("invoice_updated");
     if (error) console.warn("Supabase invoice save warning:", error.message);
   } catch (err) {
     console.warn("Supabase invoice deferred:", err);

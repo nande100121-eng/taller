@@ -8,27 +8,39 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
 
   useEffect(() => {
-    // 1. Initial sync on app mount (once)
+    // 1. Initial sync on app mount
     syncFromSupabase();
 
-    // 2. Supabase Realtime WebSocket listener for immediate instant push events (when DB changes occur)
-    const channel = supabase
-      .channel("schema-db-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public" },
-        () => {
-          if (typeof document !== "undefined") {
-            const activeTag = document.activeElement?.tagName;
-            if (activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT") return;
-          }
-          syncFromSupabase();
-        }
-      )
+    // 2. Window focus sync (when switching between apps / devices)
+    const handleFocus = () => syncFromSupabase();
+    window.addEventListener("focus", handleFocus);
+
+    // 3. Supabase Realtime Broadcast channel listener (instant push across devices)
+    const broadcastChannel = supabase
+      .channel("global-erp-sync")
+      .on("broadcast", { event: "db_update" }, () => {
+        syncFromSupabase();
+      })
       .subscribe();
 
+    // 4. Supabase Postgres changes listener
+    const dbChannel = supabase
+      .channel("schema-db-changes")
+      .on("postgres_changes", { event: "*", schema: "public" }, () => {
+        syncFromSupabase();
+      })
+      .subscribe();
+
+    // 5. Automatic Heartbeat Polling every 5 seconds for cross-device sync resilience
+    const interval = setInterval(() => {
+      syncFromSupabase();
+    }, 5000);
+
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", handleFocus);
+      supabase.removeChannel(broadcastChannel);
+      supabase.removeChannel(dbChannel);
+      clearInterval(interval);
     };
   }, [syncFromSupabase]);
 
