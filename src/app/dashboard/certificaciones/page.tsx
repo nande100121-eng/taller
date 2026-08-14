@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useAppStore, Certification, WorkOrder } from "@/lib/store/app-store";
 import {
   Award,
@@ -19,6 +19,7 @@ import {
   Check,
   CalendarDays,
   CalendarRange,
+  AlertTriangle,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
@@ -28,9 +29,9 @@ const MONTH_NAMES = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
-// Helper to parse dates in format DD/MM/YYYY, DD/MM/YY, or YYYY-MM-DD
+// Helper to parse dates in format DD/MM/YYYY, DD/MM/YY, YYYY-MM-DD, or DD-MM-YYYY
 function parseFlexibleDate(dateStr?: string): Date | null {
-  if (!dateStr || dateStr === "-" || dateStr === "0" || dateStr.toLowerCase() === "s/n") return null;
+  if (!dateStr || dateStr === "-" || dateStr === "0" || dateStr.toLowerCase() === "s/n" || dateStr.toLowerCase() === "null") return null;
   const str = dateStr.trim();
   if (str.includes("/")) {
     const parts = str.split("/");
@@ -38,13 +39,30 @@ function parseFlexibleDate(dateStr?: string): Date | null {
       const day = parseInt(parts[0], 10);
       const month = parseInt(parts[1], 10) - 1;
       let year = parseInt(parts[2], 10);
-      if (year < 100) year += 2000;
+      if (year < 100) year += (year > 70 ? 1900 : 2000);
       const d = new Date(year, month, day);
       return isNaN(d.getTime()) ? null : d;
     }
   } else if (str.includes("-")) {
-    const d = new Date(`${str}T00:00:00`);
-    return isNaN(d.getTime()) ? null : d;
+    const parts = str.split("-");
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? null : d;
+      } else {
+        // DD-MM-YYYY or DD-MM-YY
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (year < 100) year += (year > 70 ? 1900 : 2000);
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? null : d;
+      }
+    }
   }
   return null;
 }
@@ -56,10 +74,16 @@ export default function CertificacionesPage() {
     updateCertificationPrice,
     vehicles,
     workOrders,
+    syncFromSupabase,
   } = useAppStore();
 
+  // Always refresh latest data from Supabase on mount
+  useEffect(() => {
+    syncFromSupabase();
+  }, [syncFromSupabase]);
+
   // Active Filter Tabs
-  const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "esta_semana" | "este_mes" | "emitidos" | "todos">("hoy");
+  const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "vencidos" | "esta_semana" | "este_mes" | "emitidos" | "todos">("hoy");
   const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -105,7 +129,7 @@ export default function CertificacionesPage() {
     setTimeout(() => setAlertMsg(null), 4500);
   };
 
-  // Vehicles and Work Orders Map
+  // Vehicles Map
   const vehiclesMap = useMemo(() => {
     const map = new Map<string, any>();
     vehicles.forEach((v) => {
@@ -114,22 +138,7 @@ export default function CertificacionesPage() {
     return map;
   }, [vehicles]);
 
-  const workOrdersByPlateMap = useMemo(() => {
-    const map = new Map<string, WorkOrder>();
-    workOrders.forEach((wo) => {
-      if (wo?.vehicle_plate) {
-        const clean = wo.vehicle_plate.toUpperCase().trim();
-        // Keep the latest or certification-bearing order
-        const prev = map.get(clean);
-        if (!prev || wo.requires_certification || new Date(wo.entry_time).getTime() > new Date(prev.entry_time).getTime()) {
-          map.set(clean, wo);
-        }
-      }
-    });
-    return map;
-  }, [workOrders]);
-
-  // Combine Certifications from store + WorkOrders requesting certification
+  // Combine Certifications from store + All Historical WorkOrders with Chip/Quinquennial data
   const allCards = useMemo(() => {
     const list: Array<{
       id: string;
@@ -140,10 +149,10 @@ export default function CertificacionesPage() {
       clientPhone?: string;
       certificationType: string;
       price: number;
-      status: "Solicitado" | "Vigente" | "Vencido";
+      status: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido";
       isReady: boolean;
       issueDate: string;
-      expiryDate: string; // Fecha de Anual
+      expiryDate: string; // Fecha de Chip / Anual
       quinquennialDate: string; // Fecha de Quinquenal
       rawCert?: Certification;
       rawOrder?: WorkOrder;
@@ -151,10 +160,13 @@ export default function CertificacionesPage() {
 
     const processedPlateSet = new Set<string>();
 
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+    const in30Days = new Date(todayStart.getTime() + 30 * 86400000);
+
     // 1. Explicit certifications in store
     certifications.forEach((c) => {
       const cleanPlate = (c.vehicle_plate || "").toUpperCase().trim();
-      const wo = c.work_order_id ? workOrders.find((w) => w.id === c.work_order_id) : workOrdersByPlateMap.get(cleanPlate);
+      const wo = workOrders.find((w) => w.id === c.work_order_id || (w.vehicle_plate && w.vehicle_plate.toUpperCase().trim() === cleanPlate));
       const veh = vehiclesMap.get(cleanPlate);
 
       // Extract Fecha Anual and Fecha Quinquenal
@@ -170,6 +182,18 @@ export default function CertificacionesPage() {
         if (match) fechaQuinquenal = match[1];
       }
 
+      const dAnual = parseFlexibleDate(fechaAnual);
+      const dQuinquenal = parseFlexibleDate(fechaQuinquenal);
+
+      let cardStatus: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido" = "Vigente";
+      if (c.status === "Solicitado" || c.is_ready === false) {
+        cardStatus = "Solicitado";
+      } else if ((dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart)) {
+        cardStatus = "Vencido";
+      } else if ((dAnual && dAnual <= in30Days) || (dQuinquenal && dQuinquenal <= in30Days)) {
+        cardStatus = "Por Vencer";
+      }
+
       list.push({
         id: c.id,
         certId: c.id,
@@ -179,7 +203,7 @@ export default function CertificacionesPage() {
         clientPhone: veh?.owner_phone,
         certificationType: c.certification_type || "Certificado Anual GNV",
         price: typeof c.price === "number" && !isNaN(c.price) ? c.price : 80,
-        status: (c.status === "Solicitado" || c.is_ready === false ? "Solicitado" : "Vigente") as any,
+        status: cardStatus,
         isReady: c.is_ready ?? (c.status !== "Solicitado"),
         issueDate: (c.issue_date || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
         expiryDate: fechaAnual,
@@ -191,49 +215,65 @@ export default function CertificacionesPage() {
       processedPlateSet.add(cleanPlate);
     });
 
-    // 2. Work orders requesting certification not yet in certifications array
+    // 2. All WorkOrders from CSV / Supabase with Quinquenal or Chip Expiry dates or Certification flag
     workOrders.forEach((wo) => {
-      if (wo.requires_certification) {
-        const cleanPlate = (wo.vehicle_plate || "").toUpperCase().trim();
-        if (!processedPlateSet.has(cleanPlate)) {
-          const veh = vehiclesMap.get(cleanPlate);
+      const cleanPlate = (wo.vehicle_plate || "").toUpperCase().trim();
+      if (!cleanPlate || processedPlateSet.has(cleanPlate)) return;
 
-          let fechaAnual = wo.chip_expiry_date || "-";
-          let fechaQuinquenal = wo.quinquennial_date || "-";
+      let fechaAnual = wo.chip_expiry_date || "-";
+      let fechaQuinquenal = wo.quinquennial_date || "-";
 
-          if (fechaAnual === "-" && wo.diagnostic_notes) {
-            const match = wo.diagnostic_notes.match(/Chip Anual:\s*([^\s•]+)/i);
-            if (match) fechaAnual = match[1];
-          }
-          if (fechaQuinquenal === "-" && wo.diagnostic_notes) {
-            const match = wo.diagnostic_notes.match(/Quinquenal:\s*([^\s•]+)/i);
-            if (match) fechaQuinquenal = match[1];
-          }
+      if (fechaAnual === "-" && wo.diagnostic_notes) {
+        const match = wo.diagnostic_notes.match(/Chip Anual:\s*([^\s•]+)/i);
+        if (match) fechaAnual = match[1];
+      }
+      if (fechaQuinquenal === "-" && wo.diagnostic_notes) {
+        const match = wo.diagnostic_notes.match(/Quinquenal:\s*([^\s•]+)/i);
+        if (match) fechaQuinquenal = match[1];
+      }
 
-          list.push({
-            id: `wo-cert-${wo.id}`,
-            workOrderId: wo.id,
-            plate: cleanPlate,
-            clientName: veh?.owner_name || "Cliente Taller",
-            clientPhone: veh?.owner_phone,
-            certificationType: wo.certification_type || "Certificado Anual GNV",
-            price: wo.certification_price || 80,
-            status: wo.certification_issued ? "Vigente" : "Solicitado",
-            isReady: !!wo.certification_issued,
-            issueDate: (wo.entry_time || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
-            expiryDate: fechaAnual,
-            quinquennialDate: fechaQuinquenal,
-            rawOrder: wo,
-          });
+      // Include if it has chip expiry, quinquennial date, or explicit certification request
+      if (fechaAnual !== "-" || fechaQuinquenal !== "-" || wo.requires_certification) {
+        const veh = vehiclesMap.get(cleanPlate);
+        const dAnual = parseFlexibleDate(fechaAnual);
+        const dQuinquenal = parseFlexibleDate(fechaQuinquenal);
+
+        let cardStatus: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido" = "Vigente";
+        if (wo.requires_certification && !wo.certification_issued) {
+          cardStatus = "Solicitado";
+        } else if ((dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart)) {
+          cardStatus = "Vencido";
+        } else if ((dAnual && dAnual <= in30Days) || (dQuinquenal && dQuinquenal <= in30Days)) {
+          cardStatus = "Por Vencer";
         }
+
+        list.push({
+          id: `wo-cert-${wo.id}`,
+          workOrderId: wo.id,
+          plate: cleanPlate,
+          clientName: veh?.owner_name || "Cliente Taller",
+          clientPhone: veh?.owner_phone,
+          certificationType: wo.certification_type || "Certificado Anual GNV",
+          price: wo.certification_price || 80,
+          status: cardStatus,
+          isReady: !wo.requires_certification || !!wo.certification_issued,
+          issueDate: (wo.entry_time || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+          expiryDate: fechaAnual,
+          quinquennialDate: fechaQuinquenal,
+          rawOrder: wo,
+        });
+
+        processedPlateSet.add(cleanPlate);
       }
     });
 
     return list.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
-  }, [certifications, workOrders, vehiclesMap, workOrdersByPlateMap]);
+  }, [certifications, workOrders, vehiclesMap]);
 
-  // Expiry Date Calculations for Filters (This Week & This Month)
+  // Expiry Date Calculations for Filters (This Week & This Month & Expired)
   const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+
   const currentWeekStart = new Date(now);
   currentWeekStart.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1)); // Monday
   currentWeekStart.setHours(0, 0, 0, 0);
@@ -247,6 +287,7 @@ export default function CertificacionesPage() {
     const hoyStr = queryDate || now.toISOString().slice(0, 10);
     let hoy = 0;
     let pendientes = 0;
+    let vencidos = 0;
     let estaSemana = 0;
     let esteMes = 0;
     let emitidos = 0;
@@ -254,11 +295,17 @@ export default function CertificacionesPage() {
     allCards.forEach((c) => {
       if (c.issueDate === hoyStr) hoy++;
       if (c.status === "Solicitado" || !c.isReady) pendientes++;
-      if (c.status === "Vigente" || c.isReady) emitidos++;
+      if (c.status === "Vigente" || c.status === "Por Vencer") emitidos++;
 
-      // Check expiry of Fecha de Anual or Fecha de Quinquenal
+      // Check expiry of Fecha de Chip / Anual or Fecha de Quinquenal
       const dAnual = parseFlexibleDate(c.expiryDate);
       const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
+
+      // Check Expired (< today)
+      const isExpired = (dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart);
+      if (isExpired || c.status === "Vencido") {
+        vencidos++;
+      }
 
       const checkInWeek = (d: Date | null) => d && d >= currentWeekStart && d <= currentWeekEnd;
       const checkInMonth = (d: Date | null) => d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
@@ -274,33 +321,36 @@ export default function CertificacionesPage() {
     return {
       hoy,
       pendientes,
+      vencidos,
       estaSemana,
       esteMes,
       emitidos,
       todos: allCards.length,
     };
-  }, [allCards, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, now]);
+  }, [allCards, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, todayStart, now]);
 
   // Filtered Cards
   const filteredCards = useMemo(() => {
     return allCards.filter((c) => {
+      const dAnual = parseFlexibleDate(c.expiryDate);
+      const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
+
       // 1. Tab Filter
       if (activeTab === "hoy") {
         if (c.issueDate !== queryDate) return false;
       } else if (activeTab === "pendientes") {
         if (c.status !== "Solicitado" && c.isReady) return false;
+      } else if (activeTab === "vencidos") {
+        const isExpired = (dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart) || c.status === "Vencido";
+        if (!isExpired) return false;
       } else if (activeTab === "esta_semana") {
-        const dAnual = parseFlexibleDate(c.expiryDate);
-        const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
         const inWeek = (d: Date | null) => d && d >= currentWeekStart && d <= currentWeekEnd;
         if (!inWeek(dAnual) && !inWeek(dQuinquenal)) return false;
       } else if (activeTab === "este_mes") {
-        const dAnual = parseFlexibleDate(c.expiryDate);
-        const dQuinquenal = parseFlexibleDate(c.quinquennialDate);
         const inMonth = (d: Date | null) => d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
         if (!inMonth(dAnual) && !inMonth(dQuinquenal)) return false;
       } else if (activeTab === "emitidos") {
-        if (c.status !== "Vigente" && !c.isReady) return false;
+        if (c.status === "Solicitado" || !c.isReady) return false;
       }
 
       // 2. Search query filter
@@ -316,7 +366,7 @@ export default function CertificacionesPage() {
 
       return true;
     });
-  }, [allCards, activeTab, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, searchQuery]);
+  }, [allCards, activeTab, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, todayStart, searchQuery]);
 
   // Handle Save Edited Price in Real Time
   const handleSavePrice = (card: typeof allCards[0]) => {
@@ -475,7 +525,7 @@ export default function CertificacionesPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Certificaciones Vehiculares</h1>
             <p className="text-xs text-gray-400">
-              Control en tiempo real de inspecciones, emisión oficial y vencimientos anuales / quinquenales.
+              Control en tiempo real de inspecciones, emisión oficial y vencimientos anuales / quinquenales del taller.
             </p>
           </div>
         </div>
@@ -520,7 +570,20 @@ export default function CertificacionesPage() {
               <span>Pendientes ({counts.pendientes})</span>
             </button>
 
-            {/* 3. Vencen Esta Semana */}
+            {/* 3. Vencidos (NUEVO FILTRO) */}
+            <button
+              onClick={() => setActiveTab("vencidos")}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === "vencidos"
+                  ? "bg-red-600 text-white font-black shadow-lg shadow-red-600/30 scale-[1.02]"
+                  : "text-red-400 hover:text-white hover:bg-red-950/40"
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>⚠️ Vencidos ({counts.vencidos})</span>
+            </button>
+
+            {/* 4. Vencen Esta Semana */}
             <button
               onClick={() => setActiveTab("esta_semana")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -533,7 +596,7 @@ export default function CertificacionesPage() {
               <span>Vencen Esta Semana ({counts.estaSemana})</span>
             </button>
 
-            {/* 4. Vencen Este Mes */}
+            {/* 5. Vencen Este Mes */}
             <button
               onClick={() => setActiveTab("este_mes")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -546,7 +609,7 @@ export default function CertificacionesPage() {
               <span>Vencen en el Mes ({counts.esteMes})</span>
             </button>
 
-            {/* 5. Emitidos */}
+            {/* 6. Emitidos */}
             <button
               onClick={() => setActiveTab("emitidos")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -559,7 +622,7 @@ export default function CertificacionesPage() {
               <span>Emitidos ({counts.emitidos})</span>
             </button>
 
-            {/* 6. Todos */}
+            {/* 7. Todos / Histórico */}
             <button
               onClick={() => setActiveTab("todos")}
               className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -568,7 +631,7 @@ export default function CertificacionesPage() {
                   : "text-gray-400 hover:text-white"
               }`}
             >
-              <span>Todos ({counts.todos})</span>
+              <span>Todos / Histórico ({counts.todos})</span>
             </button>
           </div>
 
@@ -632,13 +695,13 @@ export default function CertificacionesPage() {
         {filteredCards.length === 0 ? (
           <div className="glass-panel p-12 text-center text-gray-400 space-y-3 rounded-2xl border border-white/10">
             <ShieldCheck className="w-12 h-12 text-gray-600 mx-auto" />
-            <p className="text-sm font-semibold">No hay certificaciones que coincidan con los filtros seleccionados.</p>
+            <p className="text-sm font-semibold">No hay registros de certificaciones que coincidan con los filtros seleccionados.</p>
             {activeTab === "hoy" && (
               <button
-                onClick={() => setActiveTab("pendientes")}
+                onClick={() => setActiveTab("todos")}
                 className="px-4 py-2 bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 text-xs font-bold rounded-xl border border-cyan-500/30 transition-colors"
               >
-                Ver certificaciones pendientes de emisión ({counts.pendientes})
+                Ver todo el histórico de certificaciones ({counts.todos})
               </button>
             )}
           </div>
@@ -646,13 +709,16 @@ export default function CertificacionesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredCards.map((card) => {
               const isPending = card.status === "Solicitado" || !card.isReady;
+              const isExpired = card.status === "Vencido";
               const isEditingPrice = editingPrices[card.id] !== undefined;
 
               return (
                 <div
                   key={card.id}
                   className={`glass-panel p-5 rounded-2xl border transition-all space-y-4 shadow-xl ${
-                    isPending
+                    isExpired
+                      ? "border-red-500/50 bg-red-950/20 hover:border-red-400"
+                      : isPending
                       ? "border-cyan-500/50 bg-cyan-950/20 hover:border-cyan-400"
                       : "border-emerald-500/30 bg-emerald-950/10 hover:border-emerald-500/50"
                   }`}
@@ -666,12 +732,22 @@ export default function CertificacionesPage() {
                         </span>
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                            isPending
+                            isExpired
+                              ? "bg-red-500/20 text-red-300 border-red-500/40"
+                              : isPending
                               ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse"
+                              : card.status === "Por Vencer"
+                              ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                               : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                           }`}
                         >
-                          {isPending ? "⏳ Solicitado por Taller" : "✅ Emitido / Vigente"}
+                          {isExpired
+                            ? "⚠️ Vencido"
+                            : isPending
+                            ? "⏳ Solicitado por Taller"
+                            : card.status === "Por Vencer"
+                            ? "⚡ Por Vencer"
+                            : "✅ Vigente"}
                         </span>
                       </div>
 
@@ -753,14 +829,14 @@ export default function CertificacionesPage() {
                     )}
                   </div>
 
-                  {/* Vencimientos: Fecha de Anual & Fecha de Quinquenal from Registro Taller */}
+                  {/* Vencimientos: Fecha de Anual / Chip & Fecha de Quinquenal from Registro Taller */}
                   <div className="grid grid-cols-2 gap-3">
-                    {/* Fecha de Anual */}
+                    {/* Fecha de Anual / Chip */}
                     <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
                           <CalendarIcon className="w-3 h-3 text-cyan-400" />
-                          <span>Fecha de Anual:</span>
+                          <span>Fecha Chip / Anual:</span>
                         </span>
                       </div>
                       <p className="font-mono font-black text-sm text-cyan-300">
@@ -785,7 +861,11 @@ export default function CertificacionesPage() {
                   {/* Action Buttons */}
                   <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
                     <span className="text-[11px] text-gray-400 font-semibold">
-                      {isPending ? "⚠️ Requiere emisión oficial" : "📜 Certificado emitido y vigente"}
+                      {isPending
+                        ? "⚠️ Requiere emisión oficial"
+                        : isExpired
+                        ? "⚠️ Inspección reglamentaria vencida"
+                        : "📜 Certificado emitido y vigente"}
                     </span>
 
                     <div className="flex items-center gap-2">

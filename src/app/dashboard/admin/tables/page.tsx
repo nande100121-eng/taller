@@ -83,6 +83,11 @@ export default function AdminTablesPage() {
     setPageInput(currentPage.toString());
   }, [currentPage]);
 
+  // Always fetch fresh Supabase data on mount
+  useEffect(() => {
+    syncFromSupabase();
+  }, [syncFromSupabase]);
+
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
