@@ -5,6 +5,9 @@ export interface CreditSettlementInfo {
   settledDate?: string;
   settledAmount?: number;
   settledByOrderId?: string;
+  originalCreditAmount?: number;
+  hasCredit: boolean;
+  creditAmount: number;
 }
 
 export interface CancellationInfo {
@@ -31,7 +34,8 @@ export function parseSplitPaymentString(
   discountsRaw: any = "",
   notesRaw: string = "",
   methodRaw: string = "",
-  finalAmount: number = 0
+  finalAmount: number = 0,
+  observationsRaw: string = ""
 ): SplitPaymentDetail {
   const result: SplitPaymentDetail = {
     hasSplit: false,
@@ -42,7 +46,7 @@ export function parseSplitPaymentString(
     formattedSummary: "",
   };
 
-  const combined = `${typeof discountsRaw === "string" ? discountsRaw : ""} ${notesRaw}`.toUpperCase();
+  const combined = `${typeof discountsRaw === "string" ? discountsRaw : ""} ${notesRaw || ""} ${observationsRaw || ""} ${methodRaw || ""}`.toUpperCase();
   const regex = /([CEYTPB])\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)/gi;
   const matches = [...combined.matchAll(regex)];
 
@@ -69,8 +73,20 @@ export function parseSplitPaymentString(
     }
   }
 
+  // Check if combined methods like "YAPE, EFECTIVO" without numeric letters
+  const methodUpper = (methodRaw || "").toUpperCase();
+  if (methodUpper.includes("YAPE") && methodUpper.includes("EFECTIVO")) {
+    result.hasSplit = true;
+    result.formattedSummary = "📱 Yape + 💵 Efectivo";
+    return result;
+  }
+  if (methodUpper.includes("CULQI") && methodUpper.includes("EFECTIVO")) {
+    result.hasSplit = true;
+    result.formattedSummary = "💳 Culqi + 💵 Efectivo";
+    return result;
+  }
+
   // Single method
-  const methodUpper = (methodRaw || "EFECTIVO").toUpperCase();
   if (methodUpper.includes("YAPE") || methodUpper.includes("PLIN")) {
     result.yape = finalAmount;
   } else if (
@@ -100,10 +116,20 @@ export function parseSplitPaymentString(
  */
 export function buildVehicleCreditSettlementMap(
   workOrders: WorkOrder[],
-  invoicesByWorkOrderId: Map<string, Invoice>
+  invoicesData: Map<string, Invoice> | Invoice[] = new Map()
 ) {
   const settledOrdersMap = new Map<string, CreditSettlementInfo>();
   const cancellationsMap = new Map<string, CancellationInfo>();
+
+  const getInvoice = (woId: string): Invoice | undefined => {
+    if (invoicesData instanceof Map) {
+      return invoicesData.get(woId);
+    }
+    if (Array.isArray(invoicesData)) {
+      return invoicesData.find((inv) => inv.work_order_id === woId);
+    }
+    return undefined;
+  };
 
   // Group work orders by vehicle plate
   const ordersByPlate = new Map<string, WorkOrder[]>();
@@ -137,11 +163,15 @@ export function buildVehicleCreditSettlementMap(
     }> = [];
 
     sorted.forEach((wo) => {
-      const inv = invoicesByWorkOrderId.get(wo.id);
+      const inv = getInvoice(wo.id);
 
-      // Check if order was a debt cancellation payment
-      const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((i) => i.description).join(" ")}`.toUpperCase();
-      const isCancellationPayment = desc.includes("CANCELACION DE DEUDA") || desc.includes("CANCELACION DE SU DEUDA") || desc.includes("CANCELACION");
+      // Check if this order is a debt cancellation payment
+      const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((i) => i.description).join(" ")} ${wo.diagnostic_notes || ""}`.toUpperCase();
+      const isCancellationPayment =
+        desc.includes("CANCELACION DE DEUDA") ||
+        desc.includes("CANCELACION DE SU DEUDA") ||
+        desc.includes("CANCELACION DEUDA") ||
+        desc.includes("CANCELACION DE");
 
       const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, i) => s + (i.subtotal || 0), 0);
       const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "";
@@ -161,6 +191,9 @@ export function buildVehicleCreditSettlementMap(
             settledDate: dateStr || "Fecha posterior",
             settledAmount: paidAmount,
             settledByOrderId: wo.id,
+            originalCreditAmount: target.creditAmount,
+            hasCredit: true,
+            creditAmount: target.creditAmount,
           });
 
           // Mark cancellation order with info about the original service
@@ -176,7 +209,7 @@ export function buildVehicleCreditSettlementMap(
 
       // Check if this order has a credit/pending amount
       let credit = inv?.credit_amount || 0;
-      const diag = wo.diagnostic_notes || "";
+      const diag = `${wo.diagnostic_notes || ""} ${wo.observations || ""}`.toUpperCase();
       if (credit === 0 && diag.includes("[CREDITO]:")) {
         const m = diag.match(/\[CREDITO\]:\s*([0-9.]+)/i);
         if (m) credit = parseFloat(m[1]) || 0;
@@ -186,14 +219,27 @@ export function buildVehicleCreditSettlementMap(
         if (pendMatch) credit = parseFloat(pendMatch[1]) || 0;
       }
 
-      const isCreditCondition = (inv?.payment_condition || "").toUpperCase().includes("CREDIT") || (inv?.payment_condition || "").toUpperCase().includes("PENDIENTE");
+      const conditionUpper = (inv?.payment_condition || "").toUpperCase();
+      const isCreditCondition = conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE") || diag.includes("[CONDICION]: PENDIENTE");
 
       if (credit > 0 || isCreditCondition) {
         const serviceName = (wo.items || []).map((i) => i.description).join(" + ") || wo.problem_description || "Servicio Taller";
+        const recordedCredit = credit > 0 ? credit : paidAmount;
+
+        // Register in settledOrdersMap as pending credit initially (if not settled later)
+        if (!settledOrdersMap.has(wo.id)) {
+          settledOrdersMap.set(wo.id, {
+            isSettled: false,
+            hasCredit: true,
+            creditAmount: recordedCredit,
+            originalCreditAmount: recordedCredit,
+          });
+        }
+
         pendingCreditsQueue.push({
           order: wo,
           invoice: inv,
-          creditAmount: credit > 0 ? credit : paidAmount,
+          creditAmount: recordedCredit,
           dateStr: dateStr || "Visita anterior",
           service: serviceName,
         });

@@ -734,6 +734,60 @@ export default function ConsultasPage() {
                         </div>
                       </div>
 
+                      {/* Dynamic Credit & Debt Status Banner */}
+                      {settledInfo?.isSettled ? (
+                        <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">✅</span>
+                            <div>
+                              <span className="font-black text-emerald-300 text-xs block">
+                                CRÉDITO DE S/ {(settledInfo.originalCreditAmount || settledInfo.settledAmount || 0).toFixed(2)} CANCELADO EL {settledInfo.settledDate}
+                              </span>
+                              <span className="text-[11px] text-gray-300">
+                                En esta fecha se pagó <strong>S/ {pricing.finalAmount.toFixed(2)}</strong> y quedó un crédito de <strong>S/ {(settledInfo.originalCreditAmount || settledInfo.settledAmount || 0).toFixed(2)}</strong> que ya fue saldado posteriormente.
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 font-extrabold text-xs rounded-lg border border-emerald-500/40 shrink-0 self-start sm:self-auto">
+                            CRÉDITO SALDADO ✓
+                          </span>
+                        </div>
+                      ) : cancellationInfo?.isCancellation ? (
+                        <div className="p-3 bg-cyan-950/60 border border-cyan-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">💳</span>
+                            <div>
+                              <span className="font-black text-cyan-300 text-xs block">
+                                PAGO DE DEUDA: Atención del {cancellationInfo.originalDate} ({cancellationInfo.originalService})
+                              </span>
+                              <span className="text-[11px] text-gray-300">
+                                Este cobro de <strong>S/ {pricing.finalAmount.toFixed(2)}</strong> cancela el crédito pendiente de la visita anterior.
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-3 py-1 bg-cyan-500/20 text-cyan-300 font-extrabold text-xs rounded-lg border border-cyan-500/40 shrink-0 self-start sm:self-auto">
+                            DEUDA CANCELADA ✓
+                          </span>
+                        </div>
+                      ) : settledInfo?.hasCredit || pricing.isCredit || pricing.creditAmount > 0 ? (
+                        <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">🏦</span>
+                            <div>
+                              <span className="font-black text-amber-300 text-xs block">
+                                CRÉDITO PENDIENTE POR COBRAR: S/ {(settledInfo?.creditAmount || pricing.creditAmount || pricing.finalAmount).toFixed(2)}
+                              </span>
+                              <span className="text-[11px] text-gray-300">
+                                Atención registrada con saldo deudor pendiente de cobro.
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-3 py-1 bg-amber-500/20 text-amber-300 font-extrabold text-xs rounded-lg border border-amber-500/40 shrink-0 animate-pulse self-start sm:self-auto">
+                            PENDIENTE DE PAGO ⏳
+                          </span>
+                        </div>
+                      ) : null}
+
                       {/* Concept Breakdown */}
                       <div className="p-3 bg-reygas-surface/80 rounded-xl border border-white/5 space-y-2">
                         <span className="text-[11px] font-bold uppercase text-amber-400 block">

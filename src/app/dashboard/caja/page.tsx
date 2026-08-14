@@ -464,56 +464,86 @@ export default function CajaPage() {
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       {/* Vehicle & Client Info */}
                       <div className="space-y-3 flex-1">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                            {wo.vehicle_plate}
-                          </span>
-                          <div>
-                            <span className="text-sm font-bold text-white block">
-                              {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                              {wo.vehicle_plate}
                             </span>
-                            <span className="text-xs text-reygas-red font-semibold">
-                              Cliente: {vehicle?.owner_name || "Cliente Taller"} • Teléfono: {vehicle?.owner_phone || "S/T"}
-                            </span>
+                            <div>
+                              <span className="text-sm font-bold text-white block">
+                                {vehicle?.brand} {vehicle?.model} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
+                              </span>
+                              <span className="text-xs text-reygas-red font-semibold">
+                                Cliente: {vehicle?.owner_name || "Cliente Taller"} • Teléfono: {vehicle?.owner_phone || "S/T"}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex flex-col items-end gap-1 ml-auto">
-                            <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
-                              🚗 <strong>Registro:</strong>{" "}
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-500/30">
+                              📅 <strong>Registro:</strong>{" "}
                               {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
                             </span>
 
-                            {settledInfo?.isSettled ? (
-                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/50 font-black flex items-center gap-1 shadow">
-                                <span>✅</span> <strong>CRÉDITO CANCELADO EL {settledInfo.settledDate}</strong> (S/ {settledInfo.settledAmount?.toFixed(2)})
-                              </span>
-                            ) : cancellationInfo?.isCancellation ? (
-                              <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50 font-black flex items-center gap-1 shadow">
-                                <span>💳</span> <strong>PAGO DE DEUDA:</strong> Atención {cancellationInfo.originalDate}
-                              </span>
-                            ) : isPaid ? (
-                              <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 font-bold">
-                                💳 <strong>Pago Confirmado:</strong>{" "}
-                                {invoice?.paid_at
-                                  ? new Date(invoice.paid_at).toLocaleString()
-                                  : new Date().toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30 font-bold">
-                                ⏳ <strong>Estado:</strong> PENDIENTE DE PAGO
-                              </span>
-                            )}
-
-                            {splitPayment.hasSplit && (
-                              <span className="text-[11px] font-mono text-fuchsia-300 bg-fuchsia-950/70 px-2 py-0.5 rounded-md border border-fuchsia-500/40 font-bold">
-                                {splitPayment.formattedSummary}
-                              </span>
-                            )}
-
-                            <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
+                            <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
                               Técnico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
                             </span>
                           </div>
                         </div>
+
+                        {/* Dynamic Credit & Debt Status Banner */}
+                        {settledInfo?.isSettled ? (
+                          <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">✅</span>
+                              <div>
+                                <span className="font-black text-emerald-300 text-xs block">
+                                  CRÉDITO DE S/ {(settledInfo.originalCreditAmount || settledInfo.settledAmount || 0).toFixed(2)} CANCELADO EL {settledInfo.settledDate}
+                                </span>
+                                <span className="text-[11px] text-gray-300">
+                                  En esta fecha se pagó <strong>S/ {grandTotal.toFixed(2)}</strong> y quedó un crédito de <strong>S/ {(settledInfo.originalCreditAmount || settledInfo.settledAmount || 0).toFixed(2)}</strong> que ya fue saldado posteriormente.
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 font-extrabold text-xs rounded-lg border border-emerald-500/40 shrink-0 self-start sm:self-auto">
+                              CRÉDITO SALDADO ✓
+                            </span>
+                          </div>
+                        ) : cancellationInfo?.isCancellation ? (
+                          <div className="p-3 bg-cyan-950/60 border border-cyan-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">💳</span>
+                              <div>
+                                <span className="font-black text-cyan-300 text-xs block">
+                                  PAGO DE DEUDA: Atención del {cancellationInfo.originalDate} ({cancellationInfo.originalService})
+                                </span>
+                                <span className="text-[11px] text-gray-300">
+                                  Este cobro de <strong>S/ {grandTotal.toFixed(2)}</strong> cancela el crédito pendiente de la visita anterior.
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-3 py-1 bg-cyan-500/20 text-cyan-300 font-extrabold text-xs rounded-lg border border-cyan-500/40 shrink-0 self-start sm:self-auto">
+                              DEUDA CANCELADA ✓
+                            </span>
+                          </div>
+                        ) : settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || !isPaid ? (
+                          <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🏦</span>
+                              <div>
+                                <span className="font-black text-amber-300 text-xs block">
+                                  CRÉDITO PENDIENTE POR COBRAR: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || grandTotal).toFixed(2)}
+                                </span>
+                                <span className="text-[11px] text-gray-300">
+                                  Atención registrada con saldo deudor pendiente de cobro.
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-3 py-1 bg-amber-500/20 text-amber-300 font-extrabold text-xs rounded-lg border border-amber-500/40 shrink-0 animate-pulse self-start sm:self-auto">
+                              PENDIENTE DE PAGO ⏳
+                            </span>
+                          </div>
+                        ) : null}
 
                         {/* Parts and Concept Detail */}
                         <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5 space-y-2">
@@ -544,14 +574,18 @@ export default function CajaPage() {
                             ))}
                           </div>
 
-                          {/* Payment Metadata pill if paid */}
-                          {isPaid && invoice && (
-                            <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-gray-300 border-t border-white/5 font-mono">
-                              <span>💳 <strong>Método:</strong> {invoice.payment_method || "Efectivo"}</span>
-                              <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{invoice.payment_destination || "EMPRESA"}</strong></span>
-                              {invoice.receipt_number && <span>🧾 <strong>Recibo/Comp:</strong> {invoice.receipt_number} ({invoice.receipt_type || "Boleta"})</span>}
-                            </div>
-                          )}
+                          {/* Payment Metadata pill */}
+                          <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-gray-300 border-t border-white/5 font-mono">
+                            {splitPayment.hasSplit ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-fuchsia-950/80 border border-fuchsia-500/50 text-fuchsia-300 font-black">
+                                💰 {splitPayment.formattedSummary}
+                              </span>
+                            ) : (
+                              <span>💳 <strong>Método:</strong> {invoice?.payment_method || "Efectivo"}</span>
+                            )}
+                            <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{invoice?.payment_destination || "EMPRESA"}</strong></span>
+                            {invoice?.receipt_number && <span>🧾 <strong>Recibo/Comp:</strong> {invoice.receipt_number} ({invoice.receipt_type || "Boleta"})</span>}
+                          </div>
                         </div>
                       </div>
 
