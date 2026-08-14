@@ -71,11 +71,17 @@ export default function AdminTablesPage() {
 
   // Pagination state (250 items per page for instant mobile & tablet rendering)
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
   const ITEMS_PER_PAGE = 250;
 
   useEffect(() => {
     setCurrentPage(1);
+    setPageInput("1");
   }, [deferredSearchTerm]);
+
+  useEffect(() => {
+    setPageInput(currentPage.toString());
+  }, [currentPage]);
 
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -644,20 +650,52 @@ export default function AdminTablesPage() {
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
-                  className="px-3.5 py-2 rounded-lg bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
                 >
                   <span>&larr;</span>
-                  <span>Anterior (1,000)</span>
+                  <span>Anterior ({ITEMS_PER_PAGE})</span>
                 </button>
-                <div className="px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-gray-300 font-semibold">
-                  Página <span className="text-white font-bold">{currentPage}</span> de <span className="text-white font-bold">{totalPages}</span>
+
+                {/* Direct Jump to Page Input / Quick Selector */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/60 border border-amber-500/40 text-gray-300 font-semibold shadow">
+                  <span className="text-amber-400 font-bold">Página</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const val = parseInt(pageInput);
+                        if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                          setCurrentPage(val);
+                        }
+                      }
+                    }}
+                    className="w-16 px-2 py-1 bg-reygas-dark border border-white/20 rounded-lg text-white font-mono font-black text-center focus:border-amber-400 focus:outline-none"
+                  />
+                  <span>de <strong className="text-white font-black">{totalPages}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const val = parseInt(pageInput);
+                      if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                        setCurrentPage(val);
+                      }
+                    }}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-lg transition-transform hover:scale-105 shadow text-xs"
+                  >
+                    Ir
+                  </button>
                 </div>
+
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage >= totalPages}
-                  className="px-3.5 py-2 rounded-lg bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
                 >
-                  <span>Siguientes (1,000)</span>
+                  <span>Siguientes ({ITEMS_PER_PAGE})</span>
                   <span>&rarr;</span>
                 </button>
               </div>
