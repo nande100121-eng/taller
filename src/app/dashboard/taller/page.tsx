@@ -49,14 +49,14 @@ export default function TallerPage() {
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
-  const [modalMode, setModalMode] = useState<"diagnostic" | "parts" | "technician" | "certificate">("diagnostic");
+  const [modalMode, setModalMode] = useState<"diagnostic" | "parts" | "service" | "technician" | "certificate">("diagnostic");
 
   // Form states inside modals
   const [diagnosticText, setDiagnosticText] = useState("");
   const [observationsText, setObservationsText] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
-  const [certType, setCertType] = useState<"Anual GNV" | "Anual GLP" | "Prueba Hidrostática">("Anual GNV");
-  const [certPrice, setCertPrice] = useState<number>(120);
+  const [certType, setCertType] = useState<string>("Certificado Anual GNV");
+  const [certPrice, setCertPrice] = useState<number>(80);
 
   // Requisition form state (Spare parts from inventory, services from catalog, or custom item)
   const [requisitionType, setRequisitionType] = useState<"repuesto" | "servicio" | "manual">("repuesto");
@@ -65,6 +65,52 @@ export default function TallerPage() {
   const [customItemName, setCustomItemName] = useState("");
   const [customItemPrice, setCustomItemPrice] = useState<number>(0);
   const [partQty, setPartQty] = useState(1);
+
+  // Filtered Services for Certification and Workshop Services
+  const certificationServices = React.useMemo(() => {
+    const list = workshopServices.filter((s) => {
+      const cat = (s.category || "").toLowerCase().trim();
+      const name = s.name.toLowerCase();
+      return (
+        cat === "certificación" ||
+        cat === "certificacion" ||
+        name.includes("certificado") ||
+        name.includes("certificacion") ||
+        name.includes("anual gnv") ||
+        name.includes("anual glp") ||
+        name.includes("hidrostática") ||
+        name.includes("hidrostatica") ||
+        name.includes("chip")
+      );
+    });
+    if (list.length > 0) return list;
+    return [
+      { id: "ws-cert-1", name: "Certificado Anual GNV", category: "Certificación", price: 80 },
+      { id: "ws-cert-2", name: "Certificado Anual GLP", category: "Certificación", price: 80 },
+      { id: "ws-cert-3", name: "Prueba Hidrostática de Cilindro GNV", category: "Certificación", price: 180 },
+      { id: "ws-cert-4", name: "Desbloqueo de Chip GNV", category: "Certificación", price: 25 },
+    ];
+  }, [workshopServices]);
+
+  const workshopOnlyServices = React.useMemo(() => {
+    const list = workshopServices.filter((s) => {
+      const cat = (s.category || "").toLowerCase().trim();
+      const name = s.name.toLowerCase();
+      const isCert = (
+        cat === "certificación" ||
+        cat === "certificacion" ||
+        name.includes("certificado") ||
+        name.includes("certificacion") ||
+        name.includes("anual gnv") ||
+        name.includes("anual glp") ||
+        name.includes("hidrostática") ||
+        name.includes("hidrostatica")
+      );
+      return !isCert;
+    });
+    if (list.length > 0) return list;
+    return workshopServices;
+  }, [workshopServices]);
 
   const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
     { status: "ingresado", label: "1. Ingresado", color: "bg-blue-500" },
@@ -86,17 +132,28 @@ export default function TallerPage() {
     setModalMode("parts");
     setRequisitionType("repuesto");
     setSelectedInventoryId(inventoryItems[0]?.id || "");
-    setSelectedServiceId(workshopServices[0]?.id || "");
+    setCustomItemPrice(inventoryItems[0]?.unit_price || 0);
     setCustomItemName("");
-    setCustomItemPrice(0);
+    setPartQty(1);
+  };
+
+  const handleOpenServices = (orderId: string) => {
+    setActiveOrderModal(orderId);
+    setModalMode("service");
+    setRequisitionType("servicio");
+    const initialSrv = workshopOnlyServices[0] || workshopServices[0];
+    setSelectedServiceId(initialSrv?.id || "");
+    setCustomItemPrice(initialSrv?.price || 0);
+    setCustomItemName("");
     setPartQty(1);
   };
 
   const handleOpenCertModal = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("certificate");
-    setCertType("Anual GNV");
-    setCertPrice(120);
+    const initialCert = certificationServices[0] || { name: "Certificado Anual GNV", price: 80 };
+    setCertType(initialCert.name);
+    setCertPrice(initialCert.price);
   };
 
   // Styled Web Notification Modal State (Replaces browser alert)
@@ -108,7 +165,7 @@ export default function TallerPage() {
 
   const handleSaveCertification = () => {
     if (activeOrderModal) {
-      requestCertificationForWorkOrder(activeOrderModal, certType, Number(certPrice));
+      requestCertificationForWorkOrder(activeOrderModal, certType as any, Number(certPrice));
       setWebAlert({
         open: true,
         title: "¡Certificación Solicitada!",
@@ -128,39 +185,51 @@ export default function TallerPage() {
   const handleAddRequisition = () => {
     if (!activeOrderModal) return;
 
-    if (requisitionType === "repuesto") {
-      const item = inventoryItems.find((i) => i.id === selectedInventoryId);
-      if (item) {
+    if (modalMode === "parts") {
+      if (requisitionType === "repuesto") {
+        const item = inventoryItems.find((i) => i.id === selectedInventoryId);
+        if (item) {
+          addWorkOrderItem(activeOrderModal, {
+            inventory_item_id: item.id,
+            item_type: "repuesto",
+            description: item.name,
+            quantity: Number(partQty),
+            unit_price: Number(customItemPrice) || item.unit_price || 0,
+          });
+          updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+        }
+      } else {
+        if (!customItemName.trim()) return;
         addWorkOrderItem(activeOrderModal, {
-          inventory_item_id: item.id,
           item_type: "repuesto",
-          description: item.name,
+          description: customItemName.trim(),
           quantity: Number(partQty),
-          unit_price: item.unit_price || 0,
+          unit_price: Number(customItemPrice) || 0,
         });
         updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
       }
-    } else if (requisitionType === "servicio") {
-      const srv = workshopServices.find((s) => s.id === selectedServiceId);
-      if (srv) {
+    } else if (modalMode === "service") {
+      if (requisitionType === "servicio") {
+        const srv = workshopServices.find((s) => s.id === selectedServiceId);
+        if (srv) {
+          addWorkOrderItem(activeOrderModal, {
+            item_type: "servicio",
+            description: srv.name,
+            quantity: Number(partQty),
+            unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
+          });
+          updateWorkOrderStatus(activeOrderModal, "en_servicio");
+        }
+      } else {
+        if (!customItemName.trim()) return;
         addWorkOrderItem(activeOrderModal, {
           item_type: "servicio",
-          description: srv.name,
+          description: customItemName.trim(),
           quantity: Number(partQty),
-          unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
+          unit_price: Number(customItemPrice) || 0,
         });
         updateWorkOrderStatus(activeOrderModal, "en_servicio");
       }
-    } else {
-      // Manual item or service
-      if (!customItemName.trim()) return;
-      addWorkOrderItem(activeOrderModal, {
-        item_type: "servicio",
-        description: customItemName.trim(),
-        quantity: Number(partQty),
-        unit_price: Number(customItemPrice) || 0,
-      });
-      updateWorkOrderStatus(activeOrderModal, "en_servicio");
     }
     setActiveOrderModal(null);
   };
@@ -407,12 +476,12 @@ export default function TallerPage() {
 
                   {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS & CERTIFICACION */}
                   <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Action buttons toolbar */}
+                    {/* Action buttons toolbar: 4 distinct, separate actions */}
                     {!isLocked && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <button
                           onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                          className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors"
+                          className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors shadow"
                         >
                           <Cpu className="w-3.5 h-3.5" />
                           <span>Diagnóstico</span>
@@ -420,22 +489,30 @@ export default function TallerPage() {
 
                         <button
                           onClick={() => handleOpenParts(wo.id)}
-                          className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors"
+                          className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors shadow"
                         >
-                          <PackagePlus className="w-3.5 h-3.5" />
-                          <span>Pedir Repuesto/Servicio</span>
+                          <Package className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Pedir Repuesto</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenServices(wo.id)}
+                          className="py-2 px-2 bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-indigo-500/30 transition-colors shadow"
+                        >
+                          <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Agregar Servicio</span>
                         </button>
 
                         <button
                           onClick={() => handleOpenCertModal(wo.id)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors ${
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
                             wo.requires_certification
-                              ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
-                              : "bg-blue-900/40 hover:bg-blue-800/60 text-blue-200 border-blue-500/30"
+                              ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
+                              : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
                           }`}
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{wo.requires_certification ? "Certificado Solicitado" : "+ Certificado"}</span>
+                          <span>{wo.requires_certification ? "Certificado Solicitado" : "Certificación"}</span>
                         </button>
                       </div>
                     )}
@@ -522,7 +599,7 @@ export default function TallerPage() {
                           className="w-full py-2 bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 font-bold text-xs rounded-xl border border-cyan-500/30 flex items-center justify-center gap-1.5 transition-colors"
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>+ Agregar Servicio de Certificación a esta Orden</span>
+                          <span>+ Solicitar Certificación desde Catálogo de Servicios</span>
                         </button>
                       )
                     )}
@@ -534,7 +611,7 @@ export default function TallerPage() {
         )}
       </div>
 
-      {/* Modals for Diagnostic, Parts Requisition and Certification */}
+      {/* Modals for Diagnostic, Parts Requisition, Workshop Services and Certification */}
       {activeOrderModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-lg w-full space-y-6">
@@ -549,7 +626,13 @@ export default function TallerPage() {
                 {modalMode === "parts" && (
                   <>
                     <PackagePlus className="w-5 h-5 text-amber-400" />
-                    <span>Solicitar Repuesto o Servicio de Taller</span>
+                    <span>Pedir Repuesto de Almacén</span>
+                  </>
+                )}
+                {modalMode === "service" && (
+                  <>
+                    <Wrench className="w-5 h-5 text-indigo-400" />
+                    <span>Agregar Servicio de Taller</span>
                   </>
                 )}
                 {modalMode === "certificate" && (
@@ -567,20 +650,28 @@ export default function TallerPage() {
               </button>
             </div>
 
+            {/* 1. Modal Certificación (Jala del catálogo los de categoría Certificación) */}
             {modalMode === "certificate" && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    TIPO DE CERTIFICACIÓN REQUERIDA *
+                  <label className="block text-xs font-semibold text-cyan-300 mb-1.5 flex items-center justify-between">
+                    <span>TIPO DE CERTIFICACIÓN (Catálogo de Servicios) *</span>
+                    <span className="text-[10px] text-gray-400">({certificationServices.length} disponibles)</span>
                   </label>
                   <select
                     value={certType}
-                    onChange={(e) => setCertType(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-cyan-400"
+                    onChange={(e) => {
+                      const selected = certificationServices.find((s) => s.name === e.target.value);
+                      setCertType(e.target.value);
+                      if (selected) setCertPrice(selected.price);
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-cyan-400 font-bold"
                   >
-                    <option value="Anual GNV">Certificado Anual GNV</option>
-                    <option value="Anual GLP">Certificado Anual GLP</option>
-                    <option value="Prueba Hidrostática">Prueba Hidrostática de Cilindro</option>
+                    {certificationServices.map((cs) => (
+                      <option key={cs.id} value={cs.name}>
+                        {cs.name} — S/ {cs.price.toFixed(2)}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -591,18 +682,19 @@ export default function TallerPage() {
                   <input
                     type="number"
                     min={0}
+                    step="0.1"
                     value={certPrice}
-                    onChange={(e) => setCertPrice(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-cyan-400"
+                    onChange={(e) => setCertPrice(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-cyan-400 font-bold"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Este servicio se colocará debajo de la sección de repuestos solicitados y se cargará a Caja.
+                    Este servicio se colocará debajo de la sección de repuestos solicitados y se cargará automáticamente a Caja.
                   </p>
                 </div>
 
                 <button
                   onClick={handleSaveCertification}
-                  className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20"
+                  className="w-full py-3 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/30"
                 >
                   <ShieldCheck className="w-4 h-4" />
                   <span>Guardar Servicio de Certificado</span>
@@ -610,6 +702,7 @@ export default function TallerPage() {
               </div>
             )}
 
+            {/* 2. Modal Diagnóstico */}
             {modalMode === "diagnostic" && (
               <div className="space-y-4">
                 <div>
@@ -647,80 +740,154 @@ export default function TallerPage() {
               </div>
             )}
 
+            {/* 3. Modal Repuesto (Solo Repuestos de Almacén o Repuesto Libre) */}
             {modalMode === "parts" && (
               <div className="space-y-4">
-                {/* 3-Way Mode Selector: Inventario vs Servicio de Catálogo vs Manual */}
-                <div className="grid grid-cols-3 gap-1.5 p-1 bg-reygas-dark rounded-xl border border-white/10 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRequisitionType("repuesto");
-                      if (inventoryItems.length > 0 && !selectedInventoryId) {
-                        setSelectedInventoryId(inventoryItems[0].id);
-                      }
-                    }}
-                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
-                      requisitionType === "repuesto"
-                        ? "bg-amber-500 text-black shadow"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    Repuesto Almacén
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRequisitionType("servicio");
-                      if (workshopServices.length > 0 && !selectedServiceId) {
-                        setSelectedServiceId(workshopServices[0].id);
-                        setCustomItemPrice(workshopServices[0].price);
-                      }
-                    }}
-                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
-                      requisitionType === "servicio"
-                        ? "bg-indigo-600 text-white shadow"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    Servicio Catálogo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRequisitionType("manual")}
-                    className={`py-2 px-1 rounded-lg font-bold transition-all text-center ${
-                      requisitionType === "manual"
-                        ? "bg-teal-600 text-white shadow"
-                        : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    Concepto Libre
-                  </button>
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <span className="text-xs font-bold text-amber-400 uppercase">
+                    📦 Solicitar Repuesto
+                  </span>
+                  <div className="flex gap-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setRequisitionType("repuesto")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        requisitionType === "repuesto" ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      Inventario Almacén
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRequisitionType("manual")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      Repuesto Libre
+                    </button>
+                  </div>
                 </div>
 
-                {requisitionType === "repuesto" && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-2">
-                      Seleccionar Repuesto del Inventario de Almacén
-                    </label>
-                    <select
-                      value={selectedInventoryId}
-                      onChange={(e) => setSelectedInventoryId(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
-                    >
-                      {inventoryItems.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} (Stock: {item.stock_quantity}) - S/ {item.unit_price}
-                        </option>
-                      ))}
-                    </select>
+                {requisitionType === "repuesto" ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Seleccionar Repuesto en Inventario
+                      </label>
+                      <select
+                        value={selectedInventoryId}
+                        onChange={(e) => {
+                          setSelectedInventoryId(e.target.value);
+                          const it = inventoryItems.find((i) => i.id === e.target.value);
+                          if (it) setCustomItemPrice(it.unit_price || 0);
+                        }}
+                        className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400 font-bold"
+                      >
+                        {inventoryItems.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} (Stock: {item.stock_quantity}) — S/ {item.unit_price}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">Precio Unitario (S/)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={customItemPrice}
+                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Descripción del Repuesto Requerido *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Filtro de gas 5ta generación rail"
+                        value={customItemName}
+                        onChange={(e) => setCustomItemName(e.target.value)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400 font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">Precio Unitario (S/)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={customItemPrice}
+                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
+                      />
+                    </div>
                   </div>
                 )}
 
-                {requisitionType === "servicio" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad Requerida</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={partQty}
+                    onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
+                  />
+                </div>
+
+                <button
+                  onClick={handleAddRequisition}
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
+                >
+                  <Package className="w-4 h-4" />
+                  <span>+ Agregar Repuesto a la Orden</span>
+                </button>
+              </div>
+            )}
+
+            {/* 4. Modal Servicio (Solo Servicios del Catálogo de Taller o Servicio Libre) */}
+            {modalMode === "service" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <span className="text-xs font-bold text-indigo-400 uppercase">
+                    🛠️ Agregar Servicio de Taller
+                  </span>
+                  <div className="flex gap-1 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setRequisitionType("servicio")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        requisitionType === "servicio" ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      Catálogo Servicios
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRequisitionType("manual")}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
+                      }`}
+                    >
+                      Servicio Libre
+                    </button>
+                  </div>
+                </div>
+
+                {requisitionType === "servicio" ? (
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-2">
-                        Seleccionar Servicio del Catálogo de Taller
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Seleccionar Servicio del Catálogo ({workshopOnlyServices.length} disponibles)
                       </label>
                       <select
                         value={selectedServiceId}
@@ -729,11 +896,11 @@ export default function TallerPage() {
                           setSelectedServiceId(e.target.value);
                           if (srv) setCustomItemPrice(srv.price);
                         }}
-                        className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400"
+                        className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400 font-bold"
                       >
-                        {workshopServices.map((srv) => (
+                        {workshopOnlyServices.map((srv) => (
                           <option key={srv.id} value={srv.id}>
-                            {srv.name} ({srv.category || "Taller"}) - Precio Base: S/ {srv.price}
+                            {srv.name} ({srv.category || "Servicio"}) — S/ {srv.price.toFixed(2)}
                           </option>
                         ))}
                       </select>
@@ -749,33 +916,31 @@ export default function TallerPage() {
                         step="0.1"
                         value={customItemPrice}
                         onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400"
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">
-                        Puede ingresar S/ 0 si el servicio no tiene costo adicional.
+                        Puede ingresar S/ 0 si el servicio no tiene costo adicional (revisión/garantía).
                       </p>
                     </div>
                   </div>
-                )}
-
-                {requisitionType === "manual" && (
+                ) : (
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-300 mb-1">
-                        Nombre / Descripción del Concepto *
+                        Nombre / Descripción del Servicio *
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej. Reparación especial de cableado de sensor MAP"
+                        placeholder="Ej. Calibración fina de mapa de gas en ruta"
                         value={customItemName}
                         onChange={(e) => setCustomItemName(e.target.value)}
-                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-teal-400"
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400 font-bold"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-medium text-gray-300 mb-1">
-                        Precio del Concepto (S/) *
+                        Precio del Servicio (S/) *
                       </label>
                       <input
                         type="number"
@@ -783,33 +948,29 @@ export default function TallerPage() {
                         step="0.1"
                         value={customItemPrice}
                         onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
-                        placeholder="0.00"
-                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-teal-400"
+                        className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
                       />
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        Permite S/ 0 para servicios de cortesía o revisión.
-                      </p>
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-2">Cantidad</label>
+                  <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad</label>
                   <input
                     type="number"
                     min={1}
                     value={partQty}
-                    onChange={(e) => setPartQty(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white"
+                    onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
                   />
                 </div>
 
                 <button
                   onClick={handleAddRequisition}
-                  className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-extrabold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg"
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30"
                 >
-                  <PackagePlus className="w-4 h-4" />
-                  <span>Registrar y Asignar a la Orden de Trabajo</span>
+                  <Wrench className="w-4 h-4" />
+                  <span>+ Agregar Servicio a la Orden</span>
                 </button>
               </div>
             )}

@@ -618,13 +618,17 @@ export const useAppStore = create<AppState>()(
       },
 
       workshopServices: [
-        { id: "ws-1", name: "Mantenimiento General GNV", category: "Mantenimiento", price: 100, description: "Revisión completa de sistema GNV, filtros y regulación" },
-        { id: "ws-2", name: "Mantenimiento General GLP", category: "Mantenimiento", price: 100, description: "Revisión de vaporizador, filtros y calibración GLP" },
-        { id: "ws-3", name: "Diagnóstico Computarizado ECU Gas", category: "Diagnóstico", price: 50, description: "Escaneo de parámetros en tiempo real y corrección de mezclas" },
-        { id: "ws-4", name: "Limpieza y Calibración de Riel de Inyectores", category: "Inyección", price: 80, description: "Limpieza por ultrasonido y verificación de pulsos" },
-        { id: "ws-5", name: "Regulación de Emulador y Variador de Avance", category: "Electrónica", price: 60, description: "Ajuste de tiempos de encendido y emulación" },
-        { id: "ws-6", name: "Cambio de Filtro de Fase Líquida y Gaseosa", category: "Filtros", price: 40, description: "Sustitución e inspección de fugas" },
-        { id: "ws-7", name: "Prueba de Hermeticidad y Detección de Fugas", category: "Seguridad", price: 30, description: "Verificación de tuberías y conexiones de alta presión" },
+        { id: "ws-1", name: "Mantenimiento General GNV", category: "Servicio", price: 100, description: "Revisión completa de sistema GNV, filtros y regulación" },
+        { id: "ws-2", name: "Mantenimiento General GLP", category: "Servicio", price: 100, description: "Revisión de vaporizador, filtros y calibración GLP" },
+        { id: "ws-3", name: "Diagnóstico Computarizado ECU Gas", category: "Servicio", price: 50, description: "Escaneo de parámetros en tiempo real y corrección de mezclas" },
+        { id: "ws-4", name: "Limpieza y Calibración de Riel de Inyectores", category: "Servicio", price: 80, description: "Limpieza por ultrasonido y verificación de pulsos" },
+        { id: "ws-5", name: "Regulación de Emulador y Variador de Avance", category: "Servicio", price: 60, description: "Ajuste de tiempos de encendido y emulación" },
+        { id: "ws-6", name: "Cambio de Filtro de Fase Líquida y Gaseosa", category: "Servicio", price: 40, description: "Sustitución e inspección de fugas" },
+        { id: "ws-7", name: "Prueba de Hermeticidad y Detección de Fugas", category: "Servicio", price: 30, description: "Verificación de tuberías y conexiones de alta presión" },
+        { id: "ws-8", name: "Certificado Anual GNV", category: "Certificación", price: 80, description: "Certificación anual reglamentaria de sistema GNV" },
+        { id: "ws-9", name: "Certificado Anual GLP", category: "Certificación", price: 80, description: "Certificación anual reglamentaria de sistema GLP" },
+        { id: "ws-10", name: "Prueba Hidrostática de Cilindro GNV", category: "Certificación", price: 180, description: "Prueba quinquenal de cilindro de alta presión" },
+        { id: "ws-11", name: "Desbloqueo de Chip GNV", category: "Certificación", price: 25, description: "Desbloqueo de chip de carga Infogas" },
       ],
 
       addWorkshopService: (service) => {
