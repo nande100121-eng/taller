@@ -24,7 +24,9 @@ import {
   Edit3,
   ShieldCheck,
   Lock,
-  Unlock
+  Unlock,
+  Calendar,
+  Filter,
 } from "lucide-react";
 
 export default function TallerPage() {
@@ -44,8 +46,11 @@ export default function TallerPage() {
     requestCertificationForWorkOrder,
   } = useAppStore();
 
+  const [timeFilter, setTimeFilter] = useState<"hoy" | "todos">("hoy");
+  const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [searchPlate, setSearchPlate] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
+  const [visibleLimit, setVisibleLimit] = useState<number>(30);
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
@@ -234,13 +239,48 @@ export default function TallerPage() {
     setActiveOrderModal(null);
   };
 
-  const filteredOrders = [...workOrders]
-    .filter((wo) => {
-      const matchPlate = searchPlate ? wo.vehicle_plate.includes(searchPlate) : true;
-      const matchStatus = statusFilter === "todos" ? true : wo.status === statusFilter;
-      return matchPlate && matchStatus;
-    })
-    .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
+  // Orders filtered by date
+  const dateScopedOrders = React.useMemo(() => {
+    return workOrders.filter((wo) => {
+      if (timeFilter === "todos") return true;
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      return orderDateStr === queryDate;
+    });
+  }, [workOrders, timeFilter, queryDate]);
+
+  // Overall & Context counts
+  const counts = React.useMemo(() => {
+    const todayTarget = queryDate || new Date().toISOString().slice(0, 10);
+    const todayOrders = workOrders.filter((wo) => {
+      const d = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      return d === todayTarget;
+    });
+
+    const activeList = timeFilter === "hoy" ? todayOrders : workOrders;
+
+    return {
+      today: todayOrders.length,
+      all: workOrders.length,
+      currentTotal: activeList.length,
+      ingresado: activeList.filter((wo) => wo.status === "ingresado").length,
+      en_diagnostico: activeList.filter((wo) => wo.status === "en_diagnostico").length,
+      esperando_repuestos: activeList.filter((wo) => wo.status === "esperando_repuestos").length,
+      en_servicio: activeList.filter((wo) => wo.status === "en_servicio").length,
+      por_cobrar: activeList.filter((wo) => wo.status === "por_cobrar").length,
+    };
+  }, [workOrders, timeFilter, queryDate]);
+
+  const filteredOrders = React.useMemo(() => {
+    return dateScopedOrders
+      .filter((wo) => {
+        const matchPlate = searchPlate ? wo.vehicle_plate.toUpperCase().includes(searchPlate.toUpperCase().trim()) : true;
+        const matchStatus = statusFilter === "todos" ? true : wo.status === statusFilter;
+        return matchPlate && matchStatus;
+      })
+      .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
+  }, [dateScopedOrders, searchPlate, statusFilter]);
+
+  const displayedOrders = filteredOrders.slice(0, visibleLimit);
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -253,37 +293,163 @@ export default function TallerPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Taller & Bahías de Trabajo</h1>
             <p className="text-xs text-gray-400">
-              Vista tecnológica por Cards Horizontales ordenadas por hora de llegada, con Pipeline interactivo de estado.
+              Vista interactiva por Cards Horizontales ordenadas por hora de llegada, con Pipeline interactivo de estado.
             </p>
           </div>
         </div>
+      </div>
 
-        {/* Filter Controls */}
-        <div className="flex flex-wrap items-center gap-3">
+      {/* Date & Search Filters Toolbar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-reygas-dark p-3.5 rounded-2xl border border-white/10">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Time Selector Tabs: Del Día / Hoy vs Todos */}
+          <div className="flex items-center gap-1 bg-reygas-surface p-1 rounded-xl border border-white/10 text-xs font-bold">
+            <button
+              onClick={() => { setTimeFilter("hoy"); setVisibleLimit(30); }}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                timeFilter === "hoy"
+                  ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Del Día / Hoy ({counts.today})</span>
+            </button>
+
+            <button
+              onClick={() => { setTimeFilter("todos"); setVisibleLimit(30); }}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                timeFilter === "todos"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 font-black scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <span>Todos / Histórico ({counts.all})</span>
+            </button>
+          </div>
+
+          {/* Date picker */}
           <div className="relative">
+            <Calendar className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="date"
+              value={queryDate}
+              onChange={(e) => {
+                setQueryDate(e.target.value);
+                setTimeFilter("hoy");
+                setVisibleLimit(30);
+              }}
+              className="pl-9 pr-3 py-1.5 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-mono font-bold"
+            />
+          </div>
+        </div>
+
+        {/* Search & Dropdown Filter */}
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Buscar por placa..."
               value={searchPlate}
-              onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
-              className="pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400"
+              onChange={(e) => { setSearchPlate(e.target.value.toUpperCase()); setVisibleLimit(30); }}
+              className="w-full sm:w-48 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400 font-bold"
             />
           </div>
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-amber-400"
+            onChange={(e) => { setStatusFilter(e.target.value); setVisibleLimit(30); }}
+            className="px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-bold"
           >
-            <option value="todos">Todos los Estados ({workOrders.length})</option>
-            <option value="ingresado">1. Ingresados</option>
-            <option value="en_diagnostico">2. En Diagnóstico</option>
-            <option value="esperando_repuestos">3. Esperando Repuestos</option>
-            <option value="en_servicio">4. En Servicio / Bahía</option>
-            <option value="por_cobrar">5. Por Cobrar</option>
+            <option value="todos">Todos los Estados ({counts.currentTotal})</option>
+            <option value="ingresado">1. Ingresados ({counts.ingresado})</option>
+            <option value="en_diagnostico">2. En Diagnóstico ({counts.en_diagnostico})</option>
+            <option value="esperando_repuestos">3. Esperando Repuestos ({counts.esperando_repuestos})</option>
+            <option value="en_servicio">4. En Servicio / Bahía ({counts.en_servicio})</option>
+            <option value="por_cobrar">5. Por Cobrar ({counts.por_cobrar})</option>
           </select>
         </div>
+      </div>
+
+      {/* Interactive Status Filter Pills (Clickable buttons matching image) */}
+      <div className="flex flex-wrap items-center gap-2 bg-reygas-dark/70 p-2.5 rounded-2xl border border-white/5 text-xs font-bold">
+        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-extrabold flex items-center gap-1.5 px-2">
+          <Filter className="w-3.5 h-3.5 text-amber-400" />
+          <span>Filtrar Estado:</span>
+        </span>
+
+        {/* 1. Todos */}
+        <button
+          onClick={() => { setStatusFilter("todos"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "todos"
+              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-105"
+              : "bg-reygas-surface/60 text-gray-400 border-white/10 hover:text-white hover:border-white/20"
+          }`}
+        >
+          Todos los Estados ({counts.currentTotal})
+        </button>
+
+        {/* 2. Ingresados */}
+        <button
+          onClick={() => { setStatusFilter("ingresado"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "ingresado"
+              ? "bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30 font-black scale-105"
+              : "bg-blue-950/30 text-blue-300 border-blue-500/20 hover:bg-blue-900/40"
+          }`}
+        >
+          1. Ingresados ({counts.ingresado})
+        </button>
+
+        {/* 3. En Diagnóstico */}
+        <button
+          onClick={() => { setStatusFilter("en_diagnostico"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "en_diagnostico"
+              ? "bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30 font-black scale-105"
+              : "bg-purple-950/30 text-purple-300 border-purple-500/20 hover:bg-purple-900/40"
+          }`}
+        >
+          2. En Diagnóstico ({counts.en_diagnostico})
+        </button>
+
+        {/* 4. Esperando Repuestos */}
+        <button
+          onClick={() => { setStatusFilter("esperando_repuestos"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "esperando_repuestos"
+              ? "bg-amber-600 text-white border-amber-400 shadow-lg shadow-amber-600/30 font-black scale-105"
+              : "bg-amber-950/30 text-amber-300 border-amber-500/20 hover:bg-amber-900/40"
+          }`}
+        >
+          3. Esperando Repuestos ({counts.esperando_repuestos})
+        </button>
+
+        {/* 5. En Servicio / Bahía */}
+        <button
+          onClick={() => { setStatusFilter("en_servicio"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "en_servicio"
+              ? "bg-teal-600 text-white border-teal-400 shadow-lg shadow-teal-600/30 font-black scale-105"
+              : "bg-teal-950/30 text-teal-300 border-teal-500/20 hover:bg-teal-900/40"
+          }`}
+        >
+          4. En Servicio / Bahía ({counts.en_servicio})
+        </button>
+
+        {/* 6. Por Cobrar */}
+        <button
+          onClick={() => { setStatusFilter("por_cobrar"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "por_cobrar"
+              ? "bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-600/30 font-black scale-105"
+              : "bg-emerald-950/30 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/40"
+          }`}
+        >
+          5. Por Cobrar ({counts.por_cobrar})
+        </button>
       </div>
 
       {/* Horizontal Cards List */}
@@ -291,10 +457,18 @@ export default function TallerPage() {
         {filteredOrders.length === 0 ? (
           <div className="glass-panel p-12 text-center text-gray-400 space-y-3 rounded-2xl border border-white/10">
             <Wrench className="w-12 h-12 text-gray-600 mx-auto" />
-            <p className="text-sm font-semibold">No hay órdenes de trabajo que coincidan con los filtros.</p>
+            <p className="text-sm font-semibold">No hay órdenes de trabajo que coincidan con los filtros seleccionados.</p>
+            {timeFilter === "hoy" && (
+              <button
+                onClick={() => setTimeFilter("todos")}
+                className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-xs font-bold rounded-xl border border-blue-500/30 transition-colors"
+              >
+                Ver todos los vehículos en el histórico ({counts.all})
+              </button>
+            )}
           </div>
         ) : (
-          filteredOrders.map((wo) => {
+          displayedOrders.map((wo) => {
             const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
             const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
             const invoice = invoices.find((i) => i.work_order_id === wo.id);
@@ -608,6 +782,17 @@ export default function TallerPage() {
               </div>
             );
           })
+        )}
+
+        {displayedOrders.length < filteredOrders.length && (
+          <div className="text-center pt-4">
+            <button
+              onClick={() => setVisibleLimit((prev) => prev + 30)}
+              className="px-6 py-2.5 bg-reygas-surface border border-white/10 hover:border-amber-400 text-white font-bold text-xs rounded-xl shadow-lg transition-all"
+            >
+              Cargar más vehículos ({displayedOrders.length} de {filteredOrders.length})
+            </button>
+          </div>
         )}
       </div>
 
