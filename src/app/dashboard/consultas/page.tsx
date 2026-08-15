@@ -29,12 +29,13 @@ import {
   Filter,
   Car
 } from "lucide-react";
+import { getPeruDateString, formatPeruDateTime, formatPeruDate } from "@/lib/utils/date-utils";
 
 export default function ConsultasPage() {
   const { workOrders, invoices, vehicles, technicians, mergeWorkshopRecords, syncFromSupabase, isSyncing } = useAppStore();
 
   // Search Filters & Date Navigation State
-  const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today YYYY-MM-DD
+  const [queryDate, setQueryDate] = useState<string>(getPeruDateString()); // Default today YYYY-MM-DD
   const [searchPlate, setSearchPlate] = useState("");
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
@@ -82,17 +83,17 @@ export default function ConsultasPage() {
   const handlePrevDay = () => {
     const current = new Date(queryDate + "T12:00:00");
     current.setDate(current.getDate() - 1);
-    setQueryDate(current.toISOString().slice(0, 10));
+    setQueryDate(getPeruDateString(current));
   };
 
   const handleNextDay = () => {
     const current = new Date(queryDate + "T12:00:00");
     current.setDate(current.getDate() + 1);
-    setQueryDate(current.toISOString().slice(0, 10));
+    setQueryDate(getPeruDateString(current));
   };
 
   const handleToday = () => {
-    setQueryDate(new Date().toISOString().slice(0, 10));
+    setQueryDate(getPeruDateString());
   };
 
   // O(1) Lookup maps
@@ -688,7 +689,7 @@ export default function ConsultasPage() {
                         <div className="flex flex-wrap sm:flex-col items-start sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/10">
                           <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30">
                             📅 <strong>Fecha Ingreso:</strong>{" "}
-                            {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
+                            {wo.entry_time ? formatPeruDateTime(wo.entry_time) : "Hoy"}
                           </span>
 
                           {settledInfo?.isSettled ? (
@@ -932,7 +933,7 @@ export default function ConsultasPage() {
                         </span>
                         <div>
                           <span className="text-sm font-bold text-white block">
-                            📅 Fecha: {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Sin fecha"}
+                            📅 Fecha: {wo.entry_time ? formatPeruDateTime(wo.entry_time) : "Sin fecha"}
                           </span>
                           <span className="text-xs text-gray-400 block truncate max-w-md">
                             Falla / Motivo: {wo.problem_description || "Atención General Taller"}
@@ -1129,8 +1130,8 @@ export default function ConsultasPage() {
                             <div className="flex justify-between items-center font-bold text-white">
                               <span>
                                 {pricing.isCredit || pricing.creditAmount > 0
-                                  ? `Monto Total por Cobrar el ${wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:`
-                                  : `Monto Total Cobrado el ${wo.entry_time ? new Date(wo.entry_time).toLocaleDateString() : ""}:`}
+                                  ? `Monto Total por Cobrar el ${wo.entry_time ? formatPeruDate(wo.entry_time) : ""}:`
+                                  : `Monto Total Cobrado el ${wo.entry_time ? formatPeruDate(wo.entry_time) : ""}:`}
                               </span>
                               <span className="font-mono text-xl text-amber-400">S/ {pricing.finalAmount.toFixed(2)}</span>
                             </div>

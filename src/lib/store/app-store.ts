@@ -23,6 +23,7 @@ import {
   saveSupabaseBulkWorkshopData,
   saveSupabaseCertification,
 } from "@/lib/supabase/services";
+import { getPeruDateString } from "@/lib/utils/date-utils";
 
 export function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -568,7 +569,7 @@ export const useAppStore = create<AppState>()(
         boletaLastNumber: 259,
         facturaSeries: "F001",
         facturaLastNumber: 282,
-        lastUpdateDate: new Date().toISOString().slice(0, 10),
+        lastUpdateDate: getPeruDateString(),
       },
       updateCorrelativeConfig: (config) => {
         const next = { ...get().correlativeConfig, ...config };
@@ -582,7 +583,7 @@ export const useAppStore = create<AppState>()(
           boletaLastNumber: 259,
           facturaSeries: "F001",
           facturaLastNumber: 282,
-          lastUpdateDate: new Date().toISOString().slice(0, 10),
+          lastUpdateDate: getPeruDateString(),
         };
 
         let nextNum = 1;
@@ -1227,8 +1228,8 @@ export const useAppStore = create<AppState>()(
             chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
             cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
             certification_type: certType,
-            issue_date: new Date().toISOString().slice(0, 10),
-            expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+            issue_date: getPeruDateString(),
+            expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
             status: "Solicitado",
             price: price,
             is_ready: false,

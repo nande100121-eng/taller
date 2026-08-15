@@ -27,6 +27,7 @@ import {
   X,
   Edit3
 } from "lucide-react";
+import { formatPeruDateTime } from "@/lib/utils/date-utils";
 
 export default function PorteriaPage() {
   const {
@@ -506,7 +507,8 @@ export default function PorteriaPage() {
     updateAppointment(rescheduleModal.id, {
       scheduled_date: new Date(rescheduleDate).toISOString(),
     });
-    showAlert("info", `Cita de ${rescheduleModal.plate} reprogramada para ${new Date(rescheduleDate).toLocaleString()}.`);
+    const formattedDate = formatPeruDateTime(rescheduleDate, false);
+    showAlert("info", `Cita de ${rescheduleModal.plate} reprogramada para ${formattedDate}.`);
     setRescheduleModal(null);
   };
 
@@ -782,7 +784,7 @@ export default function PorteriaPage() {
                         </div>
                         <p className="text-xs text-gray-400">
                           <span className="text-gray-300 font-medium">{app.service_type}</span> •{" "}
-                          <span className="text-amber-400">{new Date(app.scheduled_date).toLocaleString()}</span>
+                          <span className="text-amber-400">{formatPeruDateTime(app.scheduled_date, false)}</span>
                         </p>
                       </div>
 

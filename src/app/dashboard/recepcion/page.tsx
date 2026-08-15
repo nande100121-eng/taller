@@ -22,6 +22,7 @@ import {
   Check,
   Phone
 } from "lucide-react";
+import { getPeruDateTimeLocal, formatPeruDateTime } from "@/lib/utils/date-utils";
 
 export default function RecepcionPage() {
   const {
@@ -48,7 +49,7 @@ export default function RecepcionPage() {
     client_phone: "",
     plate: "",
     service_type: "Conversión a GNV 5ta Gen",
-    scheduled_date: new Date(Date.now() + 86400000).toISOString().slice(0, 16),
+    scheduled_date: getPeruDateTimeLocal(new Date(Date.now() + 86400000)),
     notes: "",
   });
 
@@ -161,7 +162,7 @@ export default function RecepcionPage() {
       status: transferForm.target_status,
       assigned_technician_id: transferForm.technician_id || undefined,
       problem_description: transferForm.problem_description,
-      diagnostic_notes: `Ingresado desde Recepción/Citas el ${new Date().toLocaleString("es-PE")}`,
+      diagnostic_notes: `Ingresado desde Recepción/Citas el ${formatPeruDateTime(new Date())}`,
     });
 
     // 3. Mark appointment as completed
@@ -294,13 +295,7 @@ export default function RecepcionPage() {
                         <div className="flex items-center justify-between">
                           <span className="text-gray-400">Fecha Agendada:</span>
                           <span className="font-bold text-white">
-                            {new Date(app.scheduled_date).toLocaleString("es-PE", {
-                              day: "2-digit",
-                              month: "short",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formatPeruDateTime(app.scheduled_date, false)}
                           </span>
                         </div>
                         {app.notes && (

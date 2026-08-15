@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { getPeruDateString } from "@/lib/utils/date-utils";
 
 interface MiniDatePickerProps {
   value: string; // YYYY-MM-DD
@@ -61,7 +62,7 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
   // Generate days in month
   const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getPeruDateString();
 
   const handleSelectDay = (day: number) => {
     const m = (viewMonth + 1).toString().padStart(2, "0");
@@ -72,10 +73,11 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
   };
 
   const handleSetToday = () => {
-    const now = new Date();
-    setViewYear(now.getFullYear());
-    setViewMonth(now.getMonth());
-    onChange(todayStr);
+    const peruToday = getPeruDateString();
+    const d = new Date(`${peruToday}T00:00:00`);
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+    onChange(peruToday);
     setIsOpen(false);
   };
 

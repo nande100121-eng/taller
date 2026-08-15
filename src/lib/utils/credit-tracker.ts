@@ -1,4 +1,5 @@
 import { WorkOrder, Invoice } from "@/lib/store/app-store";
+import { formatPeruDate } from "@/lib/utils/date-utils";
 
 export interface CreditSettlementInfo {
   isSettled: boolean;
@@ -186,7 +187,7 @@ export function buildVehicleCreditSettlementMap(
         const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
         const serviceName = (wo.items || []).map((it) => it.description).join(" + ") || wo.problem_description || "Servicio Taller";
         const recordedCredit = credit > 0 ? credit : paidAmount;
-        const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "Visita anterior";
+        const dateStr = wo.entry_time ? formatPeruDate(wo.entry_time) : "Visita anterior";
 
         if (!settledOrdersMap.has(wo.id)) {
           settledOrdersMap.set(wo.id, {
@@ -222,7 +223,7 @@ export function buildVehicleCreditSettlementMap(
 
       if (isCancellationPayment) {
         const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
-        const dateStr = wo.entry_time ? new Date(wo.entry_time).toLocaleDateString("es-PE") : "Fecha posterior";
+        const dateStr = wo.entry_time ? formatPeruDate(wo.entry_time) : "Fecha posterior";
 
         let target = pendingCreditsQueue.length > 0 ? pendingCreditsQueue.shift() : null;
 
@@ -232,7 +233,7 @@ export function buildVehicleCreditSettlementMap(
             const prevWo = sorted[j];
             if (!settledOrdersMap.has(prevWo.id) || !settledOrdersMap.get(prevWo.id)?.isSettled) {
               const prevService = (prevWo.items || []).map((it) => it.description).join(" + ") || prevWo.problem_description || "Servicio Taller";
-              const prevDate = prevWo.entry_time ? new Date(prevWo.entry_time).toLocaleDateString("es-PE") : "Visita anterior";
+              const prevDate = prevWo.entry_time ? formatPeruDate(prevWo.entry_time) : "Visita anterior";
               target = {
                 order: prevWo,
                 invoice: getInvoice(prevWo.id),

@@ -29,8 +29,9 @@ import {
   Filter,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
 
-export default function TallerPage() {
+export default function WorkshopOperationsPage() {
   const {
     workOrders,
     updateWorkOrderStatus,
@@ -48,7 +49,7 @@ export default function TallerPage() {
   } = useAppStore();
 
   const [timeFilter, setTimeFilter] = useState<"hoy" | "todos">("hoy");
-  const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
   const [searchPlate, setSearchPlate] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
@@ -251,7 +252,7 @@ export default function TallerPage() {
 
   // Overall & Context counts
   const counts = React.useMemo(() => {
-    const todayTarget = queryDate || new Date().toISOString().slice(0, 10);
+    const todayTarget = queryDate || getPeruDateString();
     const todayOrders = workOrders.filter((wo) => {
       const d = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
       return d === todayTarget;
@@ -523,7 +524,7 @@ export default function TallerPage() {
                     <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
                       <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
                         <Clock className="w-3.5 h-3.5" />
-                        <span>Llegada: {new Date(wo.entry_time).toLocaleString()}</span>
+                        <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
                       </div>
                       <div className="flex items-center gap-1.5 pt-0.5">
                         <User className="w-3.5 h-3.5 text-gray-400" />

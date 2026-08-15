@@ -4,6 +4,7 @@ import React, { useRef, useState } from "react";
 import { Printer, Download, X, CheckCircle2, QrCode as QrIcon, Copy, Check } from "lucide-react";
 import { numberToSpanishWords } from "@/lib/utils/number-to-words";
 import { buildSunatFiscalQrString, generateEscPosQrBytes } from "@/lib/utils/escpos-qr";
+import { formatPeruDate, formatPeruDateTime } from "@/lib/utils/date-utils";
 import { WorkOrder, Invoice } from "@/lib/store/app-store";
 
 interface ThermalReceiptModalProps {
@@ -163,12 +164,9 @@ export default function ThermalReceiptModal({
   const igvAmount = effectiveTotal - opGravadas;
   const amountInWords = numberToSpanishWords(effectiveTotal);
 
-  // Date formatted
+  // Date formatted in Peru timezone
   const rawDate = issuedAt || invoice?.issued_at || workOrder?.entry_time || new Date().toISOString();
-  const dateObj = new Date(rawDate);
-  const dateFormatted = isNaN(dateObj.getTime())
-    ? new Date().toLocaleDateString("es-PE")
-    : dateObj.toLocaleDateString("es-PE");
+  const dateFormatted = formatPeruDate(rawDate);
 
   // Build standard SUNAT fiscal QR String
   const sunatQrString = buildSunatFiscalQrString({
@@ -262,8 +260,8 @@ export default function ThermalReceiptModal({
           <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
         </div>`;
 
-    // Print/Save timestamp (captured at the moment of printing)
-    const printTimestamp = new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    // Print/Save timestamp in Peru timezone (captured at the moment of printing)
+    const printTimestamp = formatPeruDateTime(new Date(), true);
     const printTimestampHtml = `<div style="text-align:center;font-size:8px;color:#555;padding-top:6px;border-top:1px dashed #aaa;margin-top:4px;">Fecha y hora de impresión: ${printTimestamp}</div>`;
 
     // Address section (only if address is present)
@@ -606,7 +604,7 @@ export default function ThermalReceiptModal({
 
             {/* 9. Print/Save Timestamp */}
             <div className="text-center text-[8px] text-gray-500 pt-1.5 mt-1 border-t border-dashed border-gray-300">
-              Fecha y hora de impresión: {new Date().toLocaleString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+              Fecha y hora de impresión: {formatPeruDateTime(new Date(), true)}
             </div>
           </div>
         </div>

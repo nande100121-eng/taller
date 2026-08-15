@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useAppStore } from "@/lib/store/app-store";
+import { getPeruDateString } from "@/lib/utils/date-utils";
 import {
   FileText,
   Calendar,
@@ -29,8 +30,8 @@ export default function ReportesCajaPage() {
     technicians,
   } = useAppStore();
 
-  // Selected date filter (default today)
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  // Selected date filter (default today in Peru)
+  const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [searchFilter, setSearchFilter] = useState("");
 
   // O(1) Maps for fast joining
@@ -71,7 +72,7 @@ export default function ReportesCajaPage() {
   const changeDateByDays = (days: number) => {
     const d = new Date(selectedDate + "T12:00:00");
     d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    setSelectedDate(getPeruDateString(d));
   };
 
   // Format date display (e.g. "12/08/2026")
@@ -456,7 +457,7 @@ export default function ReportesCajaPage() {
           </div>
 
           <button
-            onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
+            onClick={() => setSelectedDate(getPeruDateString())}
             className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 transition-colors"
           >
             Hoy

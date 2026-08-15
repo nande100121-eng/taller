@@ -9,6 +9,7 @@ import {
 import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
 import {
   CreditCard,
   DollarSign,
@@ -55,7 +56,7 @@ export default function CajaPage() {
   const [searchPlate, setSearchPlate] = useState("");
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [visibleLimit, setVisibleLimit] = useState(30);
-  const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10)); // Default today
+  const [queryDate, setQueryDate] = useState<string>(getPeruDateString()); // Default today in Peru
 
   // Reset pagination on search or tab change
   React.useEffect(() => {
@@ -277,7 +278,7 @@ export default function CajaPage() {
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
   const todayCount = React.useMemo(() => {
-    const targetDate = queryDate || new Date().toISOString().slice(0, 10);
+    const targetDate = queryDate || getPeruDateString();
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
@@ -290,7 +291,7 @@ export default function CajaPage() {
   // Filtered orders for Caja Tab
   const filteredCajaOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
-    const targetDate = queryDate || new Date().toISOString().slice(0, 10);
+    const targetDate = queryDate || getPeruDateString();
 
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
@@ -615,7 +616,7 @@ export default function CajaPage() {
             <Coins className="w-6 h-6 text-purple-400 shrink-0" />
             <div>
               <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                Recaudado ({queryDate === new Date().toISOString().slice(0, 10) ? "Hoy" : queryDate})
+                Recaudado ({queryDate === getPeruDateString() ? "Hoy" : queryDate})
               </span>
               <span className="text-xl font-black text-emerald-400">S/ {totalPaidToday.toFixed(2)}</span>
             </div>
@@ -626,7 +627,7 @@ export default function CajaPage() {
             <Clock className="w-6 h-6 text-amber-400 shrink-0" />
             <div>
               <span className="text-[10px] text-amber-300 uppercase font-bold block">
-                Por Cobrar ({queryDate === new Date().toISOString().slice(0, 10) ? "Hoy" : queryDate})
+                Por Cobrar ({queryDate === getPeruDateString() ? "Hoy" : queryDate})
               </span>
               <span className="text-xl font-black text-amber-400">
                 S/ {totalPendingToday.toFixed(2)} <span className="text-xs font-normal text-amber-300/80">({pendingCountToday})</span>
@@ -823,7 +824,7 @@ export default function CajaPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[11px] font-mono text-purple-300 bg-purple-950/60 px-2.5 py-1 rounded-lg border border-purple-500/30">
                               📅 <strong>Registro:</strong>{" "}
-                              {wo.entry_time ? new Date(wo.entry_time).toLocaleString() : "Hoy"}
+                              {wo.entry_time ? formatPeruDateTime(wo.entry_time) : "Hoy"}
                             </span>
 
                             <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">

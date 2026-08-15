@@ -6,22 +6,30 @@ import {
   Cpu,
   Key,
   Globe,
+  Database,
+  RefreshCw,
+  Layers,
+  FileSpreadsheet,
+  Cloud,
   CheckCircle2,
+  Lock,
+  Calendar,
+  Clock,
+  Sparkles,
+  Server,
   AlertTriangle,
-  Save,
   ShieldCheck,
   Zap,
-  RefreshCw,
   Sliders,
   ExternalLink,
   Download,
   HardDrive,
-  Database,
-  FileSpreadsheet,
   FolderArchive,
   Receipt,
-  Hash
+  Hash,
+  Save
 } from "lucide-react";
+import { getPeruDateString } from "@/lib/utils/date-utils";
 
 export default function ConfiguracionPage() {
   const {
@@ -46,7 +54,7 @@ export default function ConfiguracionPage() {
     boletaLastNumber: correlativeConfig?.boletaLastNumber || 259,
     facturaSeries: correlativeConfig?.facturaSeries || "F001",
     facturaLastNumber: correlativeConfig?.facturaLastNumber || 282,
-    lastUpdateDate: correlativeConfig?.lastUpdateDate || new Date().toISOString().slice(0, 10),
+    lastUpdateDate: correlativeConfig?.lastUpdateDate || getPeruDateString(),
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
@@ -60,7 +68,7 @@ export default function ConfiguracionPage() {
         boletaLastNumber: correlativeConfig.boletaLastNumber || 259,
         facturaSeries: correlativeConfig.facturaSeries || "F001",
         facturaLastNumber: correlativeConfig.facturaLastNumber || 282,
-        lastUpdateDate: correlativeConfig.lastUpdateDate || new Date().toISOString().slice(0, 10),
+        lastUpdateDate: correlativeConfig.lastUpdateDate || getPeruDateString(),
       });
     }
   }, [correlativeConfig]);
@@ -172,7 +180,7 @@ export default function ConfiguracionPage() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `ReyGas_Backup_ERP_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute("download", `ReyGas_Backup_ERP_${getPeruDateString()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -194,7 +202,7 @@ export default function ConfiguracionPage() {
 
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", csvContent);
-    downloadAnchor.setAttribute("download", `ReyGas_${tableName}_${new Date().toISOString().slice(0, 10)}.csv`);
+    downloadAnchor.setAttribute("download", `ReyGas_${tableName}_${getPeruDateString()}.csv`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();

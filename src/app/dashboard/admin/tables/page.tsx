@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
+import { formatPeruDate } from "@/lib/utils/date-utils";
 import {
   Table,
   UserCheck,
@@ -608,7 +609,7 @@ export default function AdminTablesPage() {
                         </td>
                         <td className="p-3 font-mono font-bold text-gray-400">#{startIndex + index + 1}</td>
                         <td className="p-3 font-mono text-purple-300">
-                          {wo.entry_time ? (wo.entry_time.includes("T") ? new Date(wo.entry_time).toLocaleDateString("es-PE") : wo.entry_time) : ""}
+                          {wo.entry_time ? (wo.entry_time.includes("T") ? formatPeruDate(wo.entry_time) : wo.entry_time) : ""}
                         </td>
                         <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
                         <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>

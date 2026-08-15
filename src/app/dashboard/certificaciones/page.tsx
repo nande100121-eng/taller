@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
+import { getPeruDateString } from "@/lib/utils/date-utils";
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -84,7 +85,7 @@ export default function CertificacionesPage() {
 
   // Active Filter Tabs
   const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "vencidos" | "esta_semana" | "este_mes" | "emitidos" | "todos">("hoy");
-  const [queryDate, setQueryDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
   const [searchQuery, setSearchQuery] = useState("");
 
   // Custom Month & Year Selector for Expiry Lookahead
@@ -117,8 +118,8 @@ export default function CertificacionesPage() {
     cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
     certification_type: "Certificado Anual GNV" as any,
     price: 80,
-    issue_date: new Date().toISOString().slice(0, 10),
-    expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+    issue_date: getPeruDateString(),
+    expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
     quinquennial_date: "-",
   });
 
@@ -205,7 +206,7 @@ export default function CertificacionesPage() {
         price: typeof c.price === "number" && !isNaN(c.price) ? c.price : 80,
         status: cardStatus,
         isReady: c.is_ready ?? (c.status !== "Solicitado"),
-        issueDate: (c.issue_date || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+        issueDate: (c.issue_date || "").slice(0, 10) || getPeruDateString(),
         expiryDate: fechaAnual,
         quinquennialDate: fechaQuinquenal,
         rawCert: c,
@@ -257,7 +258,7 @@ export default function CertificacionesPage() {
           price: wo.certification_price || 80,
           status: cardStatus,
           isReady: !wo.requires_certification || !!wo.certification_issued,
-          issueDate: (wo.entry_time || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
+          issueDate: (wo.entry_time || "").slice(0, 10) || getPeruDateString(),
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
           rawOrder: wo,
@@ -284,7 +285,7 @@ export default function CertificacionesPage() {
 
   // Counts
   const counts = useMemo(() => {
-    const hoyStr = queryDate || now.toISOString().slice(0, 10);
+    const hoyStr = queryDate || getPeruDateString();
     let hoy = 0;
     let pendientes = 0;
     let vencidos = 0;
@@ -409,8 +410,8 @@ export default function CertificacionesPage() {
       chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
       cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
       certification_type: card.certificationType,
-      issue_date: new Date().toISOString().slice(0, 10),
-      expiry_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+      issue_date: getPeruDateString(),
+      expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
       status: "Solicitado",
       price: card.price,
       is_ready: false,
@@ -424,7 +425,7 @@ export default function CertificacionesPage() {
       chipCode: cert.chip_code || `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
       cylinderSerial: cert.cylinder_serial || `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
       certificateNumber: `CERT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      expiryDate: cert.expiry_date || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+      expiryDate: cert.expiry_date || getPeruDateString(new Date(Date.now() + 365 * 86400000)),
       notes: "Inspección técnica satisfactoria. Cumple normativa MTC / Produce.",
     });
   };
