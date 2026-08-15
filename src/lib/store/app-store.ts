@@ -472,6 +472,7 @@ interface AppState {
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
+  toggleOrderPayment: (orderId: string, invoiceId?: string) => void;
   confirmInvoicePayment: (params: {
     invoiceId?: string;
     workOrderId?: string;
@@ -1583,28 +1584,73 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
-      togglePayInvoice: (invoiceId) =>
+      togglePayInvoice: (invoiceId) => {
+        const inv = get().invoices.find((i) => i.id === invoiceId);
+        get().toggleOrderPayment(inv?.work_order_id || "", invoiceId);
+      },
+
+      toggleOrderPayment: (orderId, invoiceId) =>
         set((state) => {
-          const targetInvoice = state.invoices.find((i) => i.id === invoiceId);
-          if (!targetInvoice) return state;
+          let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+          if (!targetInvoice && orderId) {
+            targetInvoice = state.invoices.find((i) => i.work_order_id === orderId);
+          }
 
-          const isCurrentlyPaid = targetInvoice.payment_status === "pagado";
-          const nextStatus = isCurrentlyPaid ? ("pendiente" as const) : ("pagado" as const);
-          const updatedInvoice = {
-            ...targetInvoice,
-            payment_status: nextStatus,
-            paid_at: nextStatus === "pagado" ? new Date().toISOString() : undefined,
-          };
-          saveSupabaseInvoice(updatedInvoice);
+          const targetOrder = state.workOrders.find((o) => o.id === orderId);
+          const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
 
-          const updatedInvoices = state.invoices.map((i) =>
-            i.id === invoiceId ? updatedInvoice : i
-          );
+          // Determine current paid state
+          const isCurrentlyPaid =
+            targetInvoice?.payment_status === "pagado" ||
+            (targetInvoice?.payment_condition || "").toUpperCase().includes("PAGADO") ||
+            targetOrder?.status === "pagado_autorizado" ||
+            targetOrder?.status === "finalizado";
+
+          const nextPaymentStatus = isCurrentlyPaid ? ("pendiente" as const) : ("pagado" as const);
+          const nextCondition = isCurrentlyPaid ? "PENDIENTE" : "PAGADO";
+          const nextPaidAt = isCurrentlyPaid ? undefined : new Date().toISOString();
+          const nextOrderStatus = isCurrentlyPaid ? ("por_cobrar" as WorkOrderStatus) : ("pagado_autorizado" as WorkOrderStatus);
+
+          let updatedInvoices = [...state.invoices];
+
+          if (targetInvoice) {
+            const updatedInv: Invoice = {
+              ...targetInvoice,
+              payment_status: nextPaymentStatus,
+              payment_condition: nextCondition,
+              paid_at: nextPaidAt,
+            };
+            saveSupabaseInvoice(updatedInv);
+            updatedInvoices = updatedInvoices.map((i) => (i.id === targetInvoice!.id ? updatedInv : i));
+          } else if (targetOrder) {
+            const partsTotal = (targetOrder.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
+            const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
+            const newInv: Invoice = {
+              id: generateUUID(),
+              work_order_id: targetOrder.id,
+              vehicle_plate: targetOrder.vehicle_plate,
+              client_name: vehicle?.owner_name || "Cliente Taller",
+              labor_fee: 0,
+              parts_total: partsTotal,
+              certification_fee: certFee,
+              grand_total: partsTotal + certFee,
+              payment_status: nextPaymentStatus,
+              payment_condition: nextCondition,
+              payment_method: "Efectivo",
+              payment_destination: "EMPRESA",
+              issued_at: targetOrder.entry_time || new Date().toISOString(),
+              paid_at: nextPaidAt,
+            };
+            saveSupabaseInvoice(newInv);
+            updatedInvoices.push(newInv);
+          }
 
           const updatedOrders = state.workOrders.map((o) => {
-            if (o.id === targetInvoice.work_order_id) {
-              const nextOrderStatus = isCurrentlyPaid ? ("por_cobrar" as WorkOrderStatus) : ("pagado_autorizado" as WorkOrderStatus);
-              const updatedOrder = { ...o, status: nextOrderStatus };
+            if (o.id === orderId) {
+              const updatedOrder = {
+                ...o,
+                status: nextOrderStatus,
+              };
               saveSupabaseWorkOrder(updatedOrder);
               return updatedOrder;
             }

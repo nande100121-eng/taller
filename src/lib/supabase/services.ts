@@ -145,8 +145,11 @@ export async function clearSupabaseInventory() {
 // ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
-    let diagText = order.diagnostic_notes || "";
-    if (order.observations) {
+    let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").trim();
+    if (order.allow_modifications) {
+      diagText = `${diagText}\n[ALLOW_MOD]: true`.trim();
+    }
+    if (order.observations && !diagText.includes("[OBSERVACIONES]:")) {
       diagText = `${diagText}\n[OBSERVACIONES]: ${order.observations}`.trim();
     }
 
@@ -159,6 +162,12 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       diagnostic_notes: diagText || null,
       entry_time: order.entry_time || new Date().toISOString(),
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
+    });
+    // Also save in site_content key as fallback sync
+    await saveSupabaseSiteContent(`wo_mod_${order.id}`, {
+      allow_modifications: !!order.allow_modifications,
+      status: order.status,
+      updated_at: new Date().toISOString(),
     });
     broadcastRealtimeChange("work_order_updated");
     if (error) console.warn("Supabase work order save warning:", error.message);
@@ -313,13 +322,19 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
       const rawDiag = o.diagnostic_notes || "";
       let diagNotes = rawDiag;
       let obs = "";
-      if (rawDiag.includes("[OBSERVACIONES]:")) {
-        const parts = rawDiag.split("[OBSERVACIONES]:");
+      let allowMod = false;
+      if (diagNotes.includes("[ALLOW_MOD]: true")) {
+        allowMod = true;
+        diagNotes = diagNotes.replace("[ALLOW_MOD]: true", "").trim();
+      }
+      if (diagNotes.includes("[OBSERVACIONES]:")) {
+        const parts = diagNotes.split("[OBSERVACIONES]:");
         diagNotes = parts[0].trim();
         obs = parts[1].trim();
       }
       return {
         ...o,
+        allow_modifications: allowMod || !!o.allow_modifications,
         diagnostic_notes: diagNotes,
         observations: obs || o.observations || undefined,
         items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
@@ -428,13 +443,19 @@ export async function fetchSupabaseErpData() {
             const rawDiag = o.diagnostic_notes || "";
             let diagNotes = rawDiag;
             let obs = "";
-            if (rawDiag.includes("[OBSERVACIONES]:")) {
-              const parts = rawDiag.split("[OBSERVACIONES]:");
+            let allowMod = false;
+            if (diagNotes.includes("[ALLOW_MOD]: true")) {
+              allowMod = true;
+              diagNotes = diagNotes.replace("[ALLOW_MOD]: true", "").trim();
+            }
+            if (diagNotes.includes("[OBSERVACIONES]:")) {
+              const parts = diagNotes.split("[OBSERVACIONES]:");
               diagNotes = parts[0].trim();
               obs = parts[1].trim();
             }
             return {
               ...o,
+              allow_modifications: allowMod || !!o.allow_modifications,
               diagnostic_notes: diagNotes,
               observations: obs || o.observations || undefined,
               items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],

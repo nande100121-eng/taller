@@ -469,7 +469,8 @@ export default function WorkshopOperationsPage() {
             const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
             const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
             const invoice = invoices.find((i) => i.work_order_id === wo.id);
-            const isPaid = wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
+            const isExplicitPending = wo.status === "por_cobrar" || wo.status === "pendiente_pago" || invoice?.payment_status === "pendiente";
+            const isPaid = !isExplicitPending && (wo.status === "pagado_autorizado" || wo.status === "finalizado" || invoice?.payment_status === "pagado");
             const isLocked = isPaid && !wo.allow_modifications;
 
             // Current step index in pipeline
@@ -481,6 +482,8 @@ export default function WorkshopOperationsPage() {
                 className={`glass-panel p-6 rounded-2xl border transition-all space-y-6 ${
                   isLocked
                     ? "border-emerald-500/40 bg-emerald-950/10"
+                    : wo.allow_modifications && isPaid
+                    ? "border-amber-500/50 bg-amber-950/10 shadow-lg shadow-amber-500/10"
                     : "border-white/10 hover:border-amber-500/30"
                 }`}
               >
@@ -495,6 +498,21 @@ export default function WorkshopOperationsPage() {
                     </div>
                     <span className="text-[10px] text-emerald-200 font-normal">
                       (Para modificar, desmarcar pago o pulsar "Permitir Modificación" en la pestaña Caja & Facturación)
+                    </span>
+                  </div>
+                )}
+
+                {/* Unlocked Notice if Paid with Modification Enabled */}
+                {!isLocked && isPaid && wo.allow_modifications && (
+                  <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Unlock className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        🔓 MODIFICACIÓN HABILITADA DESDE CAJA (ORDEN EDITABLE)
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-amber-200 font-normal">
+                      Puede modificar repuestos, servicios y diagnóstico libremente.
                     </span>
                   </div>
                 )}

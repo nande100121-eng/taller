@@ -45,6 +45,7 @@ export default function CajaPage() {
     getAndIncrementReceiptNumber,
     createInvoiceForOrder,
     togglePayInvoice,
+    toggleOrderPayment,
     confirmInvoicePayment,
     toggleAllowModificationsInWorkshop,
   } = useAppStore();
@@ -160,35 +161,35 @@ export default function CajaPage() {
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
     if (!wo && !inv) return false;
 
-    // 0. If credit was settled/paid in a subsequent debt cancellation visit -> Paid!
+    // 0. Explicit payment status flags have HIGHEST priority (user action)
+    if (inv?.payment_status === "pendiente" || wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") {
+      return false;
+    }
+
+    if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
+      return true;
+    }
+
+    // 1. If credit was settled/paid in a subsequent debt cancellation visit -> Paid!
     const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
     if (settledInfo?.isSettled) return true;
 
-    // 1. Explicit condition from CSV: If payment_condition says PAGADO and no credit amount -> Paid!
+    // 2. Condition from CSV or credit record
     const condition = (inv?.payment_condition || "").toUpperCase().trim();
     const hasCredit = (inv?.credit_amount || 0) > 0;
-
-    if (condition.includes("PAGADO") && !hasCredit) {
-      return true;
-    }
 
     if (condition.includes("PENDIENTE") || condition.includes("CREDIT") || hasCredit) {
       return false;
     }
 
-    // 2. If grandTotal is 0 and no credit amount -> Fully covered / paid (warranty/courtesy)
+    if (condition.includes("PAGADO") && !hasCredit) {
+      return true;
+    }
+
+    // 3. If grandTotal is 0 and no credit amount -> Fully covered / paid (warranty/courtesy)
     const grandTotal = inv?.grand_total !== undefined ? inv.grand_total : (wo?.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
     if (grandTotal === 0 && !hasCredit) {
       return true;
-    }
-
-    // 3. Explicit payment_status / status
-    if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
-      return true;
-    }
-
-    if (inv?.payment_status === "pendiente" || wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") {
-      return false;
     }
 
     // 4. If there is a receipt number and no credit -> Paid
@@ -958,21 +959,25 @@ export default function CajaPage() {
                             <>
                               <button
                                 onClick={() => {
-                                  if (invoice) togglePayInvoice(invoice.id);
+                                  toggleOrderPayment(wo.id, invoice?.id);
+                                  showAlert("warning", `Pago de ${wo.vehicle_plate} desmarcado (Estado: Pendiente de Cobro).`);
                                 }}
-                                className="px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-black flex items-center gap-2 transition-all"
-                                title="Haga clic para revertir estado a pendiente"
+                                className="px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-amber-500/20 hover:text-amber-400 border border-emerald-500/40 hover:border-amber-500/40 text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow"
+                                title="Haga clic para desmarcar pago y revertir a Pendiente"
                               >
                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                                 <span>PAGADO (Desmarcar Pago)</span>
                               </button>
 
                               <button
-                                onClick={() => toggleAllowModificationsInWorkshop(wo.id)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border ${
+                                onClick={() => {
+                                  toggleAllowModificationsInWorkshop(wo.id);
+                                  showAlert("success", !allowModInWorkshop ? `🔓 Modificaciones habilitadas en Taller para ${wo.vehicle_plate}.` : `🔒 Modificaciones bloqueadas en Taller para ${wo.vehicle_plate}.`);
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${
                                   allowModInWorkshop
                                     ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
-                                    : "bg-gray-800 text-gray-400 border-white/10 hover:text-white"
+                                    : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
                                 }`}
                               >
                                 {allowModInWorkshop ? (
