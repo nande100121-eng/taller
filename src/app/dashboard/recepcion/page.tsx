@@ -20,7 +20,8 @@ import {
   ArrowRight,
   FileText,
   Check,
-  Phone
+  Phone,
+  FileSpreadsheet
 } from "lucide-react";
 import { getPeruDateTimeLocal, formatPeruDateTime } from "@/lib/utils/date-utils";
 
@@ -37,10 +38,251 @@ export default function RecepcionPage() {
     workOrders,
     createWorkOrder,
     assignTechnicianToOrder,
+    scheduleRecords,
+    addScheduleRecord,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<"citas" | "radar">("citas");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Cartilla Registration Modal State (Alimenta Tabla de Programación)
+  const [cartillaModalOpen, setCartillaModalOpen] = useState(false);
+  const [cartillaForm, setCartillaForm] = useState({
+    vehicle_plate: "",
+    client_name: "",
+    client_phone: "",
+    current_mileage: 0,
+    service_date: getPeruDateTimeLocal().slice(0, 10),
+    service_name: "Instalación 5ta GNV FISE",
+    next_maintenance_date: "",
+    expiry_quinquennial: "",
+    expiry_chip_annual: "",
+    notes: "",
+  });
+
+  const calculate90Days = (baseDateStr?: string) => {
+    try {
+      const base = baseDateStr ? new Date(baseDateStr + "T12:00:00") : new Date();
+      if (isNaN(base.getTime())) return "";
+      base.setDate(base.getDate() + 90);
+      return base.toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  };
+
+  const handleOpenCartillaModal = () => {
+    const today = getPeruDateTimeLocal().slice(0, 10);
+    setCartillaForm({
+      vehicle_plate: "",
+      client_name: "",
+      client_phone: "",
+      current_mileage: 0,
+      service_date: today,
+      service_name: "Instalación 5ta GNV FISE",
+      next_maintenance_date: calculate90Days(today),
+      expiry_quinquennial: "",
+      expiry_chip_annual: "",
+      notes: "",
+    });
+    setCartillaModalOpen(true);
+  };
+
+  const handleSaveCartilla = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cartillaForm.vehicle_plate.trim()) {
+      alert("Por favor ingrese la placa del vehículo.");
+      return;
+    }
+
+    const calcDue = cartillaForm.next_maintenance_date || calculate90Days(cartillaForm.service_date);
+
+    addScheduleRecord({
+      vehicle_plate: cartillaForm.vehicle_plate.toUpperCase().trim(),
+      client_name: cartillaForm.client_name.trim() || "Cliente",
+      client_phone: cartillaForm.client_phone.trim(),
+      current_mileage: Number(cartillaForm.current_mileage) || 0,
+      service_date: cartillaForm.service_date,
+      service_name: cartillaForm.service_name,
+      next_maintenance_date: calcDue,
+      expiry_quinquennial: cartillaForm.expiry_quinquennial,
+      expiry_chip_annual: cartillaForm.expiry_chip_annual,
+      status: "programado",
+      notes: cartillaForm.notes,
+    });
+
+    setCartillaModalOpen(false);
+    showSuccess(`¡Cartilla de ${cartillaForm.vehicle_plate.toUpperCase()} registrada con éxito a 90 días!`);
+  };
+
+  // Radar 90 Días Logic & 4 Filters
+  const [radarFilter, setRadarFilter] = useState<"semanal" | "mensual" | "10dias" | "todos">("semanal");
+
+  const parseToDate = (str?: string): Date | null => {
+    if (!str || !str.trim() || str.trim() === "-") return null;
+    const s = str.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return new Date(s.slice(0, 10) + "T12:00:00");
+    }
+    if (/^\d{2}\/\d{2}\/\d{4}/.test(s)) {
+      const [d, m, y] = s.split("/");
+      return new Date(`${y}-${m}-${d}T12:00:00`);
+    }
+    const parsed = new Date(s);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  const todayDate = new Date(getPeruDateTimeLocal().slice(0, 10) + "T12:00:00");
+
+  // Construct Radar 90-day Items from scheduleRecords & workOrders
+  const radarItems = React.useMemo(() => {
+    const list: Array<{
+      id: string;
+      plate: string;
+      client_name: string;
+      client_phone: string;
+      current_mileage?: number;
+      service_name: string;
+      service_date: string;
+      dueDate: string;
+      diffDays: number;
+    }> = [];
+
+    const TARGET_SERVICES = [
+      "instalación 5ta gnv fise",
+      "instalación 5ta gnv al contado",
+      "instalación 3ra gnv al contado",
+      "instalación 5ta glp",
+      "instalación 3ra glp",
+      "instalacion 5ta gnv fise",
+      "instalacion 5ta gnv al contado",
+      "instalacion 3ra gnv al contado",
+      "instalacion 5ta glp",
+      "instalacion 3ra glp",
+    ];
+
+    const seenKeys = new Set<string>();
+
+    // 1. From scheduleRecords
+    (scheduleRecords || []).forEach((rec) => {
+      const sName = (rec.service_name || "").toLowerCase();
+      const isTarget =
+        TARGET_SERVICES.some((t) => sName.includes(t)) ||
+        sName.includes("instalaci") ||
+        sName.includes("gnv") ||
+        sName.includes("glp") ||
+        !!rec.next_maintenance_date;
+
+      let dueDateObj: Date | null = null;
+      if (rec.next_maintenance_date) {
+        dueDateObj = parseToDate(rec.next_maintenance_date);
+      } else if (rec.service_date) {
+        const sDate = parseToDate(rec.service_date);
+        if (sDate) {
+          dueDateObj = new Date(sDate);
+          dueDateObj.setDate(dueDateObj.getDate() + 90);
+        }
+      }
+
+      if (dueDateObj && !isNaN(dueDateObj.getTime())) {
+        const diffMs = dueDateObj.getTime() - todayDate.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        const key = `${rec.vehicle_plate}_${rec.service_name}_${rec.service_date}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          list.push({
+            id: rec.id,
+            plate: rec.vehicle_plate,
+            client_name: rec.client_name || "Cliente",
+            client_phone: rec.client_phone || "",
+            current_mileage: rec.current_mileage || 0,
+            service_name: rec.service_name || "Instalación GNV/GLP",
+            service_date: rec.service_date || "-",
+            dueDate: dueDateObj.toISOString().slice(0, 10),
+            diffDays,
+          });
+        }
+      }
+    });
+
+    // 2. From workOrders matching target services
+    (workOrders || []).forEach((wo) => {
+      const diag = (wo.diagnostic_notes || "").toLowerCase();
+      const itemsStr = (wo.items || []).map((i) => (i.description || "").toLowerCase()).join(" ");
+      const isTarget = TARGET_SERVICES.some((t) => diag.includes(t) || itemsStr.includes(t));
+
+      if (isTarget && wo.vehicle_plate) {
+        const sDate = parseToDate(wo.entry_time);
+        if (sDate) {
+          const dueDateObj = new Date(sDate);
+          dueDateObj.setDate(dueDateObj.getDate() + 90);
+          const diffMs = dueDateObj.getTime() - todayDate.getTime();
+          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          const linkedVeh = (vehicles || []).find((v) => v.plate === wo.vehicle_plate);
+          const key = `${wo.vehicle_plate}_${wo.diagnostic_notes}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            list.push({
+              id: wo.id,
+              plate: wo.vehicle_plate,
+              client_name: linkedVeh?.owner_name || "Cliente",
+              client_phone: linkedVeh?.owner_phone || "",
+              current_mileage: linkedVeh?.current_mileage || 0,
+              service_name: wo.diagnostic_notes || "Instalación 5ta GNV",
+              service_date: sDate.toISOString().slice(0, 10),
+              dueDate: dueDateObj.toISOString().slice(0, 10),
+              diffDays,
+            });
+          }
+        }
+      }
+    });
+
+    // Sort by diffDays ascending (closest to expire first)
+    return list.sort((a, b) => a.diffDays - b.diffDays);
+  }, [scheduleRecords, workOrders, todayDate]);
+
+  // Counts for the 4 filters
+  const filterCounts = React.useMemo(() => {
+    const semanal = radarItems.filter((i) => i.diffDays >= -7 && i.diffDays <= 7).length;
+    const mensual = radarItems.filter((i) => i.diffDays >= -30 && i.diffDays <= 30).length;
+    const diezDias = radarItems.filter((i) => i.diffDays >= 0 && i.diffDays <= 10).length;
+    const todos = radarItems.length;
+    return { semanal, mensual, diezDias, todos };
+  }, [radarItems]);
+
+  const filteredRadarItems = React.useMemo(() => {
+    switch (radarFilter) {
+      case "semanal":
+        return radarItems.filter((i) => i.diffDays >= -7 && i.diffDays <= 7);
+      case "mensual":
+        return radarItems.filter((i) => i.diffDays >= -30 && i.diffDays <= 30);
+      case "10dias":
+        return radarItems.filter((i) => i.diffDays >= 0 && i.diffDays <= 10);
+      case "todos":
+      default:
+        return radarItems;
+    }
+  }, [radarItems, radarFilter]);
+
+  const handleSendRadarWhatsApp = (item: (typeof radarItems)[0]) => {
+    const cleanPhone = (item.client_phone || "").replace(/[^0-9]/g, "");
+    const clientName = item.client_name || "Cliente";
+    const plate = item.plate || "S/P";
+    const service = item.service_name || "Instalación GNV/GLP";
+    const dueDateFormatted = formatPeruDateTime(item.dueDate + "T00:00:00", false).split(" ")[0];
+
+    const message = encodeURIComponent(
+      `Estimado(a) *${clientName}*, le saludamos de *ReyGas Autogás Equipment*.\n\nLe recordamos que su vehículo con placa *${plate}* está próximo a cumplir sus *90 días* desde su atención de *${service}* (Fecha programada: *${dueDateFormatted}*).\n\nLe invitamos a pasar por nuestro taller para su revisión y calibración preventiva para mantener su garantía y óptimo rendimiento.\n\n¿Desea agendar su atención para esta semana?`
+    );
+
+    if (cleanPhone) {
+      window.open(`https://wa.me/${cleanPhone}?text=${message}`, "_blank");
+    } else {
+      window.open(`https://wa.me/?text=${message}`, "_blank");
+    }
+    showSuccess(`Mensaje de radar 90 días generado para ${plate}`);
+  };
 
   // New appointment modal
   const [newModalOpen, setNewModalOpen] = useState(false);
@@ -180,8 +422,6 @@ export default function RecepcionPage() {
   // Card inline scheduling date/time state
   const [cardDates, setCardDates] = useState<Record<string, string>>({});
 
-  const { scheduleRecords } = useAppStore();
-
   const handleOpenAvailabilityForApp = (app: Appointment) => {
     setTargetAppointmentForSlot(app);
     const existingDate = app.scheduled_date ? app.scheduled_date.slice(0, 10) : getPeruDateTimeLocal().slice(0, 10);
@@ -301,6 +541,14 @@ export default function RecepcionPage() {
               Reservas & Citas Web ({appointments.length})
             </button>
             <button
+              onClick={() => handleOpenCartillaModal()}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/30"
+              title="Registrar nueva cartilla de servicio para alimentar la Tabla de Programación"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Registrar Cartilla</span>
+            </button>
+            <button
               onClick={() => setActiveTab("radar")}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
                 activeTab === "radar"
@@ -308,7 +556,7 @@ export default function RecepcionPage() {
                   : "text-gray-400 hover:text-white"
               }`}
             >
-              Radar 15k KM WhatsApp ({maintenanceRadarVehicles.length})
+              Radar Vencimientos 90D ({radarItems.length})
             </button>
           </div>
         </div>
@@ -453,49 +701,176 @@ export default function RecepcionPage() {
           </div>
         </div>
       ) : (
-        /* WhatsApp 15k KM Radar */
-        <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-amber-400" />
-              <span>Radar de Mantenimiento Preventivo 15,000 KM</span>
-            </h2>
-            <span className="text-xs text-gray-400">
-              Despacho inteligente directo a WhatsApp del Propietario.
-            </span>
-          </div>
+        /* Radar Vencimientos 90 Días Post-Instalación & Programación */
+        <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+                <span>Radar de Vencimientos 90 Días (Post-Instalación & Mantenimiento)</span>
+              </h2>
+              <p className="text-xs text-gray-400">
+                Vehículos programados a 90 días después de: Instalación 5ta GNV FISE, Instalación 5ta GNV al contado, Instalación 3ra GNV al contado, Instalación 5ta GLP e Instalación 3ra GLP.
+              </p>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {maintenanceRadarVehicles.map((v) => (
-              <div
-                key={v.plate}
-                className="p-5 rounded-xl glass-card border border-amber-500/30 flex items-center justify-between gap-4"
+            {/* 4 Radar Filters Bar */}
+            <div className="flex items-center gap-2 bg-reygas-dark p-1.5 rounded-xl border border-white/10 flex-wrap">
+              <button
+                onClick={() => setRadarFilter("semanal")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  radarFilter === "semanal"
+                    ? "bg-blue-600 text-white shadow-lg"
+                    : "text-gray-400 hover:text-white"
+                }`}
               >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono font-black text-lg text-white bg-reygas-surface px-2.5 py-0.5 rounded border border-white/10">
-                      {v.plate}
-                    </span>
-                    <span className="text-xs font-bold text-amber-400">
-                      {v.current_mileage.toLocaleString()} KM Acumulados
-                    </span>
-                  </div>
-                  <h3 className="font-bold text-white text-sm">{v.owner_name}</h3>
-                  <p className="text-xs text-gray-400">
-                    {v.brand} {v.model} ({v.fuel_type})
-                  </p>
-                </div>
+                <span>📅 Semanal</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
+                  {filterCounts.semanal}
+                </span>
+              </button>
 
-                <button
-                  onClick={() => handleSendWhatsApp(v)}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-emerald-600/30 shrink-0"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>Enviar Alerta WhatsApp</span>
-                </button>
-              </div>
-            ))}
+              <button
+                onClick={() => setRadarFilter("mensual")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  radarFilter === "mensual"
+                    ? "bg-blue-600 text-white shadow-lg"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <span>🗓️ Mensual</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
+                  {filterCounts.mensual}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setRadarFilter("10dias")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  radarFilter === "10dias"
+                    ? "bg-amber-600 text-white shadow-lg"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <span>⚠️ Faltando 10 días</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
+                  {filterCounts.diezDias}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setRadarFilter("todos")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  radarFilter === "todos"
+                    ? "bg-indigo-600 text-white shadow-lg"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <span>🌐 Mostrar todos</span>
+                <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
+                  {filterCounts.todos}
+                </span>
+              </button>
+            </div>
           </div>
+
+          {filteredRadarItems.length === 0 ? (
+            <div className="p-12 text-center text-gray-500 space-y-2">
+              <AlertCircle className="w-10 h-10 mx-auto text-gray-600" />
+              <p className="text-sm">No hay vehículos con vencimiento para el filtro seleccionado ({radarFilter}).</p>
+              <p className="text-xs text-gray-600">
+                Puedes registrar cartillas de servicio con el botón "Registrar Cartilla" para alimentar las alertas a 90 días.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredRadarItems.map((item) => {
+                const isOverdue = item.diffDays < 0;
+                const isToday = item.diffDays === 0;
+                const isUrgent = item.diffDays > 0 && item.diffDays <= 10;
+
+                return (
+                  <div
+                    key={item.id + item.plate}
+                    className={`p-5 rounded-2xl glass-card border flex flex-col justify-between space-y-4 transition-all hover:border-amber-500/50 ${
+                      isOverdue
+                        ? "border-red-500/40 bg-red-950/10"
+                        : isUrgent
+                        ? "border-amber-500/40 bg-amber-950/10"
+                        : "border-white/10"
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      {/* Plate and Due Badge */}
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-black text-lg text-white bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow-inner">
+                          {item.plate}
+                        </span>
+                        <span
+                          className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${
+                            isOverdue
+                              ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
+                              : isToday
+                              ? "bg-red-500 text-white font-black animate-bounce"
+                              : isUrgent
+                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          }`}
+                        >
+                          {isOverdue
+                            ? `🔴 Vencido hace ${Math.abs(item.diffDays)} días`
+                            : isToday
+                            ? `🔴 ¡Vence HOY!`
+                            : isUrgent
+                            ? `🟡 ¡Urgente! Vence en ${item.diffDays} días`
+                            : `🟢 Próximo (${item.diffDays} días)`}
+                        </span>
+                      </div>
+
+                      {/* Client info */}
+                      <div>
+                        <h3 className="font-bold text-white text-base truncate">{item.client_name}</h3>
+                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 font-mono">
+                          <Phone className="w-3 h-3 text-reygas-red" />
+                          <span>{item.client_phone || "Sin teléfono"}</span>
+                          {item.current_mileage && item.current_mileage > 0 ? (
+                            <span className="ml-2 text-cyan-300 font-bold">
+                              • {item.current_mileage.toLocaleString()} KM
+                            </span>
+                          ) : null}
+                        </p>
+                        <span className="inline-block mt-2 text-xs font-extrabold text-amber-300 uppercase tracking-wider bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                          {item.service_name}
+                        </span>
+                      </div>
+
+                      {/* Dates */}
+                      <div className="text-xs text-gray-300 pt-2 border-t border-white/10 space-y-1 bg-reygas-dark/40 p-2.5 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400">Fecha de Atención:</span>
+                          <span className="font-mono text-gray-200 font-bold">{item.service_date}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-amber-400 font-bold">Límite 90 Días:</span>
+                          <span className="font-mono text-amber-300 font-black">{item.dueDate}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* WhatsApp Action Button */}
+                    <button
+                      onClick={() => handleSendRadarWhatsApp(item)}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform hover:scale-102"
+                      title="Enviar recordatorio formal por WhatsApp"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Enviar Recordatorio 90D WhatsApp</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1005,6 +1380,226 @@ export default function RecepcionPage() {
                 Cerrar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: REGISTRAR CARTILLA DE SERVICIO (ALIMENTA TABLA DE PROGRAMACIÓN) */}
+      {/* ========================================================================= */}
+      {cartillaModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel max-w-lg w-full p-6 rounded-2xl border border-emerald-500/40 space-y-4 relative shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto bg-reygas-dark">
+            <button
+              onClick={() => setCartillaModalOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                <span>Registrar Cartilla de Servicio</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Al registrar esta cartilla se alimenta la <strong>Tabla de Programación</strong> y se activa el <strong>Radar a 90 días</strong>.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveCartilla} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Placa del Vehículo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ABC-123"
+                    value={cartillaForm.vehicle_plate}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, vehicle_plate: e.target.value.toUpperCase() })
+                    }
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white uppercase font-mono font-bold focus:border-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Kilometraje (KM)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Ej. 15000"
+                    value={cartillaForm.current_mileage || ""}
+                    onChange={(e) =>
+                      setCartillaForm({
+                        ...cartillaForm,
+                        current_mileage: parseInt(e.target.value, 10) || 0,
+                      })
+                    }
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white font-mono focus:border-emerald-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Nombre del Cliente
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Carlos Ramírez"
+                    value={cartillaForm.client_name}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, client_name: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white focus:border-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    WhatsApp / Teléfono *
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="+51 987654321"
+                    value={cartillaForm.client_phone}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, client_phone: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white font-mono focus:border-emerald-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Servicio / Instalación Realizada *
+                </label>
+                <select
+                  value={cartillaForm.service_name}
+                  onChange={(e) =>
+                    setCartillaForm({ ...cartillaForm, service_name: e.target.value })
+                  }
+                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
+                >
+                  <option value="Instalación 5ta GNV FISE">Instalación 5ta GNV FISE (Alerta 90 Días)</option>
+                  <option value="Instalación 5ta GNV al contado">Instalación 5ta GNV al contado (Alerta 90 Días)</option>
+                  <option value="Instalación 3ra GNV al contado">Instalación 3ra GNV al contado (Alerta 90 Días)</option>
+                  <option value="Instalación 5ta GLP">Instalación 5ta GLP (Alerta 90 Días)</option>
+                  <option value="Instalación 3ra GLP">Instalación 3ra GLP (Alerta 90 Días)</option>
+                  <option value="Mantenimiento Preventivo 15,000 km">Mantenimiento Preventivo 15,000 km</option>
+                  <option value="Calibración & Escaneo ECU">Calibración & Escaneo ECU</option>
+                  <option value="Certificación Anual & Prueba Hidrostática">Certificación Anual & Prueba Hidrostática</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Fecha del Servicio *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={cartillaForm.service_date}
+                    onChange={(e) => {
+                      const newDate = e.target.value;
+                      setCartillaForm({
+                        ...cartillaForm,
+                        service_date: newDate,
+                        next_maintenance_date: calculate90Days(newDate),
+                      });
+                    }}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-amber-300 mb-1">
+                    Próx. Vencimiento (90 Días) *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={cartillaForm.next_maintenance_date}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, next_maintenance_date: e.target.value })
+                    }
+                    className="w-full px-3 py-2 bg-reygas-surface border border-amber-500/40 rounded-xl text-xs text-amber-300 font-mono font-bold focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-purple-300 mb-1">
+                    Vencimiento Quinquenal (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={cartillaForm.expiry_quinquennial}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, expiry_quinquennial: e.target.value })
+                    }
+                    className="w-full px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-amber-300 mb-1">
+                    Vencimiento Chip / Anual (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={cartillaForm.expiry_chip_annual}
+                    onChange={(e) =>
+                      setCartillaForm({ ...cartillaForm, expiry_chip_annual: e.target.value })
+                    }
+                    className="w-full px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-emerald-400 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Observaciones / Notas
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Detalles del equipo instalado, cilindro, reductor..."
+                  value={cartillaForm.notes}
+                  onChange={(e) =>
+                    setCartillaForm({ ...cartillaForm, notes: e.target.value })
+                  }
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setCartillaModalOpen(false)}
+                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-transform hover:scale-102"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Cartilla & Alimentar Programación</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
