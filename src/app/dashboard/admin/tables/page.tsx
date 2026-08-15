@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate } from "@/lib/utils/date-utils";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   Table,
   UserCheck,
@@ -1500,12 +1501,10 @@ export default function AdminTablesPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">Fecha del Servicio</label>
-                  <input
-                    type="date"
+                  <MiniDatePicker
                     value={scheduleForm.service_date}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, service_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                    onChange={(d) => setScheduleForm({ ...scheduleForm, service_date: d })}
+                    label="Fecha del Servicio"
                   />
                 </div>
                 <div>

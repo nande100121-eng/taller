@@ -24,6 +24,12 @@ import {
   FileSpreadsheet
 } from "lucide-react";
 import { getPeruDateTimeLocal, formatPeruDateTime } from "@/lib/utils/date-utils";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
+
+const MONTH_NAMES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+];
 
 export default function RecepcionPage() {
   const {
@@ -118,6 +124,10 @@ export default function RecepcionPage() {
   // Radar 90 Días Logic & 4 Filters
   const [radarFilter, setRadarFilter] = useState<"semanal" | "mensual" | "10dias" | "todos">("semanal");
 
+  const todayDate = new Date(getPeruDateTimeLocal().slice(0, 10) + "T12:00:00");
+  const [selectedMonth, setSelectedMonth] = useState<number>(todayDate.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(todayDate.getFullYear());
+
   const parseToDate = (str?: string): Date | null => {
     if (!str || !str.trim() || str.trim() === "-") return null;
     const s = str.trim();
@@ -131,8 +141,6 @@ export default function RecepcionPage() {
     const parsed = new Date(s);
     return isNaN(parsed.getTime()) ? null : parsed;
   };
-
-  const todayDate = new Date(getPeruDateTimeLocal().slice(0, 10) + "T12:00:00");
 
   // Construct Radar 90-day Items from scheduleRecords & workOrders
   const radarItems = React.useMemo(() => {
@@ -245,25 +253,31 @@ export default function RecepcionPage() {
   // Counts for the 4 filters
   const filterCounts = React.useMemo(() => {
     const semanal = radarItems.filter((i) => i.diffDays >= -7 && i.diffDays <= 7).length;
-    const mensual = radarItems.filter((i) => i.diffDays >= -30 && i.diffDays <= 30).length;
+    const mensual = radarItems.filter((i) => {
+      const d = parseToDate(i.dueDate);
+      return d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+    }).length;
     const diezDias = radarItems.filter((i) => i.diffDays >= 0 && i.diffDays <= 10).length;
     const todos = radarItems.length;
     return { semanal, mensual, diezDias, todos };
-  }, [radarItems]);
+  }, [radarItems, selectedMonth, selectedYear]);
 
   const filteredRadarItems = React.useMemo(() => {
     switch (radarFilter) {
       case "semanal":
         return radarItems.filter((i) => i.diffDays >= -7 && i.diffDays <= 7);
       case "mensual":
-        return radarItems.filter((i) => i.diffDays >= -30 && i.diffDays <= 30);
+        return radarItems.filter((i) => {
+          const d = parseToDate(i.dueDate);
+          return d && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+        });
       case "10dias":
         return radarItems.filter((i) => i.diffDays >= 0 && i.diffDays <= 10);
       case "todos":
       default:
         return radarItems;
     }
-  }, [radarItems, radarFilter]);
+  }, [radarItems, radarFilter, selectedMonth, selectedYear]);
 
   const handleSendRadarWhatsApp = (item: (typeof radarItems)[0]) => {
     const cleanPhone = (item.client_phone || "").replace(/[^0-9]/g, "");
@@ -772,6 +786,36 @@ export default function RecepcionPage() {
                 </span>
               </button>
             </div>
+
+            {/* Month & Year Selectors (when inspecting monthly expiry, unified web design) */}
+            {radarFilter === "mensual" && (
+              <div className="flex items-center gap-2 bg-reygas-surface p-1.5 rounded-xl border border-white/10 text-xs">
+                <span className="text-gray-400 font-bold text-[11px] pl-1">Filtrar Mes:</span>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                  className="bg-reygas-dark text-white font-bold px-2 py-1 rounded-lg border border-white/10 focus:border-cyan-400 text-xs cursor-pointer"
+                >
+                  {MONTH_NAMES.map((name, idx) => (
+                    <option key={idx} value={idx}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                  className="bg-reygas-dark text-white font-mono font-bold px-2 py-1 rounded-lg border border-white/10 focus:border-cyan-400 text-xs cursor-pointer"
+                >
+                  {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {filteredRadarItems.length === 0 ? (
@@ -1277,19 +1321,17 @@ export default function RecepcionPage() {
               </p>
             </div>
 
-            {/* Date Selector Filter */}
-            <div className="flex items-center gap-3 p-3 bg-reygas-dark rounded-xl border border-white/10">
-              <label className="text-xs font-bold text-gray-300">Seleccionar Fecha:</label>
-              <input
-                type="date"
+            {/* Date Selector Filter with unified MiniDatePicker */}
+            <div className="flex items-center gap-3 p-3 bg-reygas-dark rounded-xl border border-white/10 flex-wrap">
+              <MiniDatePicker
                 value={availabilityDate}
-                onChange={(e) => setAvailabilityDate(e.target.value)}
-                className="px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-blue-400"
+                onChange={(d) => setAvailabilityDate(d)}
+                label="Fecha a Consultar:"
               />
               <button
                 type="button"
                 onClick={() => setAvailabilityDate(getPeruDateTimeLocal().slice(0, 10))}
-                className="px-2.5 py-1 bg-blue-950/60 text-blue-300 hover:bg-blue-900 border border-blue-500/30 rounded-lg text-xs font-semibold"
+                className="mt-4 px-3 py-2 bg-blue-950/60 text-blue-300 hover:bg-blue-900 border border-blue-500/30 rounded-xl text-xs font-bold transition-colors"
               >
                 Hoy
               </button>
@@ -1501,37 +1543,26 @@ export default function RecepcionPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Fecha del Servicio *
-                  </label>
-                  <input
-                    type="date"
-                    required
+                  <MiniDatePicker
                     value={cartillaForm.service_date}
-                    onChange={(e) => {
-                      const newDate = e.target.value;
+                    onChange={(newDate) => {
                       setCartillaForm({
                         ...cartillaForm,
                         service_date: newDate,
                         next_maintenance_date: calculate90Days(newDate),
                       });
                     }}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400 font-mono"
+                    label="Fecha del Servicio *"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-amber-300 mb-1">
-                    Próx. Vencimiento (90 Días) *
-                  </label>
-                  <input
-                    type="date"
-                    required
+                  <MiniDatePicker
                     value={cartillaForm.next_maintenance_date}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, next_maintenance_date: e.target.value })
+                    onChange={(newDate) =>
+                      setCartillaForm({ ...cartillaForm, next_maintenance_date: newDate })
                     }
-                    className="w-full px-3 py-2 bg-reygas-surface border border-amber-500/40 rounded-xl text-xs text-amber-300 font-mono font-bold focus:border-amber-400"
+                    label="Próx. Vencimiento (90 Días) *"
                   />
                 </div>
               </div>
