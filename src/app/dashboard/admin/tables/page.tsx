@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, WorkshopService, generateUUID } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate } from "@/lib/utils/date-utils";
 import {
@@ -25,7 +25,10 @@ import {
   Square,
   Edit3,
   Check,
-  X
+  X,
+  Calendar,
+  Download,
+  FileUp
 } from "lucide-react";
 
 const ALL_ERP_STATIONS = [
@@ -58,13 +61,20 @@ export default function AdminTablesPage() {
     deleteWorkOrder,
     deleteMultipleWorkOrders,
     clearAllWorkOrders,
+    scheduleRecords,
+    addScheduleRecord,
+    updateScheduleRecord,
+    deleteScheduleRecord,
+    deleteMultipleScheduleRecords,
+    clearAllScheduleRecords,
+    importBulkScheduleRecords,
     isSyncing,
     hasSyncedOnce,
     syncFromSupabase,
   } = useAppStore();
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios">("taller");
+  const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios" | "programacion">("taller");
 
   // Search filter
   const [searchTerm, setSearchTerm] = useState("");
@@ -121,6 +131,187 @@ export default function AdminTablesPage() {
     phone: "",
     can_receive_payment: false,
   });
+
+  // Schedule Record Add/Edit Form State
+  const [editingSchedule, setEditingSchedule] = useState<ScheduleRecord | null>(null);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    vehicle_plate: "",
+    client_name: "",
+    client_phone: "",
+    current_mileage: 0,
+    service_date: "",
+    service_name: "Conversión GNV / Mantenimiento",
+    expiry_quinquennial: "",
+    expiry_chip_annual: "",
+    next_maintenance_date: "",
+    scheduled_date: "",
+    status: "programado",
+    notes: "",
+  });
+
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<string[]>([]);
+  const [isImportingSchedule, setIsImportingSchedule] = useState(false);
+
+  const handleOpenScheduleModal = (record?: ScheduleRecord) => {
+    if (record) {
+      setEditingSchedule(record);
+      setScheduleForm({
+        vehicle_plate: record.vehicle_plate,
+        client_name: record.client_name,
+        client_phone: record.client_phone,
+        current_mileage: record.current_mileage || 0,
+        service_date: record.service_date || "",
+        service_name: record.service_name || "Conversión GNV / Mantenimiento",
+        expiry_quinquennial: record.expiry_quinquennial || "",
+        expiry_chip_annual: record.expiry_chip_annual || "",
+        next_maintenance_date: record.next_maintenance_date || "",
+        scheduled_date: record.scheduled_date || "",
+        status: record.status || "programado",
+        notes: record.notes || "",
+      });
+    } else {
+      setEditingSchedule(null);
+      setScheduleForm({
+        vehicle_plate: "",
+        client_name: "",
+        client_phone: "",
+        current_mileage: 0,
+        service_date: new Date().toISOString().slice(0, 10),
+        service_name: "Conversión GNV / Mantenimiento",
+        expiry_quinquennial: "",
+        expiry_chip_annual: "",
+        next_maintenance_date: "",
+        scheduled_date: "",
+        status: "programado",
+        notes: "",
+      });
+    }
+    setScheduleModalOpen(true);
+  };
+
+  const handleSaveScheduleRecord = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scheduleForm.vehicle_plate.trim()) {
+      showAlert("warning", "Por favor ingresa la placa del vehículo.");
+      return;
+    }
+
+    if (editingSchedule) {
+      updateScheduleRecord(editingSchedule.id, {
+        vehicle_plate: scheduleForm.vehicle_plate.toUpperCase().trim(),
+        client_name: scheduleForm.client_name.trim(),
+        client_phone: scheduleForm.client_phone.trim(),
+        current_mileage: Number(scheduleForm.current_mileage) || 0,
+        service_date: scheduleForm.service_date,
+        service_name: scheduleForm.service_name,
+        expiry_quinquennial: scheduleForm.expiry_quinquennial,
+        expiry_chip_annual: scheduleForm.expiry_chip_annual,
+        next_maintenance_date: scheduleForm.next_maintenance_date,
+        scheduled_date: scheduleForm.scheduled_date,
+        status: scheduleForm.status,
+        notes: scheduleForm.notes,
+      });
+      showAlert("success", `Programación para ${scheduleForm.vehicle_plate.toUpperCase()} actualizada.`);
+    } else {
+      addScheduleRecord({
+        vehicle_plate: scheduleForm.vehicle_plate.toUpperCase().trim(),
+        client_name: scheduleForm.client_name.trim() || "Cliente",
+        client_phone: scheduleForm.client_phone.trim(),
+        current_mileage: Number(scheduleForm.current_mileage) || 0,
+        service_date: scheduleForm.service_date,
+        service_name: scheduleForm.service_name,
+        expiry_quinquennial: scheduleForm.expiry_quinquennial,
+        expiry_chip_annual: scheduleForm.expiry_chip_annual,
+        next_maintenance_date: scheduleForm.next_maintenance_date,
+        scheduled_date: scheduleForm.scheduled_date,
+        status: scheduleForm.status,
+        notes: scheduleForm.notes,
+      });
+      showAlert("success", `Nueva programación para ${scheduleForm.vehicle_plate.toUpperCase()} guardada.`);
+    }
+    setScheduleModalOpen(false);
+  };
+
+  const handleScheduleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingSchedule(true);
+    try {
+      const text = await file.text();
+      const rows = parseCSVRows(text);
+      if (rows.length < 2) {
+        showAlert("warning", "El archivo no contiene suficientes filas de datos.");
+        setIsImportingSchedule(false);
+        return;
+      }
+
+      const headers = rows[0].map((h) => h.toLowerCase().trim());
+      // Identify column indices
+      const plateIdx = headers.findIndex((h) => h.includes("placa"));
+      const nameIdx = headers.findIndex((h) => h.includes("cliente") || h.includes("nombre") || h.includes("propietario"));
+      const phoneIdx = headers.findIndex((h) => h.includes("tel") || h.includes("cel") || h.includes("fono") || h.includes("movil"));
+      const kmIdx = headers.findIndex((h) => h.includes("km") || h.includes("kilometraje"));
+      const dateIdx = headers.findIndex((h) => h.includes("fecha") && !h.includes("quinquenal") && !h.includes("chip") && !h.includes("anual"));
+      const serviceIdx = headers.findIndex((h) => h.includes("servicio") || h.includes("mant") || h.includes("trabajo"));
+      const quinqIdx = headers.findIndex((h) => h.includes("quinquenal"));
+      const chipIdx = headers.findIndex((h) => h.includes("chip") || h.includes("anual") || h.includes("vencimiento"));
+      const nextMantIdx = headers.findIndex((h) => h.includes("proximo") || h.includes("prox"));
+      const statusIdx = headers.findIndex((h) => h.includes("estado") || h.includes("status"));
+      const notesIdx = headers.findIndex((h) => h.includes("obs") || h.includes("nota"));
+
+      const newRecords: ScheduleRecord[] = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+
+        const rawPlate = plateIdx >= 0 ? row[plateIdx] : row[0];
+        const cleanPlate = (rawPlate || "").replace(/[^A-Z0-9-]/gi, "").toUpperCase().trim();
+        if (!cleanPlate || cleanPlate.length < 3) continue;
+
+        const clientName = nameIdx >= 0 ? (row[nameIdx] || "").trim() : "Cliente";
+        const clientPhone = phoneIdx >= 0 ? (row[phoneIdx] || "").trim() : "";
+        const rawKm = kmIdx >= 0 ? (row[kmIdx] || "").replace(/[^0-9]/g, "") : "0";
+        const mileage = parseInt(rawKm, 10) || 0;
+        const serviceDate = dateIdx >= 0 ? (row[dateIdx] || "").trim() : "";
+        const serviceName = serviceIdx >= 0 ? (row[serviceIdx] || "").trim() : "Mantenimiento / Servicio";
+        const expiryQuinq = quinqIdx >= 0 ? (row[quinqIdx] || "").trim() : "";
+        const expiryChip = chipIdx >= 0 ? (row[chipIdx] || "").trim() : "";
+        const nextMant = nextMantIdx >= 0 ? (row[nextMantIdx] || "").trim() : "";
+        const status = statusIdx >= 0 ? (row[statusIdx] || "programado").trim().toLowerCase() : "programado";
+        const notes = notesIdx >= 0 ? (row[notesIdx] || "").trim() : "";
+
+        newRecords.push({
+          id: generateUUID(),
+          vehicle_plate: cleanPlate,
+          client_name: clientName,
+          client_phone: clientPhone,
+          current_mileage: mileage,
+          service_date: serviceDate,
+          service_name: serviceName,
+          expiry_quinquennial: expiryQuinq,
+          expiry_chip_annual: expiryChip,
+          next_maintenance_date: nextMant,
+          status,
+          notes,
+        });
+      }
+
+      if (newRecords.length > 0) {
+        await importBulkScheduleRecords(newRecords);
+        showAlert("success", `¡Se importaron ${newRecords.length} registros a la Tabla de Programación con éxito!`);
+      } else {
+        showAlert("warning", "No se detectaron placas válidas en el archivo.");
+      }
+    } catch (err: any) {
+      showAlert("warning", `Error al procesar el archivo: ${err?.message || "Formato no compatible"}`);
+    } finally {
+      setIsImportingSchedule(false);
+      e.target.value = "";
+    }
+  };
 
   const handleAddTech = (e: React.FormEvent) => {
     e.preventDefault();
@@ -433,7 +624,19 @@ export default function AdminTablesPage() {
             }`}
           >
             <Wrench className="w-4 h-4" />
-            <span>Catálogo de Servicios de Taller ({workshopServices?.length || 0})</span>
+            <span>Catálogo de Servicios ({workshopServices?.length || 0})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("programacion")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
+              activeTab === "programacion"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Tabla de Programación & Vencimientos ({scheduleRecords?.length || 0})</span>
           </button>
         </div>
       </div>
@@ -997,6 +1200,387 @@ export default function AdminTablesPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: TABLA DE PROGRAMACIÓN & VENCIMIENTOS */}
+      {/* ========================================================================= */}
+      {activeTab === "programacion" && (
+        <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+          {/* Controls & Import Toolbar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por placa, cliente o servicio..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-400 w-64"
+                />
+              </div>
+
+              {selectedScheduleIds.length > 0 && (
+                <button
+                  onClick={() => {
+                    deleteMultipleScheduleRecords(selectedScheduleIds);
+                    showAlert("success", `Se eliminaron ${selectedScheduleIds.length} programaciones.`);
+                    setSelectedScheduleIds([]);
+                  }}
+                  className="px-3 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Eliminar ({selectedScheduleIds.length}) seleccionados</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Import Excel/CSV Button */}
+              <label className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer transition-transform hover:scale-105">
+                <FileUp className="w-4 h-4" />
+                <span>{isImportingSchedule ? "Importando..." : "Importar Excel / CSV"}</span>
+                <input
+                  type="file"
+                  accept=".csv,.txt,.xlsx,.xls"
+                  onChange={handleScheduleFileUpload}
+                  className="hidden"
+                  disabled={isImportingSchedule}
+                />
+              </label>
+
+              {/* Add Manual Schedule Record */}
+              <button
+                onClick={() => handleOpenScheduleModal()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Nueva Programación</span>
+              </button>
+
+              {/* Clear All Schedule Records */}
+              {(scheduleRecords || []).length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm("¿Estás seguro de vaciar toda la tabla de programación?")) {
+                      clearAllScheduleRecords();
+                      showAlert("warning", "Tabla de programación vaciada.");
+                    }
+                  }}
+                  className="px-3 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                  title="Vaciar tabla completa de programaciones"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Vaciar Tabla</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Schedule Table */}
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <table className="w-full text-left text-xs text-gray-300">
+              <thead className="bg-reygas-dark text-[11px] uppercase tracking-wider text-gray-400 border-b border-white/10">
+                <tr>
+                  <th className="p-3 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        selectedScheduleIds.length > 0 &&
+                        selectedScheduleIds.length === (scheduleRecords || []).length
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedScheduleIds((scheduleRecords || []).map((r) => r.id));
+                        } else {
+                          setSelectedScheduleIds([]);
+                        }
+                      }}
+                      className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </th>
+                  <th className="p-3">#</th>
+                  <th className="p-3">Placa</th>
+                  <th className="p-3">Cliente</th>
+                  <th className="p-3">Teléfono</th>
+                  <th className="p-3 font-mono text-cyan-300">KM</th>
+                  <th className="p-3">Fecha Servicio</th>
+                  <th className="p-3">Servicio Brindado</th>
+                  <th className="p-3 font-mono text-purple-400">Venc. Quinquenal</th>
+                  <th className="p-3 font-mono text-amber-400">Venc. Chip/Anual</th>
+                  <th className="p-3 font-mono text-emerald-400">Próx. Mant.</th>
+                  <th className="p-3">Estado</th>
+                  <th className="p-3 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 bg-black/20">
+                {(scheduleRecords || []).length === 0 ? (
+                  <tr>
+                    <td colSpan={13} className="text-center py-12 text-gray-500 space-y-2">
+                      <Calendar className="w-10 h-10 mx-auto text-gray-600" />
+                      <p>No hay registros en la Tabla de Programación.</p>
+                      <p className="text-[11px] text-gray-600">
+                        Importa un archivo Excel/CSV o pulsa "+ Nueva Programación" para comenzar.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  (scheduleRecords || [])
+                    .filter((r) => {
+                      if (!searchTerm.trim()) return true;
+                      const q = searchTerm.toLowerCase();
+                      return (
+                        r.vehicle_plate?.toLowerCase().includes(q) ||
+                        r.client_name?.toLowerCase().includes(q) ||
+                        r.client_phone?.includes(q) ||
+                        r.service_name?.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((rec, idx) => {
+                      const isSelected = selectedScheduleIds.includes(rec.id);
+
+                      return (
+                        <tr
+                          key={rec.id}
+                          className={`hover:bg-white/5 transition-colors ${
+                            isSelected ? "bg-indigo-950/20" : ""
+                          }`}
+                        >
+                          <td className="p-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedScheduleIds((prev) =>
+                                  prev.includes(rec.id)
+                                    ? prev.filter((id) => id !== rec.id)
+                                    : [...prev, rec.id]
+                                );
+                              }}
+                              className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3 font-mono text-gray-500">#{idx + 1}</td>
+                          <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10 inline-block my-1">
+                            {rec.vehicle_plate}
+                          </td>
+                          <td className="p-3 text-white font-semibold truncate max-w-[150px]">
+                            {rec.client_name}
+                          </td>
+                          <td className="p-3 font-mono text-gray-300">{rec.client_phone || "-"}</td>
+                          <td className="p-3 font-mono text-cyan-300">
+                            {rec.current_mileage && rec.current_mileage > 0
+                              ? `${rec.current_mileage.toLocaleString()} KM`
+                              : "-"}
+                          </td>
+                          <td className="p-3 font-mono text-gray-300">{rec.service_date || "-"}</td>
+                          <td className="p-3 truncate max-w-[180px] text-gray-200">
+                            {rec.service_name || "Mantenimiento General"}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-purple-400">
+                            {rec.expiry_quinquennial || "-"}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-amber-400">
+                            {rec.expiry_chip_annual || "-"}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-emerald-400">
+                            {rec.next_maintenance_date || "-"}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                rec.status === "atendido"
+                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                  : rec.status === "vencido"
+                                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                  : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                              }`}
+                            >
+                              {rec.status || "programado"}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => handleOpenScheduleModal(rec)}
+                                className="p-1.5 bg-reygas-surface hover:bg-gray-700 text-amber-400 rounded-lg transition-colors"
+                                title="Editar programación"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  deleteScheduleRecord(rec.id);
+                                  showAlert("warning", `Programación de ${rec.vehicle_plate} eliminada.`);
+                                }}
+                                className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                                title="Eliminar fila"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: ADD / EDIT SCHEDULE RECORD */}
+      {/* ========================================================================= */}
+      {scheduleModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 rounded-2xl border border-indigo-500/40 max-w-lg w-full space-y-4 shadow-2xl bg-reygas-dark max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-indigo-400" />
+                <span>{editingSchedule ? "Editar Programación" : "Nueva Programación de Vehículo"}</span>
+              </h3>
+              <button onClick={() => setScheduleModalOpen(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveScheduleRecord} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Placa del Vehículo *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ABC-123"
+                    value={scheduleForm.vehicle_plate}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, vehicle_plate: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white uppercase font-mono font-bold focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Kilometraje (KM)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Ej. 45000"
+                    value={scheduleForm.current_mileage || ""}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, current_mileage: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white font-mono focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Nombre del Cliente</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Juan Pérez"
+                    value={scheduleForm.client_name}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, client_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Teléfono / WhatsApp</label>
+                  <input
+                    type="tel"
+                    placeholder="+51 987654321"
+                    value={scheduleForm.client_phone}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, client_phone: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Fecha del Servicio</label>
+                  <input
+                    type="date"
+                    value={scheduleForm.service_date}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, service_date: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">Servicio Realizado</label>
+                  <input
+                    type="text"
+                    placeholder="Conversión / Mant. 15k..."
+                    value={scheduleForm.service_name}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, service_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-purple-300 mb-1">Venc. Quinquenal</label>
+                  <input
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={scheduleForm.expiry_quinquennial}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, expiry_quinquennial: e.target.value })}
+                    className="w-full px-2.5 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-amber-300 mb-1">Venc. Chip/Anual</label>
+                  <input
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={scheduleForm.expiry_chip_annual}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, expiry_chip_annual: e.target.value })}
+                    className="w-full px-2.5 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-emerald-300 mb-1">Próx. Mantenimiento</label>
+                  <input
+                    type="text"
+                    placeholder="DD/MM/YYYY"
+                    value={scheduleForm.next_maintenance_date}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, next_maintenance_date: e.target.value })}
+                    className="w-full px-2.5 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Observaciones / Notas</label>
+                <textarea
+                  rows={2}
+                  placeholder="Detalles adicionales..."
+                  value={scheduleForm.notes}
+                  onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setScheduleModalOpen(false)}
+                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Programación</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

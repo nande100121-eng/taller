@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification } from "@/lib/store/app-store";
+import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord } from "@/lib/store/app-store";
 
 // =====================================================================
 // SUPABASE REALTIME CMS & ERP DATABASE SERVICE
@@ -394,6 +394,101 @@ export async function saveSupabaseCertification(cert: Certification) {
   }
 }
 
+// ---------------------------------------------------------------------
+// SCHEDULE & PROGRAMACION SUPABASE SYNC
+// ---------------------------------------------------------------------
+export async function saveSupabaseScheduleRecord(record: ScheduleRecord) {
+  try {
+    // 1. Try dedicated table
+    await supabase.from("schedule_records").upsert({
+      id: record.id,
+      vehicle_plate: record.vehicle_plate,
+      client_name: record.client_name,
+      client_phone: record.client_phone,
+      current_mileage: record.current_mileage || 0,
+      service_date: record.service_date || null,
+      service_name: record.service_name || "Mantenimiento General",
+      expiry_quinquennial: record.expiry_quinquennial || null,
+      expiry_chip_annual: record.expiry_chip_annual || null,
+      next_maintenance_date: record.next_maintenance_date || null,
+      scheduled_date: record.scheduled_date || null,
+      status: record.status || "programado",
+      notes: record.notes || null,
+    });
+    // 2. Also save to site_content fallback
+    await saveSupabaseSiteContent(`sched_${record.id}`, record, "schedule");
+    broadcastRealtimeChange("schedule_updated");
+  } catch (err) {
+    console.warn("Supabase schedule record deferred:", err);
+  }
+}
+
+export async function deleteSupabaseScheduleRecord(id: string) {
+  try {
+    await supabase.from("schedule_records").delete().eq("id", id);
+    await supabase.from("site_content").delete().eq("key", `sched_${id}`);
+    broadcastRealtimeChange("schedule_deleted");
+  } catch (err) {
+    console.warn("Supabase schedule delete deferred:", err);
+  }
+}
+
+export async function deleteSupabaseMultipleScheduleRecords(ids: string[]) {
+  try {
+    await supabase.from("schedule_records").delete().in("id", ids);
+    const keys = ids.map((id) => `sched_${id}`);
+    await supabase.from("site_content").delete().in("key", keys);
+    broadcastRealtimeChange("schedule_deleted");
+  } catch (err) {
+    console.warn("Supabase schedule bulk delete deferred:", err);
+  }
+}
+
+export async function clearSupabaseScheduleRecords() {
+  try {
+    await supabase.from("schedule_records").delete().neq("id", "");
+    broadcastRealtimeChange("schedule_cleared");
+  } catch (err) {
+    console.warn("Supabase schedule clear deferred:", err);
+  }
+}
+
+export async function saveSupabaseBulkScheduleRecords(
+  records: ScheduleRecord[]
+): Promise<{ success: boolean; errorMsg?: string }> {
+  try {
+    const CHUNK_SIZE = 150;
+    for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+      const chunk = records.slice(i, i + CHUNK_SIZE);
+      const payload = chunk.map((r) => ({
+        id: r.id,
+        vehicle_plate: r.vehicle_plate,
+        client_name: r.client_name,
+        client_phone: r.client_phone,
+        current_mileage: r.current_mileage || 0,
+        service_date: r.service_date || null,
+        service_name: r.service_name || "Mantenimiento General",
+        expiry_quinquennial: r.expiry_quinquennial || null,
+        expiry_chip_annual: r.expiry_chip_annual || null,
+        next_maintenance_date: r.next_maintenance_date || null,
+        scheduled_date: r.scheduled_date || null,
+        status: r.status || "programado",
+        notes: r.notes || null,
+      }));
+      const { error } = await supabase.from("schedule_records").upsert(payload);
+      if (error) {
+        console.warn("Supabase schedule chunk save notice:", error.message);
+      }
+    }
+    await saveSupabaseSiteContent("all_schedule_records", records, "schedule");
+    broadcastRealtimeChange("schedule_bulk_saved");
+    return { success: true };
+  } catch (err: any) {
+    console.warn("Supabase bulk schedule save error:", err);
+    return { success: false, errorMsg: err?.message || "Error al guardar en Supabase" };
+  }
+}
+
 export async function fetchSupabaseErpData() {
   try {
     const [techRes, invRes, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
@@ -407,9 +502,10 @@ export async function fetchSupabaseErpData() {
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
-    // Build permissions and certifications from site_content if any
+    // Build permissions, certifications, and schedule records from site_content if any
     const permsMap: Record<string, string[]> = {};
     const fallbackCerts: any[] = [];
+    const fallbackSched: any[] = [];
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -423,6 +519,16 @@ export async function fetchSupabaseErpData() {
           try {
             const certObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (certObj && certObj.id) fallbackCerts.push(certObj);
+          } catch {}
+        } else if (k && k.startsWith("sched_")) {
+          try {
+            const sObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            if (sObj && sObj.id) fallbackSched.push(sObj);
+          } catch {}
+        } else if (k === "all_schedule_records") {
+          try {
+            const sList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            if (Array.isArray(sList)) fallbackSched.push(...sList);
           } catch {}
         }
       });
@@ -466,6 +572,7 @@ export async function fetchSupabaseErpData() {
       invoices: invoiceData,
       vehicles: vehicleData,
       certifications: mergedCerts.length > 0 ? mergedCerts : null,
+      scheduleRecords: fallbackSched.length > 0 ? fallbackSched : null,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);

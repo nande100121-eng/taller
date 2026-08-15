@@ -2081,24 +2081,15 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    <EditableText
-                      value={safeBookingModal.date_label || "Fecha y Hora Preferida"}
-                      isEditingEnabled={isEditing}
-                      onSave={(val) => {
-                        updateSiteContent("booking_modal", { date_label: val });
-                        showSaveSuccess();
-                      }}
-                    />
-                  </label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={bookingForm.scheduled_date}
-                    onChange={(e) => setBookingForm({ ...bookingForm, scheduled_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
-                  />
+                {/* Notice: Staff will contact client for schedule coordination */}
+                <div className="p-3.5 bg-blue-950/40 border border-blue-500/30 rounded-xl text-xs text-blue-200 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-blue-300">
+                    <Clock className="w-4 h-4 text-blue-400 shrink-0" />
+                    <span>Coordinación de Fecha y Horario:</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-gray-300">
+                    Su solicitud será revisada por nuestro equipo técnico y nos comunicaremos con usted a la brevedad para coordinar y confirmar la fecha y hora de atención según disponibilidad.
+                  </p>
                 </div>
 
                 <button

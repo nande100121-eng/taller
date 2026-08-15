@@ -172,6 +172,87 @@ export default function RecepcionPage() {
     showSuccess(`¡Vehículo ${transferApp.plate} ingresado al Taller ERP con estado ${transferForm.target_status.toUpperCase()}!`);
   };
 
+  // Availability Modal State
+  const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
+  const [availabilityDate, setAvailabilityDate] = useState(getPeruDateTimeLocal().slice(0, 10));
+  const [targetAppointmentForSlot, setTargetAppointmentForSlot] = useState<Appointment | null>(null);
+
+  // Card inline scheduling date/time state
+  const [cardDates, setCardDates] = useState<Record<string, string>>({});
+
+  const { scheduleRecords } = useAppStore();
+
+  const handleOpenAvailabilityForApp = (app: Appointment) => {
+    setTargetAppointmentForSlot(app);
+    const existingDate = app.scheduled_date ? app.scheduled_date.slice(0, 10) : getPeruDateTimeLocal().slice(0, 10);
+    setAvailabilityDate(existingDate);
+    setAvailabilityModalOpen(true);
+  };
+
+  const handleSelectSlot = (timeSlot: string) => {
+    if (!targetAppointmentForSlot) return;
+    const fullDateTime = `${availabilityDate}T${timeSlot}`;
+    setCardDates((prev) => ({ ...prev, [targetAppointmentForSlot.id]: fullDateTime }));
+    updateAppointment(targetAppointmentForSlot.id, { scheduled_date: fullDateTime });
+    setAvailabilityModalOpen(false);
+    showSuccess(`Horario ${timeSlot} asignado para ${targetAppointmentForSlot.plate}`);
+  };
+
+  const handleConfirmAndSendWhatsApp = (app: Appointment) => {
+    const chosenDate = cardDates[app.id] || app.scheduled_date || getPeruDateTimeLocal();
+    updateAppointment(app.id, {
+      status: "confirmado",
+      scheduled_date: chosenDate,
+    });
+
+    const dateFormatted = formatPeruDateTime(chosenDate, false);
+    const cleanPhone = (app.client_phone || "").replace(/[^0-9]/g, "");
+    const clientName = app.client_name || "Cliente";
+    const plate = app.plate || "S/P";
+    const service = app.service_type || "Servicio Técnico";
+
+    const message = encodeURIComponent(
+      `Estimado(a) *${clientName}*, le recordamos que su vehículo con placa *${plate}* tiene programada su atención de *${service}* para el *${dateFormatted}* en nuestro taller.\n\nLe esperamos puntualmente. Ante cualquier consulta o reprogramación, no dude en comunicarse con nosotros.\n\n¡Gracias por su preferencia!\n*ReyGas Autogás Equipment*`
+    );
+
+    if (cleanPhone) {
+      window.open(`https://wa.me/${cleanPhone}?text=${message}`, "_blank");
+    } else {
+      window.open(`https://wa.me/?text=${message}`, "_blank");
+    }
+    showSuccess(`¡Cita de ${plate} confirmada y mensaje generado para WhatsApp!`);
+  };
+
+  // Compute availability for slots on availabilityDate
+  const WORKSHOP_HOURLY_SLOTS = [
+    "08:00",
+    "09:00",
+    "10:00",
+    "11:00",
+    "12:00",
+    "14:00",
+    "15:00",
+    "16:00",
+    "17:00",
+  ];
+
+  const getSlotOccupancy = (slotTime: string) => {
+    const slotPrefix = `${availabilityDate}T${slotTime}`;
+    const matchedAppointments = appointments.filter(
+      (a) => a.status !== "cancelado" && a.scheduled_date && a.scheduled_date.startsWith(slotPrefix.slice(0, 13))
+    );
+    const matchedSchedule = (scheduleRecords || []).filter(
+      (s) => (s.scheduled_date && s.scheduled_date.startsWith(slotPrefix.slice(0, 13)))
+    );
+    const totalOccupied = matchedAppointments.length + matchedSchedule.length;
+    return {
+      totalOccupied,
+      appointments: matchedAppointments,
+      schedule: matchedSchedule,
+      isFull: totalOccupied >= 2, // 2 capacity per slot
+    };
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Toast Notification */}
@@ -191,18 +272,21 @@ export default function RecepcionPage() {
           <div>
             <h1 className="text-2xl font-black text-white">Estación de Recepción & Citas</h1>
             <p className="text-xs text-gray-400">
-              Gestión, edición y eliminación de reservas, ingreso directo al Taller ERP y radar 15,000 km WhatsApp.
+              Gestión de citas web, asignación de fecha/hora según disponibilidad, confirmación vía WhatsApp y radar de mantenimiento.
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => setNewModalOpen(true)}
-            className="px-4 py-2.5 bg-reygas-red hover:bg-reygas-redDark text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 transition-transform hover:scale-105"
+            onClick={() => {
+              setTargetAppointmentForSlot(null);
+              setAvailabilityModalOpen(true);
+            }}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2 transition-transform hover:scale-105"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ Nueva Cita Manual</span>
+            <Clock className="w-4 h-4" />
+            <span>📅 Ver Disponibilidad General</span>
           </button>
 
           <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
@@ -239,7 +323,7 @@ export default function RecepcionPage() {
                 <span>Solicitudes de Citas y Reservas Registradas</span>
               </h2>
               <span className="text-xs text-gray-400">
-                Puedes editar datos, cancelar, eliminar o enviar directamente al Taller Kanban.
+                Asigna fecha/hora según disponibilidad y envía la confirmación oficial a WhatsApp.
               </span>
             </div>
 
@@ -250,115 +334,120 @@ export default function RecepcionPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {appointments.map((app) => (
-                  <div
-                    key={app.id}
-                    className="p-5 rounded-2xl glass-card border border-white/10 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4 relative group"
-                  >
-                    <div className="space-y-3">
-                      {/* Top Plate & Status */}
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono font-black text-lg text-white bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow-inner">
-                          {app.plate}
-                        </span>
-                        <span
-                          className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${
-                            app.status === "confirmado"
-                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                              : app.status === "completado"
-                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              : app.status === "cancelado"
-                              ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                              : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                          }`}
-                        >
-                          {app.status}
-                        </span>
-                      </div>
+                {appointments.map((app) => {
+                  const currentScheduled = cardDates[app.id] || app.scheduled_date || getPeruDateTimeLocal();
 
-                      {/* Client Info */}
-                      <div>
-                        <h3 className="font-bold text-white text-base flex items-center justify-between">
-                          <span>{app.client_name}</span>
-                        </h3>
-                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-3 h-3 text-reygas-red" />
-                          <span>{app.client_phone}</span>
-                        </p>
-                        <span className="inline-block mt-2 text-xs font-extrabold text-reygas-red uppercase tracking-wider bg-reygas-red/10 px-2 py-0.5 rounded border border-reygas-red/30">
-                          {app.service_type}
-                        </span>
-                      </div>
-
-                      {/* Date & Notes */}
-                      <div className="text-xs text-gray-300 pt-3 border-t border-white/10 space-y-1">
+                  return (
+                    <div
+                      key={app.id}
+                      className="p-5 rounded-2xl glass-card border border-white/10 hover:border-blue-500/40 transition-all flex flex-col justify-between space-y-4 relative group"
+                    >
+                      <div className="space-y-3">
+                        {/* Top Plate & Status */}
                         <div className="flex items-center justify-between">
-                          <span className="text-gray-400">Fecha Agendada:</span>
-                          <span className="font-bold text-white">
-                            {formatPeruDateTime(app.scheduled_date, false)}
+                          <span className="font-mono font-black text-lg text-white bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow-inner">
+                            {app.plate}
+                          </span>
+                          <span
+                            className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${
+                              app.status === "confirmado"
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : app.status === "completado"
+                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                                : app.status === "cancelado"
+                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            }`}
+                          >
+                            {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status}
                           </span>
                         </div>
-                        {app.notes && (
-                          <p className="text-[11px] text-gray-400 italic bg-reygas-dark/60 p-2 rounded border border-white/5 mt-1">
-                            "{app.notes}"
+
+                        {/* Client Info */}
+                        <div>
+                          <h3 className="font-bold text-white text-base flex items-center justify-between">
+                            <span>{app.client_name}</span>
+                          </h3>
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3 text-reygas-red" />
+                            <span>{app.client_phone}</span>
                           </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Action Toolbar */}
-                    <div className="pt-3 border-t border-white/10 space-y-2">
-                      {/* Top Buttons: Transfer to Workshop & Edit */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleOpenTransferModal(app)}
-                          className="py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-transform hover:scale-102 shadow-md shadow-blue-600/30"
-                          title="Convertir esta cita en Orden de Trabajo ERP Taller"
-                        >
-                          <Wrench className="w-3.5 h-3.5" />
-                          <span>Enviar a Taller</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenEditModal(app)}
-                          className="py-2 px-3 bg-reygas-surface hover:bg-gray-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-white/10"
-                          title="Editar detalles de la cita"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Editar Cita</span>
-                        </button>
-                      </div>
-
-                      {/* Bottom Buttons: Confirm Status & Delete */}
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        {app.status === "pendiente" ? (
-                          <button
-                            onClick={() => {
-                              updateAppointmentStatus(app.id, "confirmado");
-                              showSuccess(`Cita de ${app.plate} confirmada.`);
-                            }}
-                            className="flex-1 py-1.5 bg-emerald-600/80 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-lg transition-colors flex items-center justify-center gap-1"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Confirmar Cita</span>
-                          </button>
-                        ) : (
-                          <span className="text-[10px] text-gray-500 flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-400" /> Cita Gestionada
+                          <span className="inline-block mt-2 text-xs font-extrabold text-reygas-red uppercase tracking-wider bg-reygas-red/10 px-2 py-0.5 rounded border border-reygas-red/30">
+                            {app.service_type}
                           </span>
-                        )}
+                        </div>
 
+                        {/* Assign Date & Time Section */}
+                        <div className="pt-3 border-t border-white/10 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[11px] font-bold uppercase text-amber-400">
+                              Asignar Fecha y Hora:
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAvailabilityForApp(app)}
+                              className="text-[11px] text-blue-400 hover:text-blue-300 font-bold underline flex items-center gap-1"
+                              title="Ver horarios disponibles para agendar"
+                            >
+                              <Clock className="w-3 h-3" />
+                              <span>Ver Disponibilidad</span>
+                            </button>
+                          </div>
+
+                          <input
+                            type="datetime-local"
+                            value={currentScheduled.slice(0, 16)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCardDates((prev) => ({ ...prev, [app.id]: val }));
+                              updateAppointment(app.id, { scheduled_date: val });
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-blue-400"
+                          />
+
+                          {app.notes && (
+                            <p className="text-[11px] text-gray-400 italic bg-reygas-dark/60 p-2 rounded border border-white/5 mt-1">
+                              "{app.notes}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Toolbar */}
+                      <div className="pt-3 border-t border-white/10 space-y-2">
+                        {/* Primary Action: Confirm & Send WhatsApp */}
                         <button
-                          onClick={() => handleDeleteAppointment(app.id, app.plate)}
-                          className="p-1.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg border border-red-500/30 transition-colors"
-                          title="Eliminar cita del sistema"
+                          onClick={() => handleConfirmAndSendWhatsApp(app)}
+                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-transform hover:scale-102"
+                          title="Confirmar cita y enviar mensaje formal por WhatsApp"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Confirmar Cita (Enviar WhatsApp)</span>
                         </button>
+
+                        {/* Secondary Actions: Edit & Delete */}
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <button
+                            onClick={() => handleOpenEditModal(app)}
+                            className="flex-1 py-1.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white text-[11px] font-bold rounded-lg border border-white/10 transition-colors flex items-center justify-center gap-1"
+                            title="Editar datos de la cita"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Editar Datos</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteAppointment(app.id, app.plate)}
+                            className="p-1.5 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white rounded-lg border border-red-500/30 transition-colors"
+                            title="Eliminar cita del sistema"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -781,6 +870,141 @@ export default function RecepcionPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: DISPONIBILIDAD DE HORARIOS Y BAHÍAS */}
+      {/* ========================================================================= */}
+      {availabilityModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel max-w-2xl w-full p-6 rounded-2xl border border-blue-500/40 space-y-5 relative shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => {
+                setAvailabilityModalOpen(false);
+                setTargetAppointmentForSlot(null);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-400" />
+                <span>Disponibilidad de Horarios del Taller</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                {targetAppointmentForSlot
+                  ? `Selecciona un horario libre para asignar a la cita del vehículo ${targetAppointmentForSlot.plate}:`
+                  : "Consulta en tiempo real de ocupación y cupos por fecha:"}
+              </p>
+            </div>
+
+            {/* Date Selector Filter */}
+            <div className="flex items-center gap-3 p-3 bg-reygas-dark rounded-xl border border-white/10">
+              <label className="text-xs font-bold text-gray-300">Seleccionar Fecha:</label>
+              <input
+                type="date"
+                value={availabilityDate}
+                onChange={(e) => setAvailabilityDate(e.target.value)}
+                className="px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs font-bold text-white focus:outline-none focus:border-blue-400"
+              />
+              <button
+                type="button"
+                onClick={() => setAvailabilityDate(getPeruDateTimeLocal().slice(0, 10))}
+                className="px-2.5 py-1 bg-blue-950/60 text-blue-300 hover:bg-blue-900 border border-blue-500/30 rounded-lg text-xs font-semibold"
+              >
+                Hoy
+              </button>
+            </div>
+
+            {/* Slots Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {WORKSHOP_HOURLY_SLOTS.map((slot) => {
+                const occupancy = getSlotOccupancy(slot);
+                const isFull = occupancy.isFull;
+
+                return (
+                  <div
+                    key={slot}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-2 ${
+                      isFull
+                        ? "bg-red-950/20 border-red-500/30 text-red-300"
+                        : occupancy.totalOccupied > 0
+                        ? "bg-amber-950/20 border-amber-500/30 text-amber-300"
+                        : "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-black text-sm text-white flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-blue-400" />
+                        <span>{slot} hrs</span>
+                      </span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${
+                          isFull
+                            ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                            : occupancy.totalOccupied > 0
+                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        }`}
+                      >
+                        {isFull ? "🔴 Ocupado (2/2)" : occupancy.totalOccupied > 0 ? "🟡 1 Turno Ocupado" : "🟢 Disponible"}
+                      </span>
+                    </div>
+
+                    {/* Bookings details in this slot */}
+                    {occupancy.totalOccupied > 0 ? (
+                      <div className="space-y-1 text-[11px] text-gray-300 bg-black/40 p-2 rounded-lg border border-white/5">
+                        {occupancy.appointments.map((a) => (
+                          <div key={a.id} className="truncate">
+                            <span className="font-mono font-bold text-white">{a.plate}</span> • {a.client_name} ({a.service_type})
+                          </div>
+                        ))}
+                        {occupancy.schedule.map((s) => (
+                          <div key={s.id} className="truncate">
+                            <span className="font-mono font-bold text-white">{s.vehicle_plate}</span> • {s.client_name} ({s.service_name})
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 italic">
+                        Sin vehículos agendados para este bloque.
+                      </p>
+                    )}
+
+                    {targetAppointmentForSlot && (
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSlot(slot)}
+                        className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all shadow ${
+                          isFull
+                            ? "bg-gray-800 text-gray-400 hover:text-white"
+                            : "bg-blue-600 hover:bg-blue-500 text-white"
+                        }`}
+                      >
+                        {isFull ? "Asignar de todos modos" : "✓ Seleccionar este Horario"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAvailabilityModalOpen(false);
+                  setTargetAppointmentForSlot(null);
+                }}
+                className="px-5 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

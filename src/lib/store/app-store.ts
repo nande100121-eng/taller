@@ -22,6 +22,11 @@ import {
   clearSupabaseWorkOrders,
   saveSupabaseBulkWorkshopData,
   saveSupabaseCertification,
+  saveSupabaseScheduleRecord,
+  deleteSupabaseScheduleRecord,
+  deleteSupabaseMultipleScheduleRecords,
+  clearSupabaseScheduleRecords,
+  saveSupabaseBulkScheduleRecords,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 
@@ -375,6 +380,22 @@ export interface Certification {
   is_ready?: boolean;
 }
 
+export interface ScheduleRecord {
+  id: string;
+  vehicle_plate: string;
+  client_name: string;
+  client_phone: string;
+  current_mileage?: number;
+  service_date?: string; // Fecha del servicio brindado
+  service_name?: string; // Mantenimiento / Servicio
+  expiry_quinquennial?: string; // Vencimiento Quinquenal
+  expiry_chip_annual?: string; // Vencimiento Chip / Anual
+  next_maintenance_date?: string; // Próximo Mantenimiento
+  scheduled_date?: string; // Fecha y Hora programada
+  status?: "programado" | "pendiente" | "atendido" | "vencido" | string;
+  notes?: string;
+}
+
 export interface AttendanceLog {
   id: string;
   employee_name: string;
@@ -498,6 +519,15 @@ interface AppState {
   addCertification: (cert: Omit<Certification, "id">) => void;
   updateCertificationPrice: (id: string, price: number) => void;
   updateCertification: (id: string, updates: Partial<Certification>) => void;
+
+  scheduleRecords: ScheduleRecord[];
+  addScheduleRecord: (record: Omit<ScheduleRecord, "id">) => void;
+  updateScheduleRecord: (id: string, updates: Partial<ScheduleRecord>) => void;
+  deleteScheduleRecord: (id: string) => void;
+  deleteMultipleScheduleRecords: (ids: string[]) => void;
+  clearAllScheduleRecords: () => void;
+  setBulkScheduleRecords: (records: ScheduleRecord[]) => void;
+  importBulkScheduleRecords: (records: ScheduleRecord[]) => Promise<{ success: boolean; errorMsg?: string }>;
 
   attendanceLogs: AttendanceLog[];
   addAttendanceLogs: (logs: Omit<AttendanceLog, "id">[]) => void;
@@ -706,6 +736,9 @@ export const useAppStore = create<AppState>()(
             }
             if (Array.isArray(erpData?.certifications) && erpData.certifications.length > 0) {
               updates.certifications = erpData.certifications;
+            }
+            if (Array.isArray(erpData?.scheduleRecords) && erpData.scheduleRecords.length > 0) {
+              updates.scheduleRecords = erpData.scheduleRecords;
             }
 
             return updates;
@@ -1925,6 +1958,66 @@ export const useAppStore = create<AppState>()(
           source_file: "BIOMETRICO_AGOSTO_2026.TXT",
         },
       ],
+
+      scheduleRecords: [],
+
+      addScheduleRecord: (record) => {
+        const newRecord: ScheduleRecord = {
+          ...record,
+          id: generateUUID(),
+        };
+        saveSupabaseScheduleRecord(newRecord);
+        set((state) => ({
+          scheduleRecords: [newRecord, ...state.scheduleRecords],
+        }));
+      },
+
+      updateScheduleRecord: (id, updates) => {
+        set((state) => {
+          const updatedList = state.scheduleRecords.map((r) => {
+            if (r.id === id) {
+              const u = { ...r, ...updates };
+              saveSupabaseScheduleRecord(u);
+              return u;
+            }
+            return r;
+          });
+          return { scheduleRecords: updatedList };
+        });
+      },
+
+      deleteScheduleRecord: (id) => {
+        deleteSupabaseScheduleRecord(id);
+        set((state) => ({
+          scheduleRecords: state.scheduleRecords.filter((r) => r.id !== id),
+        }));
+      },
+
+      deleteMultipleScheduleRecords: (ids) => {
+        deleteSupabaseMultipleScheduleRecords(ids);
+        set((state) => ({
+          scheduleRecords: state.scheduleRecords.filter((r) => !ids.includes(r.id)),
+        }));
+      },
+
+      clearAllScheduleRecords: () => {
+        clearSupabaseScheduleRecords();
+        set({ scheduleRecords: [] });
+      },
+
+      setBulkScheduleRecords: (records) => {
+        set({ scheduleRecords: records });
+      },
+
+      importBulkScheduleRecords: async (records) => {
+        const res = await saveSupabaseBulkScheduleRecords(records);
+        set((state) => {
+          const existingMap = new Map(state.scheduleRecords.map((r) => [r.id, r]));
+          records.forEach((r) => existingMap.set(r.id, r));
+          return { scheduleRecords: Array.from(existingMap.values()) };
+        });
+        return res;
+      },
 
       addAttendanceLogs: (logs) =>
         set((state) => ({

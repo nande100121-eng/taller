@@ -44,6 +44,9 @@ export default function ConfiguracionPage() {
     invoices,
     appointments,
     certifications,
+    scheduleRecords,
+    siteContent,
+    updateSiteContent,
   } = useAppStore();
 
   // Correlative Settings State
@@ -58,6 +61,26 @@ export default function ConfiguracionPage() {
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
+
+  // WhatsApp Workshop Settings State
+  const [whatsappPhone, setWhatsappPhone] = useState(siteContent?.contact?.whatsapp || "+51 987 654 321");
+  const [whatsappSaveMsg, setWhatsappSaveMsg] = useState(false);
+
+  React.useEffect(() => {
+    if (siteContent?.contact?.whatsapp) {
+      setWhatsappPhone(siteContent.contact.whatsapp);
+    }
+  }, [siteContent?.contact?.whatsapp]);
+
+  const handleSaveWhatsapp = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateSiteContent("contact", {
+      ...siteContent?.contact,
+      whatsapp: whatsappPhone,
+    });
+    setWhatsappSaveMsg(true);
+    setTimeout(() => setWhatsappSaveMsg(false), 4000);
+  };
 
   React.useEffect(() => {
     if (correlativeConfig) {
@@ -414,6 +437,73 @@ export default function ConfiguracionPage() {
                 <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-purple-300 font-mono">
                   Siguiente Factura: <strong>{correlativeForm.facturaSeries}-{(correlativeForm.facturaLastNumber + 1).toString().padStart(8, "0")}</strong>
                 </div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      {/* SECTION: WHATSAPP WORKSHOP & NOTIFICATIONS CONFIGURATION */}
+      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-emerald-500/30 space-y-6">
+        <form onSubmit={handleSaveWhatsapp} className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-emerald-400" />
+                <span>Configuración de WhatsApp Oficial del Taller</span>
+              </h2>
+              <p className="text-xs text-gray-400">
+                Número de contacto del taller utilizado para enviar confirmaciones de citas automáticas, recordatorios y radar de mantenimiento.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {whatsappSaveMsg && (
+                <span className="text-xs font-bold text-emerald-400 bg-emerald-950/60 px-3 py-1.5 rounded-lg border border-emerald-500/40 flex items-center gap-1.5 animate-fadeIn">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>WhatsApp guardado</span>
+                </span>
+              )}
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-all"
+              >
+                <Save className="w-4 h-4" />
+                <span>Guardar WhatsApp</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+              <label className="text-xs text-gray-300 font-bold block">
+                Número de WhatsApp de Atención / Recepción del Taller:
+              </label>
+              <input
+                type="text"
+                value={whatsappPhone}
+                onChange={(e) => setWhatsappPhone(e.target.value)}
+                placeholder="+51 987 654 321"
+                className="w-full px-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold focus:border-emerald-400"
+              />
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                Este número se utilizará como remitente y enlace directo cuando los clientes hagan clic en el botón de WhatsApp en la web y para las notificaciones de confirmación de citas.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-3">
+              <label className="text-xs text-gray-300 font-bold block">
+                Plantilla Oficial de Mensaje de Confirmación de Cita:
+              </label>
+              <div className="p-3.5 rounded-xl bg-black/50 border border-emerald-500/20 text-xs text-emerald-200/90 leading-relaxed font-sans space-y-1">
+                <p className="font-bold text-white">Estimado(a) &#123;Nombre del Cliente&#125;,</p>
+                <p>
+                  Le recordamos que su vehículo con placa <strong className="text-amber-300">&#123;Placa&#125;</strong> tiene programada su atención de <strong>&#123;Servicio&#125;</strong> para el <strong>&#123;Fecha y Hora&#125;</strong> en nuestro taller.
+                </p>
+                <p>
+                  Le esperamos puntualmente. Ante cualquier consulta o reprogramación, no dude en comunicarse con nosotros.
+                </p>
+                <p className="font-bold text-white pt-1">¡Gracias por su preferencia! - Taller Automotriz ReyGas</p>
               </div>
             </div>
           </div>
