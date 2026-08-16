@@ -766,8 +766,8 @@ export const useAppStore = create<AppState>()(
                 localMap.set(ev.plate, {
                   ...existing,
                   ...ev,
-                  brand: ev.brand || existing?.brand || "Automóvil",
-                  fuel_type: ev.fuel_type || existing?.fuel_type || "GNV",
+                  brand: ev.brand || existing?.brand || "",
+                  fuel_type: ev.fuel_type || existing?.fuel_type || "",
                   owner_name: ev.owner_name || existing?.owner_name || "",
                   owner_phone: ev.owner_phone || existing?.owner_phone || "",
                   current_mileage: ev.current_mileage > 0 ? ev.current_mileage : (existing?.current_mileage || 0),

@@ -620,11 +620,11 @@ export async function fetchSupabaseErpData() {
               const existingVeh = reconstructedVehiclesMap.get(plateKey) || {};
               reconstructedVehiclesMap.set(plateKey, {
                 plate: o.vehicle_plate,
-                brand: meta.brand || existingVeh.brand || "Automóvil",
+                brand: meta.brand || existingVeh.brand || "",
                 model: existingVeh.model || "",
                 year: existingVeh.year || 0,
                 color: existingVeh.color || "",
-                fuel_type: meta.fuel || existingVeh.fuel_type || "GNV",
+                fuel_type: meta.fuel || existingVeh.fuel_type || "",
                 vehicle_type: vehicleType || existingVeh.vehicle_type || "",
                 owner_name: meta.c_name || meta.client_name || existingVeh.owner_name || "",
                 owner_phone: meta.c_phone || meta.client_phone || existingVeh.owner_phone || "",
@@ -648,7 +648,7 @@ export async function fetchSupabaseErpData() {
               certification_fee: existingInv.certification_fee || 0,
               grand_total: existingInv.grand_total || 0,
               payment_status: existingInv.payment_status || "pagado",
-              payment_method: meta.p_method || existingInv.payment_method || "Efectivo",
+              payment_method: meta.p_method || existingInv.payment_method || "",
               issued_at: o.entry_time || existingInv.issued_at || new Date().toISOString(),
               receipt_number: meta.rcpt_num || existingInv.receipt_number || "",
               receipt_type: meta.rcpt_type || existingInv.receipt_type || "",
@@ -763,8 +763,8 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     const { error } = await supabase.from("invoices").upsert({
       id: inv.id,
       work_order_id: inv.work_order_id,
-      vehicle_plate: inv.vehicle_plate || "SN-PLACA",
-      client_name: inv.client_name || "Cliente Taller",
+      vehicle_plate: inv.vehicle_plate || "",
+      client_name: inv.client_name || "",
       customer_doc: inv.customer_doc || null,
       customer_address: inv.customer_address || null,
       labor_fee: typeof inv.labor_fee === "number" && !isNaN(inv.labor_fee) ? inv.labor_fee : 0,
@@ -772,7 +772,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       certification_fee: typeof inv.certification_fee === "number" && !isNaN(inv.certification_fee) ? inv.certification_fee : 0,
       grand_total: typeof inv.grand_total === "number" && !isNaN(inv.grand_total) ? inv.grand_total : 0,
       payment_status: inv.payment_status || "pagado",
-      payment_method: inv.payment_method || "Efectivo",
+      payment_method: inv.payment_method || "",
       issued_at: inv.issued_at || new Date().toISOString(),
       paid_at: inv.paid_at || null,
       receipt_number: inv.receipt_number || null,
@@ -805,12 +805,12 @@ export async function saveSupabaseBulkWorkshopData(
     // 1. Vehicles chunked save
     if (vehicles.length > 0) {
       const vehiclesPayload = vehicles.map((v) => ({
-        plate: v.plate || "SN-PLACA",
-        brand: v.brand || "Automóvil",
+        plate: v.plate || "",
+        brand: v.brand || "",
         model: v.model || "",
         year: v.year || 0,
         color: v.color || "",
-        fuel_type: v.fuel_type || "GNV",
+        fuel_type: v.fuel_type || "",
         vehicle_type: v.vehicle_type || null,
         owner_name: v.owner_name || "",
         owner_phone: v.owner_phone || "",
