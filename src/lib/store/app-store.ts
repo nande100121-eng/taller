@@ -1818,27 +1818,7 @@ export const useAppStore = create<AppState>()(
           };
         }),
 
-      appointments: [
-        {
-          id: "app-1",
-          client_name: "Jorge Ramírez",
-          client_phone: "+51 977112233",
-          plate: "B7V-456",
-          service_type: "Conversión a GNV 5ta Gen",
-          scheduled_date: new Date(Date.now() + 86400000).toISOString(),
-          status: "confirmado",
-          notes: "Cliente solicita tanque cilíndrico de 55L",
-        },
-        {
-          id: "app-2",
-          client_name: "Elena Paredes",
-          client_phone: "+51 966445566",
-          plate: "F9K-112",
-          service_type: "Mantenimiento 15,000 km",
-          scheduled_date: new Date(Date.now() + 172800000).toISOString(),
-          status: "pendiente",
-        },
-      ],
+      appointments: [],
 
       addAppointment: (app) => {
         const newApp: Appointment = {
@@ -1887,30 +1867,7 @@ export const useAppStore = create<AppState>()(
         }));
       },
 
-      certifications: [
-        {
-          id: "cert-1",
-          vehicle_plate: "ABC-123",
-          client_name: "Luis Fernando Alva",
-          chip_code: "GNV-PE-987123",
-          cylinder_serial: "CYL-2021-00441",
-          certification_type: "Anual GNV",
-          issue_date: "2025-08-10",
-          expiry_date: "2026-08-10",
-          status: "Por Vencer",
-        },
-        {
-          id: "cert-2",
-          vehicle_plate: "XYZ-987",
-          client_name: "Mariana Torres",
-          chip_code: "GLP-PE-554129",
-          cylinder_serial: "TOR-2022-77112",
-          certification_type: "Anual GLP",
-          issue_date: "2026-02-15",
-          expiry_date: "2027-02-15",
-          status: "Vigente",
-        },
-      ],
+      certifications: [],
 
       addCertification: (cert) => {
         const newCert: Certification = {
