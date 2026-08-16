@@ -93,6 +93,7 @@ export interface ParsedWorkshopRecord {
   paymentMethod: string; // METODO DE PAGO (column 19 / index 18)
   paymentDestination: string; // DESTINO DE PAGO (column 20 / index 19)
   receiptType: string; // COMPROBANTE (column 21 / index 20)
+  customerDoc: string; // RUC FACTURA (column 22 / index 21)
 }
 
 export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
@@ -103,7 +104,7 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   if (!rawDate || rawDate.toLowerCase().includes("fecha")) return null;
   const dateISO = parseISODate(rawDate);
 
-  // Find Plate index dynamically (usually 7 in 21-col format)
+  // Find Plate index dynamically (usually 7 in 21/22-col format)
   let plateIdx = 7;
   if (cols.length >= 8 && cols[7] && cols[7].trim()) {
     plateIdx = 7;
@@ -153,6 +154,7 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
   const paymentMethod = (cols[18] || "").trim();
   const paymentDestination = (cols[19] || "").trim();
   const receiptType = (cols[20] || "").trim();
+  const customerDoc = (cols[21] || "").trim();
 
   return {
     dateISO,
@@ -180,6 +182,7 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
     paymentMethod,
     paymentDestination,
     receiptType,
+    customerDoc,
   };
 }
 

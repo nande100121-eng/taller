@@ -534,6 +534,163 @@ export async function fetchSupabaseErpData() {
       });
     }
 
+    // Check if master workshop backup exists in site_content
+    let masterBackup: { vehicles?: any[]; workOrders?: any[]; invoices?: any[] } | null = null;
+    if (contentRes.data) {
+      const backupRow = contentRes.data.find((r: any) => (r.key || r.section_key) === "master_workshop_backup");
+      if (backupRow) {
+        try {
+          masterBackup = typeof backupRow.value === "string" ? JSON.parse(backupRow.value) : (backupRow.value || backupRow.content);
+        } catch {}
+      }
+    }
+
+    const reconstructedVehiclesMap = new Map<string, any>();
+    const reconstructedInvoicesMap = new Map<string, any>();
+
+    // Seed with backup vehicles/invoices if available
+    if (masterBackup?.vehicles) {
+      masterBackup.vehicles.forEach((v: any) => {
+        if (v && v.plate) reconstructedVehiclesMap.set(v.plate.toUpperCase(), v);
+      });
+    }
+    if (masterBackup?.invoices) {
+      masterBackup.invoices.forEach((i: any) => {
+        if (i && (i.work_order_id || i.id)) reconstructedInvoicesMap.set(i.work_order_id || i.id, i);
+      });
+    }
+
+    // Also populate with database vehicles/invoices
+    if (Array.isArray(vehicleData)) {
+      vehicleData.forEach((v: any) => {
+        if (v && v.plate) {
+          const existing = reconstructedVehiclesMap.get(v.plate.toUpperCase());
+          reconstructedVehiclesMap.set(v.plate.toUpperCase(), { ...existing, ...v });
+        }
+      });
+    }
+    if (Array.isArray(invoiceData)) {
+      invoiceData.forEach((i: any) => {
+        if (i && (i.work_order_id || i.id)) {
+          const existing = reconstructedInvoicesMap.get(i.work_order_id || i.id);
+          reconstructedInvoicesMap.set(i.work_order_id || i.id, { ...existing, ...i });
+        }
+      });
+    }
+
+    const rawOrderList = (orderData && orderData.length > 0) ? orderData : (masterBackup?.workOrders || []);
+
+    const formattedOrders = rawOrderList.map((o: any) => {
+      const rawDiag = o.diagnostic_notes || "";
+      let diagNotes = rawDiag;
+      let obs = "";
+      let allowMod = false;
+      let quinquennialDate = o.quinquennial_date || "";
+      let chipExpiryDate = o.chip_expiry_date || "";
+      let vehicleType = o.vehicle_type || "";
+      let generalMaintenanceService = o.general_maintenance_service || o.problem_description || "";
+      let sparePartsServices = o.spare_parts_services || "";
+
+      // Decode [ERP_META]: JSON if present
+      if (diagNotes.includes("[ERP_META]:")) {
+        try {
+          const metaStr = diagNotes.split("[ERP_META]:")[1].trim();
+          const meta = JSON.parse(metaStr);
+          if (meta) {
+            quinquennialDate = meta.q_date || meta.quinquennial_date || quinquennialDate;
+            chipExpiryDate = meta.c_date || meta.chip_expiry_date || chipExpiryDate;
+            vehicleType = meta.v_type || meta.vehicle_type || vehicleType;
+            generalMaintenanceService = meta.m_serv || meta.general_maintenance_service || generalMaintenanceService;
+            sparePartsServices = meta.sp_serv || meta.spare_parts_services || sparePartsServices;
+
+            // Reconstruct vehicle
+            if (o.vehicle_plate) {
+              const plateKey = o.vehicle_plate.toUpperCase();
+              const existingVeh = reconstructedVehiclesMap.get(plateKey) || {};
+              reconstructedVehiclesMap.set(plateKey, {
+                plate: o.vehicle_plate,
+                brand: meta.brand || existingVeh.brand || "Automóvil",
+                model: existingVeh.model || "",
+                year: existingVeh.year || 0,
+                color: existingVeh.color || "",
+                fuel_type: meta.fuel || existingVeh.fuel_type || "GNV",
+                vehicle_type: vehicleType || existingVeh.vehicle_type || "",
+                owner_name: meta.c_name || meta.client_name || existingVeh.owner_name || "",
+                owner_phone: meta.c_phone || meta.client_phone || existingVeh.owner_phone || "",
+                current_mileage: meta.km || meta.current_mileage || existingVeh.current_mileage || 0,
+                last_visit_date: o.entry_time || existingVeh.last_visit_date || new Date().toISOString(),
+              });
+            }
+
+            // Reconstruct invoice
+            const invKey = o.id;
+            const existingInv = reconstructedInvoicesMap.get(invKey) || {};
+            reconstructedInvoicesMap.set(invKey, {
+              id: existingInv.id || `inv-${o.id}`,
+              work_order_id: o.id,
+              vehicle_plate: o.vehicle_plate,
+              client_name: meta.c_name || meta.client_name || existingInv.client_name || "",
+              customer_doc: meta.doc || existingInv.customer_doc || "",
+              customer_address: existingInv.customer_address || "",
+              labor_fee: existingInv.labor_fee || 0,
+              parts_total: existingInv.parts_total || 0,
+              certification_fee: existingInv.certification_fee || 0,
+              grand_total: existingInv.grand_total || 0,
+              payment_status: existingInv.payment_status || "pagado",
+              payment_method: meta.p_method || existingInv.payment_method || "Efectivo",
+              issued_at: o.entry_time || existingInv.issued_at || new Date().toISOString(),
+              receipt_number: meta.rcpt_num || existingInv.receipt_number || "",
+              receipt_type: meta.rcpt_type || existingInv.receipt_type || "",
+              discounts: meta.disc !== undefined ? meta.disc : (existingInv.discounts || ""),
+              credit_amount: meta.cred || existingInv.credit_amount || 0,
+              raw_price_str: meta.r_price || existingInv.raw_price_str || "",
+              raw_credit_str: meta.r_cred || existingInv.raw_credit_str || "",
+              payment_condition: meta.cond || existingInv.payment_condition || "",
+              payment_destination: meta.p_dest || existingInv.payment_destination || "",
+            });
+          }
+          diagNotes = diagNotes.split("[ERP_META]:")[0].trim();
+        } catch (e) {
+          // ignore parse error
+        }
+      }
+
+      // Legacy fallback parsing from textual diagnostic_notes
+      if (!quinquennialDate && diagNotes.includes("Quinquenal:")) {
+        const match = diagNotes.match(/Quinquenal:\s*([^•\n]+)/);
+        if (match) quinquennialDate = match[1].trim();
+      }
+      if (!chipExpiryDate && diagNotes.includes("Chip Anual:")) {
+        const match = diagNotes.match(/Chip Anual:\s*([^•\n]+)/);
+        if (match) chipExpiryDate = match[1].trim();
+      }
+
+      if (diagNotes.includes("[ALLOW_MOD]: true")) {
+        allowMod = true;
+        diagNotes = diagNotes.replace("[ALLOW_MOD]: true", "").trim();
+      }
+      if (diagNotes.includes("[OBSERVACIONES]:")) {
+        const parts = diagNotes.split("[OBSERVACIONES]:");
+        diagNotes = parts[0].trim();
+        obs = parts[1].trim();
+      }
+
+      return {
+        ...o,
+        quinquennial_date: quinquennialDate || o.quinquennial_date || "",
+        chip_expiry_date: chipExpiryDate || o.chip_expiry_date || "",
+        vehicle_type: vehicleType || o.vehicle_type || "",
+        general_maintenance_service: generalMaintenanceService || o.general_maintenance_service || "",
+        spare_parts_services: sparePartsServices || o.spare_parts_services || "",
+        allow_modifications: allowMod || !!o.allow_modifications,
+        diagnostic_notes: diagNotes,
+        observations: obs || o.observations || undefined,
+        items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
+      };
+    });
+
+    const finalVehicles = Array.from(reconstructedVehiclesMap.values());
+    const finalInvoices = Array.from(reconstructedInvoicesMap.values());
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
     return {
@@ -544,33 +701,10 @@ export async function fetchSupabaseErpData() {
           }))
         : null,
       inventoryItems: invRes.data ? invRes.data : null,
-      workOrders: orderData
-        ? orderData.map((o: any) => {
-            const rawDiag = o.diagnostic_notes || "";
-            let diagNotes = rawDiag;
-            let obs = "";
-            let allowMod = false;
-            if (diagNotes.includes("[ALLOW_MOD]: true")) {
-              allowMod = true;
-              diagNotes = diagNotes.replace("[ALLOW_MOD]: true", "").trim();
-            }
-            if (diagNotes.includes("[OBSERVACIONES]:")) {
-              const parts = diagNotes.split("[OBSERVACIONES]:");
-              diagNotes = parts[0].trim();
-              obs = parts[1].trim();
-            }
-            return {
-              ...o,
-              allow_modifications: allowMod || !!o.allow_modifications,
-              diagnostic_notes: diagNotes,
-              observations: obs || o.observations || undefined,
-              items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
-            };
-          })
-        : null,
+      workOrders: formattedOrders.length > 0 ? formattedOrders : null,
       appointments: appRes.data ? appRes.data : null,
-      invoices: invoiceData,
-      vehicles: vehicleData,
+      invoices: finalInvoices.length > 0 ? finalInvoices : (invoiceData || []),
+      vehicles: finalVehicles.length > 0 ? finalVehicles : (vehicleData || []),
       certifications: mergedCerts.length > 0 ? mergedCerts : null,
       scheduleRecords: fallbackSched.length > 0 ? fallbackSched : null,
     };
@@ -669,20 +803,53 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 2. Work Orders chunked save (only physical schema columns)
+    // 2. Work Orders chunked save (embeds all 20 columns in [ERP_META] tag)
     if (orders.length > 0) {
+      const vehiclesMap = new Map((vehicles || []).map((v) => [v.plate, v]));
+      const invoicesMap = new Map((invoices || []).map((i) => [i.work_order_id, i]));
+      const invoicesByPlate = new Map((invoices || []).map((i) => [i.vehicle_plate, i]));
+
       const ordersPayload = orders.map((o) => {
-        let diagText = o.diagnostic_notes || "";
+        const veh = vehiclesMap.get(o.vehicle_plate);
+        const inv = invoicesMap.get(o.id) || invoicesByPlate.get(o.vehicle_plate);
+
+        const meta = {
+          q_date: o.quinquennial_date || "",
+          c_date: o.chip_expiry_date || "",
+          v_type: o.vehicle_type || veh?.vehicle_type || "",
+          brand: veh?.brand || "",
+          fuel: veh?.fuel_type || "",
+          km: veh?.current_mileage || 0,
+          c_name: veh?.owner_name || inv?.client_name || "",
+          c_phone: veh?.owner_phone || "",
+          tech: o.assigned_technician_id || "",
+          m_serv: o.general_maintenance_service || o.problem_description || "",
+          sp_serv: o.spare_parts_services || "",
+          rcpt_num: inv?.receipt_number || "",
+          rcpt_type: inv?.receipt_type || "",
+          disc: inv?.discounts !== undefined ? String(inv.discounts) : "",
+          cred: inv?.credit_amount || 0,
+          r_price: inv?.raw_price_str || "",
+          r_cred: inv?.raw_credit_str || "",
+          cond: inv?.payment_condition || "",
+          p_dest: inv?.payment_destination || "",
+          doc: inv?.customer_doc || "",
+          p_method: inv?.payment_method || "",
+        };
+
+        let diagText = (o.diagnostic_notes || "").replace(/\[ERP_META\]:[^\n]+/g, "").trim();
         if (o.observations && !diagText.includes("[OBSERVACIONES]:")) {
           diagText = `${diagText}\n[OBSERVACIONES]: ${o.observations}`.trim();
         }
+        diagText = `${diagText}\n[ERP_META]:${JSON.stringify(meta)}`.trim();
+
         return {
           id: o.id,
           vehicle_plate: o.vehicle_plate || "SN-PLACA",
           status: o.status || "pagado_autorizado",
           assigned_technician_id: o.assigned_technician_id || null,
           problem_description: o.problem_description || "Mantenimiento General",
-          diagnostic_notes: diagText || null,
+          diagnostic_notes: diagText,
           entry_time: o.entry_time || new Date().toISOString(),
           items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
         };
@@ -722,6 +889,16 @@ export async function saveSupabaseBulkWorkshopData(
         }
       }
     }
+
+    // 4. Save entire workshop data package in site_content backup
+    await saveSupabaseSiteContent("master_workshop_backup", {
+      vehicles,
+      workOrders: orders,
+      invoices,
+      updated_at: new Date().toISOString(),
+    }, "workshop");
+
+    broadcastRealtimeChange("bulk_workshop_saved");
 
     if (lastError) {
       return { success: false, errorMsg: lastError };

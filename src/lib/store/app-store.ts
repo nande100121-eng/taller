@@ -723,16 +723,58 @@ export const useAppStore = create<AppState>()(
               updates.inventoryItems = erpData.inventoryItems;
             }
             if (Array.isArray(erpData?.workOrders) && erpData.workOrders.length > 0) {
-              updates.workOrders = erpData.workOrders;
+              const localOrderMap = new Map(state.workOrders.map((o) => [o.id, o]));
+              updates.workOrders = erpData.workOrders.map((eo) => {
+                const existing = localOrderMap.get(eo.id);
+                return {
+                  ...existing,
+                  ...eo,
+                  quinquennial_date: eo.quinquennial_date || existing?.quinquennial_date || "",
+                  chip_expiry_date: eo.chip_expiry_date || existing?.chip_expiry_date || "",
+                  vehicle_type: eo.vehicle_type || existing?.vehicle_type || "",
+                  general_maintenance_service: eo.general_maintenance_service || existing?.general_maintenance_service || "",
+                  spare_parts_services: eo.spare_parts_services || existing?.spare_parts_services || "",
+                };
+              });
             }
             if (Array.isArray(erpData?.invoices) && erpData.invoices.length > 0) {
-              updates.invoices = erpData.invoices;
+              const localInvMap = new Map(state.invoices.map((i) => [i.id, i]));
+              updates.invoices = erpData.invoices.map((ei) => {
+                const existing = localInvMap.get(ei.id);
+                return {
+                  ...existing,
+                  ...ei,
+                  receipt_number: ei.receipt_number || existing?.receipt_number || "",
+                  receipt_type: ei.receipt_type || existing?.receipt_type || "",
+                  discounts: ei.discounts !== undefined ? ei.discounts : (existing?.discounts || ""),
+                  credit_amount: ei.credit_amount !== undefined ? ei.credit_amount : (existing?.credit_amount || 0),
+                  raw_price_str: ei.raw_price_str || existing?.raw_price_str || "",
+                  raw_credit_str: ei.raw_credit_str || existing?.raw_credit_str || "",
+                  payment_condition: ei.payment_condition || existing?.payment_condition || "",
+                  payment_destination: ei.payment_destination || existing?.payment_destination || "",
+                  customer_doc: ei.customer_doc || existing?.customer_doc || "",
+                };
+              });
             }
             if (Array.isArray(erpData?.appointments) && erpData.appointments.length > 0) {
               updates.appointments = erpData.appointments;
             }
             if (Array.isArray(erpData?.vehicles) && erpData.vehicles.length > 0) {
-              updates.vehicles = erpData.vehicles;
+              const localMap = new Map(state.vehicles.map((v) => [v.plate, v]));
+              erpData.vehicles.forEach((ev) => {
+                const existing = localMap.get(ev.plate);
+                localMap.set(ev.plate, {
+                  ...existing,
+                  ...ev,
+                  brand: ev.brand || existing?.brand || "Automóvil",
+                  fuel_type: ev.fuel_type || existing?.fuel_type || "GNV",
+                  owner_name: ev.owner_name || existing?.owner_name || "",
+                  owner_phone: ev.owner_phone || existing?.owner_phone || "",
+                  current_mileage: ev.current_mileage > 0 ? ev.current_mileage : (existing?.current_mileage || 0),
+                  vehicle_type: ev.vehicle_type || existing?.vehicle_type || "",
+                });
+              });
+              updates.vehicles = Array.from(localMap.values());
             }
             if (Array.isArray(erpData?.certifications) && erpData.certifications.length > 0) {
               updates.certifications = erpData.certifications;

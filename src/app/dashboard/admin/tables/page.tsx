@@ -438,6 +438,7 @@ export default function AdminTablesPage() {
           raw_credit_str: record.rawCredit,
           payment_condition: record.paymentCondition,
           payment_destination: record.paymentDestination,
+          customer_doc: record.customerDoc,
         });
       });
 
