@@ -158,10 +158,21 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       vehicle_plate: order.vehicle_plate || "SN-PLACA",
       status: order.status || "pagado_autorizado",
       assigned_technician_id: order.assigned_technician_id || null,
-      problem_description: order.problem_description || "Mantenimiento General",
+      problem_description: order.problem_description || "",
       diagnostic_notes: diagText || null,
+      observations: order.observations || null,
       entry_time: order.entry_time || new Date().toISOString(),
+      completion_time: order.completion_time || null,
       items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
+      quinquennial_date: order.quinquennial_date || null,
+      chip_expiry_date: order.chip_expiry_date || null,
+      vehicle_type: order.vehicle_type || null,
+      general_maintenance_service: order.general_maintenance_service || null,
+      spare_parts_services: order.spare_parts_services || null,
+      requires_certification: !!order.requires_certification,
+      certification_type: order.certification_type || null,
+      certification_price: order.certification_price || 0,
+      allow_modifications: !!order.allow_modifications,
     });
     // Also save in site_content key as fallback sync
     await saveSupabaseSiteContent(`wo_mod_${order.id}`, {
@@ -754,6 +765,8 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       work_order_id: inv.work_order_id,
       vehicle_plate: inv.vehicle_plate || "SN-PLACA",
       client_name: inv.client_name || "Cliente Taller",
+      customer_doc: inv.customer_doc || null,
+      customer_address: inv.customer_address || null,
       labor_fee: typeof inv.labor_fee === "number" && !isNaN(inv.labor_fee) ? inv.labor_fee : 0,
       parts_total: typeof inv.parts_total === "number" && !isNaN(inv.parts_total) ? inv.parts_total : 0,
       certification_fee: typeof inv.certification_fee === "number" && !isNaN(inv.certification_fee) ? inv.certification_fee : 0,
@@ -761,6 +774,16 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_status: inv.payment_status || "pagado",
       payment_method: inv.payment_method || "Efectivo",
       issued_at: inv.issued_at || new Date().toISOString(),
+      paid_at: inv.paid_at || null,
+      receipt_number: inv.receipt_number || null,
+      receipt_type: inv.receipt_type || null,
+      discounts: inv.discounts !== undefined ? String(inv.discounts) : null,
+      credit_amount: typeof inv.credit_amount === "number" ? inv.credit_amount : 0,
+      raw_price_str: inv.raw_price_str || null,
+      raw_credit_str: inv.raw_credit_str || null,
+      payment_condition: inv.payment_condition || null,
+      payment_destination: inv.payment_destination || null,
+      observations: inv.observations || null,
     });
     broadcastRealtimeChange("invoice_updated");
     if (error) console.warn("Supabase invoice save warning:", error.message);
@@ -784,12 +807,13 @@ export async function saveSupabaseBulkWorkshopData(
       const vehiclesPayload = vehicles.map((v) => ({
         plate: v.plate || "SN-PLACA",
         brand: v.brand || "Automóvil",
-        model: v.model || "Importado",
-        year: v.year || 2023,
-        color: v.color || "Plata",
+        model: v.model || "",
+        year: v.year || 0,
+        color: v.color || "",
         fuel_type: v.fuel_type || "GNV",
-        owner_name: v.owner_name || "Cliente Taller",
-        owner_phone: v.owner_phone || "+51 900000000",
+        vehicle_type: v.vehicle_type || null,
+        owner_name: v.owner_name || "",
+        owner_phone: v.owner_phone || "",
         current_mileage: v.current_mileage || 0,
         last_visit_date: v.last_visit_date || new Date().toISOString(),
       }));
@@ -803,7 +827,7 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 2. Work Orders chunked save (embeds all 20 columns in [ERP_META] tag)
+    // 2. Work Orders chunked save (embeds all 20 columns in [ERP_META] tag & saves all physical columns)
     if (orders.length > 0) {
       const vehiclesMap = new Map((vehicles || []).map((v) => [v.plate, v]));
       const invoicesMap = new Map((invoices || []).map((i) => [i.work_order_id, i]));
@@ -823,7 +847,7 @@ export async function saveSupabaseBulkWorkshopData(
           c_name: veh?.owner_name || inv?.client_name || "",
           c_phone: veh?.owner_phone || "",
           tech: o.assigned_technician_id || "",
-          m_serv: o.general_maintenance_service || o.problem_description || "",
+          m_serv: o.general_maintenance_service || "",
           sp_serv: o.spare_parts_services || "",
           rcpt_num: inv?.receipt_number || "",
           rcpt_type: inv?.receipt_type || "",
@@ -848,10 +872,21 @@ export async function saveSupabaseBulkWorkshopData(
           vehicle_plate: o.vehicle_plate || "SN-PLACA",
           status: o.status || "pagado_autorizado",
           assigned_technician_id: o.assigned_technician_id || null,
-          problem_description: o.problem_description || "Mantenimiento General",
+          problem_description: o.problem_description || "",
           diagnostic_notes: diagText,
+          observations: o.observations || null,
           entry_time: o.entry_time || new Date().toISOString(),
+          completion_time: o.completion_time || null,
           items: typeof o.items === "string" ? o.items : JSON.stringify(o.items || []),
+          quinquennial_date: o.quinquennial_date || null,
+          chip_expiry_date: o.chip_expiry_date || null,
+          vehicle_type: o.vehicle_type || null,
+          general_maintenance_service: o.general_maintenance_service || null,
+          spare_parts_services: o.spare_parts_services || null,
+          requires_certification: !!o.requires_certification,
+          certification_type: o.certification_type || null,
+          certification_price: o.certification_price || 0,
+          allow_modifications: !!o.allow_modifications,
         };
       });
 
@@ -865,20 +900,32 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 3. Invoices chunked save (only valid columns in Supabase schema with safe non-null values)
+    // 3. Invoices chunked save (all columns included)
     if (invoices.length > 0) {
       const invoicesPayload = invoices.map((inv) => ({
         id: inv.id,
         work_order_id: inv.work_order_id,
         vehicle_plate: inv.vehicle_plate || "SN-PLACA",
         client_name: inv.client_name || "Cliente Taller",
+        customer_doc: inv.customer_doc || null,
+        customer_address: inv.customer_address || null,
         labor_fee: typeof inv.labor_fee === "number" && !isNaN(inv.labor_fee) ? inv.labor_fee : 0,
         parts_total: typeof inv.parts_total === "number" && !isNaN(inv.parts_total) ? inv.parts_total : 0,
         certification_fee: typeof inv.certification_fee === "number" && !isNaN(inv.certification_fee) ? inv.certification_fee : 0,
         grand_total: typeof inv.grand_total === "number" && !isNaN(inv.grand_total) ? inv.grand_total : 0,
         payment_status: inv.payment_status || "pagado",
-        payment_method: inv.payment_method || "Efectivo",
+        payment_method: inv.payment_method || "",
         issued_at: inv.issued_at || new Date().toISOString(),
+        paid_at: inv.paid_at || null,
+        receipt_number: inv.receipt_number || null,
+        receipt_type: inv.receipt_type || null,
+        discounts: inv.discounts !== undefined ? String(inv.discounts) : null,
+        credit_amount: typeof inv.credit_amount === "number" ? inv.credit_amount : 0,
+        raw_price_str: inv.raw_price_str || null,
+        raw_credit_str: inv.raw_credit_str || null,
+        payment_condition: inv.payment_condition || null,
+        payment_destination: inv.payment_destination || null,
+        observations: inv.observations || null,
       }));
 
       for (let i = 0; i < invoicesPayload.length; i += CHUNK_SIZE) {

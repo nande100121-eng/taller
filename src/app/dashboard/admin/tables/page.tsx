@@ -776,7 +776,7 @@ export default function AdminTablesPage() {
                 ) : (
                   paginatedOrders.map((wo, index) => {
                     const veh = vehiclesByPlate.get(wo.vehicle_plate) || vehicles.find((v) => v.plate === wo.vehicle_plate);
-                    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id);
+                    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id) || invoices.find((i) => i.vehicle_plate === wo.vehicle_plate && i.issued_at === wo.entry_time);
                     const isSelected = selectedIds.includes(wo.id);
 
                     const priceVal = inv?.raw_price_str !== undefined && inv.raw_price_str !== ""
@@ -827,7 +827,7 @@ export default function AdminTablesPage() {
                         <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || ""}</td>
                         <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || ""}</td>
                         <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || wo.problem_description || ""}</td>
+                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || (wo.problem_description !== "Mantenimiento General" ? (wo.problem_description || "") : "")}</td>
                         <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
                         <td className="p-3 font-mono font-bold text-white">{priceVal}</td>
                         <td className="p-3 font-mono text-gray-400">{discountVal}</td>
