@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { useAppStore } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   FileText,
   Calendar,
@@ -282,15 +283,11 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <div className="flex items-center gap-1.5 px-2">
-                  <Calendar className="w-4 h-4 text-amber-400" />
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                    className="bg-transparent text-xs font-bold text-white font-mono focus:outline-none cursor-pointer"
-                  />
-                </div>
+                <MiniDatePicker
+                  value={selectedDate}
+                  onChange={setSelectedDate}
+                  variant="compact"
+                />
                 <button
                   type="button"
                   onClick={() => changeDate(1)}

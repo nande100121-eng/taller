@@ -9,6 +9,8 @@ interface MiniDatePickerProps {
   onChange: (dateStr: string) => void;
   className?: string;
   label?: string;
+  variant?: "default" | "compact";
+  align?: "left" | "right";
 }
 
 const MONTH_NAMES = [
@@ -18,7 +20,14 @@ const MONTH_NAMES = [
 
 const DAYS_OF_WEEK = ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá"];
 
-export default function MiniDatePicker({ value, onChange, className = "", label }: MiniDatePickerProps) {
+export default function MiniDatePicker({
+  value,
+  onChange,
+  className = "",
+  label,
+  variant = "default",
+  align = "left",
+}: MiniDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -26,6 +35,17 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
   const selectedDate = value ? new Date(`${value}T00:00:00`) : new Date();
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
+
+  // Sync view when value changes from external navigation
+  useEffect(() => {
+    if (value) {
+      const d = new Date(`${value}T00:00:00`);
+      if (!isNaN(d.getTime())) {
+        setViewYear(d.getFullYear());
+        setViewMonth(d.getMonth());
+      }
+    }
+  }, [value]);
 
   // Close when clicking outside
   useEffect(() => {
@@ -89,9 +109,8 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
     const day = d.getDate().toString().padStart(2, "0");
     const month = (d.getMonth() + 1).toString().padStart(2, "0");
     const year = d.getFullYear();
-    const isToday = value === todayStr;
-    return `${day}/${month}/${year}${isToday ? " (Hoy)" : ""}`;
-  }, [value, todayStr]);
+    return `${day}/${month}/${year}`;
+  }, [value]);
 
   const isFullWidth = className.includes("w-full");
 
@@ -99,23 +118,39 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
     <div ref={containerRef} className={`relative ${isFullWidth ? "w-full block" : "inline-block"} ${className}`}>
       {label && <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">{label}</label>}
 
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3.5 py-2 bg-reygas-surface border border-white/15 hover:border-amber-400 focus:border-amber-400 rounded-xl text-xs text-white font-mono font-bold transition-all shadow-md group ${
-          isFullWidth ? "w-full justify-between" : ""
-        }`}
-      >
-        <div className="flex items-center gap-2">
+      {variant === "compact" ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex items-center gap-1.5 px-2 py-1 bg-transparent hover:bg-white/10 rounded-lg text-xs text-white font-mono font-bold hover:text-amber-300 transition-all cursor-pointer group"
+          title="Abrir calendario"
+        >
           <CalendarIcon className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
           <span>{formattedDisplay}</span>
-        </div>
-        <ChevronRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 transition-colors shrink-0 rotate-90" />
-      </button>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className={`flex items-center gap-2 px-3.5 py-2 bg-reygas-surface border border-white/15 hover:border-amber-400 focus:border-amber-400 rounded-xl text-xs text-white font-mono font-bold transition-all shadow-md group ${
+            isFullWidth ? "w-full justify-between" : ""
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+            <span>{formattedDisplay}</span>
+          </div>
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 transition-colors shrink-0 rotate-90" />
+        </button>
+      )}
 
       {/* Mini Calendar Popup */}
       {isOpen && (
-        <div className="absolute left-0 mt-2 z-50 p-4 bg-reygas-dark border border-amber-500/40 rounded-2xl shadow-2xl backdrop-blur-xl w-64 animate-fadeIn text-xs">
+        <div
+          className={`absolute ${
+            align === "right" ? "right-0" : "left-0"
+          } mt-2 z-50 p-4 bg-reygas-dark border border-amber-500/40 rounded-2xl shadow-2xl backdrop-blur-xl w-64 animate-fadeIn text-xs`}
+        >
           {/* Calendar Header: Month + Year + Arrows */}
           <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
             <button

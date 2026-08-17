@@ -1206,15 +1206,11 @@ export function WorkshopDailyReportView({
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center gap-1.5 px-2">
-              <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs font-mono font-bold text-white focus:outline-none cursor-pointer"
-              />
-            </div>
+            <MiniDatePicker
+              value={selectedDate}
+              onChange={setSelectedDate}
+              variant="compact"
+            />
 
             <button
               type="button"
