@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateUUID } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
@@ -29,7 +29,15 @@ import {
   X,
   Calendar,
   Download,
-  FileUp
+  FileUp,
+  Mail,
+  Key,
+  Eye,
+  EyeOff,
+  Copy,
+  Send,
+  Lock,
+  AtSign
 } from "lucide-react";
 
 const ALL_ERP_STATIONS = [
@@ -129,31 +137,62 @@ export default function AdminTablesPage() {
   // Technician Form State
   const [techForm, setTechForm] = useState({
     full_name: "",
+    email: "",
     specialty: "Master GNV 5ta Generación",
     phone: "",
+    custom_password: "",
     can_receive_payment: false,
   });
+
+  // Technician Password Visibility Map on Cards
+  const [showCardPasswordMap, setShowCardPasswordMap] = useState<Record<string, boolean>>({});
+
+  const toggleCardPassword = (techId: string) => {
+    setShowCardPasswordMap((prev) => ({ ...prev, [techId]: !prev[techId] }));
+  };
 
   // Technician Edit Modal State
   const [editingTech, setEditingTech] = useState<Technician | null>(null);
   const [techEditModalOpen, setTechEditModalOpen] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [techEditForm, setTechEditForm] = useState({
     full_name: "",
+    email: "",
     specialty: "",
     phone: "",
+    username: "",
+    password: "",
     can_receive_payment: false,
     is_active: true,
   });
 
+  // Quick Password Change Modal
+  const [quickPassModal, setQuickPassModal] = useState<{
+    isOpen: boolean;
+    tech: Technician | null;
+    newPass: string;
+    showPass: boolean;
+  }>({
+    isOpen: false,
+    tech: null,
+    newPass: "",
+    showPass: true,
+  });
+
   const handleOpenEditTechModal = (tech: Technician) => {
+    const defUser = generateDefaultUsername(tech.full_name);
     setEditingTech(tech);
     setTechEditForm({
       full_name: tech.full_name || "",
+      email: tech.email || "",
       specialty: tech.specialty || "",
       phone: tech.phone || "",
+      username: tech.username || defUser,
+      password: tech.password || defUser,
       can_receive_payment: !!tech.can_receive_payment,
       is_active: tech.is_active !== false,
     });
+    setShowEditPassword(false);
     setTechEditModalOpen(true);
   };
 
@@ -164,15 +203,68 @@ export default function AdminTablesPage() {
       showAlert("warning", "El nombre completo es obligatorio.");
       return;
     }
+    const defUser = generateDefaultUsername(techEditForm.full_name);
     updateTechnician(editingTech.id, {
       full_name: techEditForm.full_name.trim(),
+      email: techEditForm.email.trim(),
       specialty: techEditForm.specialty.trim() || "Técnico Especialista",
       phone: techEditForm.phone.trim(),
+      username: techEditForm.username.trim() || defUser,
+      password: techEditForm.password.trim() || defUser,
       can_receive_payment: techEditForm.can_receive_payment,
       is_active: techEditForm.is_active,
     });
-    showAlert("success", `Datos de ${techEditForm.full_name} actualizados con éxito.`);
+    showAlert("success", `Datos y credenciales de ${techEditForm.full_name} actualizados con éxito.`);
     setTechEditModalOpen(false);
+  };
+
+  const handleOpenQuickPasswordModal = (tech: Technician) => {
+    const currentPass = tech.password || tech.username || generateDefaultUsername(tech.full_name);
+    setQuickPassModal({
+      isOpen: true,
+      tech,
+      newPass: currentPass,
+      showPass: true,
+    });
+  };
+
+  const handleSaveQuickPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickPassModal.tech || !quickPassModal.newPass.trim()) return;
+    updateTechnician(quickPassModal.tech.id, {
+      password: quickPassModal.newPass.trim(),
+    });
+    showAlert("success", `Contraseña de ${quickPassModal.tech.full_name} actualizada con éxito.`);
+    setQuickPassModal({ isOpen: false, tech: null, newPass: "", showPass: true });
+  };
+
+  const handleSendCredentialsEmail = (tech: Technician) => {
+    const user = tech.username || generateDefaultUsername(tech.full_name);
+    const pass = tech.password || user;
+    const email = tech.email?.trim();
+    const loginUrl = typeof window !== "undefined" ? window.location.origin : "https://reygas.com";
+
+    const subject = encodeURIComponent(`Credenciales de Acceso - ReyGas ERP (${tech.full_name})`);
+    const body = encodeURIComponent(
+      `Hola ${tech.full_name},\n\n` +
+      `Se ha configurado tu cuenta en el Sistema ERP ReyGas:\n\n` +
+      `• URL de Acceso: ${loginUrl}\n` +
+      `• Usuario: ${user}\n` +
+      `• Contraseña: ${pass}\n` +
+      `• Especialidad: ${tech.specialty}\n` +
+      `• Estaciones Permitidas: ${(tech.allowed_tabs || ALL_ERP_STATIONS.map((s) => s.id)).length} de ${ALL_ERP_STATIONS.length}\n\n` +
+      `Por favor inicia sesión desde la tablet de taller o tu equipo autorizado.\n\n` +
+      `Atentamente,\nAdministración y Gerencia ReyGas`
+    );
+
+    if (email) {
+      window.open(`mailto:${email}?subject=${subject}&body=${body}`, "_blank");
+      showAlert("success", `Abriendo cliente de correo para ${email}.`);
+    } else {
+      navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass} | URL: ${loginUrl}`);
+      showAlert("warning", `Personal sin correo. Se copiaron las credenciales al portapapeles.`);
+      handleOpenEditTechModal(tech);
+    }
   };
 
   // Schedule Record Add/Edit Form State
@@ -358,20 +450,31 @@ export default function AdminTablesPage() {
 
   const handleAddTech = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!techForm.full_name.trim()) {
+      showAlert("warning", "Por favor ingresa el nombre del personal.");
+      return;
+    }
+    const defUser = generateDefaultUsername(techForm.full_name);
     addTechnician({
-      full_name: techForm.full_name,
-      specialty: techForm.specialty,
-      phone: techForm.phone,
+      full_name: techForm.full_name.trim(),
+      email: techForm.email.trim(),
+      specialty: techForm.specialty.trim() || "Master GNV 5ta Generación",
+      phone: techForm.phone.trim(),
+      username: defUser,
+      password: techForm.custom_password.trim() || defUser,
       is_active: true,
       can_receive_payment: techForm.can_receive_payment,
     });
+    const addedName = techForm.full_name;
     setTechForm({
       full_name: "",
+      email: "",
       specialty: "Master GNV 5ta Generación",
       phone: "",
+      custom_password: "",
       can_receive_payment: false,
     });
-    showAlert("success", "Personal registrado con éxito en la lista maestra.");
+    showAlert("success", `Personal "${addedName}" registrado. Usuario: ${defUser}`);
   };
 
   // Importer for 20 Workshop Columns from CSV / Excel (Batch Processing for Performance)
@@ -973,29 +1076,98 @@ export default function AdminTablesPage() {
               <Plus className="w-5 h-5 text-indigo-400" />
               <span>Registrar Nuevo Personal</span>
             </h2>
-            <form onSubmit={handleAddTech} className="space-y-4">
+            <form onSubmit={handleAddTech} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Nombre Completo *</label>
-                <input type="text" required placeholder="Ej: Mario Alvarado" value={techForm.full_name} onChange={(e) => setTechForm({ ...techForm, full_name: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Mario Alvarado"
+                  value={techForm.full_name}
+                  onChange={(e) => setTechForm({ ...techForm, full_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                />
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">Correo Electrónico (Para envío de acceso)</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    placeholder="usuario@ejemplo.com"
+                    value={techForm.email}
+                    onChange={(e) => setTechForm({ ...techForm, email: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Especialidad Principal *</label>
-                <input type="text" required placeholder="Ej: Diagnóstico ECU & Inyección Gas" value={techForm.specialty} onChange={(e) => setTechForm({ ...techForm, specialty: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Diagnóstico ECU & Inyección Gas"
+                  value={techForm.specialty}
+                  onChange={(e) => setTechForm({ ...techForm, specialty: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                />
               </div>
+
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Teléfono de Contacto</label>
-                <input type="tel" placeholder="+51 987654321" value={techForm.phone} onChange={(e) => setTechForm({ ...techForm, phone: e.target.value })} className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white" />
+                <input
+                  type="tel"
+                  placeholder="+51 987654321"
+                  value={techForm.phone}
+                  onChange={(e) => setTechForm({ ...techForm, phone: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
+                />
               </div>
+
+              {/* Dynamic Auto-User & Password Preview Box */}
+              {techForm.full_name && (
+                <div className="p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs space-y-1 animate-fadeIn">
+                  <div className="flex items-center gap-1.5 text-indigo-300 font-bold">
+                    <AtSign className="w-3.5 h-3.5" />
+                    <span>Credenciales Autogeneradas:</span>
+                  </div>
+                  <div className="font-mono text-gray-300 text-[11px] leading-relaxed">
+                    Usuario: <strong className="text-white">{generateDefaultUsername(techForm.full_name)}</strong>
+                    <br />
+                    Contraseña Inicial: <strong className="text-amber-300">{techForm.custom_password || generateDefaultUsername(techForm.full_name)}</strong>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Contraseña Inicial Personalizada (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Por defecto igual al usuario"
+                  value={techForm.custom_password}
+                  onChange={(e) => setTechForm({ ...techForm, custom_password: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs font-mono text-white focus:border-indigo-400"
+                />
+              </div>
+
               <label className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-950/60 transition-colors">
                 <input
                   type="checkbox"
                   checked={techForm.can_receive_payment}
                   onChange={(e) => setTechForm({ ...techForm, can_receive_payment: e.target.checked })}
-                  className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500"
+                  className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                 />
                 <span>💳 Habilitado como Destino de Cobro (Caja / Reportes)</span>
               </label>
-              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95"
+              >
                 <Plus className="w-4 h-4" />
                 <span>Agregar a la Lista Maestra</span>
               </button>
@@ -1011,7 +1183,7 @@ export default function AdminTablesPage() {
                   <span>Roster de Personal & Control de Pestañas Activas</span>
                 </h2>
                 <p className="text-xs text-gray-400">
-                  Marque o desmarque con check las estaciones operativas y la autorización para recibir pagos de cada personal.
+                  Gestione credenciales de acceso, contraseñas, correos y permisos de navegación de cada colaborador.
                 </p>
               </div>
             </div>
@@ -1020,31 +1192,58 @@ export default function AdminTablesPage() {
               {technicians.map((t) => {
                 const allowed = t.allowed_tabs || ALL_ERP_STATIONS.map((s) => s.id);
                 const allActive = allowed.length === ALL_ERP_STATIONS.length;
+                const user = t.username || generateDefaultUsername(t.full_name);
+                const pass = t.password || user;
+                const isPassVisible = !!showCardPasswordMap[t.id];
 
                 return (
                   <div
                     key={t.id}
                     className="p-4 rounded-xl bg-reygas-dark/80 border border-white/10 space-y-3 hover:border-indigo-500/40 transition-all"
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-2">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-white/5 pb-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold text-xs">
+                        <div className="w-9 h-9 rounded-full bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold text-sm">
                           {t.full_name.charAt(0)}
                         </div>
                         <div>
-                          <div className="font-bold text-white text-sm flex items-center gap-2">
+                          <div className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                             <span>{t.full_name}</span>
                             <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-gray-300 font-normal">
                               {t.specialty}
                             </span>
                           </div>
-                          <span className="text-xs text-gray-400 font-mono">
-                            Tel: {t.phone || "Sin teléfono"}
-                          </span>
+                          <div className="flex items-center gap-3 text-xs text-gray-400 font-mono mt-0.5 flex-wrap">
+                            <span>Tel: {t.phone || "Sin teléfono"}</span>
+                            <span>•</span>
+                            <span className="text-indigo-300">{t.email || "Sin correo"}</span>
+                          </div>
                         </div>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
+                        {/* Send Email Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleSendCredentialsEmail(t)}
+                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white transition-all border border-emerald-500/30 flex items-center gap-1.5 active:scale-95 shadow"
+                          title={t.email ? `Enviar credenciales a ${t.email}` : "Copiar credenciales y configurar correo"}
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>Enviar Acceso</span>
+                        </button>
+
+                        {/* Quick Password Change Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickPasswordModal(t)}
+                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white transition-all border border-amber-500/30 flex items-center gap-1.5 active:scale-95 shadow"
+                          title="Cambiar contraseña de acceso"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                          <span>Clave</span>
+                        </button>
+
                         <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-950/70 transition-colors">
                           <input
                             type="checkbox"
@@ -1057,6 +1256,7 @@ export default function AdminTablesPage() {
                           />
                           <span>💳 Cobro</span>
                         </label>
+
                         <button
                           type="button"
                           onClick={() => {
@@ -1068,6 +1268,7 @@ export default function AdminTablesPage() {
                         >
                           {allActive ? "Desmarcar Todos" : "Marcar Todos"}
                         </button>
+
                         <button
                           onClick={() => toggleTechnicianActive(t.id)}
                           className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
@@ -1083,7 +1284,7 @@ export default function AdminTablesPage() {
                           type="button"
                           onClick={() => handleOpenEditTechModal(t)}
                           className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white transition-all border border-indigo-500/30 flex items-center gap-1 active:scale-95"
-                          title="Editar nombre, teléfono y especialidad"
+                          title="Editar nombre, correo, teléfono, clave y especialidad"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>Editar</span>
@@ -1103,6 +1304,43 @@ export default function AdminTablesPage() {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                    </div>
+
+                    {/* Credentials Info Strip */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap bg-white/[0.02] border border-white/5 px-3 py-1.5 rounded-lg text-xs font-mono">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-gray-400">
+                          Usuario: <strong className="text-indigo-300">{user}</strong>
+                        </span>
+                        <span className="text-gray-600">•</span>
+                        <span className="text-gray-400 flex items-center gap-1.5">
+                          Clave:
+                          <strong className="text-amber-300">
+                            {isPassVisible ? pass : "••••••••"}
+                          </strong>
+                          <button
+                            type="button"
+                            onClick={() => toggleCardPassword(t.id)}
+                            className="text-gray-400 hover:text-white transition-colors"
+                            title={isPassVisible ? "Ocultar contraseña" : "Ver contraseña"}
+                          >
+                            {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass}`);
+                          showAlert("success", `Credenciales de ${t.full_name} copiadas.`);
+                        }}
+                        className="px-2 py-0.5 text-[11px] rounded bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white flex items-center gap-1 transition-colors"
+                        title="Copiar usuario y clave"
+                      >
+                        <Copy className="w-3 h-3 text-gray-400" />
+                        <span>Copiar</span>
+                      </button>
                     </div>
 
                     {/* Checkboxes Grid for Stations */}
@@ -1652,19 +1890,19 @@ export default function AdminTablesPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* EDIT TECHNICIAN MODAL (NOMBRE, TELÉFONO, ESPECIALIDAD & COBRO) */}
+      {/* EDIT TECHNICIAN MODAL (NOMBRE, CORREO, TELÉFONO, CLAVE & PERMISOS) */}
       {/* ========================================================================= */}
       {techEditModalOpen && editingTech && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="glass-panel p-6 rounded-3xl border border-indigo-500/40 max-w-md w-full space-y-5 shadow-2xl bg-reygas-dark">
+          <div className="glass-panel p-6 rounded-3xl border border-indigo-500/40 max-w-lg w-full space-y-5 shadow-2xl bg-reygas-dark max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
                   <UserCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Editar Datos del Personal</h3>
-                  <p className="text-[11px] text-gray-400">Actualizar nombre, especialidad y teléfono</p>
+                  <h3 className="text-base font-bold text-white">Editar Datos y Credenciales</h3>
+                  <p className="text-[11px] text-gray-400">Actualizar perfil, usuario, contraseña y acceso de {editingTech.full_name}</p>
                 </div>
               </div>
               <button
@@ -1677,45 +1915,122 @@ export default function AdminTablesPage() {
             </div>
 
             <form onSubmit={handleSaveTechEdit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Nombre Completo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Mario Alvarado"
-                  value={techEditForm.full_name}
-                  onChange={(e) => setTechEditForm({ ...techEditForm, full_name: e.target.value })}
-                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Nombre Completo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Mario Alvarado"
+                    value={techEditForm.full_name}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, full_name: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Correo Electrónico
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      placeholder="usuario@ejemplo.com"
+                      value={techEditForm.email}
+                      onChange={(e) => setTechEditForm({ ...techEditForm, email: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-indigo-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Teléfono de Contacto
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="tel"
+                      placeholder="+51 987654321"
+                      value={techEditForm.phone}
+                      onChange={(e) => setTechEditForm({ ...techEditForm, phone: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-indigo-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Especialidad Principal *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Diagnóstico ECU & Inyección Gas"
+                    value={techEditForm.specialty}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, specialty: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Especialidad Principal *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Diagnóstico ECU & Inyección Gas"
-                  value={techEditForm.specialty}
-                  onChange={(e) => setTechEditForm({ ...techEditForm, specialty: e.target.value })}
-                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
-                />
-              </div>
+              {/* Access Credentials Box */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Credenciales de Inicio de Sesión:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const defUser = generateDefaultUsername(techEditForm.full_name);
+                      setTechEditForm({ ...techEditForm, username: defUser, password: defUser });
+                    }}
+                    className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 underline"
+                  >
+                    Restablecer por Defecto
+                  </button>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Teléfono de Contacto
-                </label>
-                <input
-                  type="tel"
-                  placeholder="+51 987654321"
-                  value={techEditForm.phone}
-                  onChange={(e) => setTechEditForm({ ...techEditForm, phone: e.target.value })}
-                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-400 mb-1">
+                      Nombre de Usuario (Login)
+                    </label>
+                    <input
+                      type="text"
+                      value={techEditForm.username}
+                      onChange={(e) => setTechEditForm({ ...techEditForm, username: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs font-mono font-bold text-white focus:border-indigo-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-400 mb-1">
+                      Contraseña de Acceso
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showEditPassword ? "text" : "password"}
+                        value={techEditForm.password}
+                        onChange={(e) => setTechEditForm({ ...techEditForm, password: e.target.value })}
+                        className="w-full pl-3 pr-8 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs font-mono font-bold text-amber-300 focus:border-indigo-400 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowEditPassword(!showEditPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                        title={showEditPassword ? "Ocultar" : "Ver contraseña"}
+                      >
+                        {showEditPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
@@ -1740,6 +2055,26 @@ export default function AdminTablesPage() {
                 </label>
               </div>
 
+              {/* Send Email Action Button inside Modal */}
+              <button
+                type="button"
+                onClick={() => {
+                  const tempTech: Technician = {
+                    ...editingTech,
+                    full_name: techEditForm.full_name,
+                    email: techEditForm.email,
+                    username: techEditForm.username,
+                    password: techEditForm.password,
+                    specialty: techEditForm.specialty,
+                  };
+                  handleSendCredentialsEmail(tempTech);
+                }}
+                className="w-full py-2.5 bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/40 text-emerald-300 hover:text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
+              >
+                <Mail className="w-4 h-4" />
+                <span>Enviar Credenciales a su Correo ({techEditForm.email || "Sin correo"})</span>
+              </button>
+
               <div className="flex gap-3 pt-3 border-t border-white/10">
                 <button
                   type="button"
@@ -1754,6 +2089,106 @@ export default function AdminTablesPage() {
                 >
                   <Check className="w-4 h-4" />
                   <span>Guardar Cambios</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* QUICK CHANGE PASSWORD MODAL */}
+      {/* ========================================================================= */}
+      {quickPassModal.isOpen && quickPassModal.tech && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 rounded-3xl border border-amber-500/40 max-w-md w-full space-y-4 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Cambiar Contraseña</h3>
+                  <p className="text-[11px] text-gray-400">{quickPassModal.tech.full_name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickPassModal({ isOpen: false, tech: null, newPass: "", showPass: true })}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveQuickPassword} className="space-y-4">
+              <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1 text-xs">
+                <span className="text-gray-400">Usuario de inicio de sesión:</span>
+                <div className="font-mono font-bold text-indigo-300">
+                  {quickPassModal.tech.username || generateDefaultUsername(quickPassModal.tech.full_name)}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Nueva Contraseña *
+                </label>
+                <div className="relative">
+                  <input
+                    type={quickPassModal.showPass ? "text" : "password"}
+                    required
+                    value={quickPassModal.newPass}
+                    onChange={(e) => setQuickPassModal({ ...quickPassModal, newPass: e.target.value })}
+                    className="w-full pl-3 pr-9 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-mono font-bold text-amber-300 focus:border-amber-400 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setQuickPassModal({ ...quickPassModal, showPass: !quickPassModal.showPass })}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                  >
+                    {quickPassModal.showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const defUser = generateDefaultUsername(quickPassModal.tech!.full_name);
+                    setQuickPassModal({ ...quickPassModal, newPass: defUser });
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 underline"
+                >
+                  Restablecer a nombre de usuario
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rand = Math.random().toString(36).slice(-6);
+                    setQuickPassModal({ ...quickPassModal, newPass: `ReyGas_${rand}` });
+                  }}
+                  className="text-amber-400 hover:text-amber-300 underline"
+                >
+                  Generar Clave Segura
+                </button>
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setQuickPassModal({ isOpen: false, tech: null, newPass: "", showPass: true })}
+                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-white/10 text-gray-300 hover:text-white font-bold rounded-xl text-xs border border-white/10 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-black font-extrabold rounded-xl text-xs shadow-lg shadow-amber-600/30 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Actualizar Clave</span>
                 </button>
               </div>
             </form>

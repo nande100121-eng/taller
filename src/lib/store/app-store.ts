@@ -221,11 +221,31 @@ export interface WorkshopService {
   is_active?: boolean;
 }
 
+export function generateDefaultUsername(fullName: string): string {
+  if (!fullName) return "";
+  const parts = fullName
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  const initial = parts[0].charAt(0);
+  const lastName = parts[parts.length - 1];
+  return `${initial}${lastName}`;
+}
+
 export interface Technician {
   id: string;
   full_name: string;
   specialty: string;
   phone: string;
+  email?: string;
+  username?: string;
+  password?: string;
   is_active: boolean;
   allowed_tabs?: string[]; // Allowed dashboard stations / routes for this user
   can_receive_payment?: boolean; // Habilitado como destino de pago (personal / empresa)
@@ -1076,7 +1096,13 @@ export const useAppStore = create<AppState>()(
       ],
 
       addTechnician: (tech) => {
-        const newTech = { ...tech, id: `tech-${Date.now()}` };
+        const defUser = generateDefaultUsername(tech.full_name);
+        const newTech: Technician = {
+          ...tech,
+          id: `tech-${Date.now()}`,
+          username: tech.username?.trim() || defUser,
+          password: tech.password?.trim() || defUser,
+        };
         saveSupabaseTechnician(newTech);
         set((state) => ({
           technicians: [...state.technicians, newTech],

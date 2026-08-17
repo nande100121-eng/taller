@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord } from "@/lib/store/app-store";
+import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, generateDefaultUsername } from "@/lib/store/app-store";
 
 // =====================================================================
 // SUPABASE REALTIME CMS & ERP DATABASE SERVICE
@@ -87,6 +87,9 @@ export async function saveSupabaseTechnician(tech: Technician) {
     await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
       allowed_tabs: tech.allowed_tabs || [],
       can_receive_payment: !!tech.can_receive_payment,
+      email: tech.email || "",
+      username: tech.username || "",
+      password: tech.password || "",
     });
     if (error) console.warn("Supabase technician save warning:", error.message);
     broadcastRealtimeChange("technician_saved");
@@ -614,7 +617,7 @@ export async function fetchSupabaseErpData() {
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
@@ -633,6 +636,9 @@ export async function fetchSupabaseErpData() {
               permsMap[techId] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                email: rawVal.email || "",
+                username: rawVal.username || "",
+                password: rawVal.password || "",
               };
             }
           } catch {}
@@ -862,8 +868,12 @@ export async function fetchSupabaseErpData() {
       technicians: techRes.data
         ? techRes.data.map((t: any) => {
             const perm = permsMap[t.id];
+            const defUser = generateDefaultUsername(t.full_name);
             return {
               ...t,
+              email: perm?.email || t.email || "",
+              username: perm?.username || t.username || defUser,
+              password: perm?.password || t.password || defUser,
               allowed_tabs: perm?.allowed_tabs || t.allowed_tabs || undefined,
               can_receive_payment: perm?.can_receive_payment !== undefined ? perm.can_receive_payment : !!t.can_receive_payment,
             };
