@@ -35,30 +35,22 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
   try {
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
-    // Standard upsert with onConflict: "key" (PostgreSQL UNIQUE key constraint)
-    const { error } = await supabase.from("site_content").upsert(
-      {
-        key,
-        value: serializedValue,
-        category,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "key" }
-    );
+    // PostgreSQL schema primary key is section_key
+    const payload: any = {
+      section_key: key,
+      key: key,
+      value: serializedValue,
+      content: typeof value === "object" ? value : { data: value },
+      category,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("site_content").upsert(payload, { onConflict: "section_key" });
 
     if (error) {
-      // If upsert reports an issue, fallback to update by key
-      const updateRes = await supabase
-        .from("site_content")
-        .update({
-          value: serializedValue,
-          category,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("key", key);
-
-      if (updateRes.error) {
-        console.warn(`Supabase site_content save warning [${key}]:`, updateRes.error.message);
+      const { error: updateErr } = await supabase.from("site_content").update(payload).eq("section_key", key);
+      if (updateErr) {
+        console.warn(`Supabase site_content save warning [${key}]:`, updateErr.message);
       }
     }
   } catch (err) {
@@ -71,7 +63,7 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
     // 1. Save master catalog to site_content
     await saveSupabaseSiteContent("all_technicians", technicians, "technicians");
 
-    // 2. Save individual technician permission keys
+    // 2. Save individual technician permission keys and direct technician table rows
     for (const tech of technicians) {
       const permsPayload = {
         allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
@@ -84,20 +76,25 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
       const normName = tech.full_name.trim().toLowerCase();
       await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians");
 
-      // Also upsert to technicians table
-      const { error: techErr } = await supabase.from("technicians").upsert({
-        id: tech.id,
-        full_name: tech.full_name,
-        specialty: tech.specialty,
-        phone: tech.phone,
-        is_active: tech.is_active,
-      });
+      // Also upsert directly to technicians table with allowed_tabs
+      const { error: techErr } = await supabase.from("technicians").upsert(
+        {
+          id: tech.id,
+          full_name: tech.full_name,
+          specialty: tech.specialty,
+          phone: tech.phone,
+          is_active: tech.is_active,
+          allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+        },
+        { onConflict: "id" }
+      );
       if (techErr) {
         await supabase.from("technicians").upsert({
           full_name: tech.full_name,
           specialty: tech.specialty,
           phone: tech.phone,
           is_active: tech.is_active,
+          allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
         });
       }
     }
@@ -128,19 +125,24 @@ export async function saveFullSiteContentToSupabase(content: SiteContent): Promi
 // ---------------------------------------------------------------------
 export async function saveSupabaseTechnician(tech: Technician, allTechs?: Technician[]) {
   try {
-    const { error } = await supabase.from("technicians").upsert({
-      id: tech.id,
-      full_name: tech.full_name,
-      specialty: tech.specialty,
-      phone: tech.phone,
-      is_active: tech.is_active,
-    });
+    const { error } = await supabase.from("technicians").upsert(
+      {
+        id: tech.id,
+        full_name: tech.full_name,
+        specialty: tech.specialty,
+        phone: tech.phone,
+        is_active: tech.is_active,
+        allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+      },
+      { onConflict: "id" }
+    );
     if (error) {
       await supabase.from("technicians").upsert({
         full_name: tech.full_name,
         specialty: tech.specialty,
         phone: tech.phone,
         is_active: tech.is_active,
+        allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       });
     }
 
