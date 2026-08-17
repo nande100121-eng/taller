@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   FileText,
   Calendar,
@@ -461,44 +462,44 @@ export default function WorkshopReportsCenterPage() {
 
         {/* Universal Date Navigator & Actions */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center bg-black/60 rounded-xl border border-white/15 p-1 shrink-0">
+          {/* Universal Date Navigator */}
+          <div className="flex items-center gap-1.5 p-1 bg-black/60 rounded-2xl border border-white/15 shadow-inner">
             <button
               type="button"
               onClick={() => changeDate(-1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día anterior"
+              className="px-3 py-2 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 active:scale-95 shadow-md"
+              title="Día Anterior (-1 Día)"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Día Anterior</span>
             </button>
 
-            <div className="flex items-center gap-1.5 px-2">
-              <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs font-mono font-bold text-white focus:outline-none cursor-pointer"
-              />
-            </div>
+            <MiniDatePicker
+              value={selectedDate}
+              onChange={(newDate) => setSelectedDate(newDate)}
+            />
 
             <button
               type="button"
               onClick={() => changeDate(1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día siguiente"
+              className="px-3 py-2 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 active:scale-95 shadow-md"
+              title="Día Siguiente (+1 Día)"
             >
-              <ChevronRight className="w-4 h-4" />
+              <span className="hidden sm:inline">Día Siguiente</span>
+              <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
             </button>
 
-            {!isToday && (
-              <button
-                type="button"
-                onClick={() => setSelectedDate(getPeruDateString())}
-                className="px-2 py-1 ml-1 text-[11px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded-md transition-colors"
-              >
-                Hoy
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setSelectedDate(getPeruDateString())}
+              className={`px-3 py-2 rounded-xl text-xs font-black transition-transform active:scale-95 ${
+                isToday
+                  ? "bg-white/10 text-gray-400 border border-white/10"
+                  : "bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 hover:scale-105"
+              }`}
+            >
+              Hoy
+            </button>
           </div>
 
           <button

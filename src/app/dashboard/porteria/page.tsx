@@ -5,6 +5,7 @@ import { useAppStore, Appointment, WorkOrder } from "@/lib/store/app-store";
 import { parseCSVRows, parseWorkshopRow } from "@/lib/csv-parser";
 import { compressImageFile } from "@/lib/image-compressor";
 import { supabase } from "@/lib/supabase/client";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   ShieldAlert,
   Car,
@@ -541,44 +542,43 @@ export default function PorteriaPage() {
         {/* Date Navigator & OCR Toolbar */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Universal Date Navigator */}
-          <div className="flex items-center bg-black/60 rounded-xl border border-white/15 p-1 shrink-0">
+          <div className="flex items-center gap-1.5 p-1 bg-black/60 rounded-2xl border border-white/15 shadow-inner">
             <button
               type="button"
               onClick={() => changeDate(-1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día anterior"
+              className="px-3 py-2 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 active:scale-95 shadow-md"
+              title="Día Anterior (-1 Día)"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Día Anterior</span>
             </button>
 
-            <div className="flex items-center gap-1.5 px-2">
-              <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs font-mono font-bold text-white focus:outline-none cursor-pointer"
-              />
-            </div>
+            <MiniDatePicker
+              value={selectedDate}
+              onChange={(newDate) => setSelectedDate(newDate)}
+            />
 
             <button
               type="button"
               onClick={() => changeDate(1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día siguiente"
+              className="px-3 py-2 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 transition-all shrink-0 active:scale-95 shadow-md"
+              title="Día Siguiente (+1 Día)"
             >
-              <ChevronRight className="w-4 h-4" />
+              <span className="hidden sm:inline">Día Siguiente</span>
+              <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
             </button>
 
-            {!isToday && (
-              <button
-                type="button"
-                onClick={() => setSelectedDate(getPeruDateString())}
-                className="px-2 py-1 ml-1 text-[11px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded-md transition-colors"
-              >
-                Hoy
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setSelectedDate(getPeruDateString())}
+              className={`px-3 py-2 rounded-xl text-xs font-black transition-transform active:scale-95 ${
+                isToday
+                  ? "bg-white/10 text-gray-400 border border-white/10"
+                  : "bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 hover:scale-105"
+              }`}
+            >
+              Hoy
+            </button>
           </div>
 
           {/* Import CSV */}
@@ -673,18 +673,16 @@ export default function PorteriaPage() {
           <form onSubmit={handleRegisterEntry} className="space-y-4">
             
             {/* Entry Date & Time selection */}
-            <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-black/40 border border-white/10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-black/40 border border-white/10">
               <div>
                 <label className="block text-[11px] font-extrabold text-amber-300 uppercase tracking-wider mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5" />
                   <span>Fecha de Ingreso *</span>
                 </label>
-                <input
-                  type="date"
-                  required
+                <MiniDatePicker
                   value={entryDate}
-                  onChange={(e) => setEntryDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  onChange={setEntryDate}
+                  className="w-full"
                 />
               </div>
               <div>

@@ -93,17 +93,24 @@ export default function MiniDatePicker({ value, onChange, className = "", label 
     return `${day}/${month}/${year}${isToday ? " (Hoy)" : ""}`;
   }, [value, todayStr]);
 
+  const isFullWidth = className.includes("w-full");
+
   return (
-    <div ref={containerRef} className={`relative inline-block ${className}`}>
+    <div ref={containerRef} className={`relative ${isFullWidth ? "w-full block" : "inline-block"} ${className}`}>
       {label && <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">{label}</label>}
 
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-reygas-surface border border-white/10 hover:border-amber-400 focus:border-amber-400 rounded-xl text-xs text-white font-mono font-bold transition-all shadow-md group"
+        className={`flex items-center gap-2 px-3.5 py-2 bg-reygas-surface border border-white/15 hover:border-amber-400 focus:border-amber-400 rounded-xl text-xs text-white font-mono font-bold transition-all shadow-md group ${
+          isFullWidth ? "w-full justify-between" : ""
+        }`}
       >
-        <CalendarIcon className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
-        <span>{formattedDisplay}</span>
+        <div className="flex items-center gap-2">
+          <CalendarIcon className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+          <span>{formattedDisplay}</span>
+        </div>
+        <ChevronRight className="w-3.5 h-3.5 text-gray-500 group-hover:text-amber-400 transition-colors shrink-0 rotate-90" />
       </button>
 
       {/* Mini Calendar Popup */}
