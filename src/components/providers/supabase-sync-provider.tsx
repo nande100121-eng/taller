@@ -3,12 +3,26 @@
 import React, { useEffect } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import { supabase } from "@/lib/supabase/client";
+import { getLocalWorkshopCache } from "@/lib/storage/indexed-db";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
 
   useEffect(() => {
-    // 1. Initial sync on app mount
+    // 0. Immediate 5ms Hydration from IndexedDB on refresh / initial mount
+    getLocalWorkshopCache().then((cached) => {
+      if (cached) {
+        useAppStore.setState((s) => ({
+          workOrders: s.workOrders.length > 0 ? s.workOrders : (cached.workOrders || []),
+          vehicles: s.vehicles.length > 0 ? s.vehicles : (cached.vehicles || []),
+          invoices: s.invoices.length > 0 ? s.invoices : (cached.invoices || []),
+          scheduleRecords: s.scheduleRecords.length > 0 ? s.scheduleRecords : (cached.scheduleRecords || []),
+          hasSyncedOnce: true,
+        }));
+      }
+    }).catch(() => {});
+
+    // 1. Initial cloud sync on app mount
     syncFromSupabase();
 
     // 2. Instant Cross-Tab Sync in the same browser (0ms delay between tabs)

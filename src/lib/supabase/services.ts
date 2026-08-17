@@ -427,35 +427,47 @@ async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; er
   }
 }
 
-// Generic safe sequential batch fetcher for tables with > 1000 records
+// Generic high-speed parallel batch fetcher for tables with > 1000 records
 async function fetchAllSupabaseTable(tableName: string) {
   try {
     const PAGE_SIZE = 1000;
-    let allRecords: any[] = [];
-    let from = 0;
-    let hasMore = true;
 
-    while (hasMore && from < 30000) {
-      const to = from + PAGE_SIZE - 1;
-      const { data, error } = await supabase
-        .from(tableName)
-        .select("*")
-        .range(from, to);
+    // 1. Fetch initial batch + exact row count in one fast query
+    const { data: firstBatch, count, error: firstErr } = await supabase
+      .from(tableName)
+      .select("*", { count: "exact" })
+      .range(0, PAGE_SIZE - 1);
 
-      if (error) {
-        console.warn(`Supabase fetch warning for ${tableName} at range [${from}, ${to}]:`, error.message);
-        break;
-      }
+    if (firstErr) {
+      console.warn(`Supabase fetch notice for ${tableName}:`, firstErr.message);
+      return [];
+    }
 
-      if (data && data.length > 0) {
-        allRecords = allRecords.concat(data);
-        if (data.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          from += PAGE_SIZE;
+    if (!firstBatch || firstBatch.length === 0) return [];
+    if (!count || count <= PAGE_SIZE) return firstBatch;
+
+    // 2. Fetch all remaining pages in parallel for lightning-fast loading
+    const totalCount = Math.min(count, 40000);
+    const ranges: { from: number; to: number }[] = [];
+    for (let from = PAGE_SIZE; from < totalCount; from += PAGE_SIZE) {
+      ranges.push({ from, to: Math.min(from + PAGE_SIZE - 1, totalCount - 1) });
+    }
+
+    const remainingBatches = await Promise.all(
+      ranges.map(async ({ from, to }) => {
+        const { data, error } = await supabase.from(tableName).select("*").range(from, to);
+        if (error) {
+          console.warn(`Supabase batch fetch error for ${tableName} [${from}-${to}]:`, error.message);
+          return [];
         }
-      } else {
-        hasMore = false;
+        return data || [];
+      })
+    );
+
+    let allRecords = firstBatch;
+    for (const batch of remainingBatches) {
+      if (batch.length > 0) {
+        allRecords = allRecords.concat(batch);
       }
     }
 
