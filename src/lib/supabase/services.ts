@@ -708,7 +708,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
           try {
             const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(rawVal)) {
-              permsMap[techId] = { allowed_tabs: rawVal, can_receive_payment: false };
+              permsMap[techId] = { allowed_tabs: rawVal };
             } else if (rawVal && typeof rawVal === "object") {
               permsMap[techId] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
@@ -733,15 +733,22 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
         const normName = (t.full_name || "").trim().toLowerCase();
         const perm = permsMap[t.id] || permsNameMap[normName];
         const fbTech = fallbackTechs.find((f: any) => f.id === t.id || (f.full_name && f.full_name.trim().toLowerCase() === normName));
+        const isDbPaymentTrue = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
+        const isDbPaymentFalse = t.can_receive_payment === false || (t.can_receive_payment as any) === "false" || (t.can_receive_payment as any) === 0;
+
         return {
           ...t,
           email: perm?.email || fbTech?.email || t.email || "",
           username: perm?.username || fbTech?.username || t.username || generateDefaultUsername(t.full_name),
           password: perm?.password || fbTech?.password || t.password || generateDefaultUsername(t.full_name),
           allowed_tabs: perm?.allowed_tabs || fbTech?.allowed_tabs || t.allowed_tabs,
-          can_receive_payment: perm?.can_receive_payment !== undefined
-            ? perm.can_receive_payment
-            : (fbTech?.can_receive_payment !== undefined ? fbTech.can_receive_payment : !!t.can_receive_payment),
+          can_receive_payment: isDbPaymentTrue
+            ? true
+            : isDbPaymentFalse
+            ? false
+            : (perm?.can_receive_payment !== undefined
+                ? !!perm.can_receive_payment
+                : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {
@@ -924,7 +931,7 @@ export async function fetchSupabaseErpData() {
           try {
             const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(rawVal)) {
-              permsMap[techId] = { allowed_tabs: rawVal, can_receive_payment: false };
+              permsMap[techId] = { allowed_tabs: rawVal };
             } else if (rawVal && typeof rawVal === "object") {
               permsMap[techId] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
@@ -1238,15 +1245,22 @@ export async function fetchSupabaseErpData() {
           finalAllowedTabs = t.allowed_tabs;
         }
 
+        const isDbPaymentTrue = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
+        const isDbPaymentFalse = t.can_receive_payment === false || (t.can_receive_payment as any) === "false" || (t.can_receive_payment as any) === 0;
+
         return {
           ...t,
           email: perm?.email || fbTech?.email || t.email || "",
           username: perm?.username || fbTech?.username || t.username || defUser,
           password: perm?.password || fbTech?.password || t.password || defUser,
           allowed_tabs: finalAllowedTabs,
-          can_receive_payment: perm?.can_receive_payment !== undefined
-            ? perm.can_receive_payment
-            : (fbTech?.can_receive_payment !== undefined ? fbTech.can_receive_payment : !!t.can_receive_payment),
+          can_receive_payment: isDbPaymentTrue
+            ? true
+            : isDbPaymentFalse
+            ? false
+            : (perm?.can_receive_payment !== undefined
+                ? !!perm.can_receive_payment
+                : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {

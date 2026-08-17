@@ -194,31 +194,34 @@ export default function CajaPage() {
     return map;
   }, [technicians]);
 
-  // List of eligible payment destinations: EMPRESA + staff with can_receive_payment enabled in personnel master
+  // List of eligible payment destinations: EMPRESA + ONLY staff with can_receive_payment enabled
   const eligibleDestinations = React.useMemo(() => {
     const list = ["EMPRESA"];
+    const seen = new Set<string>(["EMPRESA"]);
 
-    // 1. All active staff with can_receive_payment enabled
-    const enabledTechs = (technicians || []).filter((t) => {
-      const isActive = t.is_active !== false;
-      const canReceive = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
-      return isActive && canReceive;
-    });
+    (technicians || [])
+      .filter((t) => {
+        const isActive = t.is_active !== false;
+        const canReceive = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
+        return isActive && canReceive;
+      })
+      .forEach((t) => {
+        const name = (t.full_name || "").trim().toUpperCase();
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          list.push(name);
+        }
+      });
 
-    // 2. Add enabled staff or fallback to all active technicians
-    const sourceTechs = enabledTechs.length > 0 ? enabledTechs : (technicians || []).filter((t) => t.is_active !== false);
-    sourceTechs.forEach((t) => {
-      const name = (t.full_name || "").trim().toUpperCase();
-      if (name && !list.includes(name)) list.push(name);
-    });
-
-    // 3. Include currently selected modal destination if present
+    // If currently open modal has a destination, preserve it
     const currentDest = paymentModal?.paymentDestination?.trim().toUpperCase();
-    if (currentDest && currentDest !== "NINGUNO" && !list.includes(currentDest)) {
+    if (currentDest && currentDest !== "NINGUNO" && !seen.has(currentDest)) {
+      seen.add(currentDest);
       list.push(currentDest);
     }
     const manualDest = manualPaymentModal?.paymentDestination?.trim().toUpperCase();
-    if (manualDest && manualDest !== "NINGUNO" && !list.includes(manualDest)) {
+    if (manualDest && manualDest !== "NINGUNO" && !seen.has(manualDest)) {
+      seen.add(manualDest);
       list.push(manualDest);
     }
 
