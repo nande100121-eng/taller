@@ -59,23 +59,7 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
       }
     }
 
-    // 3. If key is workshopServices, also sync directly to dedicated services table if present
-    if (key === "workshopServices" && Array.isArray(value)) {
-      try {
-        await supabase.from("services").upsert(
-          value.map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            category: s.category || "General",
-            price: typeof s.price === "number" ? s.price : (parseFloat(s.price) || 0),
-            description: s.description || "",
-            is_active: s.is_active !== false,
-          }))
-        );
-      } catch {}
-    }
-
-    // 4. Broadcast instant real-time signal to all other connected devices/tablets
+    // 3. Broadcast instant real-time signal to all other connected devices/tablets
     broadcastRealtimeChange(`site_content_${key}`);
     broadcastRealtimeChange("services_updated");
     broadcastRealtimeChange("db_update");
@@ -591,20 +575,6 @@ export async function broadcastRealtimeChange(eventType: string = "db_update") {
 // Ultra-fast granular fetch for Services Catalog (~15ms)
 export async function fetchSupabaseServices(): Promise<WorkshopService[] | null> {
   try {
-    // 1. Try dedicated services table
-    const { data: srvData, error: srvErr } = await supabase.from("services").select("*");
-    if (srvData && srvData.length > 0 && !srvErr) {
-      return srvData.map((s: any) => ({
-        id: String(s.id),
-        name: s.name || "",
-        category: s.category || "General",
-        price: typeof s.price === "number" ? s.price : (parseFloat(s.price) || 0),
-        description: s.description || "",
-        is_active: s.is_active !== false,
-      }));
-    }
-
-    // 2. Try site_content fallback
     const { data: contentData } = await supabase
       .from("site_content")
       .select("*")
@@ -867,7 +837,7 @@ export async function saveSupabaseBulkScheduleRecords(
 
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes, servicesRes] = await Promise.all([
+    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("technicians").select("*")),
       fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
@@ -876,7 +846,6 @@ export async function fetchSupabaseErpData() {
       fetchAllSupabaseTable("vehicles"),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
-      safeQuery<any[]>(supabase.from("services").select("*")),
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any
@@ -888,6 +857,7 @@ export async function fetchSupabaseErpData() {
     let fallbackServices: any[] = [];
     let fallbackRecentIngresos: any[] = [];
     const fallbackTechs: any[] = [];
+    const invBreakdownsMap = new Map<string, any[]>();
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -982,35 +952,38 @@ export async function fetchSupabaseErpData() {
 
     const reconstructedVehiclesMap = new Map<string, any>();
     const reconstructedInvoicesMap = new Map<string, any>();
-    const invBreakdownsMap = new Map<string, any[]>();
 
-    // Seed with backup vehicles/invoices if available
+    // 1. Database vehicles and invoices are the PRIMARY source of truth
+    if (Array.isArray(vehicleData)) {
+      vehicleData.forEach((v: any) => {
+        if (v && v.plate) {
+          reconstructedVehiclesMap.set(v.plate.toUpperCase().trim(), v);
+        }
+      });
+    }
+
+    if (Array.isArray(invoiceData)) {
+      invoiceData.forEach((i: any) => {
+        if (i && (i.work_order_id || i.id)) {
+          if (i.id) reconstructedInvoicesMap.set(i.id, i);
+          if (i.work_order_id) reconstructedInvoicesMap.set(i.work_order_id, i);
+        }
+      });
+    }
+
+    // 2. Seed backup vehicles/invoices ONLY for records missing from the database
     if (masterBackup?.vehicles) {
       masterBackup.vehicles.forEach((v: any) => {
-        if (v && v.plate) reconstructedVehiclesMap.set(v.plate.toUpperCase(), v);
+        if (v && v.plate) {
+          const pk = v.plate.toUpperCase().trim();
+          if (!reconstructedVehiclesMap.has(pk)) reconstructedVehiclesMap.set(pk, v);
+        }
       });
     }
     if (masterBackup?.invoices) {
       masterBackup.invoices.forEach((i: any) => {
-        if (i && (i.work_order_id || i.id)) reconstructedInvoicesMap.set(i.work_order_id || i.id, i);
-      });
-    }
-
-    // Also populate with database vehicles/invoices
-    if (Array.isArray(vehicleData)) {
-      vehicleData.forEach((v: any) => {
-        if (v && v.plate) {
-          const existing = reconstructedVehiclesMap.get(v.plate.toUpperCase());
-          reconstructedVehiclesMap.set(v.plate.toUpperCase(), { ...existing, ...v });
-        }
-      });
-    }
-    if (Array.isArray(invoiceData)) {
-      invoiceData.forEach((i: any) => {
-        if (i && (i.work_order_id || i.id)) {
-          const existing = reconstructedInvoicesMap.get(i.work_order_id || i.id);
-          reconstructedInvoicesMap.set(i.work_order_id || i.id, { ...existing, ...i });
-        }
+        const k = i.work_order_id || i.id;
+        if (k && !reconstructedInvoicesMap.has(k)) reconstructedInvoicesMap.set(k, i);
       });
     }
 
@@ -1033,57 +1006,59 @@ export async function fetchSupabaseErpData() {
           const metaStr = diagNotes.split("[ERP_META]:")[1].trim();
           const meta = JSON.parse(metaStr);
           if (meta) {
-            quinquennialDate = meta.q_date || meta.quinquennial_date || quinquennialDate;
-            chipExpiryDate = meta.c_date || meta.chip_expiry_date || chipExpiryDate;
-            vehicleType = meta.v_type || meta.vehicle_type || vehicleType;
-            generalMaintenanceService = meta.m_serv || meta.general_maintenance_service || generalMaintenanceService;
-            sparePartsServices = meta.sp_serv || meta.spare_parts_services || sparePartsServices;
+            quinquennialDate = o.quinquennial_date || meta.q_date || meta.quinquennial_date || quinquennialDate;
+            chipExpiryDate = o.chip_expiry_date || meta.c_date || meta.chip_expiry_date || chipExpiryDate;
+            vehicleType = o.vehicle_type || meta.v_type || meta.vehicle_type || vehicleType;
+            generalMaintenanceService = o.general_maintenance_service || meta.m_serv || meta.general_maintenance_service || generalMaintenanceService;
+            sparePartsServices = o.spare_parts_services || meta.sp_serv || meta.spare_parts_services || sparePartsServices;
 
-            // Reconstruct vehicle
+            // Reconstruct vehicle ONLY if missing from database
             if (o.vehicle_plate) {
-              const plateKey = o.vehicle_plate.toUpperCase();
-              const existingVeh = reconstructedVehiclesMap.get(plateKey) || {};
-              reconstructedVehiclesMap.set(plateKey, {
-                plate: o.vehicle_plate,
-                brand: meta.brand || existingVeh.brand || "",
-                model: existingVeh.model || "",
-                year: existingVeh.year || 0,
-                color: existingVeh.color || "",
-                fuel_type: meta.fuel || existingVeh.fuel_type || "",
-                vehicle_type: vehicleType || existingVeh.vehicle_type || "",
-                owner_name: meta.c_name || meta.client_name || existingVeh.owner_name || "",
-                owner_phone: meta.c_phone || meta.client_phone || existingVeh.owner_phone || "",
-                current_mileage: meta.km || meta.current_mileage || existingVeh.current_mileage || 0,
-                last_visit_date: o.entry_time || existingVeh.last_visit_date || new Date().toISOString(),
-              });
+              const plateKey = o.vehicle_plate.toUpperCase().trim();
+              if (!reconstructedVehiclesMap.has(plateKey)) {
+                reconstructedVehiclesMap.set(plateKey, {
+                  plate: o.vehicle_plate,
+                  brand: meta.brand || "",
+                  model: "",
+                  year: 0,
+                  color: "",
+                  fuel_type: meta.fuel || "",
+                  vehicle_type: vehicleType || "",
+                  owner_name: meta.c_name || meta.client_name || "",
+                  owner_phone: meta.c_phone || meta.client_phone || "",
+                  current_mileage: meta.km || meta.current_mileage || 0,
+                  last_visit_date: o.entry_time || new Date().toISOString(),
+                });
+              }
             }
 
-            // Reconstruct invoice
+            // Reconstruct invoice ONLY if missing from database
             const invKey = o.id;
-            const existingInv = reconstructedInvoicesMap.get(invKey) || {};
-            reconstructedInvoicesMap.set(invKey, {
-              id: existingInv.id || `inv-${o.id}`,
-              work_order_id: o.id,
-              vehicle_plate: o.vehicle_plate,
-              client_name: meta.c_name || meta.client_name || existingInv.client_name || "",
-              customer_doc: meta.doc || existingInv.customer_doc || "",
-              customer_address: existingInv.customer_address || "",
-              labor_fee: existingInv.labor_fee || 0,
-              parts_total: existingInv.parts_total || 0,
-              certification_fee: existingInv.certification_fee || 0,
-              grand_total: existingInv.grand_total || 0,
-              payment_status: existingInv.payment_status || "pagado",
-              payment_method: meta.p_method || existingInv.payment_method || "",
-              issued_at: o.entry_time || existingInv.issued_at || new Date().toISOString(),
-              receipt_number: meta.rcpt_num || existingInv.receipt_number || "",
-              receipt_type: meta.rcpt_type || existingInv.receipt_type || "",
-              discounts: meta.disc !== undefined ? meta.disc : (existingInv.discounts || ""),
-              credit_amount: meta.cred || existingInv.credit_amount || 0,
-              raw_price_str: meta.r_price || existingInv.raw_price_str || "",
-              raw_credit_str: meta.r_cred || existingInv.raw_credit_str || "",
-              payment_condition: meta.cond || existingInv.payment_condition || "",
-              payment_destination: meta.p_dest || existingInv.payment_destination || "",
-            });
+            if (!reconstructedInvoicesMap.has(invKey) && !reconstructedInvoicesMap.has(`inv-${o.id}`)) {
+              reconstructedInvoicesMap.set(invKey, {
+                id: `inv-${o.id}`,
+                work_order_id: o.id,
+                vehicle_plate: o.vehicle_plate,
+                client_name: meta.c_name || meta.client_name || "",
+                customer_doc: meta.doc || "",
+                customer_address: "",
+                labor_fee: 0,
+                parts_total: 0,
+                certification_fee: 0,
+                grand_total: 0,
+                payment_status: "pagado",
+                payment_method: meta.p_method || "",
+                issued_at: o.entry_time || new Date().toISOString(),
+                receipt_number: meta.rcpt_num || "",
+                receipt_type: meta.rcpt_type || "",
+                discounts: meta.disc !== undefined ? meta.disc : "",
+                credit_amount: meta.cred || 0,
+                raw_price_str: meta.r_price || "",
+                raw_credit_str: meta.r_cred || "",
+                payment_condition: meta.cond || "",
+                payment_destination: meta.p_dest || "",
+              });
+            }
           }
           diagNotes = diagNotes.split("[ERP_META]:")[0].trim();
         } catch (e) {
@@ -1208,7 +1183,7 @@ export async function fetchSupabaseErpData() {
       finalTechnicians = fallbackTechs;
     }
 
-    const finalServices = (servicesRes.data && servicesRes.data.length > 0) ? servicesRes.data : fallbackServices;
+    const finalServices = fallbackServices;
 
     const cmsData: Partial<SiteContent> = {};
     if (contentRes.data) {
