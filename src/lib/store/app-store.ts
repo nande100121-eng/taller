@@ -28,6 +28,7 @@ import {
   clearSupabaseScheduleRecords,
   saveSupabaseBulkScheduleRecords,
   saveSupabaseBulkInventory,
+  broadcastRealtimeChange,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 
@@ -1490,6 +1491,7 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const updated = [newEntry, ...state.recentIngresos];
           saveSupabaseSiteContent("inventory_recent_ingresos", updated, "inventory");
+          broadcastRealtimeChange("inventory_recent_ingresos_updated");
           return { recentIngresos: updated };
         });
       },
@@ -1498,12 +1500,14 @@ export const useAppStore = create<AppState>()(
         set((state) => {
           const updated = state.recentIngresos.filter((r) => r.id !== id);
           saveSupabaseSiteContent("inventory_recent_ingresos", updated, "inventory");
+          broadcastRealtimeChange("inventory_recent_ingresos_updated");
           return { recentIngresos: updated };
         });
       },
 
       clearRecentIngresos: () => {
         saveSupabaseSiteContent("inventory_recent_ingresos", [], "inventory");
+        broadcastRealtimeChange("inventory_recent_ingresos_updated");
         set({ recentIngresos: [] });
       },
 

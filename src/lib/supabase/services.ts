@@ -129,6 +129,7 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
         min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
       });
     }
+    broadcastRealtimeChange("inventory_item_updated");
   } catch (err) {
     console.warn("Supabase inventory save deferred:", err);
   }
@@ -200,6 +201,7 @@ export async function deleteSupabaseInventoryItem(id: string) {
   try {
     const { error } = await supabase.from("inventory_items").delete().eq("id", id);
     if (error) console.warn("Supabase inventory delete warning:", error.message);
+    broadcastRealtimeChange("inventory_item_deleted");
   } catch (err) {
     console.warn("Supabase inventory delete deferred:", err);
   }
@@ -209,6 +211,7 @@ export async function deleteMultipleSupabaseInventoryItems(ids: string[]) {
   try {
     const { error } = await supabase.from("inventory_items").delete().in("id", ids);
     if (error) console.warn("Supabase inventory multi-delete warning:", error.message);
+    broadcastRealtimeChange("inventory_item_deleted");
   } catch (err) {
     console.warn("Supabase inventory multi-delete deferred:", err);
   }
@@ -219,6 +222,7 @@ export async function clearSupabaseInventory() {
     await saveSupabaseSiteContent("all_inventory_records", [], "inventory");
     const { error } = await supabase.from("inventory_items").delete().neq("id", "");
     if (error) console.warn("Supabase inventory clear warning:", error.message);
+    broadcastRealtimeChange("inventory_bulk_updated");
   } catch (err) {
     console.warn("Supabase inventory clear deferred:", err);
   }
