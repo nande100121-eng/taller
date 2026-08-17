@@ -49,6 +49,10 @@ export default function AlmacenPage() {
     clearAllInventory,
     importBulkInventoryItems,
     deductStock,
+    recentIngresos,
+    addRecentIngreso,
+    removeRecentIngreso,
+    clearRecentIngresos,
     toolLoans,
     addToolLoan,
     returnTool,
@@ -79,18 +83,6 @@ export default function AlmacenPage() {
     min_stock_alert: 2,
     raw_counted: "",
   });
-  const [recentIngresos, setRecentIngresos] = useState<
-    Array<{
-      id: string;
-      sku: string;
-      name: string;
-      quantity: number;
-      previousStock: number;
-      newStock: number;
-      timestamp: string;
-      isNew: boolean;
-    }>
-  >([]);
 
   // Checkbox Row Selection State
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -284,7 +276,7 @@ export default function AlmacenPage() {
       }
     }
 
-    setRecentIngresos((prev) => prev.filter((i) => i.id !== ing.id));
+    removeRecentIngreso(ing.id);
 
     showWebNotification(
       "success",
@@ -690,20 +682,15 @@ export default function AlmacenPage() {
       entries: newEntries,
     });
 
-    setRecentIngresos((prev) => [
-      {
-        id: `ing-${Date.now()}`,
-        itemId: ingresoFoundItem.id,
-        sku: ingresoFoundItem.sku_barcode,
-        name: ingresoFoundItem.name,
-        quantity: ingresoQuantity,
-        previousStock: prevStock,
-        newStock: newStock,
-        timestamp: new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        isNew: false,
-      },
-      ...prev,
-    ]);
+    addRecentIngreso({
+      itemId: ingresoFoundItem.id,
+      sku: ingresoFoundItem.sku_barcode,
+      name: ingresoFoundItem.name,
+      quantity: ingresoQuantity,
+      previousStock: prevStock,
+      newStock: newStock,
+      isNew: false,
+    });
 
     showWebNotification(
       "success",
@@ -746,20 +733,15 @@ export default function AlmacenPage() {
 
     addInventoryItem(newItemData);
 
-    setRecentIngresos((prev) => [
-      {
-        id: `ing-${Date.now()}`,
-        itemId: `inv-${sku}`,
-        sku: sku,
-        name: newItemData.name,
-        quantity: qty,
-        previousStock: 0,
-        newStock: qty,
-        timestamp: new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        isNew: true,
-      },
-      ...prev,
-    ]);
+    addRecentIngreso({
+      itemId: `inv-${sku}`,
+      sku: sku,
+      name: newItemData.name,
+      quantity: qty,
+      previousStock: 0,
+      newStock: qty,
+      isNew: true,
+    });
 
     showWebNotification(
       "success",
@@ -2329,7 +2311,7 @@ export default function AlmacenPage() {
                   {recentIngresos.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setRecentIngresos([])}
+                      onClick={() => clearRecentIngresos()}
                       className="text-[11px] text-gray-400 hover:text-white transition-colors"
                     >
                       Limpiar lista

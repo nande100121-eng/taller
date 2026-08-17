@@ -309,6 +309,19 @@ export interface InventoryItem {
   image_url?: string; // URL o Base64 de la imagen propia del producto
 }
 
+export interface InventoryIngresoRecord {
+  id: string;
+  itemId?: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  timestamp: string;
+  notes?: string;
+  isNew?: boolean;
+}
+
 export interface ToolLoan {
   id: string;
   tool_name: string;
@@ -484,6 +497,11 @@ interface AppState {
   clearAllInventory: () => void;
   importBulkInventoryItems: (items: Omit<InventoryItem, "id">[]) => void;
   deductStock: (id: string, qty: number) => void;
+
+  recentIngresos: InventoryIngresoRecord[];
+  addRecentIngreso: (record: Omit<InventoryIngresoRecord, "id" | "timestamp"> & { id?: string; timestamp?: string }) => void;
+  removeRecentIngreso: (id: string) => void;
+  clearRecentIngresos: () => void;
 
   toolLoans: ToolLoan[];
   addToolLoan: (loan: Omit<ToolLoan, "id" | "borrowed_at" | "status">) => void;
@@ -726,6 +744,9 @@ export const useAppStore = create<AppState>()(
             }
             if (Array.isArray(erpData?.inventoryItems)) {
               updates.inventoryItems = erpData.inventoryItems;
+            }
+            if (Array.isArray((erpData as any)?.recentIngresos) && (erpData as any).recentIngresos.length > 0) {
+              updates.recentIngresos = (erpData as any).recentIngresos;
             }
             if (Array.isArray(erpData?.workOrders) && erpData.workOrders.length > 0) {
               const localOrderMap = new Map(state.workOrders.map((o) => [o.id, o]));
@@ -1454,6 +1475,36 @@ export const useAppStore = create<AppState>()(
           });
           return { inventoryItems: updatedItems };
         });
+      },
+
+      recentIngresos: [],
+
+      addRecentIngreso: (record) => {
+        const newEntry: InventoryIngresoRecord = {
+          ...record,
+          id: record.id || `ing-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          timestamp:
+            record.timestamp ||
+            new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        };
+        set((state) => {
+          const updated = [newEntry, ...state.recentIngresos];
+          saveSupabaseSiteContent("inventory_recent_ingresos", updated, "inventory");
+          return { recentIngresos: updated };
+        });
+      },
+
+      removeRecentIngreso: (id) => {
+        set((state) => {
+          const updated = state.recentIngresos.filter((r) => r.id !== id);
+          saveSupabaseSiteContent("inventory_recent_ingresos", updated, "inventory");
+          return { recentIngresos: updated };
+        });
+      },
+
+      clearRecentIngresos: () => {
+        saveSupabaseSiteContent("inventory_recent_ingresos", [], "inventory");
+        set({ recentIngresos: [] });
       },
 
       toolLoans: [],

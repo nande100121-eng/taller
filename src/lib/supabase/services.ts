@@ -602,6 +602,7 @@ export async function fetchSupabaseErpData() {
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
+    let fallbackRecentIngresos: any[] = [];
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -630,6 +631,11 @@ export async function fetchSupabaseErpData() {
           try {
             const invList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(invList)) fallbackInventory.push(...invList);
+          } catch {}
+        } else if (k === "inventory_recent_ingresos") {
+          try {
+            const list = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(list)) fallbackRecentIngresos = list;
           } catch {}
         }
       });
@@ -842,6 +848,7 @@ export async function fetchSupabaseErpData() {
       vehicles: finalVehicles.length > 0 ? finalVehicles : (vehicleData || []),
       certifications: mergedCerts.length > 0 ? mergedCerts : null,
       scheduleRecords: fallbackSched.length > 0 ? fallbackSched : null,
+      recentIngresos: fallbackRecentIngresos,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);
