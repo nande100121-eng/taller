@@ -504,9 +504,11 @@ interface AppState {
 
   vehicles: Vehicle[];
   registerVehicle: (v: Vehicle) => void;
+  updateVehicle: (plate: string, updates: Partial<Vehicle>) => void;
 
   workOrders: WorkOrder[];
   createWorkOrder: (order: Omit<WorkOrder, "id" | "entry_time" | "items"> & { id?: string; entry_time?: string; items?: WorkOrderItem[] }) => void;
+  updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
@@ -551,6 +553,7 @@ interface AppState {
 
   invoices: Invoice[];
   createInvoice: (invoice: Omit<Invoice, "id">) => void;
+  updateInvoice: (id: string, updates: Partial<Invoice>) => void;
   createInvoiceForOrder: (orderId: string, laborFee: number, certFee: number, method: string) => void;
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
@@ -1217,11 +1220,25 @@ export const useAppStore = create<AppState>()(
       registerVehicle: (v) =>
         set((state) => {
           const exists = state.vehicles.some((existing) => existing.plate === v.plate);
+          saveSupabaseVehicle(v);
           return {
             vehicles: exists
               ? state.vehicles.map((existing) => (existing.plate === v.plate ? v : existing))
               : [...state.vehicles, v],
           };
+        }),
+
+      updateVehicle: (plate, updates) =>
+        set((state) => {
+          const updatedVehicles = state.vehicles.map((v) => {
+            if (v.plate.toUpperCase() === plate.toUpperCase()) {
+              const updated = { ...v, ...updates };
+              saveSupabaseVehicle(updated);
+              return updated;
+            }
+            return v;
+          });
+          return { vehicles: updatedVehicles };
         }),
 
       workOrders: [],
@@ -1238,6 +1255,19 @@ export const useAppStore = create<AppState>()(
           workOrders: [...state.workOrders, newOrder],
         }));
       },
+
+      updateWorkOrder: (id, updates) =>
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === id) {
+              const updated = { ...o, ...updates };
+              saveSupabaseWorkOrder(updated);
+              return updated;
+            }
+            return o;
+          });
+          return { workOrders: updatedOrders };
+        }),
 
       updateWorkOrderStatus: (id, status) => {
         set((state) => {
@@ -1744,6 +1774,19 @@ export const useAppStore = create<AppState>()(
           invoices,
         });
       },
+
+      updateInvoice: (id, updates) =>
+        set((state) => {
+          const updatedInvoices = state.invoices.map((inv) => {
+            if (inv.id === id) {
+              const updated = { ...inv, ...updates };
+              saveSupabaseInvoice(updated);
+              return updated;
+            }
+            return inv;
+          });
+          return { invoices: updatedInvoices };
+        }),
 
       payInvoice: (invoiceId) =>
         set((state) => {

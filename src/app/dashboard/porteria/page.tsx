@@ -65,9 +65,19 @@ export default function PorteriaPage() {
   // Status notification message
   const [alertMessage, setAlertMessage] = useState<{ type: "success" | "info" | "warning"; text: string } | null>(null);
 
+  const getCurrentPeruTime = () => {
+    const now = new Date();
+    return now.toLocaleTimeString("es-PE", {
+      timeZone: "America/Lima",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  };
+
   // Form for vehicle entry
   const [entryDate, setEntryDate] = useState<string>(selectedDate);
-  const [entryTime, setEntryTime] = useState<string>("08:30");
+  const [entryTime, setEntryTime] = useState<string>(getCurrentPeruTime());
   const [entryForm, setEntryForm] = useState({
     plate: "",
     brand: "",
@@ -81,9 +91,10 @@ export default function PorteriaPage() {
     problem_description: "Ingreso para mantenimiento general y revisión",
   });
 
-  // Keep entryDate in sync when selectedDate changes (if user hasn't typed a custom one)
+  // Keep entryDate in sync when selectedDate changes and update time
   useEffect(() => {
     setEntryDate(selectedDate);
+    setEntryTime(getCurrentPeruTime());
   }, [selectedDate]);
 
   // Modals for appointment management
@@ -356,7 +367,8 @@ export default function PorteriaPage() {
     }
 
     // Build ISO timestamp from chosen date and time
-    const chosenDateTimeISO = `${entryDate || selectedDate}T${entryTime || "08:30"}:00.000Z`;
+    const finalTime = entryTime || getCurrentPeruTime();
+    const chosenDateTimeISO = `${entryDate || selectedDate}T${finalTime}:00.000Z`;
 
     // 1. Register or update vehicle
     registerVehicle({
@@ -380,9 +392,10 @@ export default function PorteriaPage() {
       entry_time: chosenDateTimeISO,
     });
 
-    showAlert("success", `¡Ingreso del vehículo ${plate} registrado para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
+    showAlert("success", `¡Ingreso del vehículo ${plate} registrado a las ${finalTime} para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
 
     // Reset form
+    setEntryTime(getCurrentPeruTime());
     setEntryForm({
       plate: "",
       brand: "",

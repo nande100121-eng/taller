@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
-import { formatPeruDate } from "@/lib/utils/date-utils";
+import { formatPeruDate, getPeruDateString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   Table,
@@ -68,6 +68,9 @@ export default function AdminTablesPage() {
     workOrders,
     invoices,
     vehicles,
+    updateWorkOrder,
+    updateVehicle,
+    updateInvoice,
     deleteWorkOrder,
     deleteMultipleWorkOrders,
     clearAllWorkOrders,
@@ -111,6 +114,32 @@ export default function AdminTablesPage() {
 
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Editing Workshop Order Modal State (Modificación de Fecha, Hora y Registro Completo)
+  const [editingWorkshopOrder, setEditingWorkshopOrder] = useState<{
+    orderId: string;
+    vehiclePlate: string;
+    entryDate: string; // YYYY-MM-DD
+    entryTime: string; // HH:mm
+    clientName: string;
+    clientPhone: string;
+    currentMileage: number;
+    fuelType: string;
+    brand: string;
+    technicianName: string;
+    maintenanceService: string;
+    sparePartsServices: string;
+    price: number;
+    discounts: string;
+    creditAmount: number;
+    paymentCondition: string;
+    paymentMethod: string;
+    paymentDestination: string;
+    receiptType: string;
+    receiptNumber: string;
+    quinquennialDate: string;
+    chipExpiryDate: string;
+  } | null>(null);
 
   // Web Confirmation Modal state
   const [modalConfig, setModalConfig] = useState<{
@@ -678,6 +707,110 @@ export default function AdminTablesPage() {
     }
   };
 
+  // Editing Handlers for Workshop Orders (Modificar fecha, hora y datos)
+  const handleOpenEditWorkshopOrder = (wo: WorkOrder) => {
+    const veh = vehiclesByPlate.get(wo.vehicle_plate) || vehicles.find((v) => v.plate === wo.vehicle_plate);
+    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id) || invoices.find((i) => i.vehicle_plate === wo.vehicle_plate && i.issued_at === wo.entry_time);
+
+    let datePart = getPeruDateString();
+    let timePart = "08:30";
+    if (wo.entry_time) {
+      if (wo.entry_time.includes("T")) {
+        datePart = wo.entry_time.slice(0, 10);
+        timePart = wo.entry_time.slice(11, 16);
+      } else {
+        datePart = wo.entry_time;
+      }
+    }
+
+    setEditingWorkshopOrder({
+      orderId: wo.id,
+      vehiclePlate: wo.vehicle_plate,
+      entryDate: datePart,
+      entryTime: timePart,
+      clientName: veh?.owner_name || inv?.client_name || "",
+      clientPhone: veh?.owner_phone || "",
+      currentMileage: veh?.current_mileage || 0,
+      fuelType: veh?.fuel_type || "GNV",
+      brand: veh?.brand || "Toyota",
+      technicianName: wo.assigned_technician_id || "",
+      maintenanceService: wo.general_maintenance_service || wo.problem_description || "",
+      sparePartsServices: wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : ""),
+      price: inv?.grand_total || (wo.items.length > 0 ? wo.items[0].subtotal : 0),
+      discounts: String(inv?.discounts || ""),
+      creditAmount: inv?.credit_amount || 0,
+      paymentCondition: inv?.payment_condition || "PAGADO",
+      paymentMethod: inv?.payment_method || "Efectivo",
+      paymentDestination: inv?.payment_destination || "EMPRESA",
+      receiptType: inv?.receipt_type || "Ticket",
+      receiptNumber: inv?.receipt_number || "",
+      quinquennialDate: wo.quinquennial_date || "",
+      chipExpiryDate: wo.chip_expiry_date || "",
+    });
+  };
+
+  const handleSaveEditWorkshopOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWorkshopOrder) return;
+
+    const newDateTimeISO = `${editingWorkshopOrder.entryDate}T${editingWorkshopOrder.entryTime || "08:30"}:00.000Z`;
+
+    // 1. Update Work Order (including entry_time / hora de ingreso!)
+    updateWorkOrder(editingWorkshopOrder.orderId, {
+      entry_time: newDateTimeISO,
+      vehicle_plate: editingWorkshopOrder.vehiclePlate.toUpperCase(),
+      assigned_technician_id: editingWorkshopOrder.technicianName,
+      problem_description: editingWorkshopOrder.maintenanceService,
+      general_maintenance_service: editingWorkshopOrder.maintenanceService,
+      spare_parts_services: editingWorkshopOrder.sparePartsServices,
+      quinquennial_date: editingWorkshopOrder.quinquennialDate,
+      chip_expiry_date: editingWorkshopOrder.chipExpiryDate,
+      items: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService
+        ? [
+            {
+              id: `item-${editingWorkshopOrder.orderId}`,
+              description: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService,
+              quantity: 1,
+              unit_price: Number(editingWorkshopOrder.price) || 0,
+              subtotal: Number(editingWorkshopOrder.price) || 0,
+            },
+          ]
+        : [],
+    });
+
+    // 2. Update Vehicle
+    updateVehicle(editingWorkshopOrder.vehiclePlate, {
+      brand: editingWorkshopOrder.brand,
+      fuel_type: editingWorkshopOrder.fuelType as any,
+      owner_name: editingWorkshopOrder.clientName,
+      owner_phone: editingWorkshopOrder.clientPhone,
+      current_mileage: Number(editingWorkshopOrder.currentMileage) || 0,
+      last_visit_date: newDateTimeISO,
+    });
+
+    // 3. Update Invoice if exists
+    const targetInv = invoices.find((i) => i.work_order_id === editingWorkshopOrder.orderId);
+    if (targetInv) {
+      updateInvoice(targetInv.id, {
+        vehicle_plate: editingWorkshopOrder.vehiclePlate.toUpperCase(),
+        client_name: editingWorkshopOrder.clientName,
+        parts_total: Number(editingWorkshopOrder.price) || 0,
+        grand_total: Number(editingWorkshopOrder.price) || 0,
+        issued_at: newDateTimeISO,
+        payment_condition: editingWorkshopOrder.paymentCondition,
+        payment_method: editingWorkshopOrder.paymentMethod,
+        payment_destination: editingWorkshopOrder.paymentDestination,
+        receipt_type: editingWorkshopOrder.receiptType,
+        receipt_number: editingWorkshopOrder.receiptNumber,
+        discounts: editingWorkshopOrder.discounts,
+        credit_amount: Number(editingWorkshopOrder.creditAmount) || 0,
+      });
+    }
+
+    showAlert("success", `¡Registro de ${editingWorkshopOrder.vehiclePlate} modificado exitosamente con hora ${editingWorkshopOrder.entryTime}!`);
+    setEditingWorkshopOrder(null);
+  };
+
   // Confirmation trigger helpers
   const triggerDeleteSingle = (id: string, plate: string) => {
     setModalConfig({
@@ -888,7 +1021,7 @@ export default function AdminTablesPage() {
                     />
                   </th>
                   <th className="p-3 w-12 font-black">#</th>
-                  <th className="p-3">Fecha</th>
+                  <th className="p-3">Fecha / Hora</th>
                   <th className="p-3">FECHA QUINTENAL</th>
                   <th className="p-3">FECHA CHIP ANUAL</th>
                   <th className="p-3">TIPO</th>
@@ -964,7 +1097,10 @@ export default function AdminTablesPage() {
                         </td>
                         <td className="p-3 font-mono font-bold text-gray-400">#{startIndex + index + 1}</td>
                         <td className="p-3 font-mono text-purple-300">
-                          {wo.entry_time ? (wo.entry_time.includes("T") ? formatPeruDate(wo.entry_time) : wo.entry_time) : ""}
+                          <div className="font-bold">{wo.entry_time ? (wo.entry_time.includes("T") ? formatPeruDate(wo.entry_time) : wo.entry_time) : ""}</div>
+                          {wo.entry_time && wo.entry_time.includes("T") && (
+                            <div className="text-[10px] text-cyan-300 font-semibold">{wo.entry_time.slice(11, 16)} hrs</div>
+                          )}
                         </td>
                         <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
                         <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>
@@ -987,13 +1123,22 @@ export default function AdminTablesPage() {
                         <td className="p-3 text-purple-300">{inv?.payment_destination || ""}</td>
                         <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || ""}</td>
                         <td className="p-3 text-center">
-                          <button
-                            onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
-                            className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
-                            title="Eliminar esta fila"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenEditWorkshopOrder(wo)}
+                              className="p-1.5 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 rounded-lg transition-colors"
+                              title="Modificar fecha, hora y datos del registro"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
+                              className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                              title="Eliminar esta fila"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2208,6 +2353,266 @@ export default function AdminTablesPage() {
                   <span>Actualizar Clave</span>
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL DE EDICIÓN COMPLETA DEL REGISTRO DE TALLER (FECHA, HORA, ETC.) */}
+      {/* ========================================================================= */}
+      {editingWorkshopOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-3xl w-full shadow-2xl shadow-black/90 space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                  <Edit3 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Modificar Registro del Taller</h3>
+                  <p className="text-xs text-gray-400">
+                    Placa: <span className="text-amber-300 font-mono font-bold">{editingWorkshopOrder.vehiclePlate}</span> • ID: {editingWorkshopOrder.orderId.slice(0, 8)}...
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingWorkshopOrder(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditWorkshopOrder} className="space-y-4 text-xs">
+              
+              {/* Fecha y Hora de Ingreso */}
+              <div className="p-4 rounded-2xl bg-black/40 border border-amber-500/30 space-y-3">
+                <div className="flex items-center gap-2 text-amber-300 font-black uppercase text-[11px] tracking-wider">
+                  <Calendar className="w-4 h-4" />
+                  <span>Fecha y Hora de Ingreso (Apertura de Orden)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-gray-300 font-bold mb-1">Fecha de Atención *</label>
+                    <MiniDatePicker
+                      value={editingWorkshopOrder.entryDate}
+                      onChange={(newD) => setEditingWorkshopOrder({ ...editingWorkshopOrder, entryDate: newD })}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-300 font-bold mb-1">Hora de Ingreso (HH:mm) *</label>
+                    <input
+                      type="time"
+                      required
+                      value={editingWorkshopOrder.entryTime}
+                      onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, entryTime: e.target.value })}
+                      className="w-full px-3.5 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Vehículo & Propietario */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Placa *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingWorkshopOrder.vehiclePlate}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, vehiclePlate: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono font-black uppercase focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Marca</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.brand}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, brand: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Sistema / Combustible</label>
+                  <select
+                    value={editingWorkshopOrder.fuelType}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, fuelType: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-bold focus:border-amber-400 focus:outline-none"
+                  >
+                    <option value="GNV">GNV</option>
+                    <option value="GLP">GLP</option>
+                    <option value="Gasolina">Gasolina</option>
+                    <option value="Bifuel">Bifuel</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Kilometraje (km)</label>
+                  <input
+                    type="number"
+                    value={editingWorkshopOrder.currentMileage || ""}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, currentMileage: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Cliente y Teléfono */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Cliente / Propietario</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.clientName}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, clientName: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Celular / Teléfono</label>
+                  <input
+                    type="tel"
+                    value={editingWorkshopOrder.clientPhone}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, clientPhone: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Técnico y Servicios */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Técnico Asignado</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.technicianName}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, technicianName: e.target.value })}
+                    placeholder="Ej. EDGAR, CARLOS..."
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Mantenimiento General / Servicio</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.maintenanceService}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, maintenanceService: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-300 font-bold uppercase mb-1">Repuestos y Servicios Adicionales</label>
+                <input
+                  type="text"
+                  value={editingWorkshopOrder.sparePartsServices}
+                  onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, sparePartsServices: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                />
+              </div>
+
+              {/* Precios, Descuento y Crédito */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-2xl bg-black/40 border border-white/10">
+                <div>
+                  <label className="block text-emerald-400 font-extrabold uppercase mb-1">Precio Total (S/)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editingWorkshopOrder.price || ""}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, price: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-emerald-500/40 rounded-xl text-white font-mono font-black focus:border-emerald-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Descuentos</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.discounts}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, discounts: e.target.value })}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-amber-400 font-bold uppercase mb-1">Crédito (S/)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editingWorkshopOrder.creditAmount || ""}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, creditAmount: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-amber-500/40 rounded-xl text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Condición</label>
+                  <select
+                    value={editingWorkshopOrder.paymentCondition}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, paymentCondition: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-bold focus:border-amber-400 focus:outline-none"
+                  >
+                    <option value="PAGADO">PAGADO</option>
+                    <option value="CREDITO">CREDITO</option>
+                    <option value="PENDIENTE">PENDIENTE</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Método, Destino y Comprobante */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Método de Pago</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.paymentMethod}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, paymentMethod: e.target.value })}
+                    placeholder="Efectivo / Yape..."
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">Destino de Pago</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.paymentDestination}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, paymentDestination: e.target.value })}
+                    placeholder="EMPRESA / Nombre"
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-300 font-bold uppercase mb-1">N° Boleta / Factura</label>
+                  <input
+                    type="text"
+                    value={editingWorkshopOrder.receiptNumber}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, receiptNumber: e.target.value })}
+                    placeholder="B001-000123"
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Botones de acción */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setEditingWorkshopOrder(null)}
+                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold border border-white/10 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Modificaciones</span>
+                </button>
+              </div>
+
             </form>
           </div>
         </div>
