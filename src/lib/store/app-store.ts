@@ -813,7 +813,52 @@ export const useAppStore = create<AppState>()(
             const updates: Partial<typeof state> = { hasSyncedOnce: true };
 
             if (cmsData && Object.keys(cmsData).length > 0) {
-              updates.siteContent = { ...state.siteContent, ...cmsData };
+              const sanitizedCms: any = {};
+              for (const [k, v] of Object.entries(cmsData)) {
+                if (v !== null && v !== undefined) {
+                  sanitizedCms[k] = v;
+                }
+              }
+              updates.siteContent = {
+                ...state.siteContent,
+                ...sanitizedCms,
+                theme: {
+                  ...state.siteContent.theme,
+                  ...(sanitizedCms.theme || {}),
+                },
+                hero: {
+                  ...state.siteContent.hero,
+                  ...(sanitizedCms.hero || {}),
+                },
+                navbar: {
+                  ...state.siteContent.navbar,
+                  ...(sanitizedCms.navbar || {}),
+                },
+                contact: {
+                  ...state.siteContent.contact,
+                  ...(sanitizedCms.contact || {}),
+                },
+                metrics: {
+                  ...state.siteContent.metrics,
+                  ...(sanitizedCms.metrics || {}),
+                },
+                calculator: {
+                  ...state.siteContent.calculator,
+                  ...(sanitizedCms.calculator || {}),
+                },
+                about: {
+                  ...state.siteContent.about,
+                  ...(sanitizedCms.about || {}),
+                },
+                services_header: {
+                  ...state.siteContent.services_header,
+                  ...(sanitizedCms.services_header || {}),
+                },
+                footer: {
+                  ...state.siteContent.footer,
+                  ...(sanitizedCms.footer || {}),
+                },
+              };
               // Sync AI Settings from Supabase if present
               if ((cmsData as any).aiSettings) {
                 updates.aiSettings = { ...state.aiSettings, ...(cmsData as any).aiSettings };

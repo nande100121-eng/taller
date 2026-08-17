@@ -78,7 +78,53 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
     };
   }, []);
 
-  const { theme, navbar, hero, metrics, calculator, services_header, about, location_map, contact, booking_modal, footer, services, gallery } = siteContent;
+  const safeTheme = siteContent?.theme || {
+    primary_color: "#D32F2F",
+    background_color: "#0B0F17",
+    card_color: "#131B26",
+    font_family: "Outfit, sans-serif",
+  };
+
+  const theme = safeTheme;
+
+  const hero = siteContent?.hero || {
+    badge_text: "EQUIPOS DE 5TA GENERACIÓN CERTIFICADOS",
+    title: "Especialistas en Conversión y Mantenimiento GNV / GLP",
+    subtitle: "Ahorre hasta 65% en combustible. Taller autorizado con certificación oficial Produce / MTC.",
+    btn_primary_text: "Reservar Cita de Conversión",
+    btn_secondary_text: "Calcular Ahorro Mensual",
+    rating_score: "4.9",
+    rating_count: "+1,200 Clientes Satisfechos",
+    badge_warranty: "Garantía de 1 Año o 50,000 KM",
+  };
+
+  const navbar = siteContent?.navbar || {
+    announcement_text: "🚨 Horario de Atención: Lun - Sáb 8:00 AM a 6:30 PM • Certificaciones GNV / GLP al instante",
+    phone_number: "+51 987 654 321",
+    btn_booking_text: "Agendar Cita",
+    btn_access_text: "Acceso Sistema",
+  };
+
+  const contact = siteContent?.contact || {
+    title: "¿Tienes dudas sobre tu sistema de gas?",
+    subtitle: "Comunícate directamente con nuestros técnicos especializados para una asesoría personalizada.",
+    phone_label: "Llámanos al Taller:",
+    phone_number: "+51 987 654 321",
+    email_label: "Correo Electrónico:",
+    email_address: "contacto@reygas.com",
+    whatsapp_cta: "Chatear por WhatsApp",
+    form_title: "Envíanos un Mensaje Directo",
+  };
+
+  const metrics = siteContent?.metrics;
+  const calculator = siteContent?.calculator;
+  const services_header = siteContent?.services_header;
+  const about = siteContent?.about;
+  const location_map = siteContent?.location_map;
+  const booking_modal = siteContent?.booking_modal;
+  const footer = siteContent?.footer;
+  const services = siteContent?.services || [];
+  const gallery = siteContent?.gallery || [];
 
   // Editing is STRICTLY enabled only inside the Admin CMS Station (/dashboard/admin/cms) where forceEditing is true
   const isEditing = forceEditing === true;
@@ -436,9 +482,9 @@ export function PublicHome({ forceEditing = false }: PublicHomeProps) {
       {mounted && (
         <style jsx global>{`
           :root {
-            --reygas-red: ${theme.primary_color};
-            --reygas-dark: ${theme.background_color};
-            --reygas-card: ${theme.card_color};
+            --reygas-red: ${theme?.primary_color || "#D32F2F"};
+            --reygas-dark: ${theme?.background_color || "#0B0F17"};
+            --reygas-card: ${theme?.card_color || "#131B26"};
           }
         `}</style>
       )}
