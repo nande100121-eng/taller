@@ -27,6 +27,8 @@ import {
   Unlock,
   Calendar,
   Filter,
+  Fuel,
+  ChevronDown,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
@@ -41,6 +43,7 @@ export default function WorkshopOperationsPage() {
     assignTechnicianToOrder,
     technicians,
     vehicles,
+    updateVehicle,
     inventoryItems,
     workshopServices,
     invoices,
@@ -70,6 +73,7 @@ export default function WorkshopOperationsPage() {
   const [quinquennialDate, setQuinquennialDate] = useState("");
   const [chipExpiryDate, setChipExpiryDate] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
+  const [selectedFuelType, setSelectedFuelType] = useState<string>("GNV");
   const [certType, setCertType] = useState<string>("Certificado Anual GNV");
   const [certPrice, setCertPrice] = useState<number>(80);
 
@@ -148,54 +152,54 @@ export default function WorkshopOperationsPage() {
       const spec = (t.specialty || "").toLowerCase().trim();
       const name = (t.full_name || "").toLowerCase().trim();
 
-      // Exclude administrative / non-technical roles
-      const isExcluded =
-        spec.includes("caja") ||
+      const isSupportSpecialty = (
+        spec.includes("técnico") ||
+        spec.includes("tecnico") ||
+        spec.includes("mantenimiento") ||
+        spec.includes("mecánico") ||
+        spec.includes("mecanico") ||
+        spec.includes("conversiones") ||
+        spec.includes("conversor") ||
+        spec.includes("instalador") ||
+        spec.includes("soporte") ||
+        spec.includes("electrónica") ||
+        spec.includes("electronica") ||
+        spec.includes("calibrador") ||
+        spec.includes("5ta") ||
+        spec.includes("gnv") ||
+        spec.includes("glp")
+      );
+
+      const isExcludedRole = (
+        spec.includes("recepcionista") ||
+        spec.includes("recepción") ||
+        spec.includes("recepcion") ||
+        spec.includes("portero") ||
+        spec.includes("vigilante") ||
+        spec.includes("seguridad") ||
         spec.includes("cajera") ||
         spec.includes("cajero") ||
-        spec.includes("porteria") ||
-        spec.includes("garita") ||
-        spec.includes("guardia") ||
-        spec.includes("almacen") ||
-        spec.includes("almacenero") ||
-        spec.includes("recepcion") ||
-        spec.includes("recepcionista") ||
-        spec.includes("asistente") ||
-        spec.includes("contabilidad") ||
-        spec.includes("secretaria") ||
         spec.includes("administrador") ||
-        spec.includes("gerente");
+        spec.includes("admin") ||
+        spec.includes("gerente")
+      );
 
-      if (isExcluded) return false;
+      const isKnownTechName = (
+        name.includes("jaime") ||
+        name.includes("jesús") ||
+        name.includes("jesus") ||
+        name.includes("franco") ||
+        name.includes("anderson") ||
+        name.includes("rodrigo") ||
+        name.includes("jorge")
+      );
 
-      // Include if specialty, name or station matches Técnico, Soporte Técnico, Mecánico, Master GNV/GLP
-      const isMatch =
-        spec.includes("tecnico") ||
-        spec.includes("técnico") ||
-        spec.includes("soporte") ||
-        spec.includes("mecanico") ||
-        spec.includes("mecánico") ||
-        spec.includes("gnv") ||
-        spec.includes("glp") ||
-        spec.includes("reductores") ||
-        spec.includes("conversion") ||
-        spec.includes("conversión") ||
-        spec.includes("hidrostatica") ||
-        spec.includes("hidrostática") ||
-        spec.includes("electricista") ||
-        spec.includes("taller") ||
-        spec.includes("master") ||
-        name.includes("tecnico") ||
-        name.includes("técnico") ||
-        name.includes("soporte") ||
-        (t.allowed_tabs && t.allowed_tabs.includes("taller")) ||
-        spec === "";
-
-      return isMatch;
+      return (isSupportSpecialty && !isExcludedRole) || isKnownTechName;
     });
   }, [technicians]);
 
-  const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
+  // Pipeline Status Steps configuration
+  const statusSteps: { status: WorkOrderStatus; label: string; color: string }[] = [
     { status: "ingresado", label: "1. Ingresado", color: "bg-blue-500" },
     { status: "en_diagnostico", label: "2. Diagnóstico", color: "bg-purple-500" },
     { status: "esperando_repuestos", label: "3. Repuestos", color: "bg-amber-500" },
@@ -210,6 +214,9 @@ export default function WorkshopOperationsPage() {
     setObservationsText(currentObservations || "");
     setQuinquennialDate(currentQuinquennial || "");
     setChipExpiryDate(currentChip || "");
+    const order = workOrders.find((o) => o.id === orderId);
+    const vehicle = order ? vehicles.find((v) => v.plate === order.vehicle_plate) : null;
+    setSelectedFuelType(vehicle?.fuel_type || "GNV");
   };
 
   const handleOpenInspectionDates = (orderId: string, currentQuinquennial?: string, currentChip?: string) => {
@@ -276,6 +283,10 @@ export default function WorkshopOperationsPage() {
           quinquennial_date: quinquennialDate,
           chip_expiry_date: chipExpiryDate,
         });
+      }
+      const order = workOrders.find((o) => o.id === activeOrderModal);
+      if (order && order.vehicle_plate && selectedFuelType) {
+        updateVehicle(order.vehicle_plate, { fuel_type: selectedFuelType as any });
       }
       setActiveOrderModal(null);
     }
@@ -662,10 +673,34 @@ export default function WorkshopOperationsPage() {
                       <h3 className="text-sm font-bold text-white">
                         {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
                       </h3>
-                      <p className="text-xs text-gray-400 font-semibold">
-                        {vehicle?.color || "Color no especificado"} •{" "}
-                        <span className="text-reygas-red">{vehicle?.fuel_type || "GNV"}</span>
-                      </p>
+                      <div className="flex items-center gap-2 pt-1 flex-wrap">
+                        <span className="text-xs text-gray-400 font-semibold">
+                          {vehicle?.color || "Color no especificado"}
+                        </span>
+                        <span className="text-gray-600">•</span>
+                        {/* Selector interactivo de tipo de combustible */}
+                        <div className="relative inline-flex items-center">
+                          <select
+                            value={vehicle?.fuel_type || "GNV"}
+                            disabled={isLocked}
+                            onChange={(e) => {
+                              updateVehicle(wo.vehicle_plate, { fuel_type: e.target.value as any });
+                            }}
+                            className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${
+                              isLocked
+                                ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
+                                : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
+                            }`}
+                            title="Cambiar tipo de combustible / sistema"
+                          >
+                            <option value="GNV" className="bg-gray-900 text-white font-bold">⛽ GNV</option>
+                            <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
+                            <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
+                            <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
+                          </select>
+                          <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
@@ -1105,6 +1140,33 @@ export default function WorkshopOperationsPage() {
                     onChange={(e) => setObservationsText(e.target.value)}
                     className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
                   />
+                </div>
+
+                {/* Selector de Tipo de Combustible / Sistema */}
+                <div className="p-3.5 rounded-xl bg-black/40 border border-purple-500/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-purple-300 uppercase flex items-center gap-1.5">
+                      <Fuel className="w-4 h-4 text-amber-400" />
+                      <span>Tipo de Combustible / Sistema *</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400">Actualiza la ficha del vehículo</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(["GNV", "GLP", "Gasolina", "Bifuel"] as const).map((fuel) => (
+                      <button
+                        key={fuel}
+                        type="button"
+                        onClick={() => setSelectedFuelType(fuel)}
+                        className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all border flex items-center justify-center gap-1.5 active:scale-95 ${
+                          selectedFuelType === fuel
+                            ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]"
+                            : "bg-reygas-dark text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
+                        }`}
+                      >
+                        <span>⛽ {fuel}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Fechas Quinquenal y Chip opcionales durante Diagnóstico */}
