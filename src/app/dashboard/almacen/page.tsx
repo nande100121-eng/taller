@@ -23,8 +23,14 @@ import {
   Square,
   AlertCircle,
   ShieldAlert,
-  Filter
+  Filter,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  CheckCheck
 } from "lucide-react";
+import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 
 export default function AlmacenPage() {
   const {
@@ -403,30 +409,98 @@ export default function AlmacenPage() {
     notes: "Uso en bahía de diagnóstico",
   });
 
+  // Pedidos por Vehículo Date & Status State
+  const [pedidosDate, setPedidosDate] = useState<string>(getPeruDateString());
+  const [showAllPedidosDates, setShowAllPedidosDates] = useState<boolean>(false);
+  const [pedidosDispatchFilter, setPedidosDispatchFilter] = useState<"todos" | "pendientes" | "atendidos">("todos");
+
+  const changePedidosDateByDays = (deltaDays: number) => {
+    const [y, m, d] = (pedidosDate || getPeruDateString()).split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    dateObj.setDate(dateObj.getDate() + deltaDays);
+    setPedidosDate(getPeruDateString(dateObj));
+    setShowAllPedidosDates(false);
+  };
+
+  // Helper to extract YYYY-MM-DD from order entry_time
+  const extractDateKey = (dateStr?: string) => {
+    if (!dateStr || !dateStr.trim() || dateStr === "-") return "";
+    if (dateStr.includes("T")) return dateStr.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.slice(0, 10);
+    const parts = dateStr.split(/[/.-]/);
+    if (parts.length === 3) {
+      let part1 = parseInt(parts[0], 10);
+      let part2 = parseInt(parts[1], 10);
+      let year = parseInt(parts[2], 10);
+      if (year < 100) year += 2000;
+      let day = part1;
+      let month = part2;
+      if (part1 > 12 && part2 <= 12) {
+        day = part1;
+        month = part2;
+      } else if (part2 > 12 && part1 <= 12) {
+        day = part2;
+        month = part1;
+      }
+      const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+      return `${year}-${pad(month)}-${pad(day)}`;
+    }
+    return dateStr.slice(0, 10);
+  };
+
   // Group work orders with items by vehicle plate
-  const vehiclePartGroups = workOrders
-    .filter((wo) => wo.items.length > 0)
+  const allVehiclePartGroups = workOrders
+    .filter((wo) => wo.items && wo.items.length > 0)
     .map((wo) => {
       const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
       const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
+      const dateKey = extractDateKey(wo.entry_time);
 
       return {
         orderId: wo.id,
         plate: wo.vehicle_plate,
-        brand: vehicle?.brand || "Marca",
-        model: vehicle?.model || "Modelo",
-        year: vehicle?.year || 2022,
-        color: vehicle?.color || "Color",
-        fuel_type: vehicle?.fuel_type || "GNV",
-        ownerName: vehicle?.owner_name || "Cliente",
-        techName: tech?.full_name || "Técnico No Asignado",
+        entry_time: wo.entry_time,
+        dateKey,
+        brand: vehicle?.brand || "",
+        model: vehicle?.model || "",
+        year: vehicle?.year || 0,
+        color: vehicle?.color || "",
+        fuel_type: vehicle?.fuel_type || "",
+        ownerName: vehicle?.owner_name || "",
+        techName: tech?.full_name || wo.assigned_technician_id || "Técnico No Asignado",
         items: wo.items,
       };
     });
 
-  const pendingRequisitionsCount = workOrders
+  // Calculate statistics for badges
+  const dateSpecificGroups = allVehiclePartGroups.filter(
+    (g) => showAllPedidosDates || g.dateKey === pedidosDate
+  );
+  const totalPedidosCount = dateSpecificGroups.length;
+  const pendingPedidosCount = dateSpecificGroups.filter((g) => g.items.some((i) => !i.dispatched)).length;
+  const attendedPedidosCount = dateSpecificGroups.filter((g) => g.items.every((i) => i.dispatched)).length;
+  const pendingRequisitionsCount = allVehiclePartGroups
     .flatMap((wo) => wo.items)
     .filter((i) => !i.dispatched).length;
+
+  // Filter groups by date and dispatch status
+  const vehiclePartGroups = allVehiclePartGroups.filter((group) => {
+    // Date filter
+    const matchesDate = showAllPedidosDates || group.dateKey === pedidosDate;
+
+    // Dispatch status filter
+    const pendingCount = group.items.filter((i) => !i.dispatched).length;
+    const isAllDispatched = pendingCount === 0;
+
+    const matchesStatus =
+      pedidosDispatchFilter === "todos"
+        ? true
+        : pedidosDispatchFilter === "pendientes"
+        ? pendingCount > 0
+        : isAllDispatched;
+
+    return matchesDate && matchesStatus;
+  });
 
   const handleScanLookup = () => {
     const found = inventoryItems.find(
@@ -576,24 +650,141 @@ export default function AlmacenPage() {
         </div>
       </div>
 
-      {/* TAB 1: PEDIDOS POR VEHICULO */}
+      {/* TAB 1: PEDIDOS POR VEHICULO CON FILTRO POR FECHA Y ESTADO */}
       {activeTab === "pedidos" && (
         <div className="space-y-6">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-            <h2 className="text-lg font-bold text-white flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <Package className="w-5 h-5 text-amber-400" />
-                <span>Solicitudes de Repuestos Agrupadas por Vehículo</span>
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-amber-400" />
+                  <span>Solicitudes de Repuestos Agrupadas por Vehículo</span>
+                </h2>
+                <p className="text-xs text-gray-400">
+                  Despacho de repuestos por fecha, control de pedidos pendientes y atendidos para el taller.
+                </p>
               </div>
-              <span className="text-xs text-amber-400 font-bold">
-                {pendingRequisitionsCount} Repuestos Pendientes de Entrega
-              </span>
-            </h2>
+
+              {/* DATE PICKER (UNIFIED DESIGN) */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center bg-reygas-surface rounded-xl border border-white/10 p-1">
+                  <button
+                    onClick={() => changePedidosDateByDays(-1)}
+                    className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
+                    title="Día Anterior"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center gap-2 px-2">
+                    <Calendar className="w-4 h-4 text-amber-400" />
+                    <input
+                      type="date"
+                      value={pedidosDate}
+                      onChange={(e) => {
+                        setPedidosDate(e.target.value);
+                        setShowAllPedidosDates(false);
+                      }}
+                      className="bg-transparent text-white font-mono text-xs font-bold focus:outline-none cursor-pointer"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => changePedidosDateByDays(1)}
+                    className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
+                    title="Día Siguiente"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setPedidosDate(getPeruDateString());
+                    setShowAllPedidosDates(false);
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                    !showAllPedidosDates && pedidosDate === getPeruDateString()
+                      ? "bg-amber-500 text-black border-amber-400 font-black shadow-md"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
+                  }`}
+                >
+                  Hoy
+                </button>
+
+                <button
+                  onClick={() => setShowAllPedidosDates(!showAllPedidosDates)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                    showAllPedidosDates
+                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md font-black"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
+                  }`}
+                >
+                  {showAllPedidosDates ? "✓ Mostrando Todas las Fechas" : "Ver Todas las Fechas"}
+                </button>
+              </div>
+            </div>
+
+            {/* STATUS FILTER BUTTONS: PENDIENTES / ATENDIDOS / TODOS */}
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setPedidosDispatchFilter("todos")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
+                    pedidosDispatchFilter === "todos"
+                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
+                      : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                  }`}
+                >
+                  Todos ({totalPedidosCount})
+                </button>
+
+                <button
+                  onClick={() => setPedidosDispatchFilter("pendientes")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                    pedidosDispatchFilter === "pendientes"
+                      ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
+                      : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Pendientes ({pendingPedidosCount})</span>
+                </button>
+
+                <button
+                  onClick={() => setPedidosDispatchFilter("atendidos")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                    pedidosDispatchFilter === "atendidos"
+                      ? "bg-cyan-600 text-white border-cyan-500 shadow-md font-black ring-2 ring-cyan-300"
+                      : "bg-cyan-950/40 text-cyan-300 border-cyan-500/40 hover:bg-cyan-950/70"
+                  }`}
+                >
+                  <CheckCheck className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Atendidos ({attendedPedidosCount})</span>
+                </button>
+              </div>
+
+              <div className="text-xs text-gray-400 flex items-center gap-2">
+                <span className="text-amber-400 font-bold">
+                  {showAllPedidosDates ? "Todas las Fechas" : `Fecha: ${pedidosDate}`}
+                </span>
+                <span>•</span>
+                <span>{vehiclePartGroups.length} vehículos mostrados</span>
+              </div>
+            </div>
 
             {vehiclePartGroups.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-8">
-                No hay repuestos solicitados desde el taller en este momento.
-              </p>
+              <div className="text-center py-12 text-gray-400 space-y-2 border border-dashed border-white/10 rounded-2xl">
+                <Package className="w-10 h-10 text-gray-600 mx-auto" />
+                <p className="font-bold text-sm text-white">
+                  No hay pedidos de repuestos para el filtro seleccionado.
+                </p>
+                <p className="text-xs text-gray-500">
+                  {showAllPedidosDates
+                    ? `No existen vehículos con estado "${pedidosDispatchFilter}".`
+                    : `No hay solicitudes registradas para la fecha ${pedidosDate}. Pruebe seleccionando "Ver Todas las Fechas" o cambiando de día.`}
+                </p>
+              </div>
             ) : (
               <div className="space-y-6">
                 {vehiclePartGroups.map((group) => {
@@ -611,24 +802,31 @@ export default function AlmacenPage() {
                           </span>
                           <div>
                             <span className="text-sm font-bold text-white block">
-                              {group.brand} {group.model} ({group.year}) - {group.color}
+                              {group.brand ? `${group.brand} ` : ""}{group.model ? `${group.model} ` : ""}{group.year > 0 ? `(${group.year})` : ""} {group.color ? `- ${group.color}` : ""}
                             </span>
                             <span className="text-xs text-reygas-red font-semibold">
-                              Combustible: {group.fuel_type} • Cliente: {group.ownerName}
+                              {group.fuel_type ? `Combustible: ${group.fuel_type} • ` : ""}{group.ownerName ? `Cliente: ${group.ownerName}` : ""}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                          {group.dateKey && (
+                            <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-reygas-dark text-cyan-300 border border-cyan-500/30">
+                              📅 {group.dateKey}
+                            </span>
+                          )}
                           <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-200 border border-white/10">
                             Técnico Asignado: <strong className="text-amber-400">{group.techName}</strong>
                           </span>
                           {pendingCountInCard > 0 ? (
-                            <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-extrabold">
+                            <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-extrabold flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
                               {pendingCountInCard} pendientes
                             </span>
                           ) : (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-extrabold">
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-extrabold flex items-center gap-1">
+                              <CheckCheck className="w-3.5 h-3.5" />
                               ✓ Todos entregados
                             </span>
                           )}
