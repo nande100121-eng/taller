@@ -1325,6 +1325,7 @@ export const useAppStore = create<AppState>()(
         if (targetTech) {
           saveSupabaseTechnician(targetTech, updatedTechs);
         }
+        broadcastRealtimeChange("technicians_updated");
         set({ technicians: updatedTechs });
       },
 

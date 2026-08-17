@@ -194,14 +194,18 @@ export default function CajaPage() {
     return map;
   }, [technicians]);
 
-  // List of eligible payment destinations: EMPRESA + staff with can_receive_payment
+  // List of eligible payment destinations: EMPRESA + staff with can_receive_payment enabled in personnel master
   const eligibleDestinations = React.useMemo(() => {
     const list = ["EMPRESA"];
     technicians
-      .filter((t) => t.is_active && t.can_receive_payment)
+      .filter((t) => {
+        const isActive = t.is_active !== false;
+        const canReceive = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
+        return isActive && canReceive;
+      })
       .forEach((t) => {
-        const name = t.full_name.toUpperCase();
-        if (!list.includes(name)) list.push(name);
+        const name = (t.full_name || "").trim().toUpperCase();
+        if (name && !list.includes(name)) list.push(name);
       });
     return list;
   }, [technicians]);

@@ -676,9 +676,75 @@ export async function fetchSupabaseInventory(): Promise<InventoryItem[] | null> 
 // Ultra-fast granular fetch for Technicians (~15ms)
 export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
   try {
-    const { data, error } = await supabase.from("technicians").select("*");
-    if (!error && data && data.length > 0) {
-      return data;
+    const [techRes, contentRes] = await Promise.all([
+      safeQuery<any[]>(supabase.from("technicians").select("*")),
+      safeQuery<any[]>(supabase.from("site_content").select("*").in("section_key", ["technicians"]).or("key.ilike.tech_perms_%,key.eq.all_technicians")),
+    ]);
+
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
+    const fallbackTechs: any[] = [];
+
+    if (contentRes.data) {
+      contentRes.data.forEach((row: any) => {
+        const k = row.key || row.section_key;
+        if (k && k.startsWith("tech_perms_name_")) {
+          const techName = decodeURIComponent(k.replace("tech_perms_name_", "")).trim().toLowerCase();
+          try {
+            const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (rawVal && typeof rawVal === "object") {
+              permsNameMap[techName] = {
+                allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
+                can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                email: rawVal.email || "",
+                username: rawVal.username || "",
+                password: rawVal.password || "",
+              };
+            }
+          } catch {}
+        } else if (k && k.startsWith("tech_perms_")) {
+          const techId = k.replace("tech_perms_", "");
+          try {
+            const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(rawVal)) {
+              permsMap[techId] = { allowed_tabs: rawVal, can_receive_payment: false };
+            } else if (rawVal && typeof rawVal === "object") {
+              permsMap[techId] = {
+                allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
+                can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                email: rawVal.email || "",
+                username: rawVal.username || "",
+                password: rawVal.password || "",
+              };
+            }
+          } catch {}
+        } else if (k === "all_technicians") {
+          try {
+            const tList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(tList)) fallbackTechs.push(...tList);
+          } catch {}
+        }
+      });
+    }
+
+    if (techRes.data && techRes.data.length > 0) {
+      return techRes.data.map((t: any) => {
+        const normName = (t.full_name || "").trim().toLowerCase();
+        const perm = permsMap[t.id] || permsNameMap[normName];
+        const fbTech = fallbackTechs.find((f: any) => f.id === t.id || (f.full_name && f.full_name.trim().toLowerCase() === normName));
+        return {
+          ...t,
+          email: perm?.email || fbTech?.email || t.email || "",
+          username: perm?.username || fbTech?.username || t.username || generateDefaultUsername(t.full_name),
+          password: perm?.password || fbTech?.password || t.password || generateDefaultUsername(t.full_name),
+          allowed_tabs: perm?.allowed_tabs || fbTech?.allowed_tabs || t.allowed_tabs,
+          can_receive_payment: perm?.can_receive_payment !== undefined
+            ? perm.can_receive_payment
+            : (fbTech?.can_receive_payment !== undefined ? fbTech.can_receive_payment : !!t.can_receive_payment),
+        };
+      });
+    } else if (fallbackTechs.length > 0) {
+      return fallbackTechs;
     }
     return null;
   } catch {
