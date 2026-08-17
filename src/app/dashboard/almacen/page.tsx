@@ -34,11 +34,13 @@ import {
   History,
   Sparkles,
   Printer,
-  ArrowUpDown
+  ArrowUpDown,
+  FileText
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import { BarcodePrintModal } from "@/components/BarcodePrintModal";
+import { DailyWarehouseReportModal } from "@/components/DailyWarehouseReportModal";
 
 export default function AlmacenPage() {
   const {
@@ -135,6 +137,9 @@ export default function AlmacenPage() {
 
   // Barcode Print Modal State
   const [barcodePrintModalOpen, setBarcodePrintModalOpen] = useState(false);
+
+  // Daily Executive Warehouse Report Modal State
+  const [dailyReportModalOpen, setDailyReportModalOpen] = useState(false);
 
   const showWebNotification = (
     type: "info" | "warning" | "success" | "error",
@@ -869,54 +874,66 @@ export default function AlmacenPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => setActiveTab("pedidos")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeTab === "pedidos"
-                ? "bg-amber-500 text-black font-extrabold shadow-lg"
-                : "text-gray-400 hover:text-white"
-            }`}
+            type="button"
+            onClick={() => setDailyReportModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-black shadow-lg shadow-amber-500/25 active:scale-95 border border-amber-300/60"
+            title="Abrir e Imprimir Informe Diario Formal para Gerencia"
           >
-            <span>Pedidos por Vehículo</span>
-            {pendingRequisitionsCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-reygas-red text-white text-[10px] font-black animate-bounce">
-                {pendingRequisitionsCount}
-              </span>
-            )}
+            <FileText className="w-4 h-4 text-black" />
+            <span>Informe Diario a Gerencia</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab("inventario")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === "inventario"
-                ? "bg-emerald-600 text-white shadow-lg"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Inventario & Stock ({inventoryItems.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("herramientas")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === "herramientas"
-                ? "bg-emerald-600 text-white shadow-lg"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Préstamo Herramientas ({toolLoans.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("ingreso")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              activeTab === "ingreso"
-                ? "bg-amber-500 text-black font-extrabold shadow-lg"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <PackagePlus className="w-4 h-4" />
-            <span>Ingreso de Material</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
+            <button
+              onClick={() => setActiveTab("pedidos")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === "pedidos"
+                  ? "bg-amber-500 text-black font-extrabold shadow-lg"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <span>Pedidos por Vehículo</span>
+              {pendingRequisitionsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-reygas-red text-white text-[10px] font-black animate-bounce">
+                  {pendingRequisitionsCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab("inventario")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === "inventario"
+                  ? "bg-emerald-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              Inventario & Stock ({inventoryItems.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("herramientas")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === "herramientas"
+                  ? "bg-emerald-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              Préstamo Herramientas ({toolLoans.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("ingreso")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeTab === "ingreso"
+                  ? "bg-amber-500 text-black font-extrabold shadow-lg"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <PackagePlus className="w-4 h-4" />
+              <span>Ingreso de Material</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -3052,6 +3069,14 @@ export default function AlmacenPage() {
         onClose={() => setBarcodePrintModalOpen(false)}
         inventoryItems={inventoryItems}
         selectedRowIds={selectedRowIds}
+      />
+
+      {/* ========================================================================= */}
+      {/* DAILY EXECUTIVE WAREHOUSE REPORT MODAL (A4 PRINT & DYNAMIC VISUALS) */}
+      {/* ========================================================================= */}
+      <DailyWarehouseReportModal
+        isOpen={dailyReportModalOpen}
+        onClose={() => setDailyReportModalOpen(false)}
       />
     </div>
   );
