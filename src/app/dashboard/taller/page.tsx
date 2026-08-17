@@ -54,7 +54,7 @@ export default function WorkshopOperationsPage() {
   const [timeFilter, setTimeFilter] = useState<"hoy" | "todos">("hoy");
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
   const [searchPlate, setSearchPlate] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("todos");
+  const [statusFilter, setStatusFilter] = useState<string>("ingresado");
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
 
@@ -405,12 +405,12 @@ export default function WorkshopOperationsPage() {
             onChange={(e) => { setStatusFilter(e.target.value); setVisibleLimit(30); }}
             className="px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 font-bold"
           >
-            <option value="todos">Todos los Estados ({counts.currentTotal})</option>
             <option value="ingresado">1. Ingresados ({counts.ingresado})</option>
             <option value="en_diagnostico">2. En Diagnóstico ({counts.en_diagnostico})</option>
             <option value="esperando_repuestos">3. Esperando Repuestos ({counts.esperando_repuestos})</option>
             <option value="en_servicio">4. En Servicio / Bahía ({counts.en_servicio})</option>
             <option value="por_cobrar">5. Por Cobrar ({counts.por_cobrar})</option>
+            <option value="todos">Todos los Estados ({counts.currentTotal})</option>
           </select>
         </div>
       </div>
@@ -422,19 +422,7 @@ export default function WorkshopOperationsPage() {
           <span>Filtrar Estado:</span>
         </span>
 
-        {/* 1. Todos */}
-        <button
-          onClick={() => { setStatusFilter("todos"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "todos"
-              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-105"
-              : "bg-reygas-surface/60 text-gray-400 border-white/10 hover:text-white hover:border-white/20"
-          }`}
-        >
-          Todos los Estados ({counts.currentTotal})
-        </button>
-
-        {/* 2. Ingresados */}
+        {/* 1. Ingresados (Principal / Default) */}
         <button
           onClick={() => { setStatusFilter("ingresado"); setVisibleLimit(30); }}
           className={`px-3 py-1.5 rounded-xl transition-all border ${
@@ -446,7 +434,7 @@ export default function WorkshopOperationsPage() {
           1. Ingresados ({counts.ingresado})
         </button>
 
-        {/* 3. En Diagnóstico */}
+        {/* 2. En Diagnóstico */}
         <button
           onClick={() => { setStatusFilter("en_diagnostico"); setVisibleLimit(30); }}
           className={`px-3 py-1.5 rounded-xl transition-all border ${
@@ -458,7 +446,7 @@ export default function WorkshopOperationsPage() {
           2. En Diagnóstico ({counts.en_diagnostico})
         </button>
 
-        {/* 4. Esperando Repuestos */}
+        {/* 3. Esperando Repuestos */}
         <button
           onClick={() => { setStatusFilter("esperando_repuestos"); setVisibleLimit(30); }}
           className={`px-3 py-1.5 rounded-xl transition-all border ${
@@ -470,7 +458,7 @@ export default function WorkshopOperationsPage() {
           3. Esperando Repuestos ({counts.esperando_repuestos})
         </button>
 
-        {/* 5. En Servicio / Bahía */}
+        {/* 4. En Servicio / Bahía */}
         <button
           onClick={() => { setStatusFilter("en_servicio"); setVisibleLimit(30); }}
           className={`px-3 py-1.5 rounded-xl transition-all border ${
@@ -482,7 +470,7 @@ export default function WorkshopOperationsPage() {
           4. En Servicio / Bahía ({counts.en_servicio})
         </button>
 
-        {/* 6. Por Cobrar */}
+        {/* 5. Por Cobrar */}
         <button
           onClick={() => { setStatusFilter("por_cobrar"); setVisibleLimit(30); }}
           className={`px-3 py-1.5 rounded-xl transition-all border ${
@@ -492,6 +480,18 @@ export default function WorkshopOperationsPage() {
           }`}
         >
           5. Por Cobrar ({counts.por_cobrar})
+        </button>
+
+        {/* 6. Todos los Estados (Al final) */}
+        <button
+          onClick={() => { setStatusFilter("todos"); setVisibleLimit(30); }}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${
+            statusFilter === "todos"
+              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-105"
+              : "bg-reygas-surface/60 text-gray-400 border-white/10 hover:text-white hover:border-white/20"
+          }`}
+        >
+          Todos los Estados ({counts.currentTotal})
         </button>
       </div>
 
