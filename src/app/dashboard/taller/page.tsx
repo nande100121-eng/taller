@@ -176,14 +176,14 @@ export default function WorkshopOperationsPage() {
     return workshopServices;
   }, [workshopServices]);
 
-  // Restrict workshop technician assignment exclusively to Technical & Technical Support staff
+  // Workshop personnel assignable to work orders: Technicians, Technical Support, Supervisors, and Certifiers
   const assignableTechnicians = React.useMemo(() => {
     return technicians.filter((t) => {
       if (t.is_active === false) return false;
       const spec = (t.specialty || "").toLowerCase().trim();
       const name = (t.full_name || "").toLowerCase().trim();
 
-      const isSupportSpecialty = (
+      const isWorkshopRole = (
         spec.includes("técnico") ||
         spec.includes("tecnico") ||
         spec.includes("mantenimiento") ||
@@ -196,36 +196,35 @@ export default function WorkshopOperationsPage() {
         spec.includes("electrónica") ||
         spec.includes("electronica") ||
         spec.includes("calibrador") ||
+        spec.includes("supervisor") ||
+        spec.includes("supervisora") ||
+        spec.includes("certificador") ||
+        spec.includes("certificadora") ||
+        spec.includes("certificación") ||
+        spec.includes("certificacion") ||
+        spec.includes("jefe") ||
         spec.includes("5ta") ||
         spec.includes("gnv") ||
         spec.includes("glp")
       );
 
-      const isExcludedRole = (
-        spec.includes("recepcionista") ||
-        spec.includes("recepción") ||
-        spec.includes("recepcion") ||
-        spec.includes("portero") ||
-        spec.includes("vigilante") ||
-        spec.includes("seguridad") ||
-        spec.includes("cajera") ||
-        spec.includes("cajero") ||
-        spec.includes("administrador") ||
-        spec.includes("admin") ||
-        spec.includes("gerente")
-      );
-
-      const isKnownTechName = (
+      const isKnownStaff = (
+        name.includes("kelly") ||
+        name.includes("jennifer") ||
         name.includes("jaime") ||
         name.includes("jesús") ||
         name.includes("jesus") ||
         name.includes("franco") ||
+        name.includes("gianfranco") ||
+        name.includes("junior") ||
+        name.includes("brayan") ||
+        name.includes("ruben") ||
         name.includes("anderson") ||
         name.includes("rodrigo") ||
         name.includes("jorge")
       );
 
-      return (isSupportSpecialty && !isExcludedRole) || isKnownTechName;
+      return isWorkshopRole || isKnownStaff;
     });
   }, [technicians]);
 
