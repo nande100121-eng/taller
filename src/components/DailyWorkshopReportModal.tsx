@@ -413,6 +413,123 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     };
   }, [consolidatedRows]);
 
+  // Category Breakdown: Servicios vs Repuestos vs Certificaciones
+  const categoryBreakdown = useMemo(() => {
+    let servTotal = 0;
+    let repTotal = 0;
+    let certTotal = 0;
+    let servCount = 0;
+    let repCount = 0;
+    let certCount = 0;
+
+    consolidatedRows.forEach((r) => {
+      if (r.total <= 0) return;
+      const desc = r.description.toUpperCase().trim();
+
+      // 1. Check Certifications (Anual GNV, Anual GLP, Quinquenal, Chip, Duplicado, Recertificación)
+      const isCert =
+        desc.includes("ANUAL") ||
+        desc.includes("QUINQUENAL") ||
+        desc.includes("CHIP") ||
+        desc.includes("DUPLICADO") ||
+        desc.includes("CERTIFICAD") ||
+        desc.includes("RECERTIF") ||
+        desc.includes("HIDROSTAT") ||
+        desc.includes("HIDROSTÁT");
+
+      if (isCert) {
+        certTotal += r.total;
+        certCount += 1;
+        return;
+      }
+
+      // 2. Check if it's Maintenance General with Parts (Mixed)
+      const isMantGen =
+        desc.includes("MANTENIMIENTO GENERAL") ||
+        desc.includes("MANT. GENERAL") ||
+        desc.includes("MANT GENERAL") ||
+        desc.includes("MANT.GENERAL");
+
+      const hasPartsKeywords =
+        desc.includes("BUJIA") ||
+        desc.includes("BUJÍA") ||
+        desc.includes("CABLE") ||
+        desc.includes("BOBINA") ||
+        desc.includes("OBTURADOR") ||
+        desc.includes("PORTA CHIP") ||
+        desc.includes("REDUCTOR") ||
+        desc.includes("SENSOR") ||
+        desc.includes("CONECTOR") ||
+        desc.includes("ZUNCHO") ||
+        desc.includes("ELECTROVALVULA") ||
+        desc.includes("TOMA DE CARGA") ||
+        desc.includes("FILTRO") ||
+        desc.includes("MANGUERA") ||
+        desc.includes("UNION") ||
+        desc.includes("UNIÓN") ||
+        desc.includes("CAÑAS") ||
+        desc.includes("RIEL") ||
+        desc.includes("INYECTOR") ||
+        desc.includes("CHUPON") ||
+        desc.includes("CHUPONES") ||
+        desc.includes("REFRIGERANTE");
+
+      if (isMantGen && hasPartsKeywords) {
+        const servPart = r.total >= 150 ? 120 : +(r.total * 0.45).toFixed(2);
+        const repPart = +(r.total - servPart).toFixed(2);
+
+        servTotal += servPart;
+        servCount += 1;
+
+        repTotal += repPart;
+        repCount += 1;
+        return;
+      }
+
+      // 3. Check if minor service + parts (e.g. Filtro de gas + calibracion)
+      if (hasPartsKeywords && (desc.includes("CALIBRA") || desc.includes("REGULA") || desc.includes("SERVICIO"))) {
+        const servPart = Math.min(30, +(r.total * 0.35).toFixed(2));
+        const repPart = +(r.total - servPart).toFixed(2);
+
+        servTotal += servPart;
+        servCount += 1;
+
+        repTotal += repPart;
+        repCount += 1;
+        return;
+      }
+
+      // 4. Pure Spare Parts
+      if (hasPartsKeywords) {
+        repTotal += r.total;
+        repCount += 1;
+        return;
+      }
+
+      // 5. Pure Service
+      servTotal += r.total;
+      servCount += 1;
+    });
+
+    const grandTotal = servTotal + repTotal + certTotal;
+
+    return {
+      servTotal,
+      servCount,
+      servPercent: grandTotal > 0 ? (servTotal / grandTotal) * 100 : 0,
+
+      repTotal,
+      repCount,
+      repPercent: grandTotal > 0 ? (repTotal / grandTotal) * 100 : 0,
+
+      certTotal,
+      certCount,
+      certPercent: grandTotal > 0 ? (certTotal / grandTotal) * 100 : 0,
+
+      grandTotal,
+    };
+  }, [consolidatedRows]);
+
   // Yapes and Transfers Matrix by Destination (Image 3)
   const yapeDestinations = useMemo(() => {
     const dynamicDests = new Set<string>();
@@ -789,6 +906,84 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
           {/* ========================================================================= */}
           {(activeTab === "caja" || activeTab === "resumen") && (
             <div className="space-y-4">
+              {/* Category Breakdown 3-Card Summary Banner */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* 1. Servicios */}
+                <div className="p-3 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex items-center justify-between shadow">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                      <Wrench className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-teal-300 tracking-wider block">
+                        Venta en Servicios
+                      </span>
+                      <span className="text-xs text-gray-400 font-medium">
+                        Mano de obra, calibraciones ({categoryBreakdown.servCount})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-base font-mono font-black text-white block">
+                      S/ {formatPEN(categoryBreakdown.servTotal)}
+                    </span>
+                    <span className="text-[10px] font-bold text-teal-400">
+                      {categoryBreakdown.servPercent.toFixed(1)}% del total
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Repuestos */}
+                <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      <Package className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
+                        Venta en Repuestos
+                      </span>
+                      <span className="text-xs text-gray-400 font-medium">
+                        Bujías, bobinas, filtros, cables ({categoryBreakdown.repCount})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-base font-mono font-black text-white block">
+                      S/ {formatPEN(categoryBreakdown.repTotal)}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-400">
+                      {categoryBreakdown.repPercent.toFixed(1)}% del total
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Certificaciones */}
+                <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between shadow">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider block">
+                        Venta en Certificaciones
+                      </span>
+                      <span className="text-xs text-gray-400 font-medium">
+                        Anual GNV/GLP, Quinquenal, Chip ({categoryBreakdown.certCount})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-base font-mono font-black text-white block">
+                      S/ {formatPEN(categoryBreakdown.certTotal)}
+                    </span>
+                    <span className="text-[10px] font-bold text-purple-400">
+                      {categoryBreakdown.certPercent.toFixed(1)}% del total
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 
                 {/* Main Cash & Attention Table (8 cols on lg) */}
@@ -983,6 +1178,95 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
                           </td>
                           <td className="py-2 px-2 text-right font-mono font-black text-sm" colSpan={yapeDestinations.cols.length - 1}>
                             S/ {formatPEN(totals.cobradoYapes)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES */}
+                  <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                    <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <Layers className="w-4 h-4 text-cyan-300" />
+                        <span>VENTAS POR CONCEPTO (SERVICIOS, REPUESTOS Y CERTIFICACIONES)</span>
+                      </div>
+                      <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                        S/ {formatPEN(categoryBreakdown.grandTotal)}
+                      </span>
+                    </div>
+
+                    <table className="w-full text-xs text-left border-collapse font-mono">
+                      <thead>
+                        <tr className="bg-[#ccfbf1] text-teal-950 font-extrabold uppercase text-[10px] border-b border-teal-300">
+                          <th className="py-1.5 px-2.5">CONCEPTO</th>
+                          <th className="py-1.5 px-2 text-center">ATENCIONES</th>
+                          <th className="py-1.5 px-2 text-right">TOTAL (S/)</th>
+                          <th className="py-1.5 px-2 text-right">% DEL TOTAL</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 text-[11px]">
+                        {/* 1. Servicios */}
+                        <tr className="hover:bg-white/5 text-white">
+                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
+                            <span>🔧</span>
+                            <span>Servicios & Mano de Obra</span>
+                          </td>
+                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                            {categoryBreakdown.servCount}
+                          </td>
+                          <td className="py-2 px-2 text-right font-black text-teal-300">
+                            S/ {formatPEN(categoryBreakdown.servTotal)}
+                          </td>
+                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                            {categoryBreakdown.servPercent.toFixed(1)}%
+                          </td>
+                        </tr>
+
+                        {/* 2. Repuestos */}
+                        <tr className="hover:bg-white/5 text-white">
+                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
+                            <span>📦</span>
+                            <span>Repuestos & Autopartes</span>
+                          </td>
+                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                            {categoryBreakdown.repCount}
+                          </td>
+                          <td className="py-2 px-2 text-right font-black text-emerald-300">
+                            S/ {formatPEN(categoryBreakdown.repTotal)}
+                          </td>
+                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                            {categoryBreakdown.repPercent.toFixed(1)}%
+                          </td>
+                        </tr>
+
+                        {/* 3. Certificaciones */}
+                        <tr className="hover:bg-white/5 text-white">
+                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
+                            <span>📜</span>
+                            <span>Certificaciones GNV / GLP</span>
+                          </td>
+                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                            {categoryBreakdown.certCount}
+                          </td>
+                          <td className="py-2 px-2 text-right font-black text-purple-300">
+                            S/ {formatPEN(categoryBreakdown.certTotal)}
+                          </td>
+                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                            {categoryBreakdown.certPercent.toFixed(1)}%
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-[#f59e0b] text-black font-black text-xs">
+                          <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={2}>
+                            TOTAL GENERAL POR CONCEPTO
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-sm">
+                            S/ {formatPEN(categoryBreakdown.grandTotal)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-bold text-[10px]">
+                            100.0%
                           </td>
                         </tr>
                       </tfoot>
