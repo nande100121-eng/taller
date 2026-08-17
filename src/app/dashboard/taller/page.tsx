@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
+import { DailyWorkshopReportModal } from "@/components/DailyWorkshopReportModal";
+import { TrendingUp, FileSpreadsheet } from "lucide-react";
 
 export default function WorkshopOperationsPage() {
   const {
@@ -53,6 +55,7 @@ export default function WorkshopOperationsPage() {
   const [searchPlate, setSearchPlate] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("todos");
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
@@ -299,6 +302,16 @@ export default function WorkshopOperationsPage() {
             </p>
           </div>
         </div>
+
+        {/* Header Action: Open Executive Report Modal */}
+        <button
+          type="button"
+          onClick={() => setReportModalOpen(true)}
+          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl shadow-amber-500/25 active:scale-95 transition-all shrink-0"
+        >
+          <TrendingUp className="w-4 h-4 text-amber-200" />
+          <span>Informe Diario a Gerencia</span>
+        </button>
       </div>
 
       {/* Date & Search Filters Toolbar */}
@@ -1207,6 +1220,13 @@ export default function WorkshopOperationsPage() {
           </div>
         </div>
       )}
+
+      {/* EXECUTIVE DAILY WORKSHOP REPORT MODAL */}
+      <DailyWorkshopReportModal
+        isOpen={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        initialTab="caja"
+      />
     </div>
   );
 }

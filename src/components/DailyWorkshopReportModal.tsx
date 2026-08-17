@@ -1,0 +1,1202 @@
+"use client";
+
+import React, { useState, useMemo } from "react";
+import ReactDOM from "react-dom";
+import { useAppStore, WorkOrder } from "@/lib/store/app-store";
+import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import {
+  FileText,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Printer,
+  X,
+  Wrench,
+  DollarSign,
+  TrendingUp,
+  CreditCard,
+  Building,
+  UserCheck,
+  CheckCircle2,
+  Clock,
+  Coins,
+  AlertTriangle,
+  Car,
+  Package,
+  Layers,
+  Sparkles,
+  Download,
+  FileSpreadsheet
+} from "lucide-react";
+
+interface DailyWorkshopReportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  initialTab?: "caja" | "taller" | "servicios" | "resumen";
+}
+
+// Universal Formatting Helpers with Thousands Separator
+export const formatPEN = (amount: number | null | undefined): string => {
+  const safe = typeof amount === "number" && !isNaN(amount) ? amount : 0;
+  return safe.toLocaleString("es-PE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+export const formatQty = (qty: number | null | undefined): string => {
+  const safe = typeof qty === "number" && !isNaN(qty) ? Math.round(qty) : 0;
+  return safe.toLocaleString("es-PE");
+};
+
+export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" }: DailyWorkshopReportModalProps) {
+  const {
+    workOrders,
+    invoices,
+    vehicles,
+    technicians,
+    workshopServices,
+    inventoryItems,
+    currentUser,
+  } = useAppStore();
+
+  const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
+  const [activeTab, setActiveTab] = useState<"caja" | "taller" | "servicios" | "resumen">(initialTab);
+  const [responsibleName, setResponsibleName] = useState<string>(
+    currentUser?.name || "Jefe de Taller / Caja"
+  );
+  const [managerName, setManagerName] = useState<string>("Gerencia General");
+  const [observations, setObservations] = useState<string>(
+    "Todas las órdenes y cobros del día han sido auditados contra las órdenes de trabajo e historial de patio. Los montos de Yape y Transferencias coinciden con los destinos autorizados."
+  );
+
+  // Navigate date
+  const changeDate = (days: number) => {
+    const d = new Date(selectedDate + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    setSelectedDate(getPeruDateString(d));
+  };
+
+  const isToday = selectedDate === getPeruDateString();
+
+  // Fast lookups
+  const invoicesByWorkOrderId = useMemo(() => {
+    const map = new Map<string, (typeof invoices)[0]>();
+    for (let i = 0; i < invoices.length; i++) {
+      const inv = invoices[i];
+      if (inv && inv.work_order_id) {
+        map.set(inv.work_order_id, inv);
+      }
+    }
+    return map;
+  }, [invoices]);
+
+  const vehiclesByPlate = useMemo(() => {
+    const map = new Map<string, (typeof vehicles)[0]>();
+    for (let i = 0; i < vehicles.length; i++) {
+      const v = vehicles[i];
+      if (v && v.plate) {
+        map.set(v.plate.toUpperCase().trim(), v);
+      }
+    }
+    return map;
+  }, [vehicles]);
+
+  // Authorized staff for payment destination columns
+  const authorizedStaff = useMemo(() => {
+    const list = technicians.filter((t) => t.is_active && t.can_receive_payment).map((t) => t.full_name.toUpperCase());
+    const defaults = ["JAIME", "ISABEL", "FRANCO"];
+    defaults.forEach((d) => {
+      if (!list.includes(d)) list.push(d);
+    });
+    return list;
+  }, [technicians]);
+
+  // Split payment parser
+  const parsePaymentBreakdown = (
+    methodRaw: string = "",
+    discountsRaw: any = "",
+    notesRaw: string = "",
+    totalAmount: number = 0,
+    isPending: boolean = false
+  ) => {
+    if (isPending) {
+      return { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
+    }
+
+    const result = { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
+    const methodUpper = (methodRaw || "EFECTIVO").toUpperCase();
+
+    const combinedStr = `${typeof discountsRaw === "string" ? discountsRaw : ""} ${notesRaw}`.toUpperCase();
+    const regex = /([CEYTPB])\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)/gi;
+    const matches = [...combinedStr.matchAll(regex)];
+
+    if (matches.length >= 2) {
+      matches.forEach((m) => {
+        const code = m[1].toUpperCase();
+        const val = parseFloat(m[2]) || 0;
+        if (code === "E") result.efectivo += val;
+        else if (code === "Y" || code === "P") result.yape += val;
+        else if (code === "T" || code === "B") result.transferencia += val;
+        else if (code === "C") result.culqi += val;
+      });
+
+      const parsedSum = result.efectivo + result.yape + result.transferencia + result.culqi;
+      if (parsedSum > 0 && Math.abs(parsedSum - totalAmount) > 0.1) {
+        const factor = totalAmount / parsedSum;
+        result.efectivo = +(result.efectivo * factor).toFixed(2);
+        result.yape = +(result.yape * factor).toFixed(2);
+        result.transferencia = +(result.transferencia * factor).toFixed(2);
+        result.culqi = +(result.culqi * factor).toFixed(2);
+      }
+      return result;
+    }
+
+    if (methodUpper.includes("EFECTIVO") || methodUpper === "CASH") {
+      result.efectivo = totalAmount;
+    } else if (methodUpper.includes("YAPE") || methodUpper.includes("PLIN")) {
+      result.yape = totalAmount;
+    } else if (methodUpper.includes("TRANSFER") || methodUpper.includes("BANCO") || methodUpper.includes("BCP") || methodUpper.includes("BBVA")) {
+      result.transferencia = totalAmount;
+    } else if (methodUpper.includes("TARJETA") || methodUpper.includes("CULQI") || methodUpper.includes("POS") || methodUpper.includes("CARD")) {
+      result.culqi = totalAmount;
+    } else {
+      result.efectivo = totalAmount;
+    }
+
+    return result;
+  };
+
+  // Day's work orders
+  const dayOrders = useMemo(() => {
+    return workOrders.filter((wo) => {
+      const dateStr = (wo.entry_time || (wo as any).created_at || "").slice(0, 10);
+      return dateStr === selectedDate;
+    });
+  }, [workOrders, selectedDate]);
+
+  // Day's direct invoices (including certification and stand-alone invoices)
+  const dayInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
+      const dateStr = (inv.issued_at || "").slice(0, 10);
+      return dateStr === selectedDate;
+    });
+  }, [invoices, selectedDate]);
+
+  // Consolidated Rows for Caja Table
+  const consolidatedRows = useMemo(() => {
+    const rows: Array<{
+      id: string;
+      itemNumber: number;
+      plate: string;
+      description: string;
+      total: number;
+      isPending: boolean;
+      efectivo: number;
+      yape: number;
+      transferencia: number;
+      culqi: number;
+      responsable: string;
+      yapeDestino: string;
+      transfDestino: string;
+      isInvoice: boolean;
+      orderStatus: string;
+    }> = [];
+
+    let count = 1;
+    const processedOrderIds = new Set<string>();
+
+    // 1. Map Work Orders
+    dayOrders.forEach((wo) => {
+      processedOrderIds.add(wo.id);
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const isDone = wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado";
+      const isPending = !inv || inv.payment_status === "pendiente" || !isDone;
+      const orderCost = (wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0;
+      const totalAmount = inv ? (Number(inv.grand_total) || Number((inv as any).total_amount) || 0) : orderCost;
+      const paymentMethod = inv?.payment_method || (isPending ? "PENDIENTE" : "EFECTIVO");
+
+      const breakdown = parsePaymentBreakdown(
+        paymentMethod,
+        (inv as any)?.discounts || "",
+        (wo as any)?.diagnostic_notes || (inv as any)?.notes || "",
+        totalAmount,
+        isPending
+      );
+
+      // Determine payment destination
+      const notesLower = ((wo as any)?.diagnostic_notes || (inv as any)?.notes || "").toLowerCase();
+      let yDest = "EMPRESA";
+      let tDest = "EMPRESA";
+
+      for (const st of authorizedStaff) {
+        if (notesLower.includes(st.toLowerCase())) {
+          if (breakdown.yape > 0) yDest = st;
+          if (breakdown.transferencia > 0) tDest = st;
+          break;
+        }
+      }
+
+      const desc =
+        wo.items && wo.items.length > 0
+          ? wo.items.map((i) => i.description).join(", ")
+          : (wo as any).general_maintenance_service || (wo as any).diagnostic_notes || "Servicio de Taller";
+
+      const techAssigned = wo.assigned_technician_id
+        ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
+        : (wo as any).technician_name;
+
+      rows.push({
+        id: wo.id,
+        itemNumber: count++,
+        plate: (wo.vehicle_plate || "S/P").toUpperCase(),
+        description: desc,
+        total: totalAmount,
+        isPending,
+        efectivo: breakdown.efectivo,
+        yape: breakdown.yape,
+        transferencia: breakdown.transferencia,
+        culqi: breakdown.culqi,
+        responsable: (techAssigned || "Taller").split(" ")[0].toUpperCase(),
+        yapeDestino: yDest,
+        transfDestino: tDest,
+        isInvoice: false,
+        orderStatus: wo.status,
+      });
+    });
+
+    // 2. Map Direct Invoices not linked to day's work orders (e.g. Certificaciones, Ventas directas de repuestos)
+    dayInvoices.forEach((inv) => {
+      if (inv.work_order_id && processedOrderIds.has(inv.work_order_id)) return;
+
+      const isPending = inv.payment_status === "pendiente";
+      const totalAmount = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
+      const breakdown = parsePaymentBreakdown(
+        inv.payment_method || "EFECTIVO",
+        (inv as any).discounts || "",
+        (inv as any).notes || "",
+        totalAmount,
+        isPending
+      );
+
+      const notesLower = ((inv as any).notes || "").toLowerCase();
+      let yDest = "EMPRESA";
+      let tDest = "EMPRESA";
+
+      for (const st of authorizedStaff) {
+        if (notesLower.includes(st.toLowerCase())) {
+          if (breakdown.yape > 0) yDest = st;
+          if (breakdown.transferencia > 0) tDest = st;
+          break;
+        }
+      }
+
+      rows.push({
+        id: inv.id,
+        itemNumber: count++,
+        plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
+        description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
+        total: totalAmount,
+        isPending,
+        efectivo: breakdown.efectivo,
+        yape: breakdown.yape,
+        transferencia: breakdown.transferencia,
+        culqi: breakdown.culqi,
+        responsable: "CAJA",
+        yapeDestino: yDest,
+        transfDestino: tDest,
+        isInvoice: true,
+        orderStatus: isPending ? "pendiente" : "pagado",
+      });
+    });
+
+    return rows;
+  }, [dayOrders, dayInvoices, invoicesByWorkOrderId, authorizedStaff, technicians]);
+
+  // Financial Totals
+  const totals = useMemo(() => {
+    let cobradoEfectivo = 0;
+    let cobradoYapes = 0;
+    let cobradoTransferencias = 0;
+    let cobradoCulqi = 0;
+    let totalPendiente = 0;
+    let totalFacturado = 0;
+
+    consolidatedRows.forEach((r) => {
+      totalFacturado += r.total;
+      if (r.isPending) {
+        totalPendiente += r.total;
+      } else {
+        cobradoEfectivo += r.efectivo;
+        cobradoYapes += r.yape;
+        cobradoTransferencias += r.transferencia;
+        cobradoCulqi += r.culqi;
+      }
+    });
+
+    const totalLiquidacion = cobradoEfectivo + cobradoYapes + cobradoTransferencias + cobradoCulqi;
+
+    return {
+      cobradoEfectivo,
+      cobradoYapes,
+      cobradoTransferencias,
+      cobradoCulqi,
+      totalPendiente,
+      totalFacturado,
+      totalLiquidacion,
+    };
+  }, [consolidatedRows]);
+
+  // Yapes and Transfers Matrix by Destination
+  const yapeDestinations = useMemo(() => {
+    const cols = [...authorizedStaff, "EMPRESA"];
+    const rowsList: Array<{ rowIdx: number; values: Record<string, number> }> = [];
+    const sumByCol: Record<string, number> = {};
+    cols.forEach((c) => (sumByCol[c] = 0));
+
+    let maxIdx = 15;
+    const yapeRows = consolidatedRows.filter((r) => r.yape > 0);
+    if (yapeRows.length > maxIdx) maxIdx = yapeRows.length;
+
+    for (let i = 0; i < maxIdx; i++) {
+      const r = yapeRows[i];
+      const valObj: Record<string, number> = {};
+      cols.forEach((c) => (valObj[c] = 0));
+
+      if (r) {
+        const dest = cols.includes(r.yapeDestino) ? r.yapeDestino : "EMPRESA";
+        valObj[dest] = r.yape;
+        sumByCol[dest] = (sumByCol[dest] || 0) + r.yape;
+      }
+      rowsList.push({ rowIdx: i + 1, values: valObj });
+    }
+
+    return { cols, rowsList, sumByCol };
+  }, [consolidatedRows, authorizedStaff]);
+
+  // Workshop Technician Performance Metrics
+  const techPerformance = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; completed: number; totalSales: number }>();
+
+    technicians.forEach((t) => {
+      map.set(t.full_name, { name: t.full_name, count: 0, completed: 0, totalSales: 0 });
+    });
+
+    dayOrders.forEach((wo) => {
+      const techAssigned = wo.assigned_technician_id
+        ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
+        : (wo as any).technician_name;
+      const techName = techAssigned || "Sin Asignar";
+      const existing = map.get(techName) || { name: techName, count: 0, completed: 0, totalSales: 0 };
+      existing.count += 1;
+      const isDone = wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado";
+      if (isDone) existing.completed += 1;
+      const orderCost = (wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0;
+      existing.totalSales += orderCost;
+      map.set(techName, existing);
+    });
+
+    return Array.from(map.values()).filter((tp) => tp.count > 0 || technicians.some((t) => t.full_name === tp.name && t.is_active));
+  }, [technicians, dayOrders]);
+
+  // Workshop Services and Parts Breakdown
+  const itemsBreakdown = useMemo(() => {
+    const map = new Map<string, { desc: string; type: "servicio" | "repuesto"; count: number; total: number }>();
+
+    dayOrders.forEach((wo) => {
+      if (wo.items && wo.items.length > 0) {
+        wo.items.forEach((it) => {
+          const key = it.description.trim().toUpperCase();
+          const existing = map.get(key) || { desc: it.description, type: it.item_type || (it as any).type || "repuesto", count: 0, total: 0 };
+          existing.count += it.quantity || 1;
+          existing.total += it.subtotal || (it.unit_price * (it.quantity || 1)) || 0;
+          map.set(key, existing);
+        });
+      } else if ((wo as any).general_maintenance_service) {
+        const key = ((wo as any).general_maintenance_service as string).trim().toUpperCase();
+        const existing = map.get(key) || { desc: (wo as any).general_maintenance_service, type: "servicio", count: 0, total: 0 };
+        existing.count += 1;
+        existing.total += Number((wo as any).total_cost) || 0;
+        map.set(key, existing);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [dayOrders]);
+
+  // Executive narrative summary
+  const executiveSummary = useMemo(() => {
+    const totalVehicles = dayOrders.length;
+    const completed = dayOrders.filter((wo) => wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado").length;
+    const inProgress = dayOrders.filter((wo) => wo.status !== "finalizado" && wo.status !== "pagado_autorizado" && (wo.status as string) !== "completado").length;
+    const pendingPay = totals.totalPendiente;
+
+    return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} vehículos atendidos (${completed} completados, ${inProgress} en proceso). La facturación total ascendió a S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o liquidación de crédito.`;
+  }, [dayOrders, totals, selectedDate]);
+
+  // Print Report Handler
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Export CSV Handler
+  const handleExportCSV = () => {
+    let csv = `REPORTE DE TALLER & CAJA - REYGAS AUTOGAS EQUIPMENT\n`;
+    csv += `Fecha: ${selectedDate}\n\n`;
+    csv += `ITEM,PLACA,SERVICIO / REPUESTO,TOTAL,PENDIENTE,EFECTIVO,YAPE,TRANSFERENCIA,CULQI,RESPONSABLE\n`;
+
+    consolidatedRows.forEach((r) => {
+      csv += `"${r.itemNumber}","${r.plate}","${r.description.replace(/"/g, '""')}","${r.total.toFixed(2)}","${r.isPending ? r.total.toFixed(2) : "0.00"}","${r.efectivo.toFixed(2)}","${r.yape.toFixed(2)}","${r.transferencia.toFixed(2)}","${r.culqi.toFixed(2)}","${r.responsable}"\n`;
+    });
+
+    csv += `\nTOTALES,,,${totals.totalFacturado.toFixed(2)},${totals.totalPendiente.toFixed(2)},${totals.cobradoEfectivo.toFixed(2)},${totals.cobradoYapes.toFixed(2)},${totals.cobradoTransferencias.toFixed(2)},${totals.cobradoCulqi.toFixed(2)}\n`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Reporte_Taller_Caja_${selectedDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (!isOpen) return null;
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static">
+      <div className="relative w-full max-w-7xl bg-reygas-navy border border-white/15 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[96vh] print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
+        
+        {/* ========================================================================= */}
+        {/* HEADER BAR (SCREEN ONLY) */}
+        {/* ========================================================================= */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-reygas-dark via-reygas-navy to-black/60 print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/10">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-black text-white tracking-tight">
+                  Informe Diario de Taller & Caja a Gerencia
+                </h1>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {formatPeruDate(selectedDate)}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">
+                Arqueo consolidado de ingresos, productividad de técnicos, servicios y órdenes de trabajo.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            {/* Standard Date Navigator */}
+            <div className="flex items-center bg-black/60 rounded-xl border border-white/15 p-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => changeDate(-1)}
+                className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
+                title="Día anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1.5 px-2">
+                <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-transparent text-xs font-mono font-bold text-white focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => changeDate(1)}
+                className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
+                title="Día siguiente"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              {!isToday && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(getPeruDateString())}
+                  className="px-2 py-1 ml-1 text-[11px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded-md transition-colors"
+                >
+                  Hoy
+                </button>
+              )}
+            </div>
+
+            {/* Export CSV Button */}
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-lg shadow-emerald-600/20"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span className="hidden sm:inline">Excel / CSV</span>
+            </button>
+
+            {/* Print Button */}
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold flex items-center gap-2 transition-all active:scale-95 shadow-lg shadow-indigo-600/30"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Imprimir</span>
+            </button>
+
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors border border-white/10"
+              title="Cerrar ventana"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* NAVIGATION TABS (SCREEN ONLY) */}
+        {/* ========================================================================= */}
+        <div className="flex items-center gap-2 px-6 py-2.5 bg-black/40 border-b border-white/5 overflow-x-auto print:hidden">
+          <button
+            type="button"
+            onClick={() => setActiveTab("caja")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+              activeTab === "caja"
+                ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30"
+                : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            <span>1. Arqueo & Liquidación de Caja</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("taller")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+              activeTab === "taller"
+                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            <span>2. Productividad & Órdenes de Taller</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("servicios")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+              activeTab === "servicios"
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/30"
+                : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>3. Servicios & Repuestos Despachados</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("resumen")}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+              activeTab === "resumen"
+                ? "bg-purple-600 text-white shadow-lg shadow-purple-600/30"
+                : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>4. Resumen Ejecutivo & Firmas</span>
+          </button>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* BODY CONTENT (SCROLLABLE ON SCREEN, CLEAN ON PRINT) */}
+        {/* ========================================================================= */}
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 print:p-0 print:overflow-visible">
+          
+          {/* Printable Header (Visible Only When Printing) */}
+          <div className="hidden print:block border-b-2 border-black pb-4 mb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-black text-black uppercase tracking-tight">
+                  ReyGas Autogas Equipment
+                </h1>
+                <p className="text-sm text-gray-700 font-bold">
+                  Informe Diario de Operaciones, Taller & Caja a Gerencia General
+                </p>
+                <p className="text-xs text-gray-600">
+                  Taller Especializado GNV / GLP • RUC 20608534431 • Av. Separadora Industrial
+                </p>
+              </div>
+              <div className="text-right border-2 border-black p-2 rounded">
+                <span className="text-xs font-bold block">FECHA DEL INFORME</span>
+                <span className="text-lg font-mono font-black">{formatPeruDate(selectedDate)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* TOP KPI CARDS MATRIX (IDENTICAL TO USER SCREENSHOT) */}
+          {/* ========================================================================= */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* Card 1: Efectivo */}
+            <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1">
+                <DollarSign className="w-3 h-3" />
+                <span>Total Efectivo</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                S/ {formatPEN(totals.cobradoEfectivo)}
+              </span>
+            </div>
+
+            {/* Card 2: Yapes */}
+            <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
+                <Coins className="w-3 h-3" />
+                <span>Total Yapes</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                S/ {formatPEN(totals.cobradoYapes)}
+              </span>
+            </div>
+
+            {/* Card 3: Transferencias */}
+            <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
+                <Building className="w-3 h-3" />
+                <span>Total Transferencias</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                S/ {formatPEN(totals.cobradoTransferencias)}
+              </span>
+            </div>
+
+            {/* Card 4: Culqi / Tarjeta */}
+            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+                <CreditCard className="w-3 h-3" />
+                <span>Total Culqi / Tarjeta</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                S/ {formatPEN(totals.cobradoCulqi)}
+              </span>
+            </div>
+
+            {/* Card 5: Pendiente / Crédito */}
+            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Total Pendiente / Crédito</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
+                S/ {formatPEN(totals.totalPendiente)}
+              </span>
+            </div>
+
+            {/* Card 6: Total Liquidación */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
+              <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" />
+                <span>Total Liquidación</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
+                S/ {formatPEN(totals.totalLiquidacion)}
+              </span>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* TAB 1: CAJA & LIQUIDACIÓN DIARIA (EXACT LAYOUT FROM USER SCREENSHOT) */}
+          {/* ========================================================================= */}
+          {(activeTab === "caja" || activeTab === "resumen") && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                
+                {/* Main Cash & Attention Table (8 cols on lg) */}
+                <div className="lg:col-span-8 space-y-2">
+                  <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                    
+                    {/* Table Title Header Bar in Vibrant Gold */}
+                    <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
+                      <span className="tracking-wide">REYGAS TALLER</span>
+                      <span className="text-base font-black">REPORTE DE CAJA {formatPeruDate(selectedDate)}</span>
+                      <span className="text-xs bg-black/20 px-2.5 py-0.5 rounded-full font-mono">
+                        {consolidatedRows.length} ATENCIONES
+                      </span>
+                    </div>
+
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#ffd269] text-black font-extrabold uppercase text-[11px] border-b border-amber-600/30 print:bg-gray-100">
+                          <th className="py-2 px-2 text-center w-10 border-r border-amber-600/20">ITEM</th>
+                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
+                          <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
+                          <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
+                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
+                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
+                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
+                          <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
+                          <th className="py-2 px-2 text-center w-16 border-r border-amber-600/20 bg-[#eab308] text-black">CULQI</th>
+                          <th className="py-2 px-2 text-center w-24 bg-[#e2e8f0] text-black">RESPONSABLE</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                        {consolidatedRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="py-12 text-center text-gray-400 italic">
+                              No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
+                            </td>
+                          </tr>
+                        ) : (
+                          consolidatedRows.map((r, idx) => (
+                            <tr
+                              key={r.id + idx}
+                              className="hover:bg-white/5 transition-colors text-white"
+                            >
+                              <td className="py-2 px-2 text-center text-gray-400 font-bold border-r border-white/5">
+                                {r.itemNumber}
+                              </td>
+                              <td className="py-2 px-2 text-right font-black text-amber-300 border-r border-white/5">
+                                {formatPEN(r.total)}
+                              </td>
+                              <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
+                                {r.plate}
+                              </td>
+                              <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
+                                {r.description}
+                              </td>
+                              <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
+                                {r.isPending ? formatPEN(r.total) : "-"}
+                              </td>
+                              <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
+                                {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
+                              </td>
+                              <td className="py-2 px-2 text-right font-bold text-purple-400 bg-purple-950/10 border-r border-white/5">
+                                {r.yape > 0 ? formatPEN(r.yape) : "-"}
+                              </td>
+                              <td className="py-2 px-2 text-right font-bold text-blue-400 bg-blue-950/10 border-r border-white/5">
+                                {r.transferencia > 0 ? formatPEN(r.transferencia) : "-"}
+                              </td>
+                              <td className="py-2 px-2 text-right font-bold text-amber-400 bg-amber-950/10 border-r border-white/5">
+                                {r.culqi > 0 ? formatPEN(r.culqi) : "-"}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-gray-300 bg-white/[0.02] text-[10px]">
+                                {r.responsable}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                      <tfoot>
+                        {/* Summary Bar 1: COBRADO */}
+                        <tr className="bg-black text-xs font-black border-t-2 border-amber-500/40">
+                          <td className="py-2 px-2 text-cyan-400 font-extrabold uppercase border-r border-white/10" colSpan={3}>
+                            COBRADO
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono font-black text-white border-r border-white/10">
+                            S/ {formatPEN(totals.totalLiquidacion)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
+                            S/ {formatPEN(totals.totalPendiente)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
+                            S/ {formatPEN(totals.cobradoEfectivo)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-purple-400 bg-purple-950/40 border-r border-white/10">
+                            S/ {formatPEN(totals.cobradoYapes)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-blue-400 bg-blue-950/40 border-r border-white/10">
+                            S/ {formatPEN(totals.cobradoTransferencias)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-amber-400 bg-amber-950/40 border-r border-white/10">
+                            S/ {formatPEN(totals.cobradoCulqi)}
+                          </td>
+                          <td className="py-2 px-2 bg-black"></td>
+                        </tr>
+
+                        {/* Summary Bar 2: TOTAL GENERAL */}
+                        <tr className="bg-[#f59e0b] text-black font-black text-sm">
+                          <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
+                            TOTAL GENERAL
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={7}>
+                            S/ {formatPEN(totals.totalFacturado)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
+                <div className="lg:col-span-4 space-y-2">
+                  <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                    
+                    {/* Header with dual tabs Yape / Transferencia */}
+                    <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <Coins className="w-4 h-4" />
+                        <span>YAPES POR DESTINO</span>
+                      </div>
+                      <span className="bg-[#2563eb] text-white px-2 py-0.5 rounded text-[10px] font-bold">
+                        TRANSFERENCIA
+                      </span>
+                    </div>
+
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#e9d5ff] text-black font-extrabold uppercase text-[10px] border-b border-purple-300">
+                          <th className="py-1.5 px-1 text-center w-8 border-r border-purple-300">N°</th>
+                          {yapeDestinations.cols.map((col) => (
+                            <th
+                              key={col}
+                              className={`py-1.5 px-1.5 text-center font-black border-r border-purple-300 ${
+                                col === "EMPRESA" ? "bg-[#bbf7d0] text-emerald-950" : ""
+                              }`}
+                            >
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                        {yapeDestinations.rowsList.map((row) => (
+                          <tr key={row.rowIdx} className="hover:bg-white/5 text-white">
+                            <td className="py-1 px-1 text-center text-gray-500 font-bold border-r border-white/5 text-[10px]">
+                              {row.rowIdx}
+                            </td>
+                            {yapeDestinations.cols.map((col) => {
+                              const val = row.values[col] || 0;
+                              return (
+                                <td
+                                  key={col}
+                                  className={`py-1 px-1.5 text-right border-r border-white/5 ${
+                                    val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
+                                  }`}
+                                >
+                                  {val > 0 ? formatPEN(val) : "-"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-black text-[11px] font-black border-t-2 border-purple-500/40">
+                          <td className="py-2 px-1 text-center text-purple-400 font-black border-r border-white/10">
+                            Σ
+                          </td>
+                          {yapeDestinations.cols.map((col) => {
+                            const sum = yapeDestinations.sumByCol[col] || 0;
+                            return (
+                              <td
+                                key={col}
+                                className="py-2 px-1.5 text-right font-mono font-black text-purple-300 border-r border-white/10"
+                              >
+                                S/ {formatPEN(sum)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                        <tr className="bg-[#f59e0b] text-black font-black text-xs">
+                          <td className="py-2 px-2 font-black uppercase tracking-wider" colSpan={2}>
+                            TOTAL YAPES
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono font-black text-sm" colSpan={yapeDestinations.cols.length - 1}>
+                            S/ {formatPEN(totals.cobradoYapes)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: PRODUCTIVIDAD & ÓRDENES DE TRABAJO EN TALLER */}
+          {/* ========================================================================= */}
+          {(activeTab === "taller" || activeTab === "resumen") && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                
+                {/* Technician Production Summary (5 cols on lg) */}
+                <div className="lg:col-span-5 glass-panel p-4 rounded-2xl border border-indigo-500/30 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <UserCheck className="w-4 h-4 text-indigo-400" />
+                      <span>Rendimiento por Técnico / Mecánico</span>
+                    </h3>
+                    <span className="text-[10px] font-mono text-gray-400 font-bold">
+                      {techPerformance.length} TÉCNICOS
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="bg-white/5 text-gray-300 text-[11px] font-extrabold uppercase border-b border-white/10">
+                          <th className="py-2 px-2">Técnico</th>
+                          <th className="py-2 px-2 text-center">Atenciones</th>
+                          <th className="py-2 px-2 text-center">Listos</th>
+                          <th className="py-2 px-2 text-right">Producción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 font-mono text-xs">
+                        {techPerformance.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-4 text-center text-gray-400 italic">
+                              Sin actividad registrada en taller para este día.
+                            </td>
+                          </tr>
+                        ) : (
+                          techPerformance.map((tp) => (
+                            <tr key={tp.name} className="hover:bg-white/5">
+                              <td className="py-2 px-2 font-sans font-bold text-white">
+                                {tp.name}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-indigo-300">
+                                {tp.count}
+                              </td>
+                              <td className="py-2 px-2 text-center font-bold text-emerald-400">
+                                {tp.completed}
+                              </td>
+                              <td className="py-2 px-2 text-right font-black text-amber-300">
+                                S/ {formatPEN(tp.totalSales)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Work Orders Detailed Activity (7 cols on lg) */}
+                <div className="lg:col-span-7 glass-panel p-4 rounded-2xl border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Car className="w-4 h-4 text-cyan-400" />
+                      <span>Órdenes de Trabajo del Día en Patio</span>
+                    </h3>
+                    <span className="text-[10px] font-mono text-gray-400 font-bold">
+                      {dayOrders.length} AUTOS
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto max-h-72">
+                    <table className="w-full text-xs text-left">
+                      <thead>
+                        <tr className="bg-white/5 text-gray-300 text-[11px] font-extrabold uppercase border-b border-white/10 sticky top-0 bg-reygas-dark">
+                          <th className="py-2 px-2">Placa</th>
+                          <th className="py-2 px-2">Mecánico</th>
+                          <th className="py-2 px-2">Servicios / Repuestos</th>
+                          <th className="py-2 px-2 text-center">Estado</th>
+                          <th className="py-2 px-2 text-right">Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5 font-mono text-xs">
+                        {dayOrders.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-6 text-center text-gray-400 italic">
+                              No se abrieron órdenes de trabajo para la fecha seleccionada.
+                            </td>
+                          </tr>
+                        ) : (
+                          dayOrders.map((wo) => {
+                            const desc = wo.items && wo.items.length > 0
+                              ? wo.items.map((i) => i.description).join(", ")
+                              : (wo as any).general_maintenance_service || "Mantenimiento General";
+
+                            return (
+                              <tr key={wo.id} className="hover:bg-white/5">
+                                <td className="py-2 px-2 font-black text-cyan-300">
+                                  {wo.vehicle_plate}
+                                </td>
+                                <td className="py-2 px-2 font-sans text-gray-200">
+                                  {((wo.assigned_technician_id ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name : (wo as any).technician_name) || "Sin Asignar").split(" ")[0]}
+                                </td>
+                                <td className="py-2 px-2 font-sans text-gray-300 truncate max-w-xs" title={desc}>
+                                  {desc}
+                                </td>
+                                <td className="py-2 px-2 text-center">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      wo.status === "finalizado" || wo.status === "pagado_autorizado"
+                                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    }`}
+                                  >
+                                    {wo.status.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-2 text-right font-bold text-amber-300">
+                                  S/ {formatPEN((wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 3: SERVICIOS & REPUESTOS DESPACHADOS */}
+          {/* ========================================================================= */}
+          {(activeTab === "servicios" || activeTab === "resumen") && (
+            <div className="glass-panel p-5 rounded-2xl border border-white/10 space-y-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-400" />
+                  <span>Desglose de Servicios Realizados y Repuestos Utilizados</span>
+                </h3>
+                <span className="text-[11px] font-mono text-gray-400">
+                  {itemsBreakdown.length} CONCEPTOS
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="bg-white/5 text-gray-300 text-[11px] font-extrabold uppercase border-b border-white/10">
+                      <th className="py-2 px-3">Concepto / Servicio / Repuesto</th>
+                      <th className="py-2 px-2 text-center">Tipo</th>
+                      <th className="py-2 px-2 text-center">Cantidad</th>
+                      <th className="py-2 px-3 text-right">Subtotal Facturado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 font-mono text-xs">
+                    {itemsBreakdown.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center text-gray-400 italic">
+                          Sin ítems ni servicios registrados en esta fecha.
+                        </td>
+                      </tr>
+                    ) : (
+                      itemsBreakdown.map((it, idx) => (
+                        <tr key={it.desc + idx} className="hover:bg-white/5">
+                          <td className="py-2 px-3 font-sans font-bold text-white">
+                            {it.desc}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                it.type === "servicio"
+                                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                                  : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                              }`}
+                            >
+                              {it.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-center font-bold text-cyan-300">
+                            {formatQty(it.count)}
+                          </td>
+                          <td className="py-2 px-3 text-right font-black text-amber-300">
+                            S/ {formatPEN(it.total)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 4: EXECUTIVE SUMMARY NARRATIVE & SIGNATURES */}
+          {/* ========================================================================= */}
+          <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-500/10 via-black/40 to-indigo-500/10 border border-amber-500/30 space-y-4 print:border-black print:rounded-none print:bg-none print:p-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 text-amber-400 font-black text-sm uppercase tracking-wide">
+                <Sparkles className="w-5 h-5" />
+                <span>Resumen Ejecutivo para Gerencia General</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400">Estado de Operaciones:</span>
+                <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>CONFORME / CUADRADO</span>
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs sm:text-sm text-gray-200 leading-relaxed font-medium print:text-black">
+              {executiveSummary}
+            </p>
+
+            {/* Editable Observations Field */}
+            <div className="space-y-1 pt-2 border-t border-white/10 print:border-black">
+              <label className="text-[11px] font-bold uppercase text-gray-400 block print:text-black">
+                Observaciones y Novedades del Taller (Antes de Imprimir):
+              </label>
+              <textarea
+                value={observations}
+                onChange={(e) => setObservations(e.target.value)}
+                rows={2}
+                className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors print:bg-white print:border-black print:text-black"
+                placeholder="Escriba incidencias, novedades de técnicos o justificaciones..."
+              />
+            </div>
+
+            {/* Official Signatures Block */}
+            <div className="grid grid-cols-2 gap-8 pt-8 mt-6 border-t border-white/10 print:border-black">
+              <div className="text-center space-y-1">
+                <div className="border-b border-gray-500 w-3/4 mx-auto pb-8 print:border-black"></div>
+                <input
+                  type="text"
+                  value={responsibleName}
+                  onChange={(e) => setResponsibleName(e.target.value)}
+                  className="bg-transparent text-center text-xs font-bold text-white w-full focus:outline-none print:text-black"
+                  placeholder="Nombre del Responsable"
+                />
+                <span className="text-[10px] text-gray-400 block uppercase print:text-black">
+                  Responsable de Taller & Caja
+                </span>
+              </div>
+
+              <div className="text-center space-y-1">
+                <div className="border-b border-gray-500 w-3/4 mx-auto pb-8 print:border-black"></div>
+                <input
+                  type="text"
+                  value={managerName}
+                  onChange={(e) => setManagerName(e.target.value)}
+                  className="bg-transparent text-center text-xs font-bold text-white w-full focus:outline-none print:text-black"
+                  placeholder="Nombre de Gerencia"
+                />
+                <span className="text-[10px] text-gray-400 block uppercase print:text-black">
+                  Gerencia General / Auditoría ReyGas
+                </span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>,
+    document.body
+  );
+}

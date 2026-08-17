@@ -76,7 +76,7 @@ export default function DashboardLayout({
       color: "text-purple-400",
     },
     {
-      name: "7. Reportes de Caja & Arqueo",
+      name: "7. Reportes del Taller",
       href: "/dashboard/reportes",
       icon: Table,
       color: "text-amber-400",
