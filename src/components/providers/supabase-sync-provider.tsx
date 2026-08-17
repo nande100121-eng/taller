@@ -39,17 +39,11 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       })
       .subscribe();
 
-    // 6. Resilient Heartbeat Polling every 5 seconds for cross-network sync
-    const interval = setInterval(() => {
-      syncFromSupabase();
-    }, 5000);
-
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
       supabase.removeChannel(broadcastChannel);
       supabase.removeChannel(dbChannel);
-      clearInterval(interval);
     };
   }, [syncFromSupabase]);
 

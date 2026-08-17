@@ -84,10 +84,12 @@ export async function saveSupabaseTechnician(tech: Technician) {
       phone: tech.phone,
       is_active: tech.is_active,
     });
-    if (tech.allowed_tabs) {
-      await saveSupabaseSiteContent(`tech_perms_${tech.id}`, tech.allowed_tabs);
-    }
+    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
+      allowed_tabs: tech.allowed_tabs || [],
+      can_receive_payment: !!tech.can_receive_payment,
+    });
     if (error) console.warn("Supabase technician save warning:", error.message);
+    broadcastRealtimeChange("technician_saved");
   } catch (err) {
     console.warn("Supabase technician deferred:", err);
   }
@@ -602,7 +604,7 @@ export async function fetchSupabaseErpData() {
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any
-    const permsMap: Record<string, string[]> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
@@ -614,7 +616,15 @@ export async function fetchSupabaseErpData() {
         if (k && k.startsWith("tech_perms_")) {
           const techId = k.replace("tech_perms_", "");
           try {
-            permsMap[techId] = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(rawVal)) {
+              permsMap[techId] = { allowed_tabs: rawVal, can_receive_payment: false };
+            } else if (rawVal && typeof rawVal === "object") {
+              permsMap[techId] = {
+                allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
+                can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+              };
+            }
           } catch {}
         } else if (k && k.startsWith("cert_")) {
           try {
@@ -840,10 +850,14 @@ export async function fetchSupabaseErpData() {
 
     return {
       technicians: techRes.data
-        ? techRes.data.map((t: any) => ({
-            ...t,
-            allowed_tabs: permsMap[t.id] || t.allowed_tabs || undefined,
-          }))
+        ? techRes.data.map((t: any) => {
+            const perm = permsMap[t.id];
+            return {
+              ...t,
+              allowed_tabs: perm?.allowed_tabs || t.allowed_tabs || undefined,
+              can_receive_payment: perm?.can_receive_payment !== undefined ? perm.can_receive_payment : !!t.can_receive_payment,
+            };
+          })
         : null,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
