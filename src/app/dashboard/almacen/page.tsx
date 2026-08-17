@@ -32,9 +32,11 @@ import {
   PackagePlus,
   ArrowDownToLine,
   History,
-  Sparkles
+  Sparkles,
+  Printer
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { BarcodePrintModal } from "@/components/BarcodePrintModal";
 
 export default function AlmacenPage() {
   const {
@@ -136,6 +138,9 @@ export default function AlmacenPage() {
   const [migratedModalOpen, setMigratedModalOpen] = useState(false);
   const [migratedCutoffDate, setMigratedCutoffDate] = useState("2026-08-08");
   const [attendAllModalOpen, setAttendAllModalOpen] = useState(false);
+
+  // Barcode Print Modal State
+  const [barcodePrintModalOpen, setBarcodePrintModalOpen] = useState(false);
 
   const showWebNotification = (
     type: "info" | "warning" | "success" | "error",
@@ -1286,6 +1291,17 @@ export default function AlmacenPage() {
                   >
                     <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
                     <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
+                  </button>
+
+                  {/* Imprimir Códigos de Barra Button */}
+                  <button
+                    type="button"
+                    onClick={() => setBarcodePrintModalOpen(true)}
+                    className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all shrink-0 touch-target"
+                    title="Imprimir planchas de códigos de barra (8 por hoja A4, ordenadas por letra)"
+                  >
+                    <Printer className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">Imprimir Códigos de Barra</span>
                   </button>
 
                   <label className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all shrink-0 touch-target">
@@ -2823,6 +2839,16 @@ export default function AlmacenPage() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* BARCODE PRINT MODAL (8 PER A4 SHEET, STRICT LETTER PARTITIONING) */}
+      {/* ========================================================================= */}
+      <BarcodePrintModal
+        isOpen={barcodePrintModalOpen}
+        onClose={() => setBarcodePrintModalOpen(false)}
+        inventoryItems={inventoryItems}
+        selectedRowIds={selectedRowIds}
+      />
     </div>
   );
 }

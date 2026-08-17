@@ -112,3 +112,63 @@ body {
     font-size: 0.8rem;
   }
 }
+
+/* ==========================================================================
+   Barcode Sheet 8-Per-Page A4 Printing Styles
+   ========================================================================== */
+@media print {
+  /* Hide non-printable dashboard elements */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only the printable barcode container and all its children */
+  #barcode-print-sheets,
+  #barcode-print-sheets * {
+    visibility: visible !important;
+  }
+
+  #barcode-print-sheets {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .barcode-print-page {
+    width: 210mm;
+    min-height: 295mm;
+    height: 295mm;
+    margin: 0 auto;
+    padding: 6mm;
+    box-sizing: border-box;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    background: #ffffff !important;
+    color: #000000 !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .barcode-card-print {
+    border: 1.5px dashed #333333 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
