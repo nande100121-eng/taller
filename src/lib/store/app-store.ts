@@ -306,6 +306,7 @@ export interface InventoryItem {
   counted_stock?: number;
   counted_status?: string; // CONTADOS (e.g. "NO CONTADO", "CONTADO", or exact string from CSV)
   min_stock_alert: number;
+  image_url?: string; // URL o Base64 de la imagen propia del producto
 }
 
 export interface ToolLoan {
@@ -1392,6 +1393,7 @@ export const useAppStore = create<AppState>()(
             }
             return i;
           });
+          saveSupabaseSiteContent("all_inventory_records", updatedItems, "inventory");
           return { inventoryItems: updatedItems };
         });
       },

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import ReactDOM from "react-dom";
 import JsBarcode from "jsbarcode";
-import { InventoryItem } from "@/lib/store/app-store";
+import { InventoryItem, useAppStore } from "@/lib/store/app-store";
 import { BarcodeSvg } from "./BarcodeSvg";
 import {
   X,
@@ -14,7 +14,13 @@ import {
   Eye,
   Package,
   Layers,
-  Sparkles
+  Sparkles,
+  Camera,
+  Trash2,
+  Search,
+  CheckCircle2,
+  ImageIcon,
+  Sliders
 } from "lucide-react";
 
 interface BarcodePrintModalProps {
@@ -44,12 +50,17 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   inventoryItems,
   selectedRowIds = [],
 }) => {
+  const updateInventoryItem = useAppStore((s) => s.updateInventoryItem);
+
   // Configuration states
+  const [activeTab, setActiveTab] = useState<"settings" | "photos">("settings");
   const [selectionMode, setSelectionMode] = useState<"all" | "selected" | "letter">("all");
   const [selectedLetter, setSelectedLetter] = useState<string>("TODAS");
   const [copiesPerItem, setCopiesPerItem] = useState<number>(1);
   const [productImageUrl, setProductImageUrl] = useState<string>("/logo.jpg");
   const [previewPageIndex, setPreviewPageIndex] = useState<number>(0);
+  const [searchPhotoQuery, setSearchPhotoQuery] = useState<string>("");
+  const [photoFilterStatus, setPhotoFilterStatus] = useState<"all" | "with_photo" | "without_photo">("all");
 
   // Count products for each letter of the alphabet
   const letterCounts = useMemo(() => {
@@ -135,7 +146,8 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     return pages;
   }, [baseItems]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle global/default fallback image upload
+  const handleGlobalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -147,6 +159,48 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       reader.readAsDataURL(file);
     }
   };
+
+  // Handle specific product image upload
+  const handleSpecificProductImageUpload = (itemId: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        updateInventoryItem(itemId, { image_url: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handle removing specific product image
+  const handleRemoveProductImage = (itemId: string) => {
+    updateInventoryItem(itemId, { image_url: undefined });
+  };
+
+  // Filter products for the dedicated photo management tab
+  const filteredPhotoItems = useMemo(() => {
+    return inventoryItems.filter((item) => {
+      const matchesQuery =
+        !searchPhotoQuery.trim() ||
+        item.name.toLowerCase().includes(searchPhotoQuery.toLowerCase()) ||
+        item.sku_barcode.toLowerCase().includes(searchPhotoQuery.toLowerCase()) ||
+        (item.brand && item.brand.toLowerCase().includes(searchPhotoQuery.toLowerCase()));
+
+      if (!matchesQuery) return false;
+
+      if (photoFilterStatus === "with_photo") {
+        return !!item.image_url;
+      }
+      if (photoFilterStatus === "without_photo") {
+        return !item.image_url;
+      }
+      return true;
+    });
+  }, [inventoryItems, searchPhotoQuery, photoFilterStatus]);
+
+  const itemsWithCustomPhotoCount = useMemo(() => {
+    return inventoryItems.filter((i) => !!i.image_url).length;
+  }, [inventoryItems]);
+
   const handlePrint = () => {
     // Ensure the print container exists at body level before printing
     const el = document.getElementById("barcode-print-sheets");
@@ -193,11 +247,11 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <span>Impresión de Etiquetas con Código de Barras</span>
                 <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black">
-                  8 Etiquetas por Hoja A4 • Por Letra
+                  8 Etiquetas por Hoja A4 • Fotos Propias
                 </span>
               </h3>
               <p className="text-xs text-gray-400">
-                Imprime planchas ordenadas por letra inicial del producto, con espacio para foto, marca, serie y código de barras SKU.
+                Configure fotos personalizadas por producto, planchas ordenadas por letra inicial, marca, serie y código de barras SKU.
               </p>
             </div>
           </div>
@@ -212,212 +266,399 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         {/* Modal Body: Two Columns (Controls on Left, A4 Page Preview on Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto flex-1 pr-1">
           
-          {/* LEFT: Controls & Configuration */}
-          <div className="lg:col-span-5 space-y-4">
+          {/* LEFT: Controls & Tabs */}
+          <div className="lg:col-span-5 space-y-3 flex flex-col">
             
-            {/* 1. Selection Mode */}
-            <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-white/10 space-y-3">
-              <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
-                1. Modo de Selección
-              </label>
+            {/* Tab Navigation Switcher */}
+            <div className="grid grid-cols-2 p-1 bg-black/40 rounded-2xl border border-white/10">
+              <button
+                type="button"
+                onClick={() => setActiveTab("settings")}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                  activeTab === "settings"
+                    ? "bg-amber-500 text-black font-black shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Ajustes & Letras</span>
+              </button>
 
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectionMode("all");
-                    setSelectedLetter("TODAS");
-                    setPreviewPageIndex(0);
-                  }}
-                  className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center ${
-                    selectionMode === "all"
-                      ? "bg-amber-500 text-black border-amber-400 font-black shadow"
-                      : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
-                  }`}
-                >
-                  Todos ({inventoryItems.length})
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectionMode("selected");
-                    setSelectedLetter("TODAS");
-                    setPreviewPageIndex(0);
-                  }}
-                  disabled={selectedRowIds.length === 0}
-                  className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center disabled:opacity-40 disabled:cursor-not-allowed ${
-                    selectionMode === "selected"
-                      ? "bg-amber-500 text-black border-amber-400 font-black shadow"
-                      : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
-                  }`}
-                >
-                  Marcados ({selectedRowIds.length})
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectionMode("letter");
-                    setPreviewPageIndex(0);
-                  }}
-                  className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center ${
-                    selectionMode === "letter"
-                      ? "bg-amber-500 text-black border-amber-400 font-black shadow"
-                      : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
-                  }`}
-                >
-                  Filtrar Letra
-                </button>
-              </div>
-
-              {/* Selector Completo del Abecedario (A a Z) */}
-              <div className="pt-3 border-t border-white/10 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-black text-gray-300 uppercase tracking-wider">
-                    Abecedario de Productos (Letras A - Z):
-                  </label>
-                  <span className="text-[10px] text-amber-400 font-semibold">
-                    {selectedLetter === "TODAS" ? "Viendo Todas las Letras" : `Filtrando por Letra "${selectedLetter}"`}
+              <button
+                type="button"
+                onClick={() => setActiveTab("photos")}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 relative ${
+                  activeTab === "photos"
+                    ? "bg-amber-500 text-black font-black shadow"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Fotos por Producto</span>
+                {itemsWithCustomPhotoCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                    activeTab === "photos" ? "bg-black text-amber-300" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  }`}>
+                    {itemsWithCustomPhotoCount}
                   </span>
-                </div>
+                )}
+              </button>
+            </div>
 
-                <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto p-1 bg-black/40 rounded-xl border border-white/5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectionMode("letter");
-                      setSelectedLetter("TODAS");
-                      setPreviewPageIndex(0);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                      selectedLetter === "TODAS"
-                        ? "bg-emerald-600 text-white border-emerald-500 font-black shadow"
-                        : "bg-white/5 text-gray-400 border-white/10 hover:text-white"
-                    }`}
-                  >
-                    Todas ({inventoryItems.length})
-                  </button>
+            {/* TAB 1: SETTINGS & LETTERS */}
+            {activeTab === "settings" && (
+              <div className="space-y-3.5 overflow-y-auto pr-1">
+                {/* 1. Selection Mode */}
+                <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-white/10 space-y-3">
+                  <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
+                    1. Modo de Selección
+                  </label>
 
-                  {ALL_LETTERS.map((ltr) => {
-                    const count = letterCounts[ltr] || 0;
-                    const isSelected = selectedLetter === ltr;
-                    return (
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectionMode("all");
+                        setSelectedLetter("TODAS");
+                        setPreviewPageIndex(0);
+                      }}
+                      className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                        selectionMode === "all"
+                          ? "bg-amber-500 text-black border-amber-400 font-black shadow"
+                          : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      Todos ({inventoryItems.length})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectionMode("selected");
+                        setSelectedLetter("TODAS");
+                        setPreviewPageIndex(0);
+                      }}
+                      disabled={selectedRowIds.length === 0}
+                      className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center disabled:opacity-40 disabled:cursor-not-allowed ${
+                        selectionMode === "selected"
+                          ? "bg-amber-500 text-black border-amber-400 font-black shadow"
+                          : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      Marcados ({selectedRowIds.length})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectionMode("letter");
+                        setPreviewPageIndex(0);
+                      }}
+                      className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                        selectionMode === "letter"
+                          ? "bg-amber-500 text-black border-amber-400 font-black shadow"
+                          : "bg-white/5 text-gray-300 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      Filtrar Letra
+                    </button>
+                  </div>
+
+                  {/* Selector Completo del Abecedario (A a Z) */}
+                  <div className="pt-3 border-t border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-[11px] font-black text-gray-300 uppercase tracking-wider">
+                        Abecedario de Productos (A - Z):
+                      </label>
+                      <span className="text-[10px] text-amber-400 font-semibold">
+                        {selectedLetter === "TODAS" ? "Todas las Letras" : `Letra "${selectedLetter}"`}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-1 bg-black/40 rounded-xl border border-white/5">
                       <button
-                        key={ltr}
                         type="button"
                         onClick={() => {
                           setSelectionMode("letter");
-                          setSelectedLetter(ltr);
+                          setSelectedLetter("TODAS");
                           setPreviewPageIndex(0);
                         }}
-                        className={`px-2 py-1 rounded-lg text-xs font-mono font-black border transition-all flex items-center gap-1 ${
-                          isSelected
-                            ? "bg-amber-500 text-black border-amber-400 shadow-md ring-2 ring-amber-300"
-                            : count > 0
-                            ? "bg-white/10 text-white border-white/20 hover:bg-amber-500/20 hover:border-amber-400"
-                            : "bg-white/[0.02] text-gray-600 border-white/5 hover:text-gray-400"
+                        className={`px-2 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                          selectedLetter === "TODAS"
+                            ? "bg-emerald-600 text-white border-emerald-500 font-black shadow"
+                            : "bg-white/5 text-gray-400 border-white/10 hover:text-white"
                         }`}
-                        title={count > 0 ? `${count} productos con letra ${ltr}` : `Sin productos con letra ${ltr}`}
                       >
-                        <span>{ltr}</span>
-                        {count > 0 && (
-                          <span
-                            className={`text-[9px] px-1 rounded-full ${
-                              isSelected ? "bg-black/80 text-amber-300 font-black" : "bg-black/60 text-emerald-400"
+                        Todas ({inventoryItems.length})
+                      </button>
+
+                      {ALL_LETTERS.map((ltr) => {
+                        const count = letterCounts[ltr] || 0;
+                        const isSelected = selectedLetter === ltr;
+                        return (
+                          <button
+                            key={ltr}
+                            type="button"
+                            onClick={() => {
+                              setSelectionMode("letter");
+                              setSelectedLetter(ltr);
+                              setPreviewPageIndex(0);
+                            }}
+                            className={`px-1.5 py-0.5 rounded-lg text-xs font-mono font-black border transition-all flex items-center gap-1 ${
+                              isSelected
+                                ? "bg-amber-500 text-black border-amber-400 shadow-md ring-2 ring-amber-300"
+                                : count > 0
+                                ? "bg-white/10 text-white border-white/20 hover:bg-amber-500/20 hover:border-amber-400"
+                                : "bg-white/[0.02] text-gray-600 border-white/5 hover:text-gray-400"
                             }`}
                           >
-                            {count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Imagen / Foto del Producto */}
-            <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-white/10 space-y-3">
-              <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
-                2. Imagen / Foto en la Etiqueta
-              </label>
-
-              <div>
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-black/60 border border-white/15 p-1 flex items-center justify-center shrink-0">
-                    <img
-                      src={productImageUrl}
-                      alt="Producto"
-                      className="max-h-full max-w-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = "none";
-                      }}
-                    />
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label className="cursor-pointer px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-bold border border-amber-500/40 flex items-center gap-1.5 transition-colors">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Subir Foto</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setProductImageUrl("/logo.jpg")}
-                        className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl text-[11px] font-bold text-gray-300 border border-white/10"
-                      >
-                        Logo ReyGas
-                      </button>
+                            <span>{ltr}</span>
+                            {count > 0 && (
+                              <span
+                                className={`text-[9px] px-1 rounded-full ${
+                                  isSelected ? "bg-black/80 text-amber-300 font-black" : "bg-black/60 text-emerald-400"
+                                }`}
+                              >
+                                {count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <p className="text-[10px] text-gray-400">
-                      Aparecerá en el recuadro izquierdo de cada una de las 8 etiquetas.
-                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Imagen Global / Logo por Defecto */}
+                <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
+                      2. Foto por Defecto / Logo
+                    </label>
+                    <span className="text-[10px] text-gray-400">Para productos sin foto propia</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/15 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                      <img
+                        src={productImageUrl}
+                        alt="Logo Defecto"
+                        className="max-h-full max-w-full object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <label className="cursor-pointer px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl text-xs font-bold border border-amber-500/40 flex items-center gap-1.5 transition-colors">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Subir Logo</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleGlobalImageUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setProductImageUrl("/logo.jpg")}
+                          className="px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl text-[11px] font-bold text-gray-300 border border-white/10"
+                        >
+                          Logo ReyGas
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Copias por producto */}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                    <span className="text-xs text-gray-300 font-semibold">Copias por producto:</span>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 4].map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setCopiesPerItem(c)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                            copiesPerItem === c
+                              ? "bg-amber-500 text-black border-amber-400 font-black"
+                              : "bg-white/5 text-gray-300 border-white/10"
+                          }`}
+                        >
+                          {c} {c === 1 ? "etiqueta" : "etiquetas"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Resumen */}
+                <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center text-gray-200">
+                    <span>Etiquetas calculadas:</span>
+                    <strong className="text-white font-mono">{baseItems.length} etiquetas</strong>
+                  </div>
+                  <div className="flex justify-between items-center text-gray-200">
+                    <span>Hojas A4 (8 por hoja):</span>
+                    <strong className="text-amber-400 font-mono">{totalSheets} hojas</strong>
+                  </div>
+                  <div className="flex justify-between items-center text-gray-200">
+                    <span>Productos con foto propia:</span>
+                    <strong className="text-emerald-400 font-mono">{itemsWithCustomPhotoCount} de {inventoryItems.length}</strong>
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Copias por producto */}
-              <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                <span className="text-xs text-gray-300 font-semibold">Copias por producto:</span>
-                <div className="flex items-center gap-2">
-                  {[1, 2, 4].map((c) => (
+            {/* TAB 2: DEDICATED PER-PRODUCT PHOTO MANAGER */}
+            {activeTab === "photos" && (
+              <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
+                {/* Search & Filter Bar */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar producto por nombre, SKU o marca..."
+                      value={searchPhotoQuery}
+                      onChange={(e) => setSearchPhotoQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
+                    />
+                    {searchPhotoQuery && (
+                      <button
+                        onClick={() => setSearchPhotoQuery("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
                     <button
-                      key={c}
                       type="button"
-                      onClick={() => setCopiesPerItem(c)}
-                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                        copiesPerItem === c
+                      onClick={() => setPhotoFilterStatus("all")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+                        photoFilterStatus === "all"
                           ? "bg-amber-500 text-black border-amber-400 font-black"
-                          : "bg-white/5 text-gray-300 border-white/10"
+                          : "bg-white/5 text-gray-400 border-white/10 hover:text-white"
                       }`}
                     >
-                      {c} {c === 1 ? "etiqueta" : "etiquetas"}
+                      Todos ({inventoryItems.length})
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => setPhotoFilterStatus("with_photo")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors flex items-center gap-1 ${
+                        photoFilterStatus === "with_photo"
+                          ? "bg-emerald-600 text-white border-emerald-500 font-black"
+                          : "bg-white/5 text-gray-400 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>Con Foto ({itemsWithCustomPhotoCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoFilterStatus("without_photo")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+                        photoFilterStatus === "without_photo"
+                          ? "bg-amber-500 text-black border-amber-400 font-black"
+                          : "bg-white/5 text-gray-400 border-white/10 hover:text-white"
+                      }`}
+                    >
+                      Sin Foto ({inventoryItems.length - itemsWithCustomPhotoCount})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Product List with Individual Photo Uploaders */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[380px]">
+                  {filteredPhotoItems.length > 0 ? (
+                    filteredPhotoItems.map((item) => {
+                      const displayImg = item.image_url || productImageUrl || "/logo.jpg";
+                      return (
+                        <div
+                          key={`photo-item-${item.id}`}
+                          className="p-2.5 rounded-xl bg-reygas-surface/90 border border-white/10 hover:border-amber-500/40 transition-colors flex items-center gap-3"
+                        >
+                          {/* Miniatura de Foto */}
+                          <div className="relative group w-12 h-12 rounded-lg bg-black/60 border border-white/15 p-0.5 flex items-center justify-center shrink-0 overflow-hidden">
+                            <img
+                              src={displayImg}
+                              alt={item.name}
+                              className="max-h-full max-w-full object-contain"
+                            />
+                            {item.image_url && (
+                              <div className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-black" />
+                            )}
+                          </div>
+
+                          {/* Info del Producto */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                                {item.sku_barcode}
+                              </span>
+                              {item.image_url ? (
+                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded">
+                                  Foto Propia
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-gray-500">
+                                  (Foto por Defecto)
+                                </span>
+                              )}
+                            </div>
+                            <h5 className="text-xs font-bold text-white truncate mt-0.5" title={item.name}>
+                              {item.name}
+                            </h5>
+                            <p className="text-[10px] text-gray-400 truncate">
+                              {item.brand ? `Marca: ${item.brand}` : "Sin marca"} • {item.serial_number && item.serial_number !== "-" ? `S/N: ${item.serial_number}` : ""}
+                            </p>
+                          </div>
+
+                          {/* Botones de Acción de Foto */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <label className="cursor-pointer p-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg text-xs font-bold border border-amber-500/40 flex items-center gap-1 transition-colors" title="Subir / Cambiar Foto">
+                              <Camera className="w-3.5 h-3.5" />
+                              <span className="text-[11px] hidden sm:inline">{item.image_url ? "Cambiar" : "Subir"}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleSpecificProductImageUpload(item.id, file);
+                                  e.target.value = "";
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {item.image_url && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveProductImage(item.id)}
+                                className="p-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-xs border border-red-500/40 transition-colors"
+                                title="Quitar foto personalizada y usar logo por defecto"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-center py-8 text-gray-500 text-xs">
+                      No se encontraron productos que coincidan con la búsqueda.
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* 3. Resumen y Regla de Separación por Letra */}
-            <div className="p-4 rounded-2xl bg-blue-950/30 border border-blue-500/30 space-y-2 text-xs">
-              <div className="flex justify-between items-center text-gray-200">
-                <span>Total de etiquetas calculadas:</span>
-                <strong className="text-white font-mono text-sm">{baseItems.length} etiquetas</strong>
-              </div>
-              <div className="flex justify-between items-center text-gray-200">
-                <span>Hojas A4 a imprimir (8 por hoja):</span>
-                <strong className="text-amber-400 font-mono text-sm">{totalSheets} hojas</strong>
-              </div>
-              <p className="text-[11px] text-gray-300 pt-1 border-t border-white/10 leading-relaxed">
-                ✓ <strong>Regla Estricta:</strong> Cada letra inicial (A, B, C...) empieza en una hoja nueva. Si una letra tiene 3 productos, la siguiente letra empezará automáticamente en la siguiente hoja A4.
-              </p>
-            </div>
+            )}
           </div>
 
           {/* RIGHT: A4 Live Sheet Preview & Page Navigator */}
@@ -468,55 +709,75 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   
                   {/* 2 Columns x 4 Rows = 8 Labels Grid with Exact Height Allocation */}
                   <div className="grid grid-cols-2 grid-rows-4 gap-2 h-full">
-                    {currentPage.items.map((item, idx) => (
-                      <div
-                        key={`${item.id}-${idx}`}
-                        className="border border-dashed border-gray-400 p-1.5 rounded-lg bg-white flex gap-1.5 items-center overflow-hidden shadow-sm h-full box-border"
-                      >
-                        {/* Espacio para Imagen del Producto */}
-                        <div className="w-14 h-14 sm:w-16 sm:h-16 border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                          {productImageUrl ? (
+                    {currentPage.items.map((item, idx) => {
+                      const itemPhoto = item.image_url || productImageUrl || "/logo.jpg";
+                      return (
+                        <div
+                          key={`${item.id}-${idx}`}
+                          className="border border-dashed border-gray-400 p-1.5 rounded-lg bg-white flex gap-1.5 items-center overflow-hidden shadow-sm h-full box-border group/card relative"
+                        >
+                          {/* Espacio para Imagen del Producto con Subida Directa en Hover */}
+                          <div className="relative group/img w-14 h-14 sm:w-16 sm:h-16 border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1 shrink-0 overflow-hidden">
                             <img
-                              src={productImageUrl}
+                              src={itemPhoto}
                               alt={item.name}
                               className="max-h-full max-w-full object-contain"
                             />
-                          ) : (
-                            <Package className="w-6 h-6 text-gray-400" />
-                          )}
-                        </div>
 
-                        {/* Información del Producto y Código de Barras */}
-                        <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-0.5">
-                          <div>
-                            {/* Nombre del Producto */}
-                            <h4 className="text-[8.5px] font-black text-black leading-tight line-clamp-2 uppercase">
-                              {item.name}
-                            </h4>
-                            {/* Marca y Serie */}
-                            <p className="text-[7px] text-gray-600 font-semibold truncate mt-0.5">
-                              {item.brand && <span>Marca: <strong className="text-black">{item.brand}</strong></span>}
-                              {item.serial_number && item.serial_number !== "-" && (
-                                <span> • S/N: <strong className="font-mono text-black">{item.serial_number}</strong></span>
-                              )}
-                            </p>
+                            {/* Overlay de Subir Foto en Hover */}
+                            <label className="absolute inset-0 bg-black/75 opacity-0 group-hover/img:opacity-100 flex flex-col items-center justify-center text-white cursor-pointer transition-opacity text-center p-0.5" title="Haga clic para cambiar la foto de este producto">
+                              <Camera className="w-4 h-4 text-amber-400 mb-0.5" />
+                              <span className="text-[7.5px] font-bold leading-none text-amber-300">Cambiar Foto</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleSpecificProductImageUpload(item.id, file);
+                                  e.target.value = "";
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+
+                            {/* Badge Verde si tiene foto propia */}
+                            {item.image_url && (
+                              <div className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" title="Foto personalizada" />
+                            )}
                           </div>
 
-                          {/* Barcode SVG + SKU */}
-                          <div className="mt-0.5 flex flex-col items-center">
-                            <BarcodeSvg
-                              value={item.sku_barcode}
-                              className="w-full h-5"
-                              width={1.1}
-                              height={20}
-                            />
-                            <span className="text-[7.5px] font-mono font-black text-black tracking-wider">
-                              {item.sku_barcode}
-                            </span>
+                          {/* Información del Producto y Código de Barras */}
+                          <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-0.5">
+                            <div>
+                              {/* Nombre del Producto */}
+                              <h4 className="text-[8.5px] font-black text-black leading-tight line-clamp-2 uppercase">
+                                {item.name}
+                              </h4>
+                              {/* Marca y Serie */}
+                              <p className="text-[7px] text-gray-600 font-semibold truncate mt-0.5">
+                                {item.brand && <span>Marca: <strong className="text-black">{item.brand}</strong></span>}
+                                {item.serial_number && item.serial_number !== "-" && (
+                                  <span> • S/N: <strong className="font-mono text-black">{item.serial_number}</strong></span>
+                                )}
+                              </p>
+                            </div>
+
+                            {/* Barcode SVG + SKU */}
+                            <div className="mt-0.5 flex flex-col items-center">
+                              <BarcodeSvg
+                                value={item.sku_barcode}
+                                className="w-full h-5"
+                                width={1.1}
+                                height={20}
+                              />
+                              <span className="text-[7.5px] font-mono font-black text-black tracking-wider">
+                                {item.sku_barcode}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Empty Placeholders if page has less than 8 items */}
                     {Array.from({ length: 8 - currentPage.items.length }).map((_, emptyIdx) => (
@@ -543,7 +804,8 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         <div className="flex items-center justify-between gap-4 pt-3.5 border-t border-white/10 shrink-0">
           <div className="text-xs text-gray-400">
             <span className="text-white font-bold">{baseItems.length}</span> etiquetas en{" "}
-            <span className="text-amber-400 font-bold">{totalSheets}</span> hojas A4.
+            <span className="text-amber-400 font-bold">{totalSheets}</span> hojas A4 •{" "}
+            <span className="text-emerald-400 font-bold">{itemsWithCustomPhotoCount}</span> con foto propia.
           </div>
 
           <div className="flex items-center gap-3">
@@ -599,117 +861,120 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   boxSizing: "border-box",
                 }}
               >
-                {page.items.map((item, itemIdx) => (
-                  <div
-                    key={`print-item-${item.id}-${itemIdx}`}
-                    className="barcode-card-print"
-                    style={{
-                      padding: "3.5mm",
-                      borderRadius: "3mm",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "3mm",
-                      overflow: "hidden",
-                      background: "#ffffff",
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    {/* Espacio para Imagen del Producto */}
+                {page.items.map((item, itemIdx) => {
+                  const itemPhoto = item.image_url || productImageUrl || "/logo.jpg";
+                  return (
                     <div
+                      key={`print-item-${item.id}-${itemIdx}`}
+                      className="barcode-card-print"
                       style={{
-                        width: "28mm",
-                        height: "28mm",
-                        border: "1px solid #dddddd",
-                        borderRadius: "2mm",
-                        background: "#fafafa",
+                        padding: "3.5mm",
+                        borderRadius: "3mm",
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
-                        padding: "1mm",
-                        flexShrink: 0,
+                        gap: "3mm",
                         overflow: "hidden",
+                        background: "#ffffff",
                         boxSizing: "border-box",
                       }}
                     >
-                      {productImageUrl && (
-                        <img
-                          src={productImageUrl}
-                          alt={item.name}
-                          style={{
-                            maxWidth: "100%",
-                            maxHeight: "100%",
-                            objectFit: "contain",
-                          }}
-                        />
-                      )}
-                    </div>
-
-                    {/* Información del Producto y Código de Barras */}
-                    <div
-                      style={{
-                        flex: 1,
-                        display: "flex",
-                        flexDirection: "column",
-                        justifyContent: "space-between",
-                        height: "100%",
-                        minWidth: 0,
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      <div>
-                        {/* Nombre del Producto */}
-                        <div
-                          style={{
-                            fontSize: "9.5pt",
-                            fontWeight: "900",
-                            color: "#000000",
-                            lineHeight: "1.15",
-                            textTransform: "uppercase",
-                            marginBottom: "1mm",
-                          }}
-                        >
-                          {item.name}
-                        </div>
-
-                        {/* Marca y Serie */}
-                        <div
-                          style={{
-                            fontSize: "8pt",
-                            color: "#444444",
-                            fontWeight: "600",
-                          }}
-                        >
-                          {item.brand && <span>Marca: <strong style={{ color: "#000000" }}>{item.brand}</strong></span>}
-                          {item.serial_number && item.serial_number !== "-" && (
-                            <span> • S/N: <strong style={{ fontFamily: "monospace", color: "#000000" }}>{item.serial_number}</strong></span>
-                          )}
-                        </div>
+                      {/* Espacio para Imagen del Producto */}
+                      <div
+                        style={{
+                          width: "28mm",
+                          height: "28mm",
+                          border: "1px solid #dddddd",
+                          borderRadius: "2mm",
+                          background: "#fafafa",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "1mm",
+                          flexShrink: 0,
+                          overflow: "hidden",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        {itemPhoto && (
+                          <img
+                            src={itemPhoto}
+                            alt={item.name}
+                            style={{
+                              maxWidth: "100%",
+                              maxHeight: "100%",
+                              objectFit: "contain",
+                            }}
+                          />
+                        )}
                       </div>
 
-                      {/* Barcode SVG + SKU */}
-                      <div style={{ textAlign: "center", marginTop: "1.5mm" }}>
-                        <BarcodeSvg
-                          value={item.sku_barcode}
-                          className="w-full"
-                          width={1.5}
-                          height={34}
-                        />
-                        <div
-                          style={{
-                            fontSize: "8.5pt",
-                            fontWeight: "900",
-                            fontFamily: "monospace",
-                            letterSpacing: "0.5px",
-                            marginTop: "0.5mm",
-                            color: "#000000",
-                          }}
-                        >
-                          {item.sku_barcode}
+                      {/* Información del Producto y Código de Barras */}
+                      <div
+                        style={{
+                          flex: 1,
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                          height: "100%",
+                          minWidth: 0,
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <div>
+                          {/* Nombre del Producto */}
+                          <div
+                            style={{
+                              fontSize: "9.5pt",
+                              fontWeight: "900",
+                              color: "#000000",
+                              lineHeight: "1.15",
+                              textTransform: "uppercase",
+                              marginBottom: "1mm",
+                            }}
+                          >
+                            {item.name}
+                          </div>
+
+                          {/* Marca y Serie */}
+                          <div
+                            style={{
+                              fontSize: "8pt",
+                              color: "#444444",
+                              fontWeight: "600",
+                            }}
+                          >
+                            {item.brand && <span>Marca: <strong style={{ color: "#000000" }}>{item.brand}</strong></span>}
+                            {item.serial_number && item.serial_number !== "-" && (
+                              <span> • S/N: <strong style={{ fontFamily: "monospace", color: "#000000" }}>{item.serial_number}</strong></span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Barcode SVG + SKU */}
+                        <div style={{ textAlign: "center", marginTop: "1.5mm" }}>
+                          <BarcodeSvg
+                            value={item.sku_barcode}
+                            className="w-full"
+                            width={1.5}
+                            height={34}
+                          />
+                          <div
+                            style={{
+                              fontSize: "8.5pt",
+                              fontWeight: "900",
+                              fontFamily: "monospace",
+                              letterSpacing: "0.5px",
+                              marginTop: "0.5mm",
+                              color: "#000000",
+                            }}
+                          >
+                            {item.sku_barcode}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {/* Empty place filler if page has less than 8 items */}
                 {Array.from({ length: 8 - page.items.length }).map((_, emptyIdx) => (
@@ -739,3 +1004,4 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     </>
   );
 };
+
