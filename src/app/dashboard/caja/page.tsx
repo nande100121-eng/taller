@@ -197,18 +197,33 @@ export default function CajaPage() {
   // List of eligible payment destinations: EMPRESA + staff with can_receive_payment enabled in personnel master
   const eligibleDestinations = React.useMemo(() => {
     const list = ["EMPRESA"];
-    technicians
-      .filter((t) => {
-        const isActive = t.is_active !== false;
-        const canReceive = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
-        return isActive && canReceive;
-      })
-      .forEach((t) => {
-        const name = (t.full_name || "").trim().toUpperCase();
-        if (name && !list.includes(name)) list.push(name);
-      });
+
+    // 1. All active staff with can_receive_payment enabled
+    const enabledTechs = (technicians || []).filter((t) => {
+      const isActive = t.is_active !== false;
+      const canReceive = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
+      return isActive && canReceive;
+    });
+
+    // 2. Add enabled staff or fallback to all active technicians
+    const sourceTechs = enabledTechs.length > 0 ? enabledTechs : (technicians || []).filter((t) => t.is_active !== false);
+    sourceTechs.forEach((t) => {
+      const name = (t.full_name || "").trim().toUpperCase();
+      if (name && !list.includes(name)) list.push(name);
+    });
+
+    // 3. Include currently selected modal destination if present
+    const currentDest = paymentModal?.paymentDestination?.trim().toUpperCase();
+    if (currentDest && currentDest !== "NINGUNO" && !list.includes(currentDest)) {
+      list.push(currentDest);
+    }
+    const manualDest = manualPaymentModal?.paymentDestination?.trim().toUpperCase();
+    if (manualDest && manualDest !== "NINGUNO" && !list.includes(manualDest)) {
+      list.push(manualDest);
+    }
+
     return list;
-  }, [technicians]);
+  }, [technicians, paymentModal?.paymentDestination, manualPaymentModal?.paymentDestination]);
 
   // Cross-order credit settlement index (matches earlier credits with subsequent debt cancellations)
   const creditSettlementMap = React.useMemo(() => {
