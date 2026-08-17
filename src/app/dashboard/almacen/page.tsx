@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
+import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { BarcodePrintModal } from "@/components/BarcodePrintModal";
 import { DailyWarehouseReportModal } from "@/components/DailyWarehouseReportModal";
 
@@ -996,56 +997,21 @@ export default function AlmacenPage() {
                 </p>
               </div>
 
-              {/* DATE PICKER (UNIFIED DESIGN) */}
+              {/* DATE PICKER (UNIFIED MINI-DATE-PICKER STANDARD) */}
               <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center bg-reygas-surface rounded-xl border border-white/10 p-1">
-                  <button
-                    onClick={() => changePedidosDateByDays(-1)}
-                    className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-                    title="Día Anterior"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-
-                  <div className="flex items-center gap-2 px-2">
-                    <Calendar className="w-4 h-4 text-amber-400" />
-                    <input
-                      type="date"
-                      value={pedidosDate}
-                      onChange={(e) => {
-                        setPedidosDate(e.target.value);
-                        setShowAllPedidosDates(false);
-                      }}
-                      className="bg-transparent text-white font-mono text-xs font-bold focus:outline-none cursor-pointer"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => changePedidosDateByDays(1)}
-                    className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-                    title="Día Siguiente"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setPedidosDate(getPeruDateString());
+                <MiniDatePicker
+                  value={pedidosDate}
+                  onChange={(newDate) => {
+                    setPedidosDate(newDate);
                     setShowAllPedidosDates(false);
+                    setPedidosPage(1);
+                    setPedidosPageInput("1");
                   }}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                    !showAllPedidosDates && pedidosDate === getPeruDateString()
-                      ? "bg-amber-500 text-black border-amber-400 font-black shadow-md"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
-                  }`}
-                >
-                  Hoy
-                </button>
+                />
 
                 <button
                   onClick={() => setShowAllPedidosDates(!showAllPedidosDates)}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors ${
                     showAllPedidosDates
                       ? "bg-emerald-600 text-white border-emerald-500 shadow-md font-black"
                       : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
