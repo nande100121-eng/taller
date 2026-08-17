@@ -972,9 +972,9 @@ export const useAppStore = create<AppState>()(
             }
             if (Array.isArray(erpData?.workOrders) && erpData.workOrders.length > 0) {
               const localOrderMap = new Map(state.workOrders.map((o) => [o.id, o]));
-              updates.workOrders = erpData.workOrders.map((eo) => {
+              erpData.workOrders.forEach((eo) => {
                 const existing = localOrderMap.get(eo.id);
-                return {
+                localOrderMap.set(eo.id, {
                   ...existing,
                   ...eo,
                   quinquennial_date: eo.quinquennial_date || existing?.quinquennial_date || "",
@@ -982,14 +982,16 @@ export const useAppStore = create<AppState>()(
                   vehicle_type: eo.vehicle_type || existing?.vehicle_type || "",
                   general_maintenance_service: eo.general_maintenance_service || existing?.general_maintenance_service || "",
                   spare_parts_services: eo.spare_parts_services || existing?.spare_parts_services || "",
-                };
+                  items: (eo.items && Array.isArray(eo.items) && eo.items.length > 0) ? eo.items : (existing?.items || []),
+                });
               });
+              updates.workOrders = Array.from(localOrderMap.values());
             }
             if (Array.isArray(erpData?.invoices) && erpData.invoices.length > 0) {
               const localInvMap = new Map(state.invoices.map((i) => [i.id, i]));
-              updates.invoices = erpData.invoices.map((ei) => {
+              erpData.invoices.forEach((ei) => {
                 const existing = localInvMap.get(ei.id);
-                return {
+                localInvMap.set(ei.id, {
                   ...existing,
                   ...ei,
                   receipt_number: ei.receipt_number || existing?.receipt_number || "",
@@ -1001,8 +1003,9 @@ export const useAppStore = create<AppState>()(
                   payment_condition: ei.payment_condition || existing?.payment_condition || "",
                   payment_destination: ei.payment_destination || existing?.payment_destination || "",
                   customer_doc: ei.customer_doc || existing?.customer_doc || "",
-                };
+                });
               });
+              updates.invoices = Array.from(localInvMap.values());
             }
             if (Array.isArray(erpData?.appointments) && erpData.appointments.length > 0) {
               updates.appointments = erpData.appointments;
@@ -1429,9 +1432,11 @@ export const useAppStore = create<AppState>()(
           items: order.items || [],
         };
         saveSupabaseWorkOrder(newOrder);
-        set((state) => ({
-          workOrders: [...state.workOrders, newOrder],
-        }));
+        set((state) => {
+          const updated = [...state.workOrders, newOrder];
+          setLocalWorkshopCache({ workOrders: updated });
+          return { workOrders: updated };
+        });
       },
 
       updateWorkOrder: (id, updates) =>
@@ -1444,6 +1449,7 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1457,6 +1463,7 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         });
       },
@@ -1471,13 +1478,14 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         });
       },
 
       addWorkOrderItem: (orderId, item) =>
-        set((state) => ({
-          workOrders: state.workOrders.map((o) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const subtotal = item.quantity * item.unit_price;
             const isService = item.item_type === "servicio";
@@ -1497,12 +1505,14 @@ export const useAppStore = create<AppState>()(
             saveSupabaseWorkOrder(updatedOrder);
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
-          }),
-        })),
+          });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
+          return { workOrders: updatedOrders };
+        }),
 
       addMultipleWorkOrderItems: (orderId, items) =>
-        set((state) => ({
-          workOrders: state.workOrders.map((o) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const nowISO = new Date().toISOString();
             const newItems: WorkOrderItem[] = items.map((item, idx) => {
@@ -1524,12 +1534,14 @@ export const useAppStore = create<AppState>()(
             saveSupabaseWorkOrder(updatedOrder);
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
-          }),
-        })),
+          });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
+          return { workOrders: updatedOrders };
+        }),
 
       updateWorkOrderItem: (orderId, itemId, updates) =>
-        set((state) => ({
-          workOrders: state.workOrders.map((o) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const updatedItems = o.items.map((i) => {
               if (i.id !== itemId) return i;
@@ -1548,12 +1560,14 @@ export const useAppStore = create<AppState>()(
             saveSupabaseWorkOrder(updatedOrder);
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
-          }),
-        })),
+          });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
+          return { workOrders: updatedOrders };
+        }),
 
       removeWorkOrderItem: (orderId, itemId) =>
-        set((state) => ({
-          workOrders: state.workOrders.map((o) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const updatedOrder = {
               ...o,
@@ -1562,8 +1576,10 @@ export const useAppStore = create<AppState>()(
             saveSupabaseWorkOrder(updatedOrder);
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
-          }),
-        })),
+          });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
+          return { workOrders: updatedOrders };
+        }),
 
       markWorkOrderItemDispatched: (orderId, itemId) =>
         set((state) => ({
