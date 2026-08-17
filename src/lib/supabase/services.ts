@@ -151,6 +151,7 @@ export async function saveFullSiteContentToSupabase(content: SiteContent): Promi
 // ---------------------------------------------------------------------
 export async function saveSupabaseTechnician(tech: Technician, allTechs?: Technician[]) {
   try {
+    markLocalMutation();
     const { error } = await supabase.from("technicians").upsert(
       {
         id: tech.id,
@@ -159,17 +160,22 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
         phone: tech.phone,
         is_active: tech.is_active,
         allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+        can_receive_payment: !!tech.can_receive_payment,
       },
       { onConflict: "id" }
     );
     if (error) {
-      await supabase.from("technicians").upsert({
-        full_name: tech.full_name,
-        specialty: tech.specialty,
-        phone: tech.phone,
-        is_active: tech.is_active,
-        allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
-      });
+      await supabase.from("technicians").upsert(
+        {
+          id: tech.id,
+          full_name: tech.full_name,
+          specialty: tech.specialty,
+          phone: tech.phone,
+          is_active: tech.is_active,
+          allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+        },
+        { onConflict: "id" }
+      );
     }
 
     const permsPayload = {
@@ -179,12 +185,12 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       username: tech.username || "",
       password: tech.password || "",
     };
-    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians");
+    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians", false);
     const normName = tech.full_name.trim().toLowerCase();
-    await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians");
+    await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians", false);
 
     if (allTechs && Array.isArray(allTechs)) {
-      await saveSupabaseSiteContent("all_technicians", allTechs, "technicians");
+      await saveSupabaseSiteContent("all_technicians", allTechs, "technicians", false);
     }
     broadcastRealtimeChange("technician_saved");
   } catch (err) {
@@ -673,7 +679,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
   try {
     const [techRes, contentRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("technicians").select("*")),
-      safeQuery<any[]>(supabase.from("site_content").select("*").in("section_key", ["technicians"]).or("key.ilike.tech_perms_%,key.eq.all_technicians")),
+      safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
     const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};

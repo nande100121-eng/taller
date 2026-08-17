@@ -856,6 +856,7 @@ export const useAppStore = create<AppState>()(
                 ...t,
                 username: t.username || generateDefaultUsername(t.full_name),
                 password: t.password || generateDefaultUsername(t.full_name),
+                can_receive_payment: !!t.can_receive_payment,
               })),
             }));
           }
@@ -957,6 +958,7 @@ export const useAppStore = create<AppState>()(
                   ...existing,
                   ...et,
                   allowed_tabs: allowed,
+                  can_receive_payment: et.can_receive_payment !== undefined ? !!et.can_receive_payment : (existing?.can_receive_payment !== undefined ? !!existing.can_receive_payment : false),
                   email: et.email || existing?.email || "",
                   username: et.username || existing?.username || generateDefaultUsername(et.full_name),
                   password: et.password || existing?.password || generateDefaultUsername(et.full_name),
