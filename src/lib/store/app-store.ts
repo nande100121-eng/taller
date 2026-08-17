@@ -524,6 +524,8 @@ interface AppState {
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
+  addMultipleWorkOrderItems: (orderId: string, items: Omit<WorkOrderItem, "id" | "subtotal">[]) => void;
+  updateWorkOrderItem: (orderId: string, itemId: string, updates: Partial<WorkOrderItem>) => void;
   removeWorkOrderItem: (orderId: string, itemId: string) => void;
   markWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
   toggleWorkOrderItemDispatched: (orderId: string, itemId: string) => void;
@@ -540,6 +542,7 @@ interface AppState {
     certType: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática",
     price: number
   ) => void;
+  removeCertificationFromWorkOrder: (orderId: string) => void;
 
   inventoryItems: InventoryItem[];
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
@@ -1409,6 +1412,58 @@ export const useAppStore = create<AppState>()(
               items: [...o.items, newItem],
             };
             saveSupabaseWorkOrder(updatedOrder);
+            broadcastRealtimeChange("work_orders_updated");
+            return updatedOrder;
+          }),
+        })),
+
+      addMultipleWorkOrderItems: (orderId, items) =>
+        set((state) => ({
+          workOrders: state.workOrders.map((o) => {
+            if (o.id !== orderId) return o;
+            const nowISO = new Date().toISOString();
+            const newItems: WorkOrderItem[] = items.map((item, idx) => {
+              const subtotal = item.quantity * item.unit_price;
+              const isService = item.item_type === "servicio";
+              return {
+                ...item,
+                id: `item-${Date.now()}-${idx}`,
+                subtotal,
+                dispatched: isService ? true : false,
+                dispatched_at: isService ? nowISO : undefined,
+                requested_at: nowISO,
+              };
+            });
+            const updatedOrder = {
+              ...o,
+              items: [...o.items, ...newItems],
+            };
+            saveSupabaseWorkOrder(updatedOrder);
+            broadcastRealtimeChange("work_orders_updated");
+            return updatedOrder;
+          }),
+        })),
+
+      updateWorkOrderItem: (orderId, itemId, updates) =>
+        set((state) => ({
+          workOrders: state.workOrders.map((o) => {
+            if (o.id !== orderId) return o;
+            const updatedItems = o.items.map((i) => {
+              if (i.id !== itemId) return i;
+              const quantity = updates.quantity !== undefined ? updates.quantity : i.quantity;
+              const unit_price = updates.unit_price !== undefined ? updates.unit_price : i.unit_price;
+              const subtotal = Number((quantity * unit_price).toFixed(2));
+              return {
+                ...i,
+                ...updates,
+                quantity,
+                unit_price,
+                subtotal,
+              };
+            });
+            const updatedOrder = { ...o, items: updatedItems };
+            saveSupabaseWorkOrder(updatedOrder);
+            broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           }),
         })),
@@ -1422,6 +1477,7 @@ export const useAppStore = create<AppState>()(
               items: o.items.filter((i) => i.id !== itemId),
             };
             saveSupabaseWorkOrder(updatedOrder);
+            broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           }),
         })),
@@ -1618,6 +1674,32 @@ export const useAppStore = create<AppState>()(
           return {
             workOrders: updatedOrders,
             certifications: [newCert, ...state.certifications],
+          };
+        });
+      },
+
+      removeCertificationFromWorkOrder: (orderId) => {
+        set((state) => {
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === orderId) {
+              const updated = {
+                ...o,
+                requires_certification: false,
+                certification_type: undefined,
+                certification_price: undefined,
+                certification_issued: false,
+                certification_id: undefined,
+              };
+              saveSupabaseWorkOrder(updated);
+              broadcastRealtimeChange("work_orders_updated");
+              return updated;
+            }
+            return o;
+          });
+          const updatedCerts = state.certifications.filter((c) => c.work_order_id !== orderId);
+          return {
+            workOrders: updatedOrders,
+            certifications: updatedCerts,
           };
         });
       },

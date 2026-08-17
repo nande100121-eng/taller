@@ -29,6 +29,9 @@ import {
   Filter,
   Fuel,
   ChevronDown,
+  Minus,
+  ShoppingCart,
+  ListPlus,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
@@ -48,10 +51,13 @@ export default function WorkshopOperationsPage() {
     workshopServices,
     invoices,
     addWorkOrderItem,
+    addMultipleWorkOrderItems,
+    updateWorkOrderItem,
     removeWorkOrderItem,
     updateDiagnosticNotes,
     updateDiagnosticAndObservations,
     requestCertificationForWorkOrder,
+    removeCertificationFromWorkOrder,
     deleteWorkOrder,
   } = useAppStore();
 
@@ -85,6 +91,23 @@ export default function WorkshopOperationsPage() {
   const [customItemPrice, setCustomItemPrice] = useState<number>(0);
   const [partQty, setPartQty] = useState(1);
   const [partsSearchQuery, setPartsSearchQuery] = useState("");
+
+  // Multi-item parts requisition cart in modal
+  const [pendingPartsCart, setPendingPartsCart] = useState<Array<{
+    id: string;
+    inventory_item_id?: string;
+    item_type: "repuesto";
+    description: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+  }>>([]);
+
+  // Edit individual item modal state
+  const [editingItem, setEditingItem] = useState<{ orderId: string; item: any } | null>(null);
+  const [editItemDescription, setEditItemDescription] = useState("");
+  const [editItemQty, setEditItemQty] = useState(1);
+  const [editItemPrice, setEditItemPrice] = useState(0);
 
   const filteredInventoryItems = React.useMemo(() => {
     if (!partsSearchQuery.trim()) return inventoryItems;
@@ -235,6 +258,79 @@ export default function WorkshopOperationsPage() {
     setCustomItemPrice(inventoryItems[0]?.unit_price || 0);
     setCustomItemName("");
     setPartQty(1);
+    setPendingPartsCart([]);
+  };
+
+  const handleAddToCart = () => {
+    if (requisitionType === "repuesto") {
+      const item = inventoryItems.find((i) => i.id === selectedInventoryId);
+      if (!item) return;
+      const qty = Number(partQty) || 1;
+      const price = Number(customItemPrice) || item.unit_price || 0;
+      const existingIdx = pendingPartsCart.findIndex((p) => p.inventory_item_id === item.id);
+      if (existingIdx >= 0) {
+        setPendingPartsCart((prev) =>
+          prev.map((p, idx) =>
+            idx === existingIdx
+              ? { ...p, quantity: p.quantity + qty, subtotal: Number(((p.quantity + qty) * price).toFixed(2)) }
+              : p
+          )
+        );
+      } else {
+        setPendingPartsCart((prev) => [
+          ...prev,
+          {
+            id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            inventory_item_id: item.id,
+            item_type: "repuesto",
+            description: item.name,
+            quantity: qty,
+            unit_price: price,
+            subtotal: Number((qty * price).toFixed(2)),
+          },
+        ]);
+      }
+    } else {
+      if (!customItemName.trim()) return;
+      const qty = Number(partQty) || 1;
+      const price = Number(customItemPrice) || 0;
+      setPendingPartsCart((prev) => [
+        ...prev,
+        {
+          id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          item_type: "repuesto",
+          description: customItemName.trim(),
+          quantity: qty,
+          unit_price: price,
+          subtotal: Number((qty * price).toFixed(2)),
+        },
+      ]);
+      setCustomItemName("");
+    }
+    setPartQty(1);
+  };
+
+  const handleRemoveFromCart = (cartId: string) => {
+    setPendingPartsCart((prev) => prev.filter((p) => p.id !== cartId));
+  };
+
+  const handleUpdateCartQty = (cartId: string, delta: number) => {
+    setPendingPartsCart((prev) =>
+      prev
+        .map((p) => {
+          if (p.id === cartId) {
+            const nextQty = p.quantity + delta;
+            if (nextQty <= 0) return null;
+            return {
+              ...p,
+              quantity: nextQty,
+              subtotal: Number((nextQty * p.unit_price).toFixed(2)),
+            };
+          }
+          return p;
+        })
+        .filter(Boolean) as typeof prev
+    );
   };
 
   const handleOpenServices = (orderId: string) => {
@@ -251,9 +347,15 @@ export default function WorkshopOperationsPage() {
   const handleOpenCertModal = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("certificate");
-    const initialCert = certificationServices[0] || { name: "Certificado Anual GNV", price: 80 };
-    setCertType(initialCert.name);
-    setCertPrice(initialCert.price);
+    const order = workOrders.find((o) => o.id === orderId);
+    if (order?.requires_certification && order.certification_type) {
+      setCertType(order.certification_type);
+      setCertPrice(order.certification_price || 80);
+    } else {
+      const initialCert = certificationServices[0] || { name: "Certificado Anual GNV", price: 80 };
+      setCertType(initialCert.name);
+      setCertPrice(initialCert.price);
+    }
   };
 
   // Styled Web Notification Modal State (Replaces browser alert)
@@ -268,11 +370,42 @@ export default function WorkshopOperationsPage() {
       requestCertificationForWorkOrder(activeOrderModal, certType as any, Number(certPrice));
       setWebAlert({
         open: true,
-        title: "¡Certificación Solicitada!",
-        message: `La certificación "${certType}" (S/ ${certPrice}) fue registrada e ingresada al flujo de cobro en Caja. Se notificó al Encargado de Certificaciones.`
+        title: "¡Certificación Registrada!",
+        message: `La certificación "${certType}" (S/ ${Number(certPrice).toFixed(2)}) fue asignada a la OT y actualizada en el flujo de cobro en Caja.`
       });
       setActiveOrderModal(null);
     }
+  };
+
+  const handleRemoveCertification = (orderId: string) => {
+    removeCertificationFromWorkOrder(orderId);
+    setWebAlert({
+      open: true,
+      title: "Certificación Removida",
+      message: "Se ha eliminado el servicio de certificación de esta orden de trabajo y del flujo de cobro en Caja."
+    });
+  };
+
+  const handleOpenEditItem = (orderId: string, item: any) => {
+    setEditingItem({ orderId, item });
+    setEditItemDescription(item.description || "");
+    setEditItemQty(item.quantity || 1);
+    setEditItemPrice(item.unit_price || 0);
+  };
+
+  const handleSaveEditItem = () => {
+    if (!editingItem) return;
+    updateWorkOrderItem(editingItem.orderId, editingItem.item.id, {
+      description: editItemDescription.trim() || editingItem.item.description,
+      quantity: Number(editItemQty) || 1,
+      unit_price: Number(editItemPrice) || 0,
+    });
+    setEditingItem(null);
+    setWebAlert({
+      open: true,
+      title: "Ítem Actualizado",
+      message: "Los datos del repuesto o servicio fueron actualizados correctamente.",
+    });
   };
 
   const handleSaveDiagnostic = () => {
@@ -311,27 +444,43 @@ export default function WorkshopOperationsPage() {
     if (!activeOrderModal) return;
 
     if (modalMode === "parts") {
-      if (requisitionType === "repuesto") {
-        const item = inventoryItems.find((i) => i.id === selectedInventoryId);
-        if (item) {
-          addWorkOrderItem(activeOrderModal, {
-            inventory_item_id: item.id,
+      if (pendingPartsCart.length > 0) {
+        addMultipleWorkOrderItems(
+          activeOrderModal,
+          pendingPartsCart.map((p) => ({
+            inventory_item_id: p.inventory_item_id,
             item_type: "repuesto",
-            description: item.name,
-            quantity: Number(partQty),
-            unit_price: Number(customItemPrice) || item.unit_price || 0,
+            description: p.description,
+            quantity: p.quantity,
+            unit_price: p.unit_price,
+          }))
+        );
+        updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+        setPendingPartsCart([]);
+      } else {
+        // Fallback for single direct item if user did not press "Añadir a la lista"
+        if (requisitionType === "repuesto") {
+          const item = inventoryItems.find((i) => i.id === selectedInventoryId);
+          if (item) {
+            addWorkOrderItem(activeOrderModal, {
+              inventory_item_id: item.id,
+              item_type: "repuesto",
+              description: item.name,
+              quantity: Number(partQty) || 1,
+              unit_price: Number(customItemPrice) || item.unit_price || 0,
+            });
+            updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+          }
+        } else {
+          if (!customItemName.trim()) return;
+          addWorkOrderItem(activeOrderModal, {
+            item_type: "repuesto",
+            description: customItemName.trim(),
+            quantity: Number(partQty) || 1,
+            unit_price: Number(customItemPrice) || 0,
           });
           updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
         }
-      } else {
-        if (!customItemName.trim()) return;
-        addWorkOrderItem(activeOrderModal, {
-          item_type: "repuesto",
-          description: customItemName.trim(),
-          quantity: Number(partQty),
-          unit_price: Number(customItemPrice) || 0,
-        });
-        updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
       }
     } else if (modalMode === "service") {
       if (requisitionType === "servicio") {
@@ -340,7 +489,7 @@ export default function WorkshopOperationsPage() {
           addWorkOrderItem(activeOrderModal, {
             item_type: "servicio",
             description: srv.name,
-            quantity: Number(partQty),
+            quantity: Number(partQty) || 1,
             unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
           });
           updateWorkOrderStatus(activeOrderModal, "en_servicio");
@@ -350,7 +499,7 @@ export default function WorkshopOperationsPage() {
         addWorkOrderItem(activeOrderModal, {
           item_type: "servicio",
           description: customItemName.trim(),
-          quantity: Number(partQty),
+          quantity: Number(partQty) || 1,
           unit_price: Number(customItemPrice) || 0,
         });
         updateWorkOrderStatus(activeOrderModal, "en_servicio");
@@ -954,13 +1103,24 @@ export default function WorkshopOperationsPage() {
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal.toFixed(2)}</span>
                                 {!isLocked && (
-                                  <button
-                                    onClick={() => removeWorkOrderItem(wo.id, item.id)}
-                                    className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                                    title="Quitar ítem"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditItem(wo.id, item)}
+                                      className="text-gray-400 hover:text-amber-400 p-1 hover:bg-white/10 rounded transition-colors"
+                                      title="Editar cantidad o precio de este ítem"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeWorkOrderItem(wo.id, item.id)}
+                                      className="text-gray-400 hover:text-red-400 p-1 hover:bg-white/10 rounded transition-colors"
+                                      title="Eliminar este ítem de la orden"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -977,9 +1137,31 @@ export default function WorkshopOperationsPage() {
                             <ShieldCheck className="w-4 h-4 text-cyan-400" />
                             <span>Servicio de Certificación</span>
                           </span>
-                          <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
-                            S/ {(wo.certification_price || 0).toFixed(2)}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
+                              S/ {(wo.certification_price || 0).toFixed(2)}
+                            </span>
+                            {!isLocked && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCertModal(wo.id)}
+                                  className="text-gray-400 hover:text-cyan-300 p-1 hover:bg-cyan-900/40 rounded transition-colors"
+                                  title="Editar tipo o precio de certificación"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCertification(wo.id)}
+                                  className="text-gray-400 hover:text-red-400 p-1 hover:bg-red-900/40 rounded transition-colors"
+                                  title="Eliminar / Quitar certificación"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <p className="text-[11px] text-cyan-200">
                           Tipo: <strong>{wo.certification_type}</strong> • Estado:{" "}
@@ -1458,23 +1640,103 @@ export default function WorkshopOperationsPage() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad Requerida</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={partQty}
-                    onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad Requerida</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={partQty}
+                      onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleAddToCart}
+                      className="w-full py-2.5 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <ListPlus className="w-4 h-4 text-amber-400" />
+                      <span>+ Añadir a la Lista</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* LISTA DE REPUESTOS EN COLA (MULTI-SELECCIÓN) */}
+                {pendingPartsCart.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-black/50 border border-amber-500/30 space-y-2.5 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <span className="text-xs font-black text-amber-300 uppercase flex items-center gap-1.5">
+                        <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Lista de Repuestos a Solicitar ({pendingPartsCart.length})</span>
+                      </span>
+                      <span className="text-xs font-mono font-bold text-amber-400">
+                        Total: S/ {pendingPartsCart.reduce((acc, p) => acc + p.subtotal, 0).toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                      {pendingPartsCart.map((cartItem) => (
+                        <div
+                          key={cartItem.id}
+                          className="p-2 rounded-xl bg-reygas-dark/90 border border-white/10 flex items-center justify-between text-xs gap-2"
+                        >
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span className="font-bold text-white block truncate">{cartItem.description}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              P.U: S/ {cartItem.unit_price.toFixed(2)} • Subtotal: <strong className="text-amber-300">S/ {cartItem.subtotal.toFixed(2)}</strong>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCartQty(cartItem.id, -1)}
+                              className="p-1 rounded bg-white/5 hover:bg-white/15 text-gray-300 transition-colors"
+                              title="Disminuir cantidad"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold text-xs min-w-[24px] text-center">
+                              {cartItem.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCartQty(cartItem.id, 1)}
+                              className="p-1 rounded bg-white/5 hover:bg-white/15 text-gray-300 transition-colors"
+                              title="Aumentar cantidad"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFromCart(cartItem.id)}
+                              className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 ml-1 transition-colors"
+                              title="Quitar de la lista"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <button
                   onClick={handleAddRequisition}
                   className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
                 >
                   <Package className="w-4 h-4" />
-                  <span>+ Agregar Repuesto a la Orden</span>
+                  <span>
+                    {pendingPartsCart.length > 0
+                      ? `📦 Solicitar ${pendingPartsCart.length} Repuestos (Total S/ ${pendingPartsCart
+                          .reduce((acc, p) => acc + p.subtotal, 0)
+                          .toFixed(2)})`
+                      : "+ Agregar Repuesto Directo a la Orden"}
+                  </span>
                 </button>
               </div>
             )}
@@ -1689,6 +1951,96 @@ export default function WorkshopOperationsPage() {
                 <Trash2 className="w-4 h-4" />
                 <span>Confirmar y Eliminar</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: EDITAR REPUESTO O SERVICIO DE LA ORDEN */}
+      {/* ========================================================================= */}
+      {editingItem && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel p-6 rounded-3xl border border-white/10 max-w-md w-full space-y-5 shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                <span>Editar {editingItem.item.item_type === "servicio" ? "Servicio" : "Repuesto"}</span>
+              </h3>
+              <button
+                onClick={() => setEditingItem(null)}
+                className="p-1 rounded-lg text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Descripción / Nombre del Ítem *
+                </label>
+                <input
+                  type="text"
+                  value={editItemDescription}
+                  onChange={(e) => setEditItemDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-bold focus:border-amber-400 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Cantidad *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editItemQty}
+                    onChange={(e) => setEditItemQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Precio Unitario (S/) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={editItemPrice}
+                    onChange={(e) => setEditItemPrice(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-center justify-between">
+                <span className="text-xs text-gray-400 font-bold uppercase">Nuevo Subtotal:</span>
+                <span className="text-base font-black font-mono text-amber-400">
+                  S/ {(Number(editItemQty || 0) * Number(editItemPrice || 0)).toFixed(2)}
+                </span>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 font-bold rounded-xl text-xs transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditItem}
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-xs transition-colors shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Cambios</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
