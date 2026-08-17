@@ -524,6 +524,7 @@ export default function AdminTablesPage() {
       const batchVehicles: any[] = [];
       const batchWorkOrders: any[] = [];
       const batchInvoices: any[] = [];
+      const seenRowKeys = new Set<string>();
 
       const timestamp = Date.now();
 
@@ -532,6 +533,10 @@ export default function AdminTablesPage() {
 
         const record = parseWorkshopRow(cols);
         if (!record || !record.plate) return;
+
+        const rowKey = `${record.rawDate}|${record.plate.toUpperCase()}|${record.receiptNumber}|${(record.clientName || "").toUpperCase()}|${(record.sparePartsServices || record.maintenanceService || "").toUpperCase()}|${record.price}|${record.creditAmount}|${(record.paymentMethod || "").toUpperCase()}`;
+        if (seenRowKeys.has(rowKey)) return;
+        seenRowKeys.add(rowKey);
 
         const is_explicit_paid = record.paymentCondition.toUpperCase().includes("PAGADO");
         const is_credit_order = !is_explicit_paid && (
