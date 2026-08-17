@@ -33,7 +33,8 @@ import {
   ArrowDownToLine,
   History,
   Sparkles,
-  Printer
+  Printer,
+  ArrowUpDown
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
@@ -346,10 +347,10 @@ export default function AlmacenPage() {
       category: "Repuestos GNV/GLP",
       unit_price: 100,
       initial_stock: 0,
-      entries: 1,
+      entries: 0,
       exits: 0,
-      stock_quantity: 1,
-      counted_stock: 1,
+      stock_quantity: 0,
+      counted_stock: 0,
       min_stock_alert: 2,
     });
     setEditModalOpen(true);
@@ -357,18 +358,26 @@ export default function AlmacenPage() {
 
   const handleOpenEditModal = (item: InventoryItem) => {
     setEditingItem(item);
+    const initial =
+      typeof item.initial_stock === "number"
+        ? item.initial_stock
+        : Math.max(0, item.stock_quantity - (item.entries || 0) + (item.exits || 0));
+    const entries = typeof item.entries === "number" ? item.entries : 0;
+    const exits = typeof item.exits === "number" ? item.exits : 0;
+    const stock = typeof item.stock_quantity === "number" ? item.stock_quantity : Math.max(0, initial + entries - exits);
+
     setItemForm({
       sku_barcode: item.sku_barcode,
       name: item.name,
       brand: item.brand || "",
       serial_number: item.serial_number || "",
       category: item.category || "Repuestos",
-      unit_price: item.unit_price,
-      initial_stock: item.initial_stock ?? item.stock_quantity,
-      entries: 1,
-      exits: item.exits || 0,
-      stock_quantity: item.stock_quantity,
-      counted_stock: item.counted_stock ?? item.stock_quantity,
+      unit_price: item.unit_price || 0,
+      initial_stock: initial,
+      entries: entries,
+      exits: exits,
+      stock_quantity: stock,
+      counted_stock: typeof item.counted_stock === "number" ? item.counted_stock : stock,
       min_stock_alert: item.min_stock_alert || 2,
     });
     setEditModalOpen(true);
@@ -2543,7 +2552,7 @@ export default function AlmacenPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">PRECIO DE VENTA (S/)</label>
                   <input
@@ -2551,59 +2560,142 @@ export default function AlmacenPage() {
                     step="0.01"
                     min={0}
                     value={itemForm.unit_price}
-                    onChange={(e) => setItemForm({ ...itemForm, unit_price: Number(e.target.value) })}
+                    onChange={(e) => setItemForm({ ...itemForm, unit_price: Number(e.target.value) || 0 })}
                     className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
-                    STOCK VIGENTE {!editingItem && <span className="text-[10px] text-emerald-400 font-normal">(Informativo)</span>}
-                  </label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">STOCK MÍNIMO ALERTA</label>
                   <input
                     type="number"
                     min={0}
-                    readOnly={!editingItem}
-                    value={itemForm.stock_quantity}
-                    onChange={(e) => setItemForm({ ...itemForm, stock_quantity: Number(e.target.value) })}
-                    className={`w-full px-3.5 py-2.5 border rounded-xl text-sm font-mono ${
-                      !editingItem
-                        ? "bg-reygas-surface/60 border-white/10 text-emerald-400 font-extrabold cursor-not-allowed"
-                        : "bg-reygas-surface border-white/15 text-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">ENTRADAS</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={itemForm.entries}
-                    onChange={(e) => setItemForm({ ...itemForm, entries: Number(e.target.value) })}
-                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
+                    value={itemForm.min_stock_alert}
+                    onChange={(e) => setItemForm({ ...itemForm, min_stock_alert: Number(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">SALIDAS</label>
-                  <input
-                    type="number"
-                    min={0}
-                    readOnly
-                    value={itemForm.exits}
-                    className="w-full px-3.5 py-2.5 bg-reygas-surface/50 border border-white/10 rounded-xl text-sm text-gray-400 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">CONTADOS</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">STOCK CONTADO (FÍSICO)</label>
                   <input
                     type="number"
                     min={0}
                     value={itemForm.counted_stock}
-                    onChange={(e) => setItemForm({ ...itemForm, counted_stock: Number(e.target.value) })}
-                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
+                    onChange={(e) => setItemForm({ ...itemForm, counted_stock: Number(e.target.value) || 0 })}
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                   />
+                </div>
+              </div>
+
+              {/* SECCIÓN DINÁMICA DE MOVIMIENTOS Y STOCK VIGENTE */}
+              <div className="p-4 rounded-2xl bg-black/40 border border-amber-500/30 space-y-3 shadow-inner">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2">
+                  <span className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ArrowUpDown className="w-3.5 h-3.5" />
+                    Balance de Movimientos y Stock Vigente
+                  </span>
+                  <span className="text-[11px] font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded-md border border-white/10">
+                    Fórmula: <strong className="text-gray-200">Inicial</strong> + <strong className="text-emerald-400">Entradas</strong> - <strong className="text-red-400">Salidas</strong> = <strong className="text-amber-400">Vigente</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                      STOCK INICIAL
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={itemForm.initial_stock}
+                      onChange={(e) => {
+                        const newInitial = Number(e.target.value) || 0;
+                        const newStock = Math.max(0, newInitial + (Number(itemForm.entries) || 0) - (Number(itemForm.exits) || 0));
+                        setItemForm((prev) => ({
+                          ...prev,
+                          initial_stock: newInitial,
+                          stock_quantity: newStock,
+                        }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-emerald-400 uppercase tracking-wider mb-1">
+                      ENTRADAS (+)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={itemForm.entries}
+                      onChange={(e) => {
+                        const newEntries = Number(e.target.value) || 0;
+                        const newStock = Math.max(0, (Number(itemForm.initial_stock) || 0) + newEntries - (Number(itemForm.exits) || 0));
+                        setItemForm((prev) => ({
+                          ...prev,
+                          entries: newEntries,
+                          stock_quantity: newStock,
+                        }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 font-bold text-sm font-mono focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-red-400 uppercase tracking-wider mb-1">
+                      SALIDAS (-)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={itemForm.exits}
+                      onChange={(e) => {
+                        const newExits = Number(e.target.value) || 0;
+                        const newStock = Math.max(0, (Number(itemForm.initial_stock) || 0) + (Number(itemForm.entries) || 0) - newExits);
+                        setItemForm((prev) => ({
+                          ...prev,
+                          exits: newExits,
+                          stock_quantity: newStock,
+                        }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 font-bold text-sm font-mono focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-300 uppercase tracking-wider mb-1">
+                      STOCK VIGENTE (=)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={itemForm.stock_quantity}
+                      onChange={(e) => {
+                        const newStock = Number(e.target.value) || 0;
+                        setItemForm((prev) => ({
+                          ...prev,
+                          stock_quantity: newStock,
+                        }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-amber-500/15 border-2 border-amber-400/60 rounded-xl text-amber-300 font-black text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none shadow-sm shadow-amber-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
+                  <span>
+                    Cálculo actual: <span className="font-mono text-gray-300">{Number(itemForm.initial_stock) || 0}</span> + <span className="font-mono text-emerald-400">{Number(itemForm.entries) || 0}</span> - <span className="font-mono text-red-400">{Number(itemForm.exits) || 0}</span> = <strong className="font-mono text-amber-300 font-extrabold text-xs">{Number(itemForm.stock_quantity) || 0} unid.</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const auto = Math.max(0, (Number(itemForm.initial_stock) || 0) + (Number(itemForm.entries) || 0) - (Number(itemForm.exits) || 0));
+                      setItemForm((prev) => ({ ...prev, stock_quantity: auto }));
+                    }}
+                    className="text-[10px] text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer"
+                  >
+                    Recalcular según fórmula
+                  </button>
                 </div>
               </div>
 
