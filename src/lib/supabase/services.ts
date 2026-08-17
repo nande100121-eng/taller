@@ -759,6 +759,14 @@ export async function fetchSupabaseErpData() {
             const list = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(list)) fallbackRecentIngresos = list;
           } catch {}
+        } else if (k && k.startsWith("inv_breakdown_")) {
+          const invKey = k.replace("inv_breakdown_", "");
+          try {
+            const bd = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(bd)) {
+              invBreakdownsMap.set(invKey, bd);
+            }
+          } catch {}
         }
       });
     }
@@ -776,6 +784,7 @@ export async function fetchSupabaseErpData() {
 
     const reconstructedVehiclesMap = new Map<string, any>();
     const reconstructedInvoicesMap = new Map<string, any>();
+    const invBreakdownsMap = new Map<string, any[]>();
 
     // Seed with backup vehicles/invoices if available
     if (masterBackup?.vehicles) {
@@ -944,7 +953,13 @@ export async function fetchSupabaseErpData() {
     });
 
     const finalVehicles = Array.from(reconstructedVehiclesMap.values());
-    const finalInvoices = Array.from(reconstructedInvoicesMap.values());
+    const finalInvoices = Array.from(reconstructedInvoicesMap.values()).map((inv: any) => {
+      const bd = inv.payment_breakdown || invBreakdownsMap.get(inv.id) || (inv.work_order_id ? invBreakdownsMap.get(inv.work_order_id) : undefined);
+      return {
+        ...inv,
+        payment_breakdown: typeof bd === "string" ? JSON.parse(bd) : bd,
+      };
+    });
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
     let finalInventory: InventoryItem[] = [];
@@ -1071,6 +1086,12 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_destination: inv.payment_destination || null,
       observations: inv.observations || null,
     });
+    if (inv.payment_breakdown && Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0) {
+      await saveSupabaseSiteContent(`inv_breakdown_${inv.id}`, inv.payment_breakdown, "invoices");
+      if (inv.work_order_id) {
+        await saveSupabaseSiteContent(`inv_breakdown_${inv.work_order_id}`, inv.payment_breakdown, "invoices");
+      }
+    }
     broadcastRealtimeChange("invoice_updated");
     if (error) console.warn("Supabase invoice save warning:", error.message);
   } catch (err) {

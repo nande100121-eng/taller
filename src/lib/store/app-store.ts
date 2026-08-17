@@ -379,6 +379,14 @@ export interface CorrelativeConfig {
   lastUpdateDate: string;
 }
 
+export interface PaymentSplit {
+  id?: string;
+  method: string;
+  destination: string;
+  amount: number;
+  reference?: string;
+}
+
 export interface Invoice {
   id: string;
   work_order_id: string;
@@ -403,6 +411,7 @@ export interface Invoice {
   payment_condition?: string; // Condicion (Contado/Crédito)
   payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
   observations?: string; // OBSERVACIONES DEL COMPROBANTE
+  payment_breakdown?: PaymentSplit[]; // Desglose de pagos parciales / métodos mixtos
 }
 
 export interface Appointment {
@@ -568,6 +577,7 @@ interface AppState {
     customerDoc?: string;
     customerName?: string;
     customerAddress?: string;
+    paymentBreakdown?: PaymentSplit[];
   }) => void;
   registerDirectWorkshopPayment: (data: {
     vehicle_plate: string;
@@ -594,6 +604,7 @@ interface AppState {
     receipt_number?: string;
     quinquennial_date?: string;
     chip_expiry_date?: string;
+    payment_breakdown?: PaymentSplit[];
   }) => { workOrder: WorkOrder; invoice: Invoice };
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
@@ -1944,6 +1955,7 @@ export const useAppStore = create<AppState>()(
         customerDoc,
         customerName,
         customerAddress,
+        paymentBreakdown,
       }) => {
         set((state) => {
           let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
@@ -1969,6 +1981,7 @@ export const useAppStore = create<AppState>()(
               payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
               receipt_number: receiptNumber || targetInvoice.receipt_number || "",
               receipt_type: receiptType || targetInvoice.receipt_type || "Ticket",
+              payment_breakdown: paymentBreakdown || targetInvoice.payment_breakdown,
               paid_at: nowISO,
             };
             saveSupabaseInvoice(updated);
@@ -1992,6 +2005,7 @@ export const useAppStore = create<AppState>()(
               payment_destination: paymentDestination || "EMPRESA",
               receipt_number: receiptNumber || "",
               receipt_type: receiptType || "Ticket",
+              payment_breakdown: paymentBreakdown,
               issued_at: targetOrder.entry_time || nowISO,
               paid_at: nowISO,
             };
@@ -2085,6 +2099,7 @@ export const useAppStore = create<AppState>()(
           receipt_type: data.receipt_type || "",
           discounts: data.discounts || "0",
           credit_amount: Number(data.credit_amount) || 0,
+          payment_breakdown: data.payment_breakdown,
           issued_at: entryTime,
           paid_at: data.payment_condition === "PENDIENTE" ? undefined : entryTime,
         };

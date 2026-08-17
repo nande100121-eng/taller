@@ -5,7 +5,7 @@ import { Printer, Download, X, CheckCircle2, QrCode as QrIcon, Copy, Check } fro
 import { numberToSpanishWords } from "@/lib/utils/number-to-words";
 import { buildSunatFiscalQrString, generateEscPosQrBytes } from "@/lib/utils/escpos-qr";
 import { formatPeruDate, formatPeruDateTime } from "@/lib/utils/date-utils";
-import { WorkOrder, Invoice } from "@/lib/store/app-store";
+import { WorkOrder, Invoice, PaymentSplit } from "@/lib/store/app-store";
 
 interface ThermalReceiptModalProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ interface ThermalReceiptModalProps {
   items?: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }>;
   discountAmount?: number;
   paymentMethod?: string;
+  paymentBreakdown?: PaymentSplit[];
   issuedAt?: string;
 }
 
@@ -42,6 +43,7 @@ export default function ThermalReceiptModal({
   items,
   discountAmount = 0,
   paymentMethod = "CONTADO",
+  paymentBreakdown,
   issuedAt,
 }: ThermalReceiptModalProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -124,6 +126,12 @@ export default function ThermalReceiptModal({
     ? sunatData.direccion
     : (customerAddress || invoice?.customer_address || "");
   const effectiveAddress = rawAddress && rawAddress !== "-" ? rawAddress.toUpperCase() : "";
+
+  const effectiveSplits: PaymentSplit[] = (
+    paymentBreakdown && paymentBreakdown.length > 0
+      ? paymentBreakdown
+      : (invoice?.payment_breakdown || [])
+  );
 
   // Items
   const effectiveItems =
@@ -278,6 +286,12 @@ export default function ThermalReceiptModal({
     const observationHtml = effectiveObservations
       ? `<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;"><b>OBSERVACION:</b> ${effectiveObservations}</div>` : "";
 
+    // Payment method breakdown HTML
+    const paymentMethodHtml = effectiveSplits.length > 1
+      ? `<div><b>FORMA DE PAGO:</b> MIXTO</div>
+         ${effectiveSplits.map((p) => `<div style="padding-left:6px;font-size:9px;">• ${p.method}: S/ ${Number(p.amount).toFixed(2)} (${p.destination})</div>`).join("")}`
+      : `<div><b>FORMA DE PAGO:</b> ${paymentMethod || "Efectivo"}</div>`;
+
     doc.open();
     doc.write(`<!DOCTYPE html>
 <html>
@@ -329,7 +343,7 @@ export default function ThermalReceiptModal({
     ${docRowHtml}
     ${addressHtml}
     <div><b>FECHA DE EMISIÓN:</b> ${dateFormatted}</div>
-    <div><b>FORMA DE PAGO:</b> ${paymentMethod || "Efectivo"}</div>
+    ${paymentMethodHtml}
     <div><b>MONEDA:</b> SOLES</div>
     <div><b>PLACA:</b> ${effectivePlate || "S/P"}</div>
     ${observationHtml}
@@ -485,8 +499,18 @@ export default function ThermalReceiptModal({
                 <strong>FECHA DE EMISIÓN:</strong> {dateFormatted}
               </div>
               <div>
-                <strong>FORMA DE PAGO:</strong> {paymentMethod || "CONTADO"}
+                <strong>FORMA DE PAGO:</strong> {effectiveSplits.length > 1 ? "MIXTO" : (paymentMethod || "CONTADO")}
               </div>
+              {effectiveSplits.length > 1 && (
+                <div className="pl-2 space-y-0.5 text-[9px] border-l-2 border-black/30 my-0.5">
+                  {effectiveSplits.map((p, idx) => (
+                    <div key={idx} className="flex justify-between text-gray-800">
+                      <span>• {p.method} ({p.destination}):</span>
+                      <span className="font-mono font-bold">S/ {Number(p.amount).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div>
                 <strong>MONEDA:</strong> SOLES
               </div>

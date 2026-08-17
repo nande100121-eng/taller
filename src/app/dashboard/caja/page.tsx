@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAppStore } from "@/lib/store/app-store";
+import { useAppStore, PaymentSplit } from "@/lib/store/app-store";
 import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
@@ -41,6 +41,9 @@ import {
   User,
   Gauge,
   Sparkles,
+  Trash2,
+  Split,
+  Check,
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -85,6 +88,8 @@ export default function CajaPage() {
     discountAmount: number;
     paymentMethod: string;
     paymentDestination: string;
+    isSplitPayment?: boolean;
+    paymentSplits?: PaymentSplit[];
     receiptNumber: string;
     receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
     customerDoc: string;
@@ -121,6 +126,8 @@ export default function CajaPage() {
     paymentCondition: "PAGADO" | "CREDITO" | "PENDIENTE";
     paymentMethod: string;
     paymentDestination: string;
+    isSplitPayment?: boolean;
+    paymentSplits?: PaymentSplit[];
     isSearchingRuc?: boolean;
   } | null>(null);
 
@@ -140,6 +147,7 @@ export default function CajaPage() {
     items?: any[];
     discountAmount?: number;
     paymentMethod?: string;
+    paymentBreakdown?: PaymentSplit[];
     issuedAt?: string;
   } | null>(null);
 
@@ -610,6 +618,23 @@ export default function CajaPage() {
       ? inv.receipt_number
       : getCorrelativePreview(initialType as any);
 
+    const hasExistingSplits = Array.isArray(inv?.payment_breakdown) && inv.payment_breakdown.length > 1;
+    const initialSplits: PaymentSplit[] = (Array.isArray(inv?.payment_breakdown) && inv.payment_breakdown.length > 0)
+      ? inv.payment_breakdown.map((s: any, idx: number) => ({
+          id: s.id || `split-${Date.now()}-${idx}`,
+          method: s.method || "Efectivo",
+          destination: s.destination || eligibleDestinations[0] || "EMPRESA",
+          amount: typeof s.amount === "number" ? s.amount : Number(s.amount) || 0,
+        }))
+      : [
+          {
+            id: `split-1`,
+            method: (inv?.payment_method as any) || "Efectivo",
+            destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+            amount: total,
+          },
+        ];
+
     setPaymentModal({
       isOpen: true,
       workOrder: wo,
@@ -619,6 +644,8 @@ export default function CajaPage() {
       discountAmount: inv?.discounts || 0,
       paymentMethod: isZero ? "" : (inv?.payment_method as any) || "Efectivo",
       paymentDestination: isZero ? "" : inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+      isSplitPayment: hasExistingSplits,
+      paymentSplits: initialSplits,
       receiptNumber: previewNum,
       receiptType: initialType,
       customerDoc: inv?.customer_doc || "",
@@ -669,12 +696,12 @@ export default function CajaPage() {
     const isZeroAmount = (paymentModal.grandTotal || 0) === 0;
     const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
 
-    if (!isZeroAmount && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
+    if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
       showAlert("warning", "Debe seleccionar un Método de Pago.");
       return;
     }
 
-    if (!isZeroAmount && !paymentModal.paymentDestination && paymentModal.paymentDestination !== "Ninguno") {
+    if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentDestination && paymentModal.paymentDestination !== "Ninguno") {
       showAlert("warning", "Debe seleccionar el Destino del Pago (Personal o Empresa).");
       return;
     }
@@ -682,6 +709,24 @@ export default function CajaPage() {
     if (paymentModal.receiptType === "Factura" && (!paymentModal.customerDoc || paymentModal.customerDoc.length !== 11)) {
       showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
       return;
+    }
+
+    // Process Split Payments vs Single Payment
+    let finalMethod = (isZeroAmount && (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método")) ? "" : (paymentModal.paymentMethod === "Sin Método" ? "" : paymentModal.paymentMethod || "");
+    let finalDest = (isZeroAmount && (!paymentModal.paymentDestination || paymentModal.paymentDestination === "Ninguno")) ? "" : (paymentModal.paymentDestination === "Ninguno" ? "" : paymentModal.paymentDestination || "");
+    let paymentBreakdown: PaymentSplit[] | undefined = undefined;
+
+    if (!isZeroAmount && paymentModal.isSplitPayment && paymentModal.paymentSplits && paymentModal.paymentSplits.length > 0) {
+      const totalSplits = paymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const diff = Math.abs(paymentModal.grandTotal - totalSplits);
+      if (diff > 0.05) {
+        showAlert("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
+        return;
+      }
+      paymentBreakdown = paymentModal.paymentSplits;
+      const methodSummary = paymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
+      finalMethod = `Mixto (${methodSummary})`;
+      finalDest = Array.from(new Set(paymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
     }
 
     // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
@@ -705,8 +750,6 @@ export default function CajaPage() {
       }
     }
 
-    const finalMethod = (isZeroAmount && (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método")) ? "" : (paymentModal.paymentMethod === "Sin Método" ? "" : paymentModal.paymentMethod || "");
-    const finalDest = (isZeroAmount && (!paymentModal.paymentDestination || paymentModal.paymentDestination === "Ninguno")) ? "" : (paymentModal.paymentDestination === "Ninguno" ? "" : paymentModal.paymentDestination || "");
     const finalReceiptType = isSinComprobante ? "" : paymentModal.receiptType;
 
     confirmInvoicePayment({
@@ -719,6 +762,7 @@ export default function CajaPage() {
       customerDoc: paymentModal.customerDoc,
       customerName: paymentModal.customerName,
       customerAddress: paymentModal.customerAddress,
+      paymentBreakdown: paymentBreakdown,
     });
 
     showAlert("success", isZeroAmount
@@ -736,6 +780,7 @@ export default function CajaPage() {
     const currentAddress = paymentModal.customerAddress;
     const currentType = finalReceiptType;
     const currentObs = paymentModal.observations;
+    const currentBreakdown = paymentBreakdown;
 
     setPaymentModal(null);
 
@@ -755,6 +800,7 @@ export default function CajaPage() {
         grandTotal: currentTotal,
         items: currentItems,
         paymentMethod: currentMethod,
+        paymentBreakdown: currentBreakdown,
         issuedAt: new Date().toISOString(),
       });
     }
@@ -795,6 +841,15 @@ export default function CajaPage() {
       paymentCondition: "PAGADO",
       paymentMethod: "Efectivo",
       paymentDestination: eligibleDestinations[0] || "EMPRESA",
+      isSplitPayment: false,
+      paymentSplits: [
+        {
+          id: `split-1`,
+          method: "Efectivo",
+          destination: eligibleDestinations[0] || "EMPRESA",
+          amount: 0,
+        },
+      ],
       isSearchingRuc: false,
     });
   };
@@ -846,12 +901,12 @@ export default function CajaPage() {
     const isZeroAmount = (manualPaymentModal.price || 0) === 0;
     const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
 
-    if (!isZeroAmount && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
+    if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
       showAlert("warning", "Debe seleccionar un Método de Pago.");
       return;
     }
 
-    if (!isZeroAmount && !manualPaymentModal.paymentDestination && manualPaymentModal.paymentDestination !== "Ninguno") {
+    if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentDestination && manualPaymentModal.paymentDestination !== "Ninguno") {
       showAlert("warning", "Debe seleccionar el Destino del Pago.");
       return;
     }
@@ -859,6 +914,25 @@ export default function CajaPage() {
     if (manualPaymentModal.receiptType === "Factura" && (!manualPaymentModal.customerDoc || manualPaymentModal.customerDoc.length !== 11)) {
       showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
       return;
+    }
+
+    // Process Split Payments vs Single Payment
+    let finalMethod = (isZeroAmount && (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método")) ? "" : (manualPaymentModal.paymentMethod === "Sin Método" ? "" : manualPaymentModal.paymentMethod || "");
+    let finalDest = (isZeroAmount && (!manualPaymentModal.paymentDestination || manualPaymentModal.paymentDestination === "Ninguno")) ? "" : (manualPaymentModal.paymentDestination === "Ninguno" ? "" : manualPaymentModal.paymentDestination || "");
+    let paymentBreakdown: PaymentSplit[] | undefined = undefined;
+
+    if (!isZeroAmount && manualPaymentModal.isSplitPayment && manualPaymentModal.paymentSplits && manualPaymentModal.paymentSplits.length > 0) {
+      const priceNum = Number(manualPaymentModal.price) || 0;
+      const totalSplits = manualPaymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const diff = Math.abs(priceNum - totalSplits);
+      if (diff > 0.05) {
+        showAlert("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir exactamente con el precio total (S/ ${priceNum.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
+        return;
+      }
+      paymentBreakdown = manualPaymentModal.paymentSplits;
+      const methodSummary = manualPaymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
+      finalMethod = `Mixto (${methodSummary})`;
+      finalDest = Array.from(new Set(manualPaymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
     }
 
     // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
@@ -882,8 +956,6 @@ export default function CajaPage() {
       }
     }
 
-    const finalMethod = (isZeroAmount && (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método")) ? "" : (manualPaymentModal.paymentMethod === "Sin Método" ? "" : manualPaymentModal.paymentMethod || "");
-    const finalDest = (isZeroAmount && (!manualPaymentModal.paymentDestination || manualPaymentModal.paymentDestination === "Ninguno")) ? "" : (manualPaymentModal.paymentDestination === "Ninguno" ? "" : manualPaymentModal.paymentDestination || "");
     const finalReceiptType = isSinComprobante ? "" : manualPaymentModal.receiptType;
 
     const { workOrder: newWo, invoice: newInv } = registerDirectWorkshopPayment({
@@ -911,12 +983,14 @@ export default function CajaPage() {
       receipt_number: assignedReceiptNum,
       quinquennial_date: manualPaymentModal.quinquennialDate,
       chip_expiry_date: manualPaymentModal.chipExpiryDate,
+      payment_breakdown: paymentBreakdown,
     });
 
     showAlert("success", `¡Cobro directo de ${plate} (S/ ${Number(manualPaymentModal.price).toFixed(2)}) registrado y sincronizado en la Tabla de Registro Taller!`);
 
     const shouldPrint = !isSinComprobante && Number(manualPaymentModal.price) > 0;
     const modalData = { ...manualPaymentModal };
+    const currentBreakdown = paymentBreakdown;
     setManualPaymentModal(null);
 
     if (shouldPrint) {
@@ -934,6 +1008,7 @@ export default function CajaPage() {
         grandTotal: Number(modalData.price) || 0,
         items: newWo.items,
         paymentMethod: finalMethod,
+        paymentBreakdown: currentBreakdown,
         issuedAt: newDateTimeISO,
       });
     }
@@ -1821,59 +1896,291 @@ export default function CajaPage() {
                 )}
               </div>
 
-              {/* Payment Method */}
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <span>2. Método de Pago</span>
-                  {paymentModal.grandTotal === 0 && (
-                    <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
-                  )}
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
-                    const isSelected = method === "Sin Método" ? (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método") : paymentModal.paymentMethod === method;
-                    return (
+              {/* 2 & 3. Método y Destino de Pago (Pago Único o Pago Mixto / Parcial) */}
+              <div className="space-y-3 pt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2">
+                  <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>2. Método y Destino de Pago</span>
+                    {paymentModal.grandTotal === 0 && (
+                      <span className="text-[10px] text-gray-400 font-normal">(Opcional para S/ 0.00)</span>
+                    )}
+                  </label>
+
+                  {paymentModal.grandTotal > 0 && (
+                    <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
                       <button
-                        key={method}
                         type="button"
-                        onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
-                        className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                          isSelected
-                            ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
-                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                        onClick={() => {
+                          setPaymentModal({
+                            ...paymentModal,
+                            isSplitPayment: false,
+                          });
+                        }}
+                        className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                          !paymentModal.isSplitPayment
+                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                            : "text-gray-400 hover:text-white"
                         }`}
                       >
-                        <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
-                        <span>{method}</span>
+                        💵 Pago Único
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Payment Destination / Responsable */}
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>3. Destino del Pago / Responsable</span>
-                  {paymentModal.grandTotal === 0 && (
-                    <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentSplits = (paymentModal.paymentSplits && paymentModal.paymentSplits.length > 0)
+                            ? paymentModal.paymentSplits
+                            : [
+                                {
+                                  id: `split-1`,
+                                  method: paymentModal.paymentMethod || "Efectivo",
+                                  destination: paymentModal.paymentDestination || "EMPRESA",
+                                  amount: paymentModal.grandTotal,
+                                },
+                              ];
+                          setPaymentModal({
+                            ...paymentModal,
+                            isSplitPayment: true,
+                            paymentSplits: currentSplits,
+                          });
+                        }}
+                        className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                          paymentModal.isSplitPayment
+                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                            : "text-gray-400 hover:text-white"
+                        }`}
+                      >
+                        <Split className="w-3.5 h-3.5" />
+                        <span>Pago Mixto / Parcial</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20">
+                          {(paymentModal.paymentSplits || []).length}
+                        </span>
+                      </button>
+                    </div>
                   )}
-                </label>
-                <div className="relative">
-                  <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <select
-                    value={paymentModal.paymentDestination}
-                    onChange={(e) => setPaymentModal({ ...paymentModal, paymentDestination: e.target.value })}
-                    className="w-full pl-9 pr-4 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
-                  >
-                    <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
-                    {eligibleDestinations.map((dest) => (
-                      <option key={dest} value={dest}>
-                        {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
-                      </option>
-                    ))}
-                  </select>
                 </div>
+
+                {/* Single Payment Mode */}
+                {!paymentModal.isSplitPayment ? (
+                  <div className="space-y-3">
+                    {/* Method Selector */}
+                    <div>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
+                          const isSelected = method === "Sin Método" ? (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método") : paymentModal.paymentMethod === method;
+                          return (
+                            <button
+                              key={method}
+                              type="button"
+                              onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
+                              className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                isSelected
+                                  ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                                  : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                              }`}
+                            >
+                              <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
+                              <span>{method}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Destination Selector */}
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 mb-1">
+                        Destino del Pago / Responsable:
+                      </label>
+                      <div className="relative">
+                        <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <select
+                          value={paymentModal.paymentDestination}
+                          onChange={(e) => setPaymentModal({ ...paymentModal, paymentDestination: e.target.value })}
+                          className="w-full pl-9 pr-4 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
+                        >
+                          <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                          {eligibleDestinations.map((dest) => (
+                            <option key={dest} value={dest}>
+                              {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Multi-Method / Split Payment Mode */
+                  <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
+                      <span className="font-bold text-purple-300 flex items-center gap-1.5">
+                        <Coins className="w-4 h-4 text-purple-400" />
+                        <span>Desglose de Métodos (Efectivo + Culqi + Yape...)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentSum = (paymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                          const remaining = Math.max(0, Number((paymentModal.grandTotal - currentSum).toFixed(2)));
+                          const newSplits = [
+                            ...(paymentModal.paymentSplits || []),
+                            {
+                              id: `split-${Date.now()}-${Math.random()}`,
+                              method: "Culqi",
+                              destination: eligibleDestinations[0] || "EMPRESA",
+                              amount: remaining,
+                            },
+                          ];
+                          setPaymentModal({ ...paymentModal, paymentSplits: newSplits });
+                        }}
+                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 transition-all shadow"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ Añadir Método</span>
+                      </button>
+                    </div>
+
+                    {/* Split Rows */}
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {(paymentModal.paymentSplits || []).map((split, idx) => (
+                        <div
+                          key={split.id || idx}
+                          className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
+                        >
+                          <span className="text-[10px] font-mono font-bold text-purple-300 w-6 shrink-0 text-center py-1 bg-purple-950/60 rounded-md border border-purple-500/20">
+                            #{idx + 1}
+                          </span>
+
+                          {/* Method Select */}
+                          <div className="flex-1 min-w-[130px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Método:</label>
+                            <select
+                              value={split.method}
+                              onChange={(e) => {
+                                const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, method: e.target.value } : p
+                                );
+                                setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                            >
+                              <option value="Efectivo">💵 Efectivo</option>
+                              <option value="Culqi">💳 Culqi (Tarjeta)</option>
+                              <option value="Yape">📱 Yape</option>
+                              <option value="Plin">📱 Plin</option>
+                              <option value="Transferencia">🏦 Transferencia BCP</option>
+                            </select>
+                          </div>
+
+                          {/* Destination Select */}
+                          <div className="flex-1 min-w-[140px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Destino:</label>
+                            <select
+                              value={split.destination}
+                              onChange={(e) => {
+                                const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, destination: e.target.value } : p
+                                );
+                                setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                            >
+                              {eligibleDestinations.map((dest) => (
+                                <option key={dest} value={dest}>
+                                  {dest === "EMPRESA" ? "🏢 EMPRESA" : `👤 ${dest}`}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Amount Input */}
+                          <div className="w-full sm:w-28 shrink-0">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto (S/):</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={split.amount}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, amount: val } : p
+                                );
+                                setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-emerald-300 font-mono font-black focus:border-purple-400"
+                            />
+                          </div>
+
+                          {/* Delete Row */}
+                          {(paymentModal.paymentSplits || []).length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = (paymentModal.paymentSplits || []).filter((_, i) => i !== idx);
+                                setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors self-end sm:self-center"
+                              title="Eliminar este método"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Balance / Difference Checker */}
+                    {(() => {
+                      const totalSplits = (paymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                      const diff = Number((paymentModal.grandTotal - totalSplits).toFixed(2));
+                      const isBalanced = Math.abs(diff) < 0.01;
+
+                      return (
+                        <div
+                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${
+                            isBalanced
+                              ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
+                              : diff > 0
+                              ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                              : "bg-red-950/50 border-red-500/40 text-red-300"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>Total Cobro: <strong>S/ {paymentModal.grandTotal.toFixed(2)}</strong></span>
+                            <span>•</span>
+                            <span>Suma Desglose: <strong>S/ {totalSplits.toFixed(2)}</strong></span>
+                          </div>
+                          <div>
+                            {isBalanced ? (
+                              <span className="flex items-center gap-1 text-emerald-400">
+                                <Check className="w-4 h-4 stroke-[3]" />
+                                <span>Cuadra Exacto (S/ {paymentModal.grandTotal.toFixed(2)})</span>
+                              </span>
+                            ) : diff > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const lastIdx = (paymentModal.paymentSplits || []).length - 1;
+                                  if (lastIdx >= 0) {
+                                    const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                      i === lastIdx ? { ...p, amount: Number((p.amount + diff).toFixed(2)) } : p
+                                    );
+                                    setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                                  }
+                                }}
+                                className="px-2.5 py-1 bg-amber-500 text-black rounded-lg text-[11px] font-black hover:bg-amber-400 transition-colors shadow"
+                              >
+                                Falta S/ {diff.toFixed(2)} (Ajustar)
+                              </button>
+                            ) : (
+                              <span>Excede por S/ {Math.abs(diff).toFixed(2)}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* 4. Observaciones en el Comprobante (Concepto adicional escrito por el cajero) */}
@@ -2259,59 +2566,289 @@ export default function CajaPage() {
                   </div>
                 </div>
 
-                {/* Método de Pago */}
-                <div>
-                  <label className="text-gray-300 block mb-1.5 font-bold flex items-center justify-between">
-                    <span>Método de Pago</span>
-                    {manualPaymentModal.price === 0 && (
-                      <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
-                    )}
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
-                      const isSelected = method === "Sin Método" ? (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método") : manualPaymentModal.paymentMethod === method;
-                      return (
+                {/* Método y Destino de Pago (Pago Único o Pago Mixto / Parcial) */}
+                <div className="space-y-3 pt-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2">
+                    <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>Método y Destino de Pago</span>
+                      {manualPaymentModal.price === 0 && (
+                        <span className="text-[10px] text-gray-400 font-normal">(Opcional para S/ 0.00)</span>
+                      )}
+                    </label>
+
+                    {manualPaymentModal.price > 0 && (
+                      <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
                         <button
-                          key={method}
                           type="button"
-                          onClick={() => setManualPaymentModal({ ...manualPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
-                          className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                            isSelected
-                              ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
-                              : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                          onClick={() => {
+                            setManualPaymentModal({
+                              ...manualPaymentModal,
+                              isSplitPayment: false,
+                            });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                            !manualPaymentModal.isSplitPayment
+                              ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                              : "text-gray-400 hover:text-white"
                           }`}
                         >
-                          <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
-                          <span>{method}</span>
+                          💵 Pago Único
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Destino del Pago */}
-                <div>
-                  <label className="text-gray-300 block mb-1 font-bold flex items-center justify-between">
-                    <span>Destino del Pago / Responsable</span>
-                    {manualPaymentModal.price === 0 && (
-                      <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentSplits = (manualPaymentModal.paymentSplits && manualPaymentModal.paymentSplits.length > 0)
+                              ? manualPaymentModal.paymentSplits
+                              : [
+                                  {
+                                    id: `split-1`,
+                                    method: manualPaymentModal.paymentMethod || "Efectivo",
+                                    destination: manualPaymentModal.paymentDestination || "EMPRESA",
+                                    amount: manualPaymentModal.price,
+                                  },
+                                ];
+                            setManualPaymentModal({
+                              ...manualPaymentModal,
+                              isSplitPayment: true,
+                              paymentSplits: currentSplits,
+                            });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                            manualPaymentModal.isSplitPayment
+                              ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                              : "text-gray-400 hover:text-white"
+                          }`}
+                        >
+                          <Split className="w-3.5 h-3.5" />
+                          <span>Pago Mixto / Parcial</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20">
+                            {(manualPaymentModal.paymentSplits || []).length}
+                          </span>
+                        </button>
+                      </div>
                     )}
-                  </label>
-                  <div className="relative">
-                    <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <select
-                      value={manualPaymentModal.paymentDestination}
-                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, paymentDestination: e.target.value })}
-                      className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
-                    >
-                      <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
-                      {eligibleDestinations.map((dest) => (
-                        <option key={dest} value={dest}>
-                          {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
-                        </option>
-                      ))}
-                    </select>
                   </div>
+
+                  {/* Single Payment Mode */}
+                  {!manualPaymentModal.isSplitPayment ? (
+                    <div className="space-y-3">
+                      <div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
+                            const isSelected = method === "Sin Método" ? (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método") : manualPaymentModal.paymentMethod === method;
+                            return (
+                              <button
+                                key={method}
+                                type="button"
+                                onClick={() => setManualPaymentModal({ ...manualPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
+                                className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                  isSelected
+                                    ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                                    : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                                }`}
+                              >
+                                <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
+                                <span>{method}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-gray-300 block mb-1 font-bold text-xs">
+                          Destino del Pago / Responsable:
+                        </label>
+                        <div className="relative">
+                          <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <select
+                            value={manualPaymentModal.paymentDestination}
+                            onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, paymentDestination: e.target.value })}
+                            className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
+                          >
+                            <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                            {eligibleDestinations.map((dest) => (
+                              <option key={dest} value={dest}>
+                                {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Multi-Method / Split Payment Mode */
+                    <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                      <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
+                        <span className="font-bold text-purple-300 flex items-center gap-1.5">
+                          <Coins className="w-4 h-4 text-purple-400" />
+                          <span>Desglose de Métodos (Efectivo + Culqi + Yape...)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentSum = (manualPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                            const remaining = Math.max(0, Number((manualPaymentModal.price - currentSum).toFixed(2)));
+                            const newSplits = [
+                              ...(manualPaymentModal.paymentSplits || []),
+                              {
+                                id: `split-${Date.now()}-${Math.random()}`,
+                                method: "Culqi",
+                                destination: eligibleDestinations[0] || "EMPRESA",
+                                amount: remaining,
+                              },
+                            ];
+                            setManualPaymentModal({ ...manualPaymentModal, paymentSplits: newSplits });
+                          }}
+                          className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 transition-all shadow"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Añadir Método</span>
+                        </button>
+                      </div>
+
+                      {/* Split Rows */}
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        {(manualPaymentModal.paymentSplits || []).map((split, idx) => (
+                          <div
+                            key={split.id || idx}
+                            className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
+                          >
+                            <span className="text-[10px] font-mono font-bold text-purple-300 w-6 shrink-0 text-center py-1 bg-purple-950/60 rounded-md border border-purple-500/20">
+                              #{idx + 1}
+                            </span>
+
+                            {/* Method Select */}
+                            <div className="flex-1 min-w-[130px]">
+                              <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Método:</label>
+                              <select
+                                value={split.method}
+                                onChange={(e) => {
+                                  const updated = (manualPaymentModal.paymentSplits || []).map((p, i) =>
+                                    i === idx ? { ...p, method: e.target.value } : p
+                                  );
+                                  setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                              >
+                                <option value="Efectivo">💵 Efectivo</option>
+                                <option value="Culqi">💳 Culqi (Tarjeta)</option>
+                                <option value="Yape">📱 Yape</option>
+                                <option value="Plin">📱 Plin</option>
+                                <option value="Transferencia">🏦 Transferencia BCP</option>
+                              </select>
+                            </div>
+
+                            {/* Destination Select */}
+                            <div className="flex-1 min-w-[140px]">
+                              <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Destino:</label>
+                              <select
+                                value={split.destination}
+                                onChange={(e) => {
+                                  const updated = (manualPaymentModal.paymentSplits || []).map((p, i) =>
+                                    i === idx ? { ...p, destination: e.target.value } : p
+                                  );
+                                  setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                              >
+                                {eligibleDestinations.map((dest) => (
+                                  <option key={dest} value={dest}>
+                                    {dest === "EMPRESA" ? "🏢 EMPRESA" : `👤 ${dest}`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Amount Input */}
+                            <div className="w-full sm:w-28 shrink-0">
+                              <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto (S/):</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={split.amount}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  const updated = (manualPaymentModal.paymentSplits || []).map((p, i) =>
+                                    i === idx ? { ...p, amount: val } : p
+                                  );
+                                  setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-emerald-300 font-mono font-black focus:border-purple-400"
+                              />
+                            </div>
+
+                            {/* Delete Row */}
+                            {(manualPaymentModal.paymentSplits || []).length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = (manualPaymentModal.paymentSplits || []).filter((_, i) => i !== idx);
+                                  setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors self-end sm:self-center"
+                                title="Eliminar este método"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Balance / Difference Checker */}
+                      {(() => {
+                        const totalSplits = (manualPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                        const diff = Number((manualPaymentModal.price - totalSplits).toFixed(2));
+                        const isBalanced = Math.abs(diff) < 0.01;
+
+                        return (
+                          <div
+                            className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${
+                              isBalanced
+                                ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
+                                : diff > 0
+                                ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                                : "bg-red-950/50 border-red-500/40 text-red-300"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span>Precio Total: <strong>S/ {manualPaymentModal.price.toFixed(2)}</strong></span>
+                              <span>•</span>
+                              <span>Suma Desglose: <strong>S/ {totalSplits.toFixed(2)}</strong></span>
+                            </div>
+                            <div>
+                              {isBalanced ? (
+                                <span className="flex items-center gap-1 text-emerald-400">
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                  <span>Cuadra Exacto (S/ {manualPaymentModal.price.toFixed(2)})</span>
+                                </span>
+                              ) : diff > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const lastIdx = (manualPaymentModal.paymentSplits || []).length - 1;
+                                    if (lastIdx >= 0) {
+                                      const updated = (manualPaymentModal.paymentSplits || []).map((p, i) =>
+                                        i === lastIdx ? { ...p, amount: Number((p.amount + diff).toFixed(2)) } : p
+                                      );
+                                      setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 bg-amber-500 text-black rounded-lg text-[11px] font-black hover:bg-amber-400 transition-colors shadow"
+                                >
+                                  Falta S/ {diff.toFixed(2)} (Ajustar)
+                                </button>
+                              ) : (
+                                <span>Excede por S/ {Math.abs(diff).toFixed(2)}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2357,6 +2894,7 @@ export default function CajaPage() {
           items={activeReceiptModal.items}
           discountAmount={activeReceiptModal.discountAmount}
           paymentMethod={activeReceiptModal.paymentMethod}
+          paymentBreakdown={activeReceiptModal.paymentBreakdown || activeReceiptModal.invoice?.payment_breakdown}
           issuedAt={activeReceiptModal.issuedAt}
         />
       )}
