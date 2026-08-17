@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import ReactDOM from "react-dom";
+import JsBarcode from "jsbarcode";
 import { InventoryItem } from "@/lib/store/app-store";
 import { BarcodeSvg } from "./BarcodeSvg";
 import {
@@ -145,9 +147,29 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
       reader.readAsDataURL(file);
     }
   };
-
   const handlePrint = () => {
-    window.print();
+    // Ensure the print container exists at body level before printing
+    const el = document.getElementById("barcode-print-sheets");
+    if (el) {
+      // Force all child SVGs to re-render (some browsers skip invisible SVGs)
+      el.querySelectorAll("svg").forEach((svg) => {
+        const val = svg.getAttribute("data-barcode-value");
+        if (val && typeof JsBarcode !== "undefined") {
+          try {
+            JsBarcode(svg, val.trim() || "SKU-000", {
+              format: "CODE128",
+              width: 1.5,
+              height: 34,
+              displayValue: false,
+              margin: 2,
+              background: "transparent",
+              lineColor: "#000000",
+            });
+          } catch {}
+        }
+      });
+    }
+    setTimeout(() => window.print(), 150);
   };
 
   if (!isOpen) return null;
@@ -156,6 +178,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   const currentPage = printPages[previewPageIndex] || printPages[0];
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
       {/* Modal Container with ReyGas Dark Glassmorphic Design */}
       <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-4 sm:p-6 max-w-6xl w-full shadow-2xl shadow-black/95 space-y-5 my-auto max-h-[95vh] flex flex-col">
@@ -509,7 +532,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                 </div>
               ) : (
                 <div className="text-center text-gray-600 text-xs font-bold py-12">
-                  No hay productos registrados que inicien con la letra "{selectedLetter}".
+                  No hay productos registrados que inicien con la letra &quot;{selectedLetter}&quot;.
                 </div>
               )}
             </div>
@@ -545,159 +568,174 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
         </div>
 
       </div>
+    </div>
 
-      {/* ========================================================================= */}
-      {/* HIDDEN IN SCREEN - VISIBLE IN @media print FOR DIRECT A4 PRINTING */}
-      {/* ========================================================================= */}
-      <div id="barcode-print-sheets" className="hidden">
-        {printPages.map((page, pIdx) => (
-          <div key={`sheet-${pIdx}`} className="barcode-print-page">
-            {/* 2 x 4 Grid = 8 Labels */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gridTemplateRows: "repeat(4, 1fr)",
-                gap: "3.5mm",
-                height: "100%",
-                boxSizing: "border-box",
-              }}
-            >
-              {page.items.map((item, itemIdx) => (
-                <div
-                  key={`print-item-${item.id}-${itemIdx}`}
-                  className="barcode-card-print"
-                  style={{
-                    padding: "3.5mm",
-                    borderRadius: "3mm",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "3mm",
-                    overflow: "hidden",
-                    background: "#ffffff",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  {/* Espacio para Imagen del Producto */}
+    {/* ========================================================================= */}
+    {/* PRINT-ONLY CONTAINER — Rendered via Portal at <body> level.              */}
+    {/* Uses inline style to hide on screen and show only when printing.         */}
+    {/* ========================================================================= */}
+    {typeof document !== "undefined" &&
+      ReactDOM.createPortal(
+        <div
+          id="barcode-print-sheets"
+          style={{
+            display: "none",
+            visibility: "hidden",
+            position: "fixed",
+            left: "-9999px",
+            top: 0,
+          }}
+        >
+          {printPages.map((page, pIdx) => (
+            <div key={`sheet-${pIdx}`} className="barcode-print-page">
+              {/* 2 x 4 Grid = 8 Labels */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateRows: "repeat(4, 1fr)",
+                  gap: "3.5mm",
+                  height: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                {page.items.map((item, itemIdx) => (
                   <div
+                    key={`print-item-${item.id}-${itemIdx}`}
+                    className="barcode-card-print"
                     style={{
-                      width: "28mm",
-                      height: "28mm",
-                      border: "1px solid #dddddd",
-                      borderRadius: "2mm",
-                      background: "#fafafa",
+                      padding: "3.5mm",
+                      borderRadius: "3mm",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "3mm",
+                      overflow: "hidden",
+                      background: "#ffffff",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {/* Espacio para Imagen del Producto */}
+                    <div
+                      style={{
+                        width: "28mm",
+                        height: "28mm",
+                        border: "1px solid #dddddd",
+                        borderRadius: "2mm",
+                        background: "#fafafa",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "1mm",
+                        flexShrink: 0,
+                        overflow: "hidden",
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      {productImageUrl && (
+                        <img
+                          src={productImageUrl}
+                          alt={item.name}
+                          style={{
+                            maxWidth: "100%",
+                            maxHeight: "100%",
+                            objectFit: "contain",
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Información del Producto y Código de Barras */}
+                    <div
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "space-between",
+                        height: "100%",
+                        minWidth: 0,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <div>
+                        {/* Nombre del Producto */}
+                        <div
+                          style={{
+                            fontSize: "9.5pt",
+                            fontWeight: "900",
+                            color: "#000000",
+                            lineHeight: "1.15",
+                            textTransform: "uppercase",
+                            marginBottom: "1mm",
+                          }}
+                        >
+                          {item.name}
+                        </div>
+
+                        {/* Marca y Serie */}
+                        <div
+                          style={{
+                            fontSize: "8pt",
+                            color: "#444444",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {item.brand && <span>Marca: <strong style={{ color: "#000000" }}>{item.brand}</strong></span>}
+                          {item.serial_number && item.serial_number !== "-" && (
+                            <span> • S/N: <strong style={{ fontFamily: "monospace", color: "#000000" }}>{item.serial_number}</strong></span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Barcode SVG + SKU */}
+                      <div style={{ textAlign: "center", marginTop: "1.5mm" }}>
+                        <BarcodeSvg
+                          value={item.sku_barcode}
+                          className="w-full"
+                          width={1.5}
+                          height={34}
+                        />
+                        <div
+                          style={{
+                            fontSize: "8.5pt",
+                            fontWeight: "900",
+                            fontFamily: "monospace",
+                            letterSpacing: "0.5px",
+                            marginTop: "0.5mm",
+                            color: "#000000",
+                          }}
+                        >
+                          {item.sku_barcode}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Empty place filler if page has less than 8 items */}
+                {Array.from({ length: 8 - page.items.length }).map((_, emptyIdx) => (
+                  <div
+                    key={`empty-print-${emptyIdx}`}
+                    style={{
+                      border: "1px dotted #dddddd",
+                      borderRadius: "3mm",
+                      padding: "3mm",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      padding: "1mm",
-                      flexShrink: 0,
-                      overflow: "hidden",
-                      boxSizing: "border-box",
+                      color: "#cccccc",
+                      fontSize: "8pt",
+                      fontFamily: "monospace",
                     }}
                   >
-                    {productImageUrl && (
-                      <img
-                        src={productImageUrl}
-                        alt={item.name}
-                        style={{
-                          maxWidth: "100%",
-                          maxHeight: "100%",
-                          objectFit: "contain",
-                        }}
-                      />
-                    )}
+                    [ Espacio Libre ]
                   </div>
-
-                  {/* Información del Producto y Código de Barras */}
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                      height: "100%",
-                      minWidth: 0,
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    <div>
-                      {/* Nombre del Producto */}
-                      <div
-                        style={{
-                          fontSize: "9.5pt",
-                          fontWeight: "900",
-                          color: "#000000",
-                          lineHeight: "1.15",
-                          textTransform: "uppercase",
-                          marginBottom: "1mm",
-                        }}
-                      >
-                        {item.name}
-                      </div>
-
-                      {/* Marca y Serie */}
-                      <div
-                        style={{
-                          fontSize: "8pt",
-                          color: "#444444",
-                          fontWeight: "600",
-                        }}
-                      >
-                        {item.brand && <span>Marca: <strong style={{ color: "#000000" }}>{item.brand}</strong></span>}
-                        {item.serial_number && item.serial_number !== "-" && (
-                          <span> • S/N: <strong style={{ fontFamily: "monospace", color: "#000000" }}>{item.serial_number}</strong></span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Barcode SVG + SKU */}
-                    <div style={{ textAlign: "center", marginTop: "1.5mm" }}>
-                      <BarcodeSvg
-                        value={item.sku_barcode}
-                        className="w-full"
-                        width={1.5}
-                        height={34}
-                      />
-                      <div
-                        style={{
-                          fontSize: "8.5pt",
-                          fontWeight: "900",
-                          fontFamily: "monospace",
-                          letterSpacing: "0.5px",
-                          marginTop: "0.5mm",
-                          color: "#000000",
-                        }}
-                      >
-                        {item.sku_barcode}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* Empty place filler if page has less than 8 items */}
-              {Array.from({ length: 8 - page.items.length }).map((_, emptyIdx) => (
-                <div
-                  key={`empty-print-${emptyIdx}`}
-                  style={{
-                    border: "1px dotted #dddddd",
-                    borderRadius: "3mm",
-                    padding: "3mm",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#cccccc",
-                    fontSize: "8pt",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  [ Espacio Libre ]
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
   );
 };
