@@ -178,6 +178,7 @@ export function WorkshopDailyReportView({
     } else if (
       methodUpper.includes("TARJETA") ||
       methodUpper.includes("CULQI") ||
+      methodUpper.includes("CULQUI") ||
       methodUpper.includes("POS") ||
       methodUpper.includes("CARD")
     ) {

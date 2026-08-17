@@ -99,6 +99,7 @@ export function parseSplitPaymentString(
     result.transferencia = finalAmount;
   } else if (
     methodUpper.includes("CULQI") ||
+    methodUpper.includes("CULQUI") ||
     methodUpper.includes("QULQUI") ||
     methodUpper.includes("TARJETA") ||
     methodUpper.includes("POS")
