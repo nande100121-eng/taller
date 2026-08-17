@@ -9,7 +9,11 @@ export const PERU_TIMEZONE = "America/Lima";
  * Returns today's date in Peru formatted as "YYYY-MM-DD" (e.g. "2026-08-14")
  */
 export function getPeruDateString(date: Date | string | number = new Date()): string {
-  const d = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
+  if (typeof date === "string") {
+    const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  }
+  const d = typeof date === "number" ? new Date(date) : date instanceof Date ? date : new Date(date);
   if (isNaN(d.getTime())) return "";
 
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -22,10 +26,36 @@ export function getPeruDateString(date: Date | string | number = new Date()): st
 }
 
 /**
+ * Returns ISO string anchored to Peru timezone (-05:00)
+ */
+export function buildPeruISOString(dateStr: string, timeStr = "08:30"): string {
+  const cleanDate = dateStr.slice(0, 10);
+  const cleanTime = (timeStr || "08:30").slice(0, 5);
+  return `${cleanDate}T${cleanTime}:00-05:00`;
+}
+
+/**
  * Formats date into Peru standard format "DD/MM/YYYY" (e.g. "14/08/2026")
+ * Guaranteed never to roll back to the previous day due to UTC midnight parsing.
  */
 export function formatPeruDate(date: Date | string | number = new Date()): string {
-  const d = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
+  if (!date) return "";
+  if (typeof date === "string") {
+    const trimmed = date.trim();
+    // If format YYYY-MM-DD or starts with YYYY-MM-DD
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      return `${d}/${m}/${y}`;
+    }
+    // If format DD/MM/YYYY
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(trimmed)) {
+      const parts = trimmed.split("/");
+      return `${parts[0].padStart(2, "0")}/${parts[1].padStart(2, "0")}/${parts[2]}`;
+    }
+  }
+
+  const d = typeof date === "number" ? new Date(date) : date instanceof Date ? date : new Date(date);
   if (isNaN(d.getTime())) return "";
 
   return new Intl.DateTimeFormat("es-PE", {
@@ -37,13 +67,34 @@ export function formatPeruDate(date: Date | string | number = new Date()): strin
 }
 
 /**
- * Formats date and time into Peru standard format "DD/MM/YYYY HH:MM:SS" or "DD/MM/YYYY HH:MM"
+ * Formats date and time into Peru standard format "DD/MM/YYYY HH:MM" or "DD/MM/YYYY HH:MM:SS"
+ * Guaranteed never to roll back date.
  */
 export function formatPeruDateTime(
   date: Date | string | number = new Date(),
-  includeSeconds = true
+  includeSeconds = false
 ): string {
-  const d = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
+  if (!date) return "";
+  if (typeof date === "string") {
+    const trimmed = date.trim();
+    // Check if it matches ISO with time: YYYY-MM-DDTHH:mm
+    const timeMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (timeMatch) {
+      const [, y, m, d, hh, mm, ss] = timeMatch;
+      if (includeSeconds && ss) {
+        return `${d}/${m}/${y} ${hh}:${mm}:${ss}`;
+      }
+      return `${d}/${m}/${y} ${hh}:${mm}`;
+    }
+    // Check if it's date only: YYYY-MM-DD
+    const dateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dateMatch) {
+      const [, y, m, d] = dateMatch;
+      return `${d}/${m}/${y}`;
+    }
+  }
+
+  const d = typeof date === "number" ? new Date(date) : date instanceof Date ? date : new Date(date);
   if (isNaN(d.getTime())) return "";
 
   const options: Intl.DateTimeFormatOptions = {

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
-import { formatPeruDate, getPeruDateString } from "@/lib/utils/date-utils";
+import { formatPeruDate, getPeruDateString, buildPeruISOString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   Table,
@@ -753,7 +753,7 @@ export default function AdminTablesPage() {
     e.preventDefault();
     if (!editingWorkshopOrder) return;
 
-    const newDateTimeISO = `${editingWorkshopOrder.entryDate}T${editingWorkshopOrder.entryTime || "08:30"}:00.000Z`;
+    const newDateTimeISO = buildPeruISOString(editingWorkshopOrder.entryDate, editingWorkshopOrder.entryTime || "08:30");
 
     // 1. Update Work Order (including entry_time / hora de ingreso!)
     updateWorkOrder(editingWorkshopOrder.orderId, {

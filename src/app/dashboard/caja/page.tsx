@@ -72,10 +72,10 @@ export default function CajaPage() {
     grandTotal: number;
     breakdownItems: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }>;
     discountAmount: number;
-    paymentMethod: "Efectivo" | "Yape" | "Transferencia" | "Culqi";
+    paymentMethod: string;
     paymentDestination: string;
     receiptNumber: string;
-    receiptType: "Ticket" | "Boleta" | "Factura";
+    receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
     customerDoc: string;
     customerName: string;
     customerAddress: string;
@@ -363,7 +363,6 @@ export default function CajaPage() {
   // Handle open payment confirmation modal
   const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
-    const initialType: "Ticket" | "Boleta" | "Factura" = (inv?.receipt_type as any) || "Ticket";
 
     // Build itemized breakdown
     const breakdown: Array<{ description: string; quantity: number; unit_price: number; subtotal: number }> = [];
@@ -411,9 +410,13 @@ export default function CajaPage() {
       });
     }
 
-    const previewNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
+    const isZero = total === 0;
+    const initialType = (isZero ? "Sin Comprobante" : "Ticket") as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
+    const previewNum = isZero
+      ? ""
+      : inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
       ? inv.receipt_number
-      : getCorrelativePreview(initialType);
+      : getCorrelativePreview(initialType as any);
 
     setPaymentModal({
       isOpen: true,
@@ -422,8 +425,8 @@ export default function CajaPage() {
       grandTotal: total,
       breakdownItems: breakdown,
       discountAmount: inv?.discounts || 0,
-      paymentMethod: (inv?.payment_method as any) || "Efectivo",
-      paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+      paymentMethod: isZero ? "" : (inv?.payment_method as any) || "Efectivo",
+      paymentDestination: isZero ? "" : inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
       receiptNumber: previewNum,
       receiptType: initialType,
       customerDoc: inv?.customer_doc || "",
@@ -471,12 +474,15 @@ export default function CajaPage() {
     e.preventDefault();
     if (!paymentModal) return;
 
-    if (!paymentModal.paymentMethod) {
+    const isZeroAmount = (paymentModal.grandTotal || 0) === 0;
+    const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
+
+    if (!isZeroAmount && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
       showAlert("warning", "Debe seleccionar un Método de Pago.");
       return;
     }
 
-    if (!paymentModal.paymentDestination) {
+    if (!isZeroAmount && !paymentModal.paymentDestination && paymentModal.paymentDestination !== "Ninguno") {
       showAlert("warning", "Debe seleccionar el Destino del Pago (Personal o Empresa).");
       return;
     }
@@ -486,54 +492,65 @@ export default function CajaPage() {
       return;
     }
 
-    // Auto-advance correlative sequence in store
-    const assignedReceiptNum = getAndIncrementReceiptNumber(paymentModal.receiptType);
+    // Auto-advance correlative sequence in store only if standard receipt type
+    let assignedReceiptNum = "";
+    if (!isSinComprobante && (paymentModal.receiptType === "Ticket" || paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura")) {
+      assignedReceiptNum = paymentModal.receiptNumber || getAndIncrementReceiptNumber(paymentModal.receiptType);
+    }
+
+    const finalMethod = (isZeroAmount && (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método")) ? "" : (paymentModal.paymentMethod === "Sin Método" ? "" : paymentModal.paymentMethod || "");
+    const finalDest = (isZeroAmount && (!paymentModal.paymentDestination || paymentModal.paymentDestination === "Ninguno")) ? "" : (paymentModal.paymentDestination === "Ninguno" ? "" : paymentModal.paymentDestination || "");
+    const finalReceiptType = isSinComprobante ? "" : paymentModal.receiptType;
 
     confirmInvoicePayment({
       invoiceId: paymentModal.invoice?.id,
       workOrderId: paymentModal.workOrder?.id,
-      paymentMethod: paymentModal.paymentMethod,
-      paymentDestination: paymentModal.paymentDestination,
+      paymentMethod: finalMethod,
+      paymentDestination: finalDest,
       receiptNumber: assignedReceiptNum,
-      receiptType: paymentModal.receiptType,
+      receiptType: finalReceiptType,
       customerDoc: paymentModal.customerDoc,
       customerName: paymentModal.customerName,
       customerAddress: paymentModal.customerAddress,
     });
 
-    showAlert("success", `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
+    showAlert("success", isZeroAmount
+      ? `¡Atención (S/ 0.00) de ${paymentModal.workOrder?.vehicle_plate} confirmada y registrada con éxito!`
+      : `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
 
-    // Prepare active receipt modal for immediate print / download
+    // Prepare active receipt modal for immediate print / download only if not Sin Comprobante
     const currentWo = paymentModal.workOrder;
     const currentInv = paymentModal.invoice;
     const currentTotal = paymentModal.grandTotal;
     const currentItems = paymentModal.breakdownItems;
-    const currentMethod = paymentModal.paymentMethod;
+    const currentMethod = finalMethod;
     const currentDoc = paymentModal.customerDoc;
     const currentName = paymentModal.customerName;
     const currentAddress = paymentModal.customerAddress;
-    const currentType = paymentModal.receiptType;
+    const currentType = finalReceiptType;
     const currentObs = paymentModal.observations;
 
     setPaymentModal(null);
 
-    // Open Thermal Receipt modal for printing
-    setActiveReceiptModal({
-      isOpen: true,
-      workOrder: currentWo,
-      invoice: currentInv,
-      receiptType: currentType,
-      receiptNumber: assignedReceiptNum,
-      customerDoc: currentDoc,
-      customerName: currentName,
-      customerAddress: currentAddress,
-      plate: currentWo?.vehicle_plate,
-      observations: currentObs,
-      grandTotal: currentTotal,
-      items: currentItems,
-      paymentMethod: currentMethod,
-      issuedAt: new Date().toISOString(),
-    });
+    // Open Thermal Receipt modal for printing only if not Sin Comprobante and total > 0
+    if (!isSinComprobante && currentTotal > 0) {
+      setActiveReceiptModal({
+        isOpen: true,
+        workOrder: currentWo,
+        invoice: currentInv,
+        receiptType: (currentType || "Ticket") as any,
+        receiptNumber: assignedReceiptNum,
+        customerDoc: currentDoc,
+        customerName: currentName,
+        customerAddress: currentAddress,
+        plate: currentWo?.vehicle_plate,
+        observations: currentObs,
+        grandTotal: currentTotal,
+        items: currentItems,
+        paymentMethod: currentMethod,
+        issuedAt: new Date().toISOString(),
+      });
+    }
   };
 
   // Open receipt viewer from card
@@ -1098,18 +1115,21 @@ export default function CajaPage() {
 
               {/* Receipt Type Selection */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
-                  1. Tipo de Comprobante a Emitir *
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>1. Tipo de Comprobante a Emitir *</span>
+                  {paymentModal.grandTotal === 0 && (
+                    <span className="text-[10px] text-amber-300 font-bold">Monto S/ 0.00 (Gratuito / Sin Comprobante)</span>
+                  )}
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["Ticket", "Boleta", "Factura"] as const).map((type) => {
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(["Ticket", "Boleta", "Factura", "Sin Comprobante"] as const).map((type) => {
                     const isSelected = paymentModal.receiptType === type;
                     return (
                       <button
                         key={type}
                         type="button"
                         onClick={() => {
-                          const nextNum = getCorrelativePreview(type);
+                          const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
                           setPaymentModal({
                             ...paymentModal,
                             receiptType: type,
@@ -1117,6 +1137,8 @@ export default function CajaPage() {
                             customerName:
                               type === "Ticket" && !paymentModal.customerName
                                 ? "CLIENTES VARIOS"
+                                : type === "Sin Comprobante"
+                                ? (paymentModal.customerName || "CLIENTES VARIOS")
                                 : paymentModal.customerName,
                           });
                         }}
@@ -1126,7 +1148,7 @@ export default function CajaPage() {
                             : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                         }`}
                       >
-                        <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : "📑"}</span>
+                        <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
                         <span>{type}</span>
                       </button>
                     );
@@ -1136,14 +1158,20 @@ export default function CajaPage() {
 
               {/* Dynamic Inputs according to Receipt Type */}
               <div className="p-3.5 bg-reygas-surface/60 rounded-2xl border border-white/10 space-y-3 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400 font-bold uppercase text-[11px]">
-                    Correlativo Asignado:
-                  </span>
-                  <span className="font-mono font-bold text-amber-300 text-sm">
-                    {paymentModal.receiptNumber}
-                  </span>
-                </div>
+                {paymentModal.receiptType !== "Sin Comprobante" ? (
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-400 font-bold uppercase text-[11px]">
+                      Correlativo Asignado:
+                    </span>
+                    <span className="font-mono font-bold text-amber-300 text-sm">
+                      {paymentModal.receiptNumber}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-gray-400 italic">
+                    Sin emisión de comprobante tributario (Atención de costo S/ 0 o exonerada).
+                  </div>
+                )}
 
                 {/* Boleta DNI */}
                 {paymentModal.receiptType === "Boleta" && (
@@ -1232,8 +1260,8 @@ export default function CajaPage() {
                   </div>
                 )}
 
-                {/* Ticket Cliente */}
-                {paymentModal.receiptType === "Ticket" && (
+                {/* Ticket o Sin Comprobante Cliente */}
+                {(paymentModal.receiptType === "Ticket" || paymentModal.receiptType === "Sin Comprobante") && (
                   <div>
                     <label className="text-gray-300 block mb-1 font-bold">Nombre del Cliente / Receptor:</label>
                     <input
@@ -1247,26 +1275,29 @@ export default function CajaPage() {
                 )}
               </div>
 
-              {/* Payment Method (Obligatorio) */}
+              {/* Payment Method */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
-                  2. Método de Pago *
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>2. Método de Pago</span>
+                  {paymentModal.grandTotal === 0 && (
+                    <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                  )}
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(["Efectivo", "Yape", "Transferencia", "Culqi"] as const).map((method) => {
-                    const isSelected = paymentModal.paymentMethod === method;
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
+                    const isSelected = method === "Sin Método" ? (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método") : paymentModal.paymentMethod === method;
                     return (
                       <button
                         key={method}
                         type="button"
-                        onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method })}
-                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                        onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
+                        className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
                           isSelected
                             ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
                             : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                         }`}
                       >
-                        <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : "💳"}</span>
+                        <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
                         <span>{method}</span>
                       </button>
                     );
@@ -1274,19 +1305,22 @@ export default function CajaPage() {
                 </div>
               </div>
 
-              {/* Payment Destination / Responsable (Obligatorio) */}
+              {/* Payment Destination / Responsable */}
               <div>
                 <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>3. Destino del Pago / Responsable *</span>
+                  <span>3. Destino del Pago / Responsable</span>
+                  {paymentModal.grandTotal === 0 && (
+                    <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                  )}
                 </label>
                 <div className="relative">
                   <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <select
                     value={paymentModal.paymentDestination}
                     onChange={(e) => setPaymentModal({ ...paymentModal, paymentDestination: e.target.value })}
-                    required
                     className="w-full pl-9 pr-4 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
                   >
+                    <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
                     {eligibleDestinations.map((dest) => (
                       <option key={dest} value={dest}>
                         {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}

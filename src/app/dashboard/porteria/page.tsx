@@ -32,7 +32,7 @@ import {
   HelpCircle,
   Trash2
 } from "lucide-react";
-import { formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 
 export default function PorteriaPage() {
   const {
@@ -366,9 +366,9 @@ export default function PorteriaPage() {
       return;
     }
 
-    // Build ISO timestamp from chosen date and time
+    // Build ISO timestamp from chosen date and time in Peru timezone
     const finalTime = entryTime || getCurrentPeruTime();
-    const chosenDateTimeISO = `${entryDate || selectedDate}T${finalTime}:00.000Z`;
+    const chosenDateTimeISO = buildPeruISOString(entryDate || selectedDate, finalTime);
 
     // 1. Register or update vehicle
     registerVehicle({
