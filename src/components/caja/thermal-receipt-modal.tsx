@@ -162,10 +162,14 @@ export default function ThermalReceiptModal({
     });
   }
 
+  const effectiveDiscount = discountAmount > 0
+    ? discountAmount
+    : (workOrder?.discount_amount || (typeof invoice?.discounts === "number" ? invoice.discounts : Number(invoice?.discounts) || 0));
+
   const effectiveTotal =
     grandTotal !== undefined && grandTotal >= 0
       ? grandTotal
-      : (invoice?.grand_total !== undefined ? invoice.grand_total : effectiveItems.reduce((s, it) => s + it.subtotal, 0));
+      : (invoice?.grand_total !== undefined ? invoice.grand_total : Math.max(0, effectiveItems.reduce((s, it) => s + it.subtotal, 0) - effectiveDiscount));
 
   // Calculations for Tax breakdown (IGV 18%)
   const opGravadas = effectiveTotal > 0 ? effectiveTotal / 1.18 : 0;
@@ -230,8 +234,8 @@ export default function ThermalReceiptModal({
       { label: "OP. EXONERADAS:", value: "S/ 0.00", bold: false },
       { label: "OP. INAFECTAS:", value: "S/ 0.00", bold: false },
       { label: "OP. GRATUITAS:", value: "S/ 0.00", bold: false },
-      { label: "SUBTOTAL:", value: `S/ ${opGravadas.toFixed(2)}`, bold: true },
-      { label: "DESCUENTOS:", value: `S/ ${discountAmount.toFixed(2)}`, bold: false },
+      { label: "SUBTOTAL:", value: `S/ ${(opGravadas + effectiveDiscount).toFixed(2)}`, bold: true },
+      { label: "DESCUENTOS:", value: `S/ ${effectiveDiscount.toFixed(2)}`, bold: false },
       { label: "IGV 18.0%:", value: `S/ ${igvAmount.toFixed(2)}`, bold: true },
       { label: "ICBPER:", value: "S/ 0.00", bold: false },
       { label: "ADELANTOS:", value: "S/ 0.00", bold: false },
@@ -568,11 +572,11 @@ export default function ThermalReceiptModal({
               </div>
               <div className="flex justify-between">
                 <span>SUBTOTAL:</span>
-                <span className="text-right pr-1 font-bold">S/ {opGravadas.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {(opGravadas + effectiveDiscount).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>DESCUENTOS:</span>
-                <span className="text-right pr-1">S/ {discountAmount.toFixed(2)}</span>
+                <span className="text-right pr-1">S/ {effectiveDiscount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>IGV 18.0%:</span>

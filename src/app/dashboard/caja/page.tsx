@@ -255,11 +255,26 @@ export default function CajaPage() {
     return false;
   }, [creditSettlementMap]);
 
+  // Helper to compute correct Net Total considering Taller discount_amount and Invoice
+  const computeOrderNetTotal = React.useCallback((wo: any, inv?: any) => {
+    const partsSum = (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+    const certFee = wo.requires_certification ? (wo.certification_price || 0) : 0;
+    const gross = partsSum + certFee;
+    const discount = (wo.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+
+    if (inv?.grand_total !== undefined && inv.grand_total > 0 && (!wo.discount_amount || inv.discounts === wo.discount_amount)) {
+      return inv.grand_total;
+    }
+    return Math.max(0, gross - discount);
+  }, []);
+
   // Orders that reached billing or have an invoice registered
   const allBillingWorkOrders = React.useMemo(() => {
     return workOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      const total = inv?.grand_total || (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+      const total = computeOrderNetTotal(wo, inv);
       const hasItems = (wo.items || []).length > 0;
       const receiptNum = (inv?.receipt_number || "").trim();
       const hasReceipt = receiptNum && receiptNum !== "0";
@@ -268,7 +283,7 @@ export default function CajaPage() {
       // Include if it's a valid billing order (has items or price or receipt) OR if it is pending payment
       return total > 0 || hasItems || hasReceipt || !isPaid;
     });
-  }, [workOrders, invoicesByWorkOrderId, isOrderPaid]);
+  }, [workOrders, invoicesByWorkOrderId, isOrderPaid, computeOrderNetTotal]);
 
   // Daily cash closure calculation for selected date
   const totalPaidToday = React.useMemo(() => {
@@ -283,12 +298,10 @@ export default function CajaPage() {
       })
       .reduce((sum, wo) => {
         const inv = invoicesByWorkOrderId.get(wo.id);
-        const total = inv?.grand_total !== undefined && inv.grand_total > 0
-          ? inv.grand_total
-          : (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+        const total = computeOrderNetTotal(wo, inv);
         return sum + total;
       }, 0);
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, computeOrderNetTotal]);
 
   const totalPendingToday = React.useMemo(() => {
     return allBillingWorkOrders
@@ -303,10 +316,10 @@ export default function CajaPage() {
         const inv = invoicesByWorkOrderId.get(wo.id);
         const credit = inv?.credit_amount && inv.credit_amount > 0
           ? inv.credit_amount
-          : (inv?.grand_total || (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0));
+          : computeOrderNetTotal(wo, inv);
         return sum + credit;
       }, 0);
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, computeOrderNetTotal]);
 
   const pendingCountToday = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
@@ -640,13 +653,17 @@ export default function CajaPage() {
           },
         ];
 
+    const effectiveDiscount = (wo.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+
     setPaymentModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       grandTotal: total,
       breakdownItems: breakdown,
-      discountAmount: inv?.discounts || 0,
+      discountAmount: effectiveDiscount,
       paymentMethod: isZero ? "" : (inv?.payment_method as any) || "Efectivo",
       paymentDestination: isZero ? "" : inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
       isSplitPayment: hasExistingSplits,
@@ -1045,6 +1062,10 @@ export default function CajaPage() {
 
     const effectiveDoc = inv?.customer_doc || csvRec?.rucFactura || "";
 
+    const effectiveDiscount = (wo.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+
     setActiveReceiptModal({
       isOpen: true,
       workOrder: wo,
@@ -1058,6 +1079,7 @@ export default function CajaPage() {
       observations: inv?.observations || wo.observations || "",
       grandTotal: total > 0 ? total : (inv?.grand_total || csvRec?.price || 80),
       items: wo.items && wo.items.length > 0 ? wo.items : undefined,
+      discountAmount: effectiveDiscount,
       paymentMethod: effectiveMethod,
       issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
     });
@@ -1407,9 +1429,17 @@ export default function CajaPage() {
                 const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
                 const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
                 const certFee = wo.requires_certification ? wo.certification_price || 0 : 0;
-                let grandTotal = invoice?.grand_total !== undefined && invoice.grand_total > 0
-                  ? invoice.grand_total
-                  : partsTotal + certFee;
+                const grossSubtotal = partsTotal + certFee;
+                const discountVal = (wo.discount_amount && wo.discount_amount > 0)
+                  ? Number(wo.discount_amount)
+                  : (invoice?.discounts ? (typeof invoice.discounts === "number" ? invoice.discounts : Number(invoice.discounts) || 0) : 0);
+
+                let grandTotal = 0;
+                if (invoice?.grand_total !== undefined && invoice.grand_total > 0 && (!wo.discount_amount || invoice.discounts === wo.discount_amount)) {
+                  grandTotal = invoice.grand_total;
+                } else {
+                  grandTotal = Math.max(0, grossSubtotal - discountVal);
+                }
                 if (grandTotal === 0 && (invoice?.credit_amount || 0) > 0) {
                   grandTotal = invoice!.credit_amount!;
                 }
@@ -1563,9 +1593,17 @@ export default function CajaPage() {
 
                         {/* Parts and Concept Detail */}
                         <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5 space-y-2">
-                          <span className="text-[11px] font-bold uppercase text-gray-400 block">
-                            Detalle de Servicio y Repuestos en Orden #{wo.id}:
-                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase text-gray-400 block">
+                              Detalle de Servicio y Repuestos en Orden #{wo.id}:
+                            </span>
+                            {discountVal > 0 && (
+                              <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30">
+                                <Tag className="w-3 h-3 text-emerald-400" />
+                                <span>Desc. Taller: - S/ {discountVal.toFixed(2)}</span>
+                              </span>
+                            )}
+                          </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                             {wo.requires_certification && (
@@ -1588,6 +1626,18 @@ export default function CajaPage() {
                                 </span>
                               </div>
                             ))}
+
+                            {discountVal > 0 && (
+                              <div className="flex justify-between items-center text-emerald-300 bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/30 sm:col-span-2">
+                                <span className="flex items-center gap-1.5 font-bold">
+                                  <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Descuento Asignado en Taller:</span>
+                                </span>
+                                <span className="font-mono font-bold text-emerald-300">
+                                  - S/ {discountVal.toFixed(2)}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Payment Metadata pill */}
@@ -1747,6 +1797,18 @@ export default function CajaPage() {
                       </span>
                     </div>
                   ))}
+
+                  {paymentModal.discountAmount > 0 && (
+                    <div className="flex justify-between items-center text-xs pt-1.5 text-emerald-300 font-bold bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                      <span className="flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Descuento de Taller:</span>
+                      </span>
+                      <span className="font-mono text-emerald-400">
+                        - S/ {paymentModal.discountAmount.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t border-white/10 pt-2 flex justify-between items-center font-bold text-xs">

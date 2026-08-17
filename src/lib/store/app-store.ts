@@ -1785,16 +1785,42 @@ export const useAppStore = create<AppState>()(
       setWorkOrderDiscount: (orderId, amount) => {
         set((state) => {
           const discountVal = Math.max(0, Number(amount) || 0);
+          let targetPlate = "";
           const updatedOrders = state.workOrders.map((o) => {
             if (o.id === orderId) {
+              targetPlate = o.vehicle_plate || "";
               const updated = { ...o, discount_amount: discountVal };
               saveSupabaseWorkOrder(updated);
               return updated;
             }
             return o;
           });
+
+          // Also update or sync linked invoice so Caja receives the discount immediately
+          const updatedInvoices = state.invoices.map((inv) => {
+            if (inv.work_order_id === orderId || (targetPlate && inv.vehicle_plate === targetPlate)) {
+              const matchedOrder = updatedOrders.find((o) => o.id === orderId) || state.workOrders.find((o) => o.id === orderId);
+              const partsTotal = matchedOrder ? (matchedOrder.items || []).reduce((sum, it) => sum + (it.subtotal || 0), 0) : (inv.parts_total || 0);
+              const certFee = matchedOrder?.requires_certification ? (matchedOrder.certification_price || 0) : (inv.certification_fee || 0);
+              const gross = partsTotal + certFee;
+              const newGrandTotal = Math.max(0, gross - discountVal);
+              const updatedInv: Invoice = {
+                ...inv,
+                discounts: discountVal,
+                grand_total: newGrandTotal,
+              };
+              saveSupabaseInvoice(updatedInv);
+              return updatedInv;
+            }
+            return inv;
+          });
+
           broadcastRealtimeChange("work_orders_updated");
-          return { workOrders: updatedOrders };
+          broadcastRealtimeChange("invoices_updated");
+          return {
+            workOrders: updatedOrders,
+            invoices: updatedInvoices,
+          };
         });
       },
 
@@ -2243,6 +2269,12 @@ export const useAppStore = create<AppState>()(
               }
             }
 
+            const matchedOrder = state.workOrders.find((o) => o.id === targetInvoice.work_order_id);
+            const discountVal = matchedOrder?.discount_amount !== undefined ? matchedOrder.discount_amount : (typeof targetInvoice.discounts === "number" ? targetInvoice.discounts : Number(targetInvoice.discounts) || 0);
+            const currentPartsTotal = matchedOrder ? (matchedOrder.items || []).reduce((sum, item) => sum + item.subtotal, 0) : (targetInvoice.parts_total || 0);
+            const currentCertFee = matchedOrder?.requires_certification ? (matchedOrder.certification_price || 0) : (targetInvoice.certification_fee || 0);
+            const computedGrandTotal = Math.max(0, currentPartsTotal + currentCertFee - discountVal);
+
             const updatedObservations = generatedNC
               ? `Factura ${oldNum} anulada mediante Nota de Crédito ${generatedNC}. ${targetInvoice.observations || ""}`.trim()
               : targetInvoice.observations;
@@ -2252,6 +2284,10 @@ export const useAppStore = create<AppState>()(
               client_name: customerName || targetInvoice.client_name || vehicle?.owner_name || "Cliente Taller",
               customer_doc: customerDoc !== undefined ? customerDoc : targetInvoice.customer_doc,
               customer_address: customerAddress !== undefined ? customerAddress : targetInvoice.customer_address,
+              parts_total: currentPartsTotal,
+              certification_fee: currentCertFee,
+              discounts: discountVal,
+              grand_total: computedGrandTotal,
               payment_status: "pagado" as const,
               payment_method: paymentMethod || targetInvoice.payment_method || "Efectivo",
               payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
@@ -2267,6 +2303,7 @@ export const useAppStore = create<AppState>()(
           } else if (targetOrder) {
             const partsTotal = (targetOrder.items || []).reduce((sum, item) => sum + item.subtotal, 0);
             const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
+            const discountVal = targetOrder.discount_amount || 0;
             const newInvoice: Invoice = {
               id: `inv-${Date.now()}`,
               work_order_id: targetOrder.id,
@@ -2277,7 +2314,8 @@ export const useAppStore = create<AppState>()(
               labor_fee: 0,
               parts_total: partsTotal,
               certification_fee: certFee,
-              grand_total: partsTotal + certFee,
+              discounts: discountVal,
+              grand_total: Math.max(0, partsTotal + certFee - discountVal),
               payment_status: "pagado",
               payment_method: paymentMethod || "Efectivo",
               payment_destination: paymentDestination || "EMPRESA",
