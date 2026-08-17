@@ -37,7 +37,6 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
-import { getLocalWorkshopCache, setLocalWorkshopCache } from "@/lib/storage/indexed-db";
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -823,7 +822,6 @@ export const useAppStore = create<AppState>()(
           const services = await fetchSupabaseServices();
           if (Array.isArray(services) && services.length > 0) {
             set((state) => ({ workshopServices: services }));
-            setLocalWorkshopCache({ workshopServices: services });
           }
         } catch {}
       },
@@ -870,7 +868,6 @@ export const useAppStore = create<AppState>()(
           const records = await fetchSupabaseScheduleRecords();
           if (Array.isArray(records) && records.length > 0) {
             set((state) => ({ scheduleRecords: records }));
-            setLocalWorkshopCache({ scheduleRecords: records });
           }
         } catch {}
       },
@@ -1037,17 +1034,6 @@ export const useAppStore = create<AppState>()(
             }
             if (Array.isArray((erpData as any)?.workshopServices) && (erpData as any).workshopServices.length > 0) {
               updates.workshopServices = (erpData as any).workshopServices;
-            }
-
-            // Asynchronously persist full workshop master dataset to native IndexedDB cache
-            if (updates.workOrders || updates.vehicles || updates.invoices || updates.scheduleRecords || updates.workshopServices) {
-              setLocalWorkshopCache({
-                workOrders: updates.workOrders || state.workOrders,
-                vehicles: updates.vehicles || state.vehicles,
-                invoices: updates.invoices || state.invoices,
-                scheduleRecords: updates.scheduleRecords || state.scheduleRecords,
-                workshopServices: updates.workshopServices || state.workshopServices,
-              });
             }
 
             return updates;
@@ -1434,11 +1420,9 @@ export const useAppStore = create<AppState>()(
           items: order.items || [],
         };
         saveSupabaseWorkOrder(newOrder);
-        set((state) => {
-          const updated = [...state.workOrders, newOrder];
-          setLocalWorkshopCache({ workOrders: updated });
-          return { workOrders: updated };
-        });
+        set((state) => ({
+          workOrders: [...state.workOrders, newOrder],
+        }));
       },
 
       updateWorkOrder: (id, updates) =>
@@ -1451,7 +1435,6 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1465,7 +1448,6 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         });
       },
@@ -1480,7 +1462,6 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         });
       },
@@ -1508,7 +1489,6 @@ export const useAppStore = create<AppState>()(
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1537,7 +1517,6 @@ export const useAppStore = create<AppState>()(
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1563,7 +1542,6 @@ export const useAppStore = create<AppState>()(
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1579,7 +1557,6 @@ export const useAppStore = create<AppState>()(
             broadcastRealtimeChange("work_orders_updated");
             return updatedOrder;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           return { workOrders: updatedOrders };
         }),
 
@@ -1816,7 +1793,6 @@ export const useAppStore = create<AppState>()(
             }
             return o;
           });
-          setLocalWorkshopCache({ workOrders: updatedOrders });
           broadcastRealtimeChange("work_orders_updated");
           return { workOrders: updatedOrders };
         });
@@ -2653,19 +2629,3 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
-
-// Immediately hydrate master workshop records from native IndexedDB on F5 / initial load (5ms)
-if (typeof window !== "undefined") {
-  getLocalWorkshopCache().then((cached) => {
-    if (cached) {
-      useAppStore.setState((s) => ({
-        workOrders: s.workOrders.length > 0 ? s.workOrders : (cached.workOrders || []),
-        vehicles: s.vehicles.length > 0 ? s.vehicles : (cached.vehicles || []),
-        invoices: s.invoices.length > 0 ? s.invoices : (cached.invoices || []),
-        scheduleRecords: s.scheduleRecords.length > 0 ? s.scheduleRecords : (cached.scheduleRecords || []),
-        workshopServices: s.workshopServices.length > 0 ? s.workshopServices : (cached.workshopServices || s.workshopServices),
-        hasSyncedOnce: true,
-      }));
-    }
-  }).catch(() => {});
-}
