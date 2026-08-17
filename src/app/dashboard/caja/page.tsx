@@ -61,6 +61,7 @@ export default function CajaPage() {
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
   const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientes" | "pagados" | "todos">("hoy");
+  const [receiptTypeFilter, setReceiptTypeFilter] = useState<"TODOS" | "Ticket" | "Boleta" | "Factura">("TODOS");
 
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
@@ -71,7 +72,7 @@ export default function CajaPage() {
   // Reset pagination on search or tab change
   React.useEffect(() => {
     setVisibleLimit(30);
-  }, [deferredSearchPlate, activeStatusFilter]);
+  }, [deferredSearchPlate, activeStatusFilter, receiptTypeFilter]);
 
   // Modal State for Mandatory Payment Confirmation
   const [paymentModal, setPaymentModal] = useState<{
@@ -328,6 +329,101 @@ export default function CajaPage() {
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
 
+  // Helper to extract numeric correlative from a receipt string
+  const parseReceiptNumber = (raw?: string) => {
+    if (!raw) return 0;
+    const clean = raw.replace(/[^0-9]/g, "");
+    return parseInt(clean, 10) || 0;
+  };
+
+  // Calculate latest registered correlatives from invoices and fallback config
+  const latestCorrelatives = React.useMemo(() => {
+    const config = correlativeConfig || {
+      ticketSeries: "TK01",
+      ticketLastNumber: 4545,
+      boletaSeries: "B001",
+      boletaLastNumber: 259,
+      facturaSeries: "F001",
+      facturaLastNumber: 282,
+    };
+
+    // 1. Tickets
+    const ticketInvoices = invoices.filter(
+      (inv) =>
+        inv.receipt_number &&
+        inv.receipt_number !== "0" &&
+        ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("ticket")) ||
+          inv.receipt_number.toUpperCase().startsWith("TK") ||
+          inv.receipt_number.toUpperCase().startsWith("T"))
+    );
+    const sortedTickets = [...ticketInvoices].sort((a, b) => {
+      const numA = parseReceiptNumber(a.receipt_number);
+      const numB = parseReceiptNumber(b.receipt_number);
+      if (numB !== numA) return numB - numA;
+      return (b.paid_at || b.issued_at || "").localeCompare(a.paid_at || a.issued_at || "");
+    });
+    const lastTicket = sortedTickets[0];
+
+    // 2. Boletas
+    const boletaInvoices = invoices.filter(
+      (inv) =>
+        inv.receipt_number &&
+        inv.receipt_number !== "0" &&
+        ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("boleta")) ||
+          inv.receipt_number.toUpperCase().startsWith("B"))
+    );
+    const sortedBoletas = [...boletaInvoices].sort((a, b) => {
+      const numA = parseReceiptNumber(a.receipt_number);
+      const numB = parseReceiptNumber(b.receipt_number);
+      if (numB !== numA) return numB - numA;
+      return (b.paid_at || b.issued_at || "").localeCompare(a.paid_at || a.issued_at || "");
+    });
+    const lastBoleta = sortedBoletas[0];
+
+    // 3. Facturas
+    const facturaInvoices = invoices.filter(
+      (inv) =>
+        inv.receipt_number &&
+        inv.receipt_number !== "0" &&
+        ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("factura")) ||
+          inv.receipt_number.toUpperCase().startsWith("F"))
+    );
+    const sortedFacturas = [...facturaInvoices].sort((a, b) => {
+      const numA = parseReceiptNumber(a.receipt_number);
+      const numB = parseReceiptNumber(b.receipt_number);
+      if (numB !== numA) return numB - numA;
+      return (b.paid_at || b.issued_at || "").localeCompare(a.paid_at || a.issued_at || "");
+    });
+    const lastFactura = sortedFacturas[0];
+
+    return {
+      ticket: {
+        number: lastTicket?.receipt_number || `${config.ticketSeries || "TK01"}-${(config.ticketLastNumber || 4545).toString().padStart(8, "0")}`,
+        plate: lastTicket?.vehicle_plate || "",
+        client: lastTicket?.client_name || "",
+        total: lastTicket?.grand_total,
+        date: lastTicket?.paid_at || lastTicket?.issued_at,
+        count: ticketInvoices.length,
+      },
+      boleta: {
+        number: lastBoleta?.receipt_number || `${config.boletaSeries || "B001"}-${(config.boletaLastNumber || 259).toString().padStart(8, "0")}`,
+        plate: lastBoleta?.vehicle_plate || "",
+        client: lastBoleta?.client_name || "",
+        total: lastBoleta?.grand_total,
+        date: lastBoleta?.paid_at || lastBoleta?.issued_at,
+        count: boletaInvoices.length,
+      },
+      factura: {
+        number: lastFactura?.receipt_number || `${config.facturaSeries || "F001"}-${(config.facturaLastNumber || 282).toString().padStart(8, "0")}`,
+        plate: lastFactura?.vehicle_plate || "",
+        client: lastFactura?.client_name || "",
+        total: lastFactura?.grand_total,
+        date: lastFactura?.paid_at || lastFactura?.issued_at,
+        count: facturaInvoices.length,
+      },
+    };
+  }, [invoices, correlativeConfig]);
+
   // Filtered orders for Caja Tab (Pending payments first, then newest entry_time)
   const filteredCajaOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
@@ -353,7 +449,20 @@ export default function CajaPage() {
         matchStatus = true;
       }
 
-      return matchPlate && matchStatus;
+      let matchReceiptType = true;
+      if (receiptTypeFilter !== "TODOS") {
+        const rType = (inv?.receipt_type || "").toLowerCase();
+        const rNum = (inv?.receipt_number || "").toUpperCase();
+        if (receiptTypeFilter === "Ticket") {
+          matchReceiptType = rType.includes("ticket") || rNum.startsWith("TK") || rNum.startsWith("T");
+        } else if (receiptTypeFilter === "Boleta") {
+          matchReceiptType = rType.includes("boleta") || rNum.startsWith("B");
+        } else if (receiptTypeFilter === "Factura") {
+          matchReceiptType = rType.includes("factura") || rNum.startsWith("F");
+        }
+      }
+
+      return matchPlate && matchStatus && matchReceiptType;
     });
 
     // Priority Sort: Pendientes de pago first, then newest entry_time descending
@@ -370,7 +479,7 @@ export default function CajaPage() {
       const timeB = b.entry_time || "";
       return timeB.localeCompare(timeA);
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, isOrderPaid, queryDate]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, receiptTypeFilter, isOrderPaid, queryDate]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
   const filteredConsultasOrders = React.useMemo(() => {
@@ -391,7 +500,20 @@ export default function CajaPage() {
         invoiceDateStr === queryDate ||
         paidDateStr === queryDate;
 
-      return matchPlate && matchDate;
+      let matchReceiptType = true;
+      if (receiptTypeFilter !== "TODOS") {
+        const rType = (inv?.receipt_type || "").toLowerCase();
+        const rNum = (inv?.receipt_number || "").toUpperCase();
+        if (receiptTypeFilter === "Ticket") {
+          matchReceiptType = rType.includes("ticket") || rNum.startsWith("TK") || rNum.startsWith("T");
+        } else if (receiptTypeFilter === "Boleta") {
+          matchReceiptType = rType.includes("boleta") || rNum.startsWith("B");
+        } else if (receiptTypeFilter === "Factura") {
+          matchReceiptType = rType.includes("factura") || rNum.startsWith("F");
+        }
+      }
+
+      return matchPlate && matchDate && matchReceiptType;
     });
 
     // Priority Sort: Pendientes de pago first, then newest entry_time descending
@@ -408,7 +530,7 @@ export default function CajaPage() {
       const timeB = b.entry_time || "";
       return timeB.localeCompare(timeA);
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate, isOrderPaid]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, receiptTypeFilter, queryDate, isOrderPaid]);
 
   // Helper to compute next correlative preview based on type
   const getCorrelativePreview = (type: "Ticket" | "Boleta" | "Factura") => {
@@ -931,6 +1053,156 @@ export default function CajaPage() {
             value={queryDate}
             onChange={(newDate) => setQueryDate(newDate)}
           />
+        </div>
+      </div>
+
+      {/* Últimos Correlativos Registrados & Filtro Rápido */}
+      <div className="space-y-2.5 bg-reygas-dark/80 p-4 rounded-2xl border border-white/10 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-white uppercase tracking-wider block">
+                Últimos Correlativos Emitidos & Filtro Rápido
+              </span>
+              <span className="text-[11px] text-gray-400">
+                Haz clic en una tarjeta para filtrar por tipo de comprobante o ver el último folio emitido.
+              </span>
+            </div>
+          </div>
+          {receiptTypeFilter !== "TODOS" && (
+            <button
+              onClick={() => setReceiptTypeFilter("TODOS")}
+              className="text-xs text-amber-300 hover:text-white font-black flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 shrink-0 self-start sm:self-auto"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Mostrar Todos los Comprobantes (Filtro {receiptTypeFilter} Activo)</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Card Ticket */}
+          <button
+            type="button"
+            onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Ticket" ? "TODOS" : "Ticket")}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
+              receiptTypeFilter === "Ticket"
+                ? "bg-amber-950/70 border-amber-400 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 scale-[1.01]"
+                : "glass-panel border-white/10 hover:border-amber-400/50 hover:bg-white/5"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <span className="text-sm">🎫</span> Ticket
+              </span>
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                receiptTypeFilter === "Ticket"
+                  ? "bg-amber-500 text-black border-amber-400 font-black shadow-sm"
+                  : "bg-amber-500/20 text-amber-300 border-amber-500/30 group-hover:border-amber-400/60"
+              }`}>
+                {receiptTypeFilter === "Ticket" ? "✓ Filtro Activo" : `${latestCorrelatives.ticket.count} registrados`}
+              </span>
+            </div>
+            <div className="text-lg font-black text-white font-mono tracking-tight">
+              {latestCorrelatives.ticket.number}
+            </div>
+            <div className="text-[11px] text-gray-400 truncate mt-1 flex items-center gap-1">
+              {latestCorrelatives.ticket.plate ? (
+                <>
+                  <span className="text-gray-500">Último:</span>
+                  <span className="font-bold text-amber-300 font-mono">{latestCorrelatives.ticket.plate}</span>
+                  {latestCorrelatives.ticket.total !== undefined && (
+                    <span className="text-gray-300 font-semibold">• S/ {latestCorrelatives.ticket.total.toFixed(2)}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-gray-500 italic">Folio configurado en sistema</span>
+              )}
+            </div>
+          </button>
+
+          {/* Card Boleta */}
+          <button
+            type="button"
+            onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Boleta" ? "TODOS" : "Boleta")}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
+              receiptTypeFilter === "Boleta"
+                ? "bg-cyan-950/70 border-cyan-400 ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/30 scale-[1.01]"
+                : "glass-panel border-white/10 hover:border-cyan-400/50 hover:bg-white/5"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                <span className="text-sm">📄</span> Boleta
+              </span>
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                receiptTypeFilter === "Boleta"
+                  ? "bg-cyan-500 text-black border-cyan-400 font-black shadow-sm"
+                  : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30 group-hover:border-cyan-400/60"
+              }`}>
+                {receiptTypeFilter === "Boleta" ? "✓ Filtro Activo" : `${latestCorrelatives.boleta.count} registradas`}
+              </span>
+            </div>
+            <div className="text-lg font-black text-white font-mono tracking-tight">
+              {latestCorrelatives.boleta.number}
+            </div>
+            <div className="text-[11px] text-gray-400 truncate mt-1 flex items-center gap-1">
+              {latestCorrelatives.boleta.plate ? (
+                <>
+                  <span className="text-gray-500">Último:</span>
+                  <span className="font-bold text-cyan-300 font-mono">{latestCorrelatives.boleta.plate}</span>
+                  {latestCorrelatives.boleta.total !== undefined && (
+                    <span className="text-gray-300 font-semibold">• S/ {latestCorrelatives.boleta.total.toFixed(2)}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-gray-500 italic">Folio configurado en sistema</span>
+              )}
+            </div>
+          </button>
+
+          {/* Card Factura */}
+          <button
+            type="button"
+            onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Factura" ? "TODOS" : "Factura")}
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
+              receiptTypeFilter === "Factura"
+                ? "bg-purple-950/70 border-purple-400 ring-2 ring-purple-400/60 shadow-lg shadow-purple-500/30 scale-[1.01]"
+                : "glass-panel border-white/10 hover:border-purple-400/50 hover:bg-white/5"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                <span className="text-sm">📑</span> Factura
+              </span>
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                receiptTypeFilter === "Factura"
+                  ? "bg-purple-500 text-black border-purple-400 font-black shadow-sm"
+                  : "bg-purple-500/20 text-purple-300 border-purple-500/30 group-hover:border-purple-400/60"
+              }`}>
+                {receiptTypeFilter === "Factura" ? "✓ Filtro Activo" : `${latestCorrelatives.factura.count} registradas`}
+              </span>
+            </div>
+            <div className="text-lg font-black text-white font-mono tracking-tight">
+              {latestCorrelatives.factura.number}
+            </div>
+            <div className="text-[11px] text-gray-400 truncate mt-1 flex items-center gap-1">
+              {latestCorrelatives.factura.plate ? (
+                <>
+                  <span className="text-gray-500">Último:</span>
+                  <span className="font-bold text-purple-300 font-mono">{latestCorrelatives.factura.plate}</span>
+                  {latestCorrelatives.factura.total !== undefined && (
+                    <span className="text-gray-300 font-semibold">• S/ {latestCorrelatives.factura.total.toFixed(2)}</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-gray-500 italic">Folio configurado en sistema</span>
+              )}
+            </div>
+          </button>
         </div>
       </div>
 
