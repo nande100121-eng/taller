@@ -209,13 +209,27 @@ export default function PorteriaPage() {
   };
 
   /**
-   * Handle Plate Input Changes & Auto-complete
+   * Handle Plate Input Changes & Auto-complete with Auto-Hyphen after 3 chars
    */
   const handlePlateChange = async (plateInput: string) => {
-    const formatted = plateInput.toUpperCase();
+    let formatted = (plateInput || "").toUpperCase();
+
+    // Special case for direct sale code
+    if (formatted.startsWith("VENT")) {
+      formatted = formatted.replace(/[^A-Z]/g, "").slice(0, 5);
+    } else {
+      // Clean all non-alphanumerics (strip duplicate hyphens, spaces, symbols)
+      const cleanChars = formatted.replace(/[^A-Z0-9]/g, "").slice(0, 6);
+      if (cleanChars.length > 3) {
+        formatted = `${cleanChars.slice(0, 3)}-${cleanChars.slice(3)}`;
+      } else {
+        formatted = cleanChars;
+      }
+    }
+
     setEntryForm((prev) => ({ ...prev, plate: formatted }));
 
-    if (formatted.length >= 5) {
+    if (formatted.length >= 6) {
       const found = await lookupVehicleInDatabase(formatted);
       if (found) {
         setEntryForm((prev) => ({
@@ -236,7 +250,7 @@ export default function PorteriaPage() {
   };
 
   /**
-   * Process Image OCR from file upload or camera
+   * Process Image OCR from file upload or camera (prevents double hyphens)
    */
   const processImageFile = async (file: File) => {
     if (!hasApiKey) {
@@ -266,7 +280,13 @@ export default function PorteriaPage() {
       const data = await response.json();
 
       if (data.plate) {
-        const detectedPlate = data.plate.toUpperCase();
+        // Strip all hyphens and non-alphanumeric to guarantee zero double hyphens
+        const rawDetected = (data.plate || "").toUpperCase();
+        const cleanChars = rawDetected.replace(/[^A-Z0-9]/g, "").slice(0, 6);
+        const detectedPlate = cleanChars.length > 3
+          ? `${cleanChars.slice(0, 3)}-${cleanChars.slice(3)}`
+          : cleanChars;
+
         showAlert("success", `Placa detectada: ${detectedPlate} (Confianza: ${Math.round((data.confidence || 0.9) * 100)}%)`);
 
         // Check if vehicle exists
