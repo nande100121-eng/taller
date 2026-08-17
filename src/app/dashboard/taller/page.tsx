@@ -141,6 +141,60 @@ export default function WorkshopOperationsPage() {
     return workshopServices;
   }, [workshopServices]);
 
+  // Restrict workshop technician assignment exclusively to Technical & Technical Support staff
+  const assignableTechnicians = React.useMemo(() => {
+    return technicians.filter((t) => {
+      if (t.is_active === false) return false;
+      const spec = (t.specialty || "").toLowerCase().trim();
+      const name = (t.full_name || "").toLowerCase().trim();
+
+      // Exclude administrative / non-technical roles
+      const isExcluded =
+        spec.includes("caja") ||
+        spec.includes("cajera") ||
+        spec.includes("cajero") ||
+        spec.includes("porteria") ||
+        spec.includes("garita") ||
+        spec.includes("guardia") ||
+        spec.includes("almacen") ||
+        spec.includes("almacenero") ||
+        spec.includes("recepcion") ||
+        spec.includes("recepcionista") ||
+        spec.includes("asistente") ||
+        spec.includes("contabilidad") ||
+        spec.includes("secretaria") ||
+        spec.includes("administrador") ||
+        spec.includes("gerente");
+
+      if (isExcluded) return false;
+
+      // Include if specialty, name or station matches Técnico, Soporte Técnico, Mecánico, Master GNV/GLP
+      const isMatch =
+        spec.includes("tecnico") ||
+        spec.includes("técnico") ||
+        spec.includes("soporte") ||
+        spec.includes("mecanico") ||
+        spec.includes("mecánico") ||
+        spec.includes("gnv") ||
+        spec.includes("glp") ||
+        spec.includes("reductores") ||
+        spec.includes("conversion") ||
+        spec.includes("conversión") ||
+        spec.includes("hidrostatica") ||
+        spec.includes("hidrostática") ||
+        spec.includes("electricista") ||
+        spec.includes("taller") ||
+        spec.includes("master") ||
+        name.includes("tecnico") ||
+        name.includes("técnico") ||
+        name.includes("soporte") ||
+        (t.allowed_tabs && t.allowed_tabs.includes("taller")) ||
+        spec === "";
+
+      return isMatch;
+    });
+  }, [technicians]);
+
   const statusSteps: Array<{ status: WorkOrderStatus; label: string; color: string }> = [
     { status: "ingresado", label: "1. Ingresado", color: "bg-blue-500" },
     { status: "en_diagnostico", label: "2. Diagnóstico", color: "bg-purple-500" },
@@ -727,9 +781,9 @@ export default function WorkshopOperationsPage() {
                           }`}
                         >
                           <option value="">-- Sin Técnico Asignado --</option>
-                          {technicians.map((t) => (
+                          {assignableTechnicians.map((t) => (
                             <option key={t.id} value={t.id}>
-                              {t.full_name} ({t.specialty})
+                              {t.full_name} ({t.specialty || "Técnico Especialista"})
                             </option>
                           ))}
                         </select>
