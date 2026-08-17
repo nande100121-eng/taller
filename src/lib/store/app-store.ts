@@ -331,6 +331,7 @@ export interface WorkOrder {
   chip_expiry_date?: string; // FECHA CHIP ANUAL
   general_maintenance_service?: string; // MANT. GENERAL / SERVICIO
   spare_parts_services?: string; // REPUESTOS Y SERVICIOS
+  discount_amount?: number; // DESCUENTO MONTO (S/)
 }
 
 export interface InventoryItem {
@@ -554,6 +555,7 @@ interface AppState {
     price: number
   ) => void;
   removeCertificationFromWorkOrder: (orderId: string) => void;
+  setWorkOrderDiscount: (orderId: string, amount: number) => void;
 
   inventoryItems: InventoryItem[];
   addInventoryItem: (item: Omit<InventoryItem, "id">) => void;
@@ -1803,6 +1805,23 @@ export const useAppStore = create<AppState>()(
         });
       },
 
+      setWorkOrderDiscount: (orderId, amount) => {
+        set((state) => {
+          const discountVal = Math.max(0, Number(amount) || 0);
+          const updatedOrders = state.workOrders.map((o) => {
+            if (o.id === orderId) {
+              const updated = { ...o, discount_amount: discountVal };
+              saveSupabaseWorkOrder(updated);
+              return updated;
+            }
+            return o;
+          });
+          setLocalWorkshopCache({ workOrders: updatedOrders });
+          broadcastRealtimeChange("work_orders_updated");
+          return { workOrders: updatedOrders };
+        });
+      },
+
       inventoryItems: [],
 
       addInventoryItem: (item) => {
@@ -1964,7 +1983,8 @@ export const useAppStore = create<AppState>()(
           if (!order) return state;
           const vehicle = state.vehicles.find((v) => v.plate === order.vehicle_plate);
           const partsTotal = order.items.reduce((sum, item) => sum + item.subtotal, 0);
-          const grandTotal = laborFee + partsTotal + certFee;
+          const discount = order.discount_amount || 0;
+          const grandTotal = Math.max(0, laborFee + partsTotal + certFee - discount);
 
           const newInvoice: Invoice = {
             id: generateUUID(),
@@ -1974,6 +1994,7 @@ export const useAppStore = create<AppState>()(
             labor_fee: laborFee,
             parts_total: partsTotal,
             certification_fee: certFee,
+            discounts: discount > 0 ? discount : "0",
             grand_total: grandTotal,
             payment_status: "pendiente",
             payment_method: method,

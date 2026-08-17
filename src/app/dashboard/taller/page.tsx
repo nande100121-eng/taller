@@ -32,6 +32,9 @@ import {
   Minus,
   ShoppingCart,
   ListPlus,
+  Tag,
+  Coins,
+  Percent,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
@@ -58,6 +61,7 @@ export default function WorkshopOperationsPage() {
     updateDiagnosticAndObservations,
     requestCertificationForWorkOrder,
     removeCertificationFromWorkOrder,
+    setWorkOrderDiscount,
     deleteWorkOrder,
   } = useAppStore();
 
@@ -68,6 +72,10 @@ export default function WorkshopOperationsPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
+
+  // Discount modal state
+  const [discountModalOrder, setDiscountModalOrder] = useState<string | null>(null);
+  const [discountInput, setDiscountInput] = useState<number>(0);
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
@@ -406,6 +414,26 @@ export default function WorkshopOperationsPage() {
       title: "Ítem Actualizado",
       message: "Los datos del repuesto o servicio fueron actualizados correctamente.",
     });
+  };
+
+  const handleOpenDiscountModal = (orderId: string, currentDiscount?: number) => {
+    setDiscountModalOrder(orderId);
+    setDiscountInput(currentDiscount || 0);
+  };
+
+  const handleSaveDiscount = () => {
+    if (discountModalOrder) {
+      const amount = Math.max(0, Number(discountInput) || 0);
+      setWorkOrderDiscount(discountModalOrder, amount);
+      setWebAlert({
+        open: true,
+        title: amount > 0 ? "¡Descuento Aplicado!" : "Descuento Removido",
+        message: amount > 0
+          ? `Se ha asignado un descuento de S/ ${amount.toFixed(2)} a la orden. El monto a cobrar se actualizará en Taller y Caja.`
+          : "Se ha establecido el descuento en S/ 0.00.",
+      });
+      setDiscountModalOrder(null);
+    }
   };
 
   const handleSaveDiagnostic = () => {
@@ -1041,9 +1069,9 @@ export default function WorkshopOperationsPage() {
                     </div>
                   </div>
 
-                  {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS & CERTIFICACION */}
+                  {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS, DESCUENTOS & CERTIFICACION */}
                   <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Action buttons toolbar: 5 distinct, separate actions */}
+                    {/* Action buttons toolbar: 6 distinct, separate actions */}
                     {!isLocked && (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <button
@@ -1079,15 +1107,27 @@ export default function WorkshopOperationsPage() {
                         </button>
 
                         <button
+                          onClick={() => handleOpenDiscountModal(wo.id, wo.discount_amount)}
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
+                            (wo.discount_amount && wo.discount_amount > 0)
+                              ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
+                              : "bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border-emerald-500/30"
+                          }`}
+                        >
+                          <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
+                        </button>
+
+                        <button
                           onClick={() => handleOpenCertModal(wo.id)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow sm:col-span-2 ${
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
                             wo.requires_certification
                               ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
                               : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
                           }`}
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{wo.requires_certification ? "Certificado Solicitado" : "Certificación"}</span>
+                          <span>{wo.requires_certification ? "Certificado" : "+ Certificación"}</span>
                         </button>
                       </div>
                     )}
@@ -1099,7 +1139,7 @@ export default function WorkshopOperationsPage() {
                           Repuestos & Servicios Solicitados ({wo.items.length}):
                         </span>
                         <span className="text-xs font-mono font-bold text-white">
-                          Total: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2)}
+                          Subtotal: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2)}
                         </span>
                       </div>
 
@@ -1211,6 +1251,70 @@ export default function WorkshopOperationsPage() {
                         </button>
                       )
                     )}
+
+                    {/* RESUMEN FINANCIERO Y TOTAL CON DESCUENTO */}
+                    {(() => {
+                      const itemsTotal = wo.items.reduce((acc, i) => acc + i.subtotal, 0);
+                      const certFee = wo.requires_certification ? (wo.certification_price || 0) : 0;
+                      const discountVal = wo.discount_amount || 0;
+                      const grandTotal = Math.max(0, itemsTotal + certFee - discountVal);
+
+                      return (
+                        <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2 text-xs">
+                          <div className="flex items-center justify-between text-gray-400">
+                            <span>Subtotal Repuestos & Servicios:</span>
+                            <span className="font-mono font-bold text-gray-200">S/ {itemsTotal.toFixed(2)}</span>
+                          </div>
+
+                          {wo.requires_certification && (
+                            <div className="flex items-center justify-between text-cyan-300">
+                              <span>+ Certificación ({wo.certification_type || "Anual"}):</span>
+                              <span className="font-mono font-bold">S/ {certFee.toFixed(2)}</span>
+                            </div>
+                          )}
+
+                          {discountVal > 0 ? (
+                            <div className="flex items-center justify-between text-emerald-400 bg-emerald-950/30 p-2 rounded-lg border border-emerald-500/30">
+                              <span className="flex items-center gap-1.5 font-bold">
+                                <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Descuento Aplicado:</span>
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-emerald-300">- S/ {discountVal.toFixed(2)}</span>
+                                {!isLocked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDiscountModal(wo.id, discountVal)}
+                                    className="p-1 hover:bg-emerald-900/60 rounded text-emerald-300 transition-colors"
+                                    title="Editar Monto de Descuento"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            !isLocked && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDiscountModal(wo.id, 0)}
+                                className="w-full py-1.5 text-center text-xs font-bold text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/40 rounded-lg border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors"
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                                <span>+ Poner Descuento como Monto (S/)</span>
+                              </button>
+                            )
+                          )}
+
+                          <div className="flex items-center justify-between border-t border-white/10 pt-2 text-sm font-black text-white">
+                            <span className="uppercase text-xs tracking-wider text-amber-400">Total a Liquidar:</span>
+                            <span className="font-mono text-base text-amber-300">
+                              S/ {grandTotal.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2073,6 +2177,138 @@ export default function WorkshopOperationsPage() {
                   <span>Guardar Cambios</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE DESCUENTO EN MONTO (S/) */}
+      {discountModalOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-emerald-500/40 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Tag className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-white">Asignar Descuento a la Orden</h3>
+                  <span className="text-[11px] text-emerald-400 font-semibold font-mono">
+                    Placa: {workOrders.find((o) => o.id === discountModalOrder)?.vehicle_plate || ""}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setDiscountModalOrder(null)}
+                className="text-gray-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-300 mb-1.5">
+                  Monto de Descuento en Soles (S/) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-400 font-bold font-mono text-sm">
+                    S/
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={discountInput === 0 ? "" : discountInput}
+                    placeholder="0.00"
+                    onChange={(e) => setDiscountInput(parseFloat(e.target.value) || 0)}
+                    className="w-full pl-10 pr-3 py-2.5 bg-reygas-surface border border-emerald-500/30 rounded-xl text-sm font-bold text-white font-mono focus:border-emerald-400 focus:outline-none"
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Ingrese el monto exacto que se descontará del total general en Taller y Caja.
+                </p>
+              </div>
+
+              {/* Botones de Acceso Rápido */}
+              <div>
+                <span className="block text-[10px] font-bold uppercase text-gray-400 mb-1.5">
+                  Montos Rápidos de Descuento:
+                </span>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[5, 10, 20, 30, 50, 80, 100].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setDiscountInput(val)}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-mono font-bold border transition-all ${
+                        discountInput === val
+                          ? "bg-emerald-500 text-black border-white shadow-md font-black scale-105"
+                          : "bg-emerald-950/40 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/60"
+                      }`}
+                    >
+                      S/ {val}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setDiscountInput(0)}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
+                      discountInput === 0
+                        ? "bg-gray-600 text-white border-white font-black"
+                        : "bg-gray-800 text-gray-300 border-white/10 hover:bg-gray-700"
+                    }`}
+                  >
+                    S/ 0 (Sin Desc.)
+                  </button>
+                </div>
+              </div>
+
+              {/* Previsualización Dinámica */}
+              {(() => {
+                const ord = workOrders.find((o) => o.id === discountModalOrder);
+                if (!ord) return null;
+                const itemsSubtotal = ord.items.reduce((acc, i) => acc + i.subtotal, 0);
+                const certSubtotal = ord.requires_certification ? (ord.certification_price || 0) : 0;
+                const grossTotal = itemsSubtotal + certSubtotal;
+                const finalNet = Math.max(0, grossTotal - (discountInput || 0));
+
+                return (
+                  <div className="p-3.5 rounded-2xl bg-black/50 border border-white/10 space-y-1.5 text-xs">
+                    <div className="flex justify-between text-gray-400">
+                      <span>Subtotal Bruto:</span>
+                      <span className="font-mono font-bold text-gray-200">S/ {grossTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-400">
+                      <span>Descuento a Aplicar:</span>
+                      <span className="font-mono font-bold">- S/ {(discountInput || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-white/10 pt-1.5 text-sm font-extrabold text-white">
+                      <span>Total Final a Liquidar:</span>
+                      <span className="font-mono text-amber-300">S/ {finalNet.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setDiscountModalOrder(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-bold transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDiscount}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-transform hover:scale-105 flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>Guardar Descuento</span>
+              </button>
             </div>
           </div>
         </div>

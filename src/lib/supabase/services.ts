@@ -369,6 +369,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       vehicle_type: order.vehicle_type || null,
       general_maintenance_service: order.general_maintenance_service || null,
       spare_parts_services: order.spare_parts_services || null,
+      discount_amount: order.discount_amount || 0,
       requires_certification: !!order.requires_certification,
       certification_type: order.certification_type || null,
       certification_price: order.certification_price || 0,
@@ -377,6 +378,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     // Also save in site_content key as fallback sync
     await saveSupabaseSiteContent(`wo_mod_${order.id}`, {
       allow_modifications: !!order.allow_modifications,
+      discount_amount: order.discount_amount || 0,
       status: order.status,
       updated_at: new Date().toISOString(),
     });
@@ -1060,6 +1062,7 @@ export async function fetchSupabaseErpData() {
         vehicle_type: vehicleType || o.vehicle_type || "",
         general_maintenance_service: generalMaintenanceService || o.general_maintenance_service || "",
         spare_parts_services: sparePartsServices || o.spare_parts_services || "",
+        discount_amount: o.discount_amount !== undefined ? Number(o.discount_amount) : 0,
         allow_modifications: allowMod || !!o.allow_modifications,
         diagnostic_notes: diagNotes,
         observations: obs || o.observations || undefined,
