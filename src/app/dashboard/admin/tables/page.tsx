@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
+import { saveAllTechnicianPermissions, saveSupabaseTechnician } from "@/lib/supabase/services";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
@@ -37,7 +38,9 @@ import {
   Copy,
   Send,
   Lock,
-  AtSign
+  AtSign,
+  Save,
+  CloudUpload
 } from "lucide-react";
 
 const ALL_ERP_STATIONS = [
@@ -269,6 +272,39 @@ export default function AdminTablesPage() {
       navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass} | Acceso: ${loginUrl} | Cambiar Clave: ${resetPassUrl}`);
       showAlert("warning", `Personal sin correo. Se copiaron las credenciales y el enlace de cambio de clave al portapapeles.`);
       handleOpenEditTechModal(tech);
+    }
+  };
+
+  // State & Handlers for Dedicated Permissions Cloud Saving
+  const [isSavingPerms, setIsSavingPerms] = useState(false);
+  const [savingTechId, setSavingTechId] = useState<string | null>(null);
+
+  const handleSaveAllPermissions = async () => {
+    setIsSavingPerms(true);
+    try {
+      const ok = await saveAllTechnicianPermissions(technicians);
+      if (ok) {
+        showAlert("success", "✓ Todos los permisos del roster fueron guardados permanentemente en la nube de Supabase.");
+      } else {
+        showAlert("warning", "Permisos actualizados en el sistema localmente.");
+      }
+    } catch {
+      showAlert("warning", "Error al conectar con la nube.");
+    } finally {
+      setIsSavingPerms(false);
+    }
+  };
+
+  const handleSaveSingleTechPermissions = async (tech: Technician) => {
+    setSavingTechId(tech.id);
+    try {
+      await saveSupabaseTechnician(tech, technicians);
+      const count = (tech.allowed_tabs || []).length;
+      showAlert("success", `✓ Permisos de ${tech.full_name} (${count}/11 estaciones) guardados en la nube.`);
+    } catch {
+      showAlert("warning", `Error al guardar permisos de ${tech.full_name}.`);
+    } finally {
+      setSavingTechId(null);
     }
   };
 
@@ -1181,7 +1217,7 @@ export default function AdminTablesPage() {
 
           {/* Technicians Master Grid with Permissions Matrix */}
           <div className="lg:col-span-8 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <UserCheck className="w-5 h-5 text-indigo-400" />
@@ -1191,6 +1227,22 @@ export default function AdminTablesPage() {
                   Gestione credenciales de acceso, contraseñas, correos y permisos de navegación de cada colaborador.
                 </p>
               </div>
+
+              {/* Master Save Permissions Button */}
+              <button
+                type="button"
+                onClick={handleSaveAllPermissions}
+                disabled={isSavingPerms}
+                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 disabled:opacity-50 text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 active:scale-95 transition-all shrink-0"
+                title="Guardar de inmediato todos los permisos en la base de datos Supabase"
+              >
+                {isSavingPerms ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <CloudUpload className="w-4 h-4 text-emerald-200" />
+                )}
+                <span>Guardar Permisos en la Nube</span>
+              </button>
             </div>
 
             <div className="space-y-4">
@@ -1200,6 +1252,7 @@ export default function AdminTablesPage() {
                 const user = t.username || generateDefaultUsername(t.full_name);
                 const pass = t.password || user;
                 const isPassVisible = !!showCardPasswordMap[t.id];
+                const isSavingThisTech = savingTechId === t.id;
 
                 return (
                   <div
@@ -1349,10 +1402,13 @@ export default function AdminTablesPage() {
                     </div>
 
                     {/* Checkboxes Grid for Stations */}
-                    <div>
-                      <span className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider block mb-2">
-                        Estaciones y Pestañas Permitidas ({allowed.length}/{ALL_ERP_STATIONS.length}):
-                      </span>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider block">
+                          Estaciones y Pestañas Permitidas ({allowed.length}/{ALL_ERP_STATIONS.length}):
+                        </span>
+                      </div>
+
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                         {ALL_ERP_STATIONS.map((station) => {
                           const isChecked = allowed.includes(station.id);
@@ -1383,6 +1439,33 @@ export default function AdminTablesPage() {
                             </label>
                           );
                         })}
+                      </div>
+
+                      {/* Dedicated Per-Tech Save Permissions Button */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5 flex-wrap">
+                        <div className="text-[11px] text-gray-400 font-mono">
+                          {allowed.length === ALL_ERP_STATIONS.length ? (
+                            <span className="text-indigo-300">✓ Acceso Total (11/11 estaciones)</span>
+                          ) : allowed.length === 0 ? (
+                            <span className="text-red-400 font-bold">⚠️ Sin estaciones permitidas (0/11)</span>
+                          ) : (
+                            <span className="text-amber-300 font-bold">Acceso configurado ({allowed.length}/11 estaciones)</span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSaveSingleTechPermissions(t)}
+                          disabled={isSavingThisTech}
+                          className="px-3.5 py-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white font-bold rounded-xl text-xs border border-emerald-500/40 flex items-center gap-1.5 active:scale-95 transition-all shadow"
+                        >
+                          {isSavingThisTech ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+                          ) : (
+                            <Save className="w-3.5 h-3.5" />
+                          )}
+                          <span>Guardar Permisos de {t.full_name.split(" ")[0]}</span>
+                        </button>
                       </div>
                     </div>
                   </div>

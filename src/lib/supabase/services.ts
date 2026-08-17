@@ -35,27 +35,86 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
   try {
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
-    // Attempt Schema 1: { key, value }
-    let { error } = await supabase.from("site_content").upsert({
-      key,
-      value: serializedValue,
-      category,
-      updated_at: new Date().toISOString(),
-    });
+    // Check if an existing row with this key or section_key exists
+    const { data: existing } = await supabase
+      .from("site_content")
+      .select("id, key, section_key")
+      .or(`key.eq.${key},section_key.eq.${key}`)
+      .limit(1);
 
-    // Fallback Attempt Schema 2: { section_key, content } if table uses section_key column
-    if (error) {
-      const retry = await supabase.from("site_content").upsert({
-        section_key: key,
-        content: typeof value === "object" ? value : { data: value },
+    if (existing && existing.length > 0) {
+      const rowId = existing[0].id;
+      const updateData: any = {
         updated_at: new Date().toISOString(),
-      });
-      if (retry.error) {
-        console.warn(`Supabase site_content upsert warning for key [${key}]:`, retry.error.message);
+      };
+      if (existing[0].key !== undefined) updateData.key = key;
+      if (existing[0].section_key !== undefined) updateData.section_key = key;
+      updateData.value = serializedValue;
+      updateData.category = category;
+      if (typeof value === "object") updateData.content = value;
+
+      const { error: updateErr } = await supabase
+        .from("site_content")
+        .update(updateData)
+        .eq("id", rowId);
+
+      if (updateErr) {
+        console.warn(`Supabase site_content update error for [${key}]:`, updateErr.message);
+      }
+    } else {
+      // Row doesn't exist yet: insert it
+      const insertData: any = {
+        key,
+        value: serializedValue,
+        category,
+        updated_at: new Date().toISOString(),
+      };
+      const { error: insertErr } = await supabase.from("site_content").insert(insertData);
+      if (insertErr) {
+        // Fallback Schema 2: section_key & content
+        await supabase.from("site_content").insert({
+          section_key: key,
+          content: typeof value === "object" ? value : { data: value },
+          updated_at: new Date().toISOString(),
+        });
       }
     }
   } catch (err) {
     console.warn("Supabase API call deferred:", err);
+  }
+}
+
+export async function saveAllTechnicianPermissions(technicians: Technician[]): Promise<boolean> {
+  try {
+    // 1. Save master catalog to site_content
+    await saveSupabaseSiteContent("all_technicians", technicians, "technicians");
+
+    // 2. Save individual technician permission keys
+    for (const tech of technicians) {
+      const permsPayload = {
+        allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+        can_receive_payment: !!tech.can_receive_payment,
+        email: tech.email || "",
+        username: tech.username || "",
+        password: tech.password || "",
+      };
+      await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians");
+
+      // Also upsert to technicians table
+      await supabase.from("technicians").upsert({
+        id: tech.id,
+        full_name: tech.full_name,
+        specialty: tech.specialty,
+        phone: tech.phone,
+        is_active: tech.is_active,
+      });
+    }
+
+    broadcastRealtimeChange("technician_saved");
+    return true;
+  } catch (err) {
+    console.error("Error saving technician permissions:", err);
+    return false;
   }
 }
 
