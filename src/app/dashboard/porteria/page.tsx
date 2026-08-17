@@ -32,7 +32,15 @@ import {
   HelpCircle,
   Trash2,
   ShoppingBag,
-  Package
+  Package,
+  Info,
+  History,
+  FileText,
+  Wrench,
+  ShieldCheck,
+  DollarSign,
+  Loader2,
+  Receipt,
 } from "lucide-react";
 import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 
@@ -41,6 +49,7 @@ export default function PorteriaPage() {
     vehicles,
     workOrders,
     invoices,
+    technicians,
     registerVehicle,
     createWorkOrder,
     updateWorkOrderStatus,
@@ -104,6 +113,18 @@ export default function PorteriaPage() {
   const [rescheduleModal, setRescheduleModal] = useState<Appointment | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState("");
 
+  // Vehicle Info / Last Entry Modal State
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [infoModalPlate, setInfoModalPlate] = useState<string>("");
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoData, setInfoData] = useState<{
+    vehicle: any | null;
+    lastOrder: WorkOrder | null;
+    lastInvoice: any | null;
+    allOrders: WorkOrder[];
+    technicianName: string;
+  } | null>(null);
+
   // Dark Glassmorphic Confirmation Modal State (replaces native window.confirm)
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
@@ -118,6 +139,88 @@ export default function PorteriaPage() {
   const showAlert = (type: "success" | "info" | "warning", text: string) => {
     setAlertMessage({ type, text });
     setTimeout(() => setAlertMessage(null), 5000);
+  };
+
+  /**
+   * Open Vehicle Info Modal showing full vehicle sheet & last workshop entry
+   */
+  const handleOpenVehicleInfoModal = async (targetPlate?: string) => {
+    const rawPlate = targetPlate || entryForm.plate;
+    const clean = (rawPlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!clean || clean.length < 3) {
+      showAlert("warning", "Por favor ingrese o escanee una placa válida primero para consultar su información.");
+      return;
+    }
+
+    setInfoModalPlate(rawPlate.toUpperCase());
+    setInfoModalOpen(true);
+    setInfoLoading(true);
+    setInfoData(null);
+
+    try {
+      // 1. Get vehicle data from local store
+      let veh = vehicles.find((v) => v.plate && v.plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean) || null;
+
+      // 2. Get local work orders
+      let matchingOrders = workOrders.filter((wo) => wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean);
+
+      // 3. Query Supabase in real-time to guarantee fetching full history & latest entries
+      try {
+        const [remoteVehRes, remoteOrdersRes] = await Promise.all([
+          supabase.from("vehicles").select("*").ilike("plate", `%${clean}%`).limit(1),
+          supabase.from("work_orders").select("*").ilike("vehicle_plate", `%${clean}%`).order("entry_time", { ascending: false }).limit(10),
+        ]);
+
+        if (remoteVehRes.data && remoteVehRes.data.length > 0) {
+          veh = { ...remoteVehRes.data[0], ...veh };
+        }
+
+        if (remoteOrdersRes.data && remoteOrdersRes.data.length > 0) {
+          const map = new Map<string, WorkOrder>();
+          matchingOrders.forEach((o) => map.set(o.id, o));
+          remoteOrdersRes.data.forEach((ro: any) => {
+            map.set(ro.id, {
+              ...ro,
+              items: ro.items || [],
+            });
+          });
+          matchingOrders = Array.from(map.values());
+        }
+      } catch (err) {
+        console.warn("Remote history query error:", err);
+      }
+
+      // Sort matching orders descending by entry_time
+      matchingOrders.sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
+
+      const lastOrder = matchingOrders[0] || null;
+      let lastInvoice = null;
+      if (lastOrder) {
+        lastInvoice = invoices.find((i) => i.work_order_id === lastOrder.id) || null;
+      }
+      if (!lastInvoice && matchingOrders.length > 0) {
+        lastInvoice = invoices.find((i) => i.vehicle_plate && i.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean) || null;
+      }
+
+      // Find technician name
+      let technicianName = "Sin técnico asignado";
+      if (lastOrder?.assigned_technician_id) {
+        const t = technicians.find((tech) => tech.id === lastOrder.assigned_technician_id);
+        if (t) technicianName = t.full_name;
+      }
+
+      setInfoData({
+        vehicle: veh,
+        lastOrder,
+        lastInvoice,
+        allOrders: matchingOrders,
+        technicianName,
+      });
+    } catch (e: any) {
+      showAlert("warning", `Error al consultar información: ${e?.message || "Intente nuevamente"}`);
+    } finally {
+      setInfoLoading(false);
+    }
   };
 
   // Date Navigator Helpers
@@ -802,9 +905,20 @@ export default function PorteriaPage() {
                 {/* Plate & Fuel Type */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                      Placa Vehículo *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-300 uppercase">
+                        Placa Vehículo *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenVehicleInfoModal(entryForm.plate)}
+                        className="text-[11px] font-black text-cyan-300 hover:text-white flex items-center gap-1 bg-cyan-950/60 hover:bg-cyan-600/80 border border-cyan-500/40 hover:border-cyan-400 px-2 py-0.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-cyan-950/40"
+                        title="Ver ficha completa y último ingreso al taller de esta placa"
+                      >
+                        <Info className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Info</span>
+                      </button>
+                    </div>
                     <div className="relative">
                       <input
                         type="text"
@@ -1302,6 +1416,297 @@ export default function PorteriaPage() {
                 }`}
               >
                 {confirmModal.confirmLabel || "Aceptar"}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* VEHICLE INFO & LAST WORKSHOP ENTRY MODAL */}
+      {/* ========================================================================= */}
+      {infoModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-cyan-500/30 rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl shadow-cyan-950/60 flex flex-col max-h-[90vh] overflow-hidden space-y-5">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-cyan-500/20 text-cyan-400 rounded-2xl border border-cyan-500/30">
+                  <History className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-white">Historial & Ficha de Vehículo</h3>
+                    <span className="font-mono font-black text-sm px-2.5 py-0.5 rounded-lg bg-black/60 border border-cyan-500/40 text-cyan-300">
+                      {infoModalPlate}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400">Información del auto y detalle del último servicio en taller.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInfoModalOpen(false)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body (Scrollable) */}
+            <div className="overflow-y-auto pr-1 space-y-5 flex-1 custom-scrollbar">
+              {infoLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-3 text-cyan-400">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                  <span className="text-xs font-bold text-gray-300">Consultando base de datos e historial de la placa {infoModalPlate}...</span>
+                </div>
+              ) : (
+                <>
+                  {/* 1. Ficha del Vehículo & Cliente */}
+                  <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
+                    <span className="text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Car className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Datos del Vehículo & Propietario</span>
+                    </span>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-2.5 rounded-xl bg-reygas-surface border border-white/5">
+                        <span className="text-[10px] text-gray-400 block font-semibold">Marca / Modelo</span>
+                        <span className="font-bold text-white">
+                          {infoData?.vehicle?.brand || entryForm.brand || "—"} {infoData?.vehicle?.model || entryForm.model || ""}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-reygas-surface border border-white/5">
+                        <span className="text-[10px] text-gray-400 block font-semibold">Color / Año</span>
+                        <span className="font-bold text-white">
+                          {infoData?.vehicle?.color || entryForm.color || "—"} ({infoData?.vehicle?.year || entryForm.year || "—"})
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-reygas-surface border border-white/5">
+                        <span className="text-[10px] text-gray-400 block font-semibold">Combustible</span>
+                        <span className="font-black text-amber-400">
+                          ⛽ {infoData?.vehicle?.fuel_type || entryForm.fuel_type || "GNV"}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-reygas-surface border border-white/5">
+                        <span className="text-[10px] text-gray-400 block font-semibold">Último Kilometraje</span>
+                        <span className="font-mono font-bold text-cyan-300">
+                          {infoData?.vehicle?.current_mileage || (infoData?.lastOrder as any)?.current_mileage || entryForm.current_mileage || 0} km
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 text-xs">
+                      <div className="flex items-center gap-2 p-2 rounded-xl bg-reygas-surface/60 border border-white/5">
+                        <User className="w-4 h-4 text-gray-400 shrink-0" />
+                        <div className="truncate">
+                          <span className="text-[10px] text-gray-400 block">Propietario / Conductor</span>
+                          <span className="font-bold text-white truncate">
+                            {infoData?.vehicle?.owner_name || infoData?.lastInvoice?.client_name || entryForm.owner_name || "Cliente Garita"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 p-2 rounded-xl bg-reygas-surface/60 border border-white/5">
+                        <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div>
+                          <span className="text-[10px] text-gray-400 block">Teléfono de Contacto</span>
+                          <span className="font-bold text-white">
+                            {infoData?.vehicle?.owner_phone || entryForm.owner_phone || "Sin teléfono"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Detalle del Último Ingreso al Taller */}
+                  {infoData?.lastOrder ? (
+                    <div className="p-4 rounded-2xl bg-gradient-to-b from-purple-950/30 to-black/60 border border-purple-500/30 space-y-3.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <History className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Último Ingreso al Taller</span>
+                        </span>
+                        <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                          OT #{infoData.lastOrder.id.slice(0, 8)} • {infoData.lastOrder.status.replace("_", " ")}
+                        </span>
+                      </div>
+
+                      {/* Date & Technician */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-black/40 border border-white/5">
+                          <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                          <div>
+                            <span className="text-[10px] text-gray-400 block font-semibold">Fecha y Hora de Ingreso</span>
+                            <span className="font-bold text-white">
+                              {formatPeruDateTime(infoData.lastOrder.entry_time)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-black/40 border border-white/5">
+                          <Wrench className="w-4 h-4 text-cyan-400 shrink-0" />
+                          <div>
+                            <span className="text-[10px] text-gray-400 block font-semibold">Técnico Asignado</span>
+                            <span className="font-bold text-white">
+                              {infoData.technicianName}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Problem / Reason */}
+                      <div className="p-3 rounded-xl bg-black/40 border border-white/5 text-xs space-y-1">
+                        <span className="text-[10px] text-amber-300 font-bold uppercase block">
+                          Motivo de Ingreso / Falla Reportada:
+                        </span>
+                        <p className="text-gray-200 leading-relaxed font-medium">
+                          {infoData.lastOrder.problem_description || "Sin descripción de falla."}
+                        </p>
+                      </div>
+
+                      {/* Diagnostics & Observations */}
+                      {(infoData.lastOrder.diagnostic_notes || infoData.lastOrder.observations) && (
+                        <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/20 text-xs space-y-2">
+                          {infoData.lastOrder.diagnostic_notes && (
+                            <div>
+                              <span className="text-[10px] text-purple-300 font-bold uppercase block">
+                                🔍 Diagnóstico Técnico OBD2 / ECU:
+                              </span>
+                              <p className="text-gray-200 font-medium">{infoData.lastOrder.diagnostic_notes}</p>
+                            </div>
+                          )}
+                          {infoData.lastOrder.observations && (
+                            <div className="pt-1 border-t border-purple-500/20">
+                              <span className="text-[10px] text-amber-300 font-bold uppercase block">
+                                💡 Recomendaciones / Observaciones:
+                              </span>
+                              <p className="text-gray-200 font-medium">{infoData.lastOrder.observations}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Technical Expirations: Quinquennial & Chip */}
+                      {(infoData.lastOrder.quinquennial_date || infoData.lastOrder.chip_expiry_date) && (
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {infoData.lastOrder.quinquennial_date && (
+                            <div className="p-2 rounded-xl bg-black/40 border border-purple-500/20">
+                              <span className="text-[10px] text-gray-400 block">Vencimiento Quinquenal</span>
+                              <span className="font-mono font-bold text-purple-300">
+                                {formatPeruDate(infoData.lastOrder.quinquennial_date)}
+                              </span>
+                            </div>
+                          )}
+                          {infoData.lastOrder.chip_expiry_date && (
+                            <div className="p-2 rounded-xl bg-black/40 border border-cyan-500/20">
+                              <span className="text-[10px] text-gray-400 block">Vencimiento Chip Anual</span>
+                              <span className="font-mono font-bold text-cyan-300">
+                                {formatPeruDate(infoData.lastOrder.chip_expiry_date)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Parts & Services items from last order */}
+                      {infoData.lastOrder.items && infoData.lastOrder.items.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <span className="text-[10px] text-gray-400 font-bold uppercase block">
+                            Repuestos & Servicios Utilizados:
+                          </span>
+                          <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                            {infoData.lastOrder.items.map((item, i) => (
+                              <div key={i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-black/40 border border-white/5">
+                                <span className="text-gray-300 font-medium">
+                                  {item.quantity}x {item.description}
+                                </span>
+                                <span className="font-mono font-bold text-amber-300">
+                                  S/ {(Number(item.quantity) * Number(item.unit_price)).toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Financial info: Invoice total & Status */}
+                      {infoData.lastInvoice && (
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs">
+                          <div className="flex items-center gap-2">
+                            <Receipt className="w-4 h-4 text-emerald-400" />
+                            <div>
+                              <span className="text-[10px] text-gray-400 block">Comprobante / Pago</span>
+                              <span className="font-bold text-white">
+                                {infoData.lastInvoice.receipt_type || "Boleta"} #{infoData.lastInvoice.receipt_number || "—"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-gray-400 block">Monto Cobrado</span>
+                            <span className="font-mono font-black text-sm text-emerald-400">
+                              S/ {Number(infoData.lastInvoice.total_amount || 0).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-5 rounded-2xl bg-black/30 border border-white/10 text-center space-y-2">
+                      <Clock className="w-8 h-8 text-gray-500 mx-auto" />
+                      <p className="text-xs font-bold text-gray-300">
+                        No se registran órdenes de trabajo previas para la placa <strong className="text-white">{infoModalPlate}</strong>.
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        Este será el primer ingreso registrado en el sistema.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 3. Timeline de Ingresos Anteriores (si hay más de 1) */}
+                  {infoData?.allOrders && infoData.allOrders.length > 1 && (
+                    <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-2.5">
+                      <span className="text-[11px] font-black text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Historial de Visitas Anteriores ({infoData.allOrders.length})</span>
+                      </span>
+
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {infoData.allOrders.slice(1).map((order) => (
+                          <div key={order.id} className="p-2.5 rounded-xl bg-reygas-surface border border-white/5 flex items-center justify-between text-xs gap-3">
+                            <div>
+                              <span className="font-bold text-white block">
+                                {formatPeruDate(order.entry_time)}
+                              </span>
+                              <span className="text-[11px] text-gray-400 line-clamp-1">
+                                {order.problem_description || "Servicio de taller"}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/5 border border-white/10 text-gray-300 shrink-0 uppercase">
+                              {order.status.replace("_", " ")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end pt-3 border-t border-white/10 shrink-0">
+              <button
+                type="button"
+                onClick={() => setInfoModalOpen(false)}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-cyan-600/30 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Cerrar Información
               </button>
             </div>
 
