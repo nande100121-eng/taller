@@ -36,6 +36,7 @@ import {
   Printer
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import { BarcodePrintModal } from "@/components/BarcodePrintModal";
 
 export default function AlmacenPage() {
@@ -270,12 +271,14 @@ export default function AlmacenPage() {
   };
 
   const handleSkuInputChange = (newSku: string) => {
-    const uppercaseSku = newSku.trim().toUpperCase();
+    const uppercaseSku = normalizeScannerCode(newSku);
     setItemForm((prev) => ({ ...prev, sku_barcode: uppercaseSku }));
 
     if (uppercaseSku.length >= 3 && !editingItem) {
       const existing = inventoryItems.find(
-        (i) => i.sku_barcode.trim().toUpperCase() === uppercaseSku
+        (i) =>
+          i.sku_barcode.trim().toUpperCase() === uppercaseSku ||
+          normalizeScannerCode(i.sku_barcode) === uppercaseSku
       );
       if (existing) {
         setItemForm({
@@ -568,25 +571,32 @@ export default function AlmacenPage() {
     .filter((i) => !i.dispatched).length;
 
   const handleSearchIngresoSku = (codeToSearch?: string) => {
-    const term = (codeToSearch ?? ingresoSku).trim().toLowerCase();
-    if (!term) {
+    const raw = (codeToSearch ?? ingresoSku).trim();
+    if (!raw) {
       setIngresoFoundItem(null);
       return;
     }
+    const cleanTerm = normalizeScannerCode(raw).toLowerCase();
+    const rawLower = raw.toLowerCase();
+
     const found = inventoryItems.find(
       (i) =>
-        i.sku_barcode.toLowerCase() === term ||
-        i.name.toLowerCase().includes(term) ||
-        (i.serial_number && i.serial_number.toLowerCase() === term)
+        i.sku_barcode.toLowerCase() === rawLower ||
+        normalizeScannerCode(i.sku_barcode).toLowerCase() === cleanTerm ||
+        i.name.toLowerCase().includes(rawLower) ||
+        (i.serial_number && i.serial_number.toLowerCase() === rawLower) ||
+        (i.serial_number && normalizeScannerCode(i.serial_number).toLowerCase() === cleanTerm)
     );
     if (found) {
       setIngresoFoundItem(found);
+      setIngresoSku(found.sku_barcode);
       setShowNewMaterialForm(false);
     } else {
       setIngresoFoundItem(null);
+      const autoCleaned = normalizeScannerCode(raw) || raw.toUpperCase();
       setNewMaterialForm((prev) => ({
         ...prev,
-        sku_barcode: codeToSearch ?? ingresoSku,
+        sku_barcode: autoCleaned,
       }));
     }
   };
@@ -734,11 +744,16 @@ export default function AlmacenPage() {
 
   const displayInventoryItems = inventoryItems
     .filter((item) => {
+      const searchRaw = deferredInventorySearch.trim().toLowerCase();
+      const searchClean = normalizeScannerCode(deferredInventorySearch).toLowerCase();
+
       const matchesSearch =
-        !deferredInventorySearch ||
-        item.name.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
-        item.sku_barcode.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
-        (item.brand || "").toLowerCase().includes(deferredInventorySearch.toLowerCase());
+        !searchRaw ||
+        item.name.toLowerCase().includes(searchRaw) ||
+        item.sku_barcode.toLowerCase().includes(searchRaw) ||
+        normalizeScannerCode(item.sku_barcode).toLowerCase().includes(searchClean) ||
+        (item.brand || "").toLowerCase().includes(searchRaw) ||
+        (item.serial_number || "").toLowerCase().includes(searchRaw);
 
       const matchesStock =
         stockFilter === "todos"
@@ -1828,16 +1843,18 @@ export default function AlmacenPage() {
                         <Barcode className="w-5 h-5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder="Ej. KIT-GNV-5G, VALV-01, MANG-ALTA..."
+                          placeholder="Escanear con pistola o escribir código SKU (ej. RYG-ABR-0001)..."
                           value={ingresoSku}
                           onChange={(e) => {
-                            setIngresoSku(e.target.value);
-                            handleSearchIngresoSku(e.target.value);
+                            const clean = normalizeScannerCode(e.target.value);
+                            setIngresoSku(clean);
+                            handleSearchIngresoSku(clean);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              handleSearchIngresoSku();
+                              const clean = normalizeScannerCode(ingresoSku);
+                              handleSearchIngresoSku(clean);
                             }
                           }}
                           className="w-full pl-11 pr-4 py-3.5 bg-reygas-surface border border-white/15 rounded-2xl text-white font-mono text-sm uppercase focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-bold"

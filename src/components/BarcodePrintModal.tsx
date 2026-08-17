@@ -205,28 +205,8 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   }, [inventoryItems]);
 
   const handlePrint = () => {
-    // Ensure the print container exists at body level before printing
-    const el = document.getElementById("barcode-print-sheets");
-    if (el) {
-      // Force all child SVGs to re-render (some browsers skip invisible SVGs)
-      el.querySelectorAll("svg").forEach((svg) => {
-        const val = svg.getAttribute("data-barcode-value");
-        if (val && typeof JsBarcode !== "undefined") {
-          try {
-            JsBarcode(svg, val.trim() || "SKU-000", {
-              format: "CODE128",
-              width: barcodeWidth,
-              height: barcodeHeight,
-              displayValue: false,
-              margin: 10,
-              background: "#ffffff",
-              lineColor: "#000000",
-            });
-          } catch {}
-        }
-      });
-    }
-    setTimeout(() => window.print(), 150);
+    // Print directly - BarcodeSvg renders every code reactively with its own ref
+    setTimeout(() => window.print(), 100);
   };
 
   if (!isOpen) return null;
@@ -900,7 +880,8 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr",
                   gridTemplateRows: "repeat(4, 1fr)",
-                  gap: "4mm",
+                  columnGap: "6mm",
+                  rowGap: "3.5mm",
                   height: "100%",
                   boxSizing: "border-box",
                 }}
@@ -909,7 +890,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   const itemPhoto = item.image_url || productImageUrl || "/logo.jpg";
                   return (
                     <div
-                      key={`print-item-${item.id}-${itemIdx}`}
+                      key={`print-item-${item.id}-${item.sku_barcode}-${itemIdx}`}
                       className="barcode-card-print"
                       style={{
                         padding: "3.5mm 4mm 2.5mm 4mm",
@@ -1018,6 +999,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                         }}
                       >
                         <BarcodeSvg
+                          key={`print-svg-${item.id}-${item.sku_barcode}`}
                           value={item.sku_barcode}
                           className="w-full"
                           width={barcodeWidth}
