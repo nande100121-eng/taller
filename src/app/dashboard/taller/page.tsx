@@ -78,6 +78,19 @@ export default function WorkshopOperationsPage() {
   const [customItemName, setCustomItemName] = useState("");
   const [customItemPrice, setCustomItemPrice] = useState<number>(0);
   const [partQty, setPartQty] = useState(1);
+  const [partsSearchQuery, setPartsSearchQuery] = useState("");
+
+  const filteredInventoryItems = React.useMemo(() => {
+    if (!partsSearchQuery.trim()) return inventoryItems;
+    const q = partsSearchQuery.toLowerCase().trim();
+    return inventoryItems.filter(
+      (item) =>
+        (item.name && item.name.toLowerCase().includes(q)) ||
+        (item.sku_barcode && item.sku_barcode.toLowerCase().includes(q)) ||
+        (item.brand && item.brand.toLowerCase().includes(q)) ||
+        (item.category && item.category.toLowerCase().includes(q))
+    );
+  }, [inventoryItems, partsSearchQuery]);
 
   // Filtered Services for Certification and Workshop Services
   const certificationServices = React.useMemo(() => {
@@ -153,6 +166,7 @@ export default function WorkshopOperationsPage() {
     setActiveOrderModal(orderId);
     setModalMode("parts");
     setRequisitionType("repuesto");
+    setPartsSearchQuery("");
     setSelectedInventoryId(inventoryItems[0]?.id || "");
     setCustomItemPrice(inventoryItems[0]?.unit_price || 0);
     setCustomItemName("");
@@ -1141,28 +1155,118 @@ export default function WorkshopOperationsPage() {
                 {requisitionType === "repuesto" ? (
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-1">
-                        Seleccionar Repuesto en Inventario
+                      <label className="block text-xs font-bold text-gray-300 uppercase mb-1.5 flex items-center justify-between">
+                        <span>Buscar y Seleccionar Repuesto</span>
+                        <span className="text-[11px] text-amber-400 font-mono font-normal">
+                          {filteredInventoryItems.length} de {inventoryItems.length} disponibles
+                        </span>
                       </label>
-                      <select
-                        value={selectedInventoryId}
-                        onChange={(e) => {
-                          setSelectedInventoryId(e.target.value);
-                          const it = inventoryItems.find((i) => i.id === e.target.value);
-                          if (it) setCustomItemPrice(it.unit_price || 0);
-                        }}
-                        className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400 font-bold"
-                      >
-                        {inventoryItems.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} (Stock: {item.stock_quantity}) — S/ {item.unit_price}
-                          </option>
-                        ))}
-                      </select>
+                      
+                      {/* Search Bar */}
+                      <div className="relative mb-2">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Escriba para buscar por nombre, código SKU o marca..."
+                          value={partsSearchQuery}
+                          onChange={(e) => setPartsSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-8 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-xs text-white placeholder-gray-500 focus:border-amber-400 focus:outline-none font-bold transition-all"
+                        />
+                        {partsSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setPartsSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
+                            title="Limpiar búsqueda"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Filtered Inventory Items List */}
+                      <div className="max-h-48 overflow-y-auto space-y-1 p-1 rounded-xl bg-black/40 border border-white/10 custom-scrollbar">
+                        {filteredInventoryItems.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-gray-400 space-y-1">
+                            <p>No se encontraron repuestos con &quot;{partsSearchQuery}&quot;.</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRequisitionType("manual");
+                                setCustomItemName(partsSearchQuery);
+                              }}
+                              className="text-xs text-teal-400 hover:text-teal-300 underline font-bold"
+                            >
+                              ¿Ingresar como Repuesto Libre / Manual?
+                            </button>
+                          </div>
+                        ) : (
+                          filteredInventoryItems.map((item) => {
+                            const isSelected = item.id === selectedInventoryId;
+                            const hasStock = item.stock_quantity > 0;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedInventoryId(item.id);
+                                  setCustomItemPrice(item.unit_price || 0);
+                                }}
+                                className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between border ${
+                                  isSelected
+                                    ? "bg-amber-500/20 border-amber-400 text-white font-bold ring-1 ring-amber-400 shadow-md scale-[1.01]"
+                                    : "bg-reygas-surface/40 border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/15"
+                                }`}
+                              >
+                                <div className="flex-1 min-w-0 pr-3">
+                                  <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                                    {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 stroke-[3]" />}
+                                    <span>{item.name}</span>
+                                  </div>
+                                  <div className="text-[10px] text-gray-400 truncate flex items-center gap-2 mt-0.5">
+                                    <span className="font-mono text-gray-300">{item.sku_barcode}</span>
+                                    {item.brand && <span>• {item.brand}</span>}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                    hasStock
+                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                      : "bg-red-500/20 text-red-300 border-red-500/30"
+                                  }`}>
+                                    Stock: {item.stock_quantity}
+                                  </span>
+                                  <span className="text-xs font-black text-amber-400 font-mono">
+                                    S/ {item.unit_price}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
 
+                    {/* Selected Item Summary Pill */}
+                    {selectedInventoryId && (
+                      <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/30 flex items-center justify-between text-xs">
+                        <div className="truncate pr-2">
+                          <span className="text-[10px] text-amber-300 uppercase font-bold block">Seleccionado:</span>
+                          <span className="font-bold text-white truncate">
+                            {inventoryItems.find((i) => i.id === selectedInventoryId)?.name || "Repuesto"}
+                          </span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] text-gray-400 block">Precio Catálogo</span>
+                          <span className="font-mono font-bold text-amber-400">
+                            S/ {inventoryItems.find((i) => i.id === selectedInventoryId)?.unit_price || 0}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
                     <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-1">Precio Unitario (S/)</label>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">Precio Unitario a Cobrar (S/)</label>
                       <input
                         type="number"
                         min="0"
