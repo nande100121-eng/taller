@@ -114,18 +114,26 @@ body {
 }
 
 /* ==========================================================================
-   ReyGas Universal Printing System — Barcode Sheet 8-Per-Page A4
+   ReyGas Universal Printing System
    ========================================================================== */
 @media print {
-  /* 1. Hide EVERYTHING on screen by default */
-  body > *:not(#barcode-print-sheets):not(.reygas-print-container) {
+  /*
+   * Strategy:
+   * 1. Hide everything at body-child level EXCEPT the print container.
+   * 2. Make the print container visible with block display.
+   * 3. Set ONLY visibility on children — NEVER override their display,
+   *    because inline styles set display:grid / display:flex and we
+   *    must not clobber those.
+   */
+
+  /* Hide all body-level children except the print containers */
+  body > * {
     display: none !important;
-    visibility: hidden !important;
   }
 
-  /* 2. Force the printable container to be visible and correctly laid out */
-  #barcode-print-sheets,
-  .reygas-print-container {
+  /* Show print containers */
+  body > #barcode-print-sheets,
+  body > .reygas-print-container {
     display: block !important;
     visibility: visible !important;
     position: absolute !important;
@@ -139,7 +147,7 @@ body {
     z-index: 999999 !important;
   }
 
-  /* 3. Ensure ALL children inside the printable container are visible */
+  /* Make all descendant elements visible WITHOUT touching display */
   #barcode-print-sheets *,
   .reygas-print-container * {
     visibility: visible !important;
@@ -148,35 +156,7 @@ body {
     print-color-adjust: exact !important;
   }
 
-  /* 4. Hide the modal overlay, sidebar, header, and all other UI chrome */
-  .fixed,
-  nav,
-  header,
-  aside,
-  footer,
-  .sidebar,
-  .glass-panel,
-  [role="dialog"] {
-    display: none !important;
-    visibility: hidden !important;
-  }
-
-  /* 5. Re-show printable containers (override rule 4) */
-  #barcode-print-sheets,
-  .reygas-print-container,
-  #barcode-print-sheets *,
-  .reygas-print-container * {
-    display: revert !important;
-    visibility: visible !important;
-  }
-
-  /* 6. Explicitly set block display on the root print containers */
-  #barcode-print-sheets,
-  .reygas-print-container {
-    display: block !important;
-  }
-
-  /* 7. Each A4 page sheet */
+  /* Each A4 page sheet (only set page-break and size, NOT display) */
   .barcode-print-page,
   .reygas-print-page {
     width: 210mm !important;
@@ -191,33 +171,15 @@ body {
     break-inside: avoid !important;
     background: #ffffff !important;
     color: #000000 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: space-between !important;
   }
 
-  /* 8. Each barcode card inside a page */
+  /* Each barcode label card */
   .barcode-card-print {
     border: 1.5px dashed #333333 !important;
     background: #ffffff !important;
     color: #000000 !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-  }
-
-  /* 9. SVGs inside barcode cards must print */
-  #barcode-print-sheets svg,
-  .reygas-print-container svg {
-    display: inline-block !important;
-    visibility: visible !important;
-  }
-
-  /* 10. Images inside barcode cards must print */
-  #barcode-print-sheets img,
-  .reygas-print-container img {
-    display: inline-block !important;
-    visibility: visible !important;
-    max-width: 100% !important;
   }
 
   @page {
