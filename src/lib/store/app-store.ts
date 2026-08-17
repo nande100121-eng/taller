@@ -1418,10 +1418,24 @@ export const useAppStore = create<AppState>()(
       },
 
       importBulkInventoryItems: (items) => {
-        const newItems: InventoryItem[] = items.map((item, idx) => ({
-          ...item,
-          id: (item as any).id || generateUUID(),
-        }));
+        const seenSkus = new Map<string, number>();
+        const newItems: InventoryItem[] = items.map((item, idx) => {
+          let cleanSku = (item.sku_barcode || `SKU-${idx + 1}`).trim().toUpperCase();
+          if (seenSkus.has(cleanSku)) {
+            const count = (seenSkus.get(cleanSku) || 1) + 1;
+            seenSkus.set(cleanSku, count);
+            cleanSku = `${cleanSku}-${count}`;
+          } else {
+            seenSkus.set(cleanSku, 1);
+          }
+
+          return {
+            ...item,
+            id: (item as any).id || `inv-${cleanSku.replace(/[^A-Z0-9_-]/gi, "_")}`,
+            sku_barcode: cleanSku,
+          };
+        });
+
         saveSupabaseBulkInventory(newItems);
         set({
           inventoryItems: newItems,

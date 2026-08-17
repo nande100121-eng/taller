@@ -136,11 +136,30 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
 
 export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise<{ success: boolean; count: number; errorMsg?: string }> {
   try {
-    // 1. Always persist full catalog snapshot to site_content as reliable cloud backup
-    await saveSupabaseSiteContent("all_inventory_records", items, "inventory");
+    // 1. Disambiguate duplicate SKUs if any and ensure deterministic IDs
+    const seenSkus = new Map<string, number>();
+    const sanitizedItems: InventoryItem[] = items.map((item, idx) => {
+      let cleanSku = (item.sku_barcode || `SKU-${idx + 1}`).trim().toUpperCase();
+      if (seenSkus.has(cleanSku)) {
+        const count = (seenSkus.get(cleanSku) || 1) + 1;
+        seenSkus.set(cleanSku, count);
+        cleanSku = `${cleanSku}-${count}`;
+      } else {
+        seenSkus.set(cleanSku, 1);
+      }
 
-    const CHUNK_SIZE = 150;
-    const fullPayload = items.map((item) => ({
+      return {
+        ...item,
+        id: item.id || `inv-${cleanSku.replace(/[^A-Z0-9_-]/gi, "_")}`,
+        sku_barcode: cleanSku,
+      };
+    });
+
+    // 2. Always persist full catalog snapshot to site_content as reliable cloud backup
+    await saveSupabaseSiteContent("all_inventory_records", sanitizedItems, "inventory");
+
+    const CHUNK_SIZE = 100;
+    const fullPayload = sanitizedItems.map((item) => ({
       id: item.id,
       sku_barcode: item.sku_barcode,
       name: item.name,
@@ -157,38 +176,20 @@ export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise
       min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
     }));
 
-    let hasColumnError = false;
-
     for (let i = 0; i < fullPayload.length; i += CHUNK_SIZE) {
       const chunk = fullPayload.slice(i, i + CHUNK_SIZE);
-      const { error } = await supabase.from("inventory_items").upsert(chunk);
+      const { error } = await supabase.from("inventory_items").upsert(chunk, { onConflict: "sku_barcode" });
       if (error) {
-        hasColumnError = true;
-        console.warn("Supabase bulk inventory save warning (will retry with base columns):", error.message);
-        break;
-      }
-    }
-
-    // 2. If table lacks extended columns, fallback to upserting base columns into inventory_items
-    if (hasColumnError) {
-      const basePayload = items.map((item) => ({
-        id: item.id,
-        sku_barcode: item.sku_barcode,
-        name: item.name,
-        category: item.category || "Repuestos",
-        stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
-        unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
-        min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
-      }));
-
-      for (let i = 0; i < basePayload.length; i += CHUNK_SIZE) {
-        const chunk = basePayload.slice(i, i + CHUNK_SIZE);
-        await supabase.from("inventory_items").upsert(chunk);
+        console.warn(`Supabase bulk inventory chunk ${i} notice:`, error.message);
+        // Retry individual items in this chunk to prevent losing the rest
+        for (const singleItem of chunk) {
+          await supabase.from("inventory_items").upsert([singleItem], { onConflict: "sku_barcode" });
+        }
       }
     }
 
     broadcastRealtimeChange("inventory_bulk_updated");
-    return { success: true, count: items.length };
+    return { success: true, count: sanitizedItems.length };
   } catch (err: any) {
     console.warn("Supabase bulk inventory error:", err);
     return { success: false, count: 0, errorMsg: err?.message || "Error al guardar en Supabase" };
@@ -819,7 +820,9 @@ export async function fetchSupabaseErpData() {
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
     let finalInventory: InventoryItem[] = [];
-    if (fallbackInventory.length > 0) {
+    if (Array.isArray(invData) && invData.length >= fallbackInventory.length && invData.length > 0) {
+      finalInventory = invData;
+    } else if (fallbackInventory.length > 0) {
       finalInventory = fallbackInventory;
     } else if (Array.isArray(invData) && invData.length > 0) {
       finalInventory = invData;
