@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import {
   FileText,
   Calendar,
@@ -120,12 +121,12 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     totalAmount: number = 0,
     isPending: boolean = false
   ) => {
-    if (isPending) {
+    if (isPending || totalAmount <= 0) {
       return { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
     }
 
     const result = { efectivo: 0, yape: 0, transferencia: 0, culqi: 0 };
-    const methodUpper = (methodRaw || "EFECTIVO").toUpperCase();
+    const methodUpper = (methodRaw || "EFECTIVO").toUpperCase().trim();
 
     const combinedStr = `${typeof discountsRaw === "string" ? discountsRaw : ""} ${notesRaw}`.toUpperCase();
     const regex = /([CEYTPB])\s*[:=\-]?\s*([0-9]+(?:\.[0-9]+)?)/gi;
@@ -152,14 +153,22 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
       return result;
     }
 
-    if (methodUpper.includes("EFECTIVO") || methodUpper === "CASH") {
-      result.efectivo = totalAmount;
-    } else if (methodUpper.includes("YAPE") || methodUpper.includes("PLIN")) {
-      result.yape = totalAmount;
-    } else if (methodUpper.includes("TRANSFER") || methodUpper.includes("BANCO") || methodUpper.includes("BCP") || methodUpper.includes("BBVA")) {
-      result.transferencia = totalAmount;
-    } else if (methodUpper.includes("TARJETA") || methodUpper.includes("CULQI") || methodUpper.includes("POS") || methodUpper.includes("CARD")) {
+    // Match single or comma-split payment methods
+    if (methodUpper.includes("CULQ") || methodUpper.includes("QULQ") || methodUpper.includes("TARJETA") || methodUpper.includes("POS") || methodUpper.includes("CARD")) {
       result.culqi = totalAmount;
+    } else if (methodUpper.includes("YAPE") || methodUpper.includes("PLIN")) {
+      if (methodUpper.includes("EFECTIVO") || methodUpper.includes("CASH")) {
+        // Mixed Yape + Efectivo
+        const half = +(totalAmount / 2).toFixed(2);
+        result.yape = half;
+        result.efectivo = +(totalAmount - half).toFixed(2);
+      } else {
+        result.yape = totalAmount;
+      }
+    } else if (methodUpper.includes("TRANSFER") || methodUpper.includes("BANCO") || methodUpper.includes("BCP") || methodUpper.includes("BBVA") || methodUpper.includes("INTERBANK")) {
+      result.transferencia = totalAmount;
+    } else if (methodUpper.includes("EFECTIVO") || methodUpper.includes("CASH") || methodUpper === "PAGADO") {
+      result.efectivo = totalAmount;
     } else {
       result.efectivo = totalAmount;
     }
@@ -175,7 +184,7 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     });
   }, [workOrders, selectedDate]);
 
-  // Day's direct invoices (including certification and stand-alone invoices)
+  // Day's direct invoices
   const dayInvoices = useMemo(() => {
     return invoices.filter((inv) => {
       const dateStr = (inv.issued_at || "").slice(0, 10);
@@ -204,30 +213,86 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     }> = [];
 
     let count = 1;
-    const processedOrderIds = new Set<string>();
+    const processedKeys = new Set<string>();
 
-    // 1. Map Work Orders
+    // 1. First Priority: Load exact day records from workshop CSV lookup (e.g. 15/08/2026, 14/08/2026, etc.)
+    const csvDayRecords = getWorkshopDayRecords(selectedDate);
+
+    if (csvDayRecords && csvDayRecords.length > 0) {
+      csvDayRecords.forEach((rec, idx) => {
+        const uniqueKey = `csv_${rec.plate}_${rec.receiptNumber}_${idx}`;
+        processedKeys.add(uniqueKey);
+        processedKeys.add(rec.plate.toUpperCase().trim());
+
+        const totalAmount = rec.price > 0 ? rec.price : (rec.credit > 0 ? rec.credit : 0);
+        const condUpper = (rec.condition || "").toUpperCase().trim();
+        const isPending = condUpper === "PENDIENTE" || (rec.credit > 0 && rec.price === 0);
+        const paymentMethod = rec.method || (isPending ? "PENDIENTE" : "EFECTIVO");
+
+        const breakdown = parsePaymentBreakdown(
+          paymentMethod,
+          rec.discounts || "",
+          (rec.service || "") + " " + (rec.parts || ""),
+          totalAmount,
+          isPending
+        );
+
+        const yDest = rec.destination ? rec.destination.toUpperCase() : "EMPRESA";
+        const tDest = rec.destination ? rec.destination.toUpperCase() : "EMPRESA";
+
+        const desc = [rec.service, rec.parts].filter(Boolean).join(" - ") || "Servicio de Taller";
+        const techName = rec.technician || "Taller";
+
+        rows.push({
+          id: uniqueKey,
+          itemNumber: count++,
+          plate: (rec.plate || "S/P").toUpperCase(),
+          description: desc,
+          total: totalAmount,
+          isPending,
+          efectivo: breakdown.efectivo,
+          yape: breakdown.yape,
+          transferencia: breakdown.transferencia,
+          culqi: breakdown.culqi,
+          responsable: techName.split(",")[0].split("-")[0].split(" ")[0].toUpperCase() || "TALLER",
+          yapeDestino: yDest,
+          transfDestino: tDest,
+          isInvoice: Boolean(rec.receiptNumber && rec.receiptNumber !== "0"),
+          orderStatus: isPending ? "pendiente" : "finalizado",
+        });
+      });
+    }
+
+    // 2. Map in-app Work Orders for this day (adds any new order created dynamically that isn't in CSV)
     dayOrders.forEach((wo) => {
-      processedOrderIds.add(wo.id);
+      const plateKey = (wo.vehicle_plate || "").toUpperCase().trim();
+      if (csvDayRecords.length > 0 && processedKeys.has(plateKey)) return;
+
       const inv = invoicesByWorkOrderId.get(wo.id);
+      const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
+
       const isDone = wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado";
       const isPending = !inv || inv.payment_status === "pendiente" || !isDone;
       const orderCost = (wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0;
-      const totalAmount = inv ? (Number(inv.grand_total) || Number((inv as any).total_amount) || 0) : orderCost;
-      const paymentMethod = inv?.payment_method || (isPending ? "PENDIENTE" : "EFECTIVO");
+      let totalAmount = inv ? (Number(inv.grand_total) || Number((inv as any).total_amount) || 0) : orderCost;
+      if (totalAmount === 0 && csvRec) {
+        totalAmount = csvRec.price || csvRec.credit || 0;
+      }
+
+      const paymentMethod = inv?.payment_method || (csvRec?.method) || (isPending ? "PENDIENTE" : "EFECTIVO");
 
       const breakdown = parsePaymentBreakdown(
         paymentMethod,
-        (inv as any)?.discounts || "",
-        (wo as any)?.diagnostic_notes || (inv as any)?.notes || "",
+        (inv as any)?.discounts || csvRec?.discounts || "",
+        (wo as any)?.diagnostic_notes || (inv as any)?.notes || (csvRec?.parts) || "",
         totalAmount,
         isPending
       );
 
       // Determine payment destination
-      const notesLower = ((wo as any)?.diagnostic_notes || (inv as any)?.notes || "").toLowerCase();
-      let yDest = "EMPRESA";
-      let tDest = "EMPRESA";
+      const notesLower = ((wo as any)?.diagnostic_notes || (inv as any)?.notes || (csvRec?.destination) || "").toLowerCase();
+      let yDest = csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA";
+      let tDest = csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA";
 
       for (const st of authorizedStaff) {
         if (notesLower.includes(st.toLowerCase())) {
@@ -240,11 +305,11 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
       const desc =
         wo.items && wo.items.length > 0
           ? wo.items.map((i) => i.description).join(", ")
-          : (wo as any).general_maintenance_service || (wo as any).diagnostic_notes || "Servicio de Taller";
+          : (wo as any).general_maintenance_service || (wo as any).diagnostic_notes || csvRec?.service || "Servicio de Taller";
 
       const techAssigned = wo.assigned_technician_id
         ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
-        : (wo as any).technician_name;
+        : (wo as any).technician_name || csvRec?.technician;
 
       rows.push({
         id: wo.id,
@@ -257,7 +322,7 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
         yape: breakdown.yape,
         transferencia: breakdown.transferencia,
         culqi: breakdown.culqi,
-        responsable: (techAssigned || "Taller").split(" ")[0].toUpperCase(),
+        responsable: (techAssigned || "Taller").split(",")[0].split("-")[0].split(" ")[0].toUpperCase() || "TALLER",
         yapeDestino: yDest,
         transfDestino: tDest,
         isInvoice: false,
@@ -265,9 +330,10 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
       });
     });
 
-    // 2. Map Direct Invoices not linked to day's work orders (e.g. Certificaciones, Ventas directas de repuestos)
+    // 3. Map Direct Invoices not linked to day's work orders
     dayInvoices.forEach((inv) => {
-      if (inv.work_order_id && processedOrderIds.has(inv.work_order_id)) return;
+      const plateKey = (inv.vehicle_plate || "").toUpperCase().trim();
+      if (csvDayRecords.length > 0 && processedKeys.has(plateKey)) return;
 
       const isPending = inv.payment_status === "pendiente";
       const totalAmount = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
@@ -311,7 +377,7 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     });
 
     return rows;
-  }, [dayOrders, dayInvoices, invoicesByWorkOrderId, authorizedStaff, technicians]);
+  }, [selectedDate, dayOrders, dayInvoices, invoicesByWorkOrderId, authorizedStaff, technicians]);
 
   // Financial Totals
   const totals = useMemo(() => {
@@ -347,32 +413,46 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     };
   }, [consolidatedRows]);
 
-  // Yapes and Transfers Matrix by Destination
+  // Yapes and Transfers Matrix by Destination (Image 3)
   const yapeDestinations = useMemo(() => {
-    const cols = [...authorizedStaff, "EMPRESA"];
+    const dynamicDests = new Set<string>();
+    consolidatedRows.forEach((r) => {
+      if (r.yape > 0 && r.yapeDestino && r.yapeDestino !== "-") dynamicDests.add(r.yapeDestino.toUpperCase());
+      if (r.transferencia > 0 && r.transfDestino && r.transfDestino !== "-") dynamicDests.add(r.transfDestino.toUpperCase());
+    });
+
+    const defaultStaff = ["JAIME", "ISABEL", "FRANCO", "EMPRESA"];
+    defaultStaff.forEach((d) => dynamicDests.add(d));
+    const cols = Array.from(dynamicDests);
+
     const rowsList: Array<{ rowIdx: number; values: Record<string, number> }> = [];
     const sumByCol: Record<string, number> = {};
     cols.forEach((c) => (sumByCol[c] = 0));
 
-    let maxIdx = 15;
-    const yapeRows = consolidatedRows.filter((r) => r.yape > 0);
-    if (yapeRows.length > maxIdx) maxIdx = yapeRows.length;
+    // Get rows with electronic payments (Yape or Transferencia)
+    const electronicRows = consolidatedRows.filter((r) => r.yape > 0 || r.transferencia > 0);
+    const maxIdx = Math.max(15, electronicRows.length);
 
     for (let i = 0; i < maxIdx; i++) {
-      const r = yapeRows[i];
+      const r = electronicRows[i];
       const valObj: Record<string, number> = {};
       cols.forEach((c) => (valObj[c] = 0));
 
       if (r) {
-        const dest = cols.includes(r.yapeDestino) ? r.yapeDestino : "EMPRESA";
-        valObj[dest] = r.yape;
-        sumByCol[dest] = (sumByCol[dest] || 0) + r.yape;
+        const dest = cols.includes(r.yapeDestino)
+          ? r.yapeDestino
+          : cols.includes(r.transfDestino)
+          ? r.transfDestino
+          : "EMPRESA";
+        const amount = (r.yape > 0 ? r.yape : 0) + (r.transferencia > 0 ? r.transferencia : 0);
+        valObj[dest] = amount;
+        sumByCol[dest] = (sumByCol[dest] || 0) + amount;
       }
       rowsList.push({ rowIdx: i + 1, values: valObj });
     }
 
     return { cols, rowsList, sumByCol };
-  }, [consolidatedRows, authorizedStaff]);
+  }, [consolidatedRows]);
 
   // Workshop Technician Performance Metrics
   const techPerformance = useMemo(() => {
@@ -382,57 +462,43 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
       map.set(t.full_name, { name: t.full_name, count: 0, completed: 0, totalSales: 0 });
     });
 
-    dayOrders.forEach((wo) => {
-      const techAssigned = wo.assigned_technician_id
-        ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
-        : (wo as any).technician_name;
-      const techName = techAssigned || "Sin Asignar";
+    consolidatedRows.forEach((r) => {
+      const techName = r.responsable || "TALLER";
       const existing = map.get(techName) || { name: techName, count: 0, completed: 0, totalSales: 0 };
       existing.count += 1;
-      const isDone = wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado";
-      if (isDone) existing.completed += 1;
-      const orderCost = (wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0;
-      existing.totalSales += orderCost;
+      if (!r.isPending) existing.completed += 1;
+      existing.totalSales += r.total;
       map.set(techName, existing);
     });
 
     return Array.from(map.values()).filter((tp) => tp.count > 0 || technicians.some((t) => t.full_name === tp.name && t.is_active));
-  }, [technicians, dayOrders]);
+  }, [technicians, consolidatedRows]);
 
   // Workshop Services and Parts Breakdown
   const itemsBreakdown = useMemo(() => {
     const map = new Map<string, { desc: string; type: "servicio" | "repuesto"; count: number; total: number }>();
 
-    dayOrders.forEach((wo) => {
-      if (wo.items && wo.items.length > 0) {
-        wo.items.forEach((it) => {
-          const key = it.description.trim().toUpperCase();
-          const existing = map.get(key) || { desc: it.description, type: it.item_type || (it as any).type || "repuesto", count: 0, total: 0 };
-          existing.count += it.quantity || 1;
-          existing.total += it.subtotal || (it.unit_price * (it.quantity || 1)) || 0;
-          map.set(key, existing);
-        });
-      } else if ((wo as any).general_maintenance_service) {
-        const key = ((wo as any).general_maintenance_service as string).trim().toUpperCase();
-        const existing = map.get(key) || { desc: (wo as any).general_maintenance_service, type: "servicio", count: 0, total: 0 };
-        existing.count += 1;
-        existing.total += Number((wo as any).total_cost) || 0;
-        map.set(key, existing);
-      }
+    consolidatedRows.forEach((r) => {
+      const key = r.description.trim().toUpperCase();
+      const isServ = key.includes("MANT") || key.includes("SERVICIO") || key.includes("CALIBRA") || key.includes("ANUAL") || key.includes("PRUEBA") || key.includes("REVISION");
+      const existing = map.get(key) || { desc: r.description, type: isServ ? "servicio" : "repuesto", count: 0, total: 0 };
+      existing.count += 1;
+      existing.total += r.total;
+      map.set(key, existing);
     });
 
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [dayOrders]);
+  }, [consolidatedRows]);
 
   // Executive narrative summary
   const executiveSummary = useMemo(() => {
-    const totalVehicles = dayOrders.length;
-    const completed = dayOrders.filter((wo) => wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado").length;
-    const inProgress = dayOrders.filter((wo) => wo.status !== "finalizado" && wo.status !== "pagado_autorizado" && (wo.status as string) !== "completado").length;
+    const totalVehicles = consolidatedRows.length;
+    const completed = consolidatedRows.filter((r) => !r.isPending).length;
+    const inProgress = consolidatedRows.filter((r) => r.isPending).length;
     const pendingPay = totals.totalPendiente;
 
-    return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} vehículos atendidos (${completed} completados, ${inProgress} en proceso). La facturación total ascendió a S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o liquidación de crédito.`;
-  }, [dayOrders, totals, selectedDate]);
+    return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} atenciones (${completed} pagadas/completadas, ${inProgress} pendientes/crédito). La facturación total ascendió a S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o crédito.`;
+  }, [consolidatedRows, totals, selectedDate]);
 
   // Print Report Handler
   const handlePrint = () => {

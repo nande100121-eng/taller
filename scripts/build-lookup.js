@@ -8,6 +8,7 @@ const raw = fs.readFileSync(csvPath, 'utf8');
 const lines = raw.replace(/\r/g, '').split('\n');
 
 const lookupMap = {};
+const dayRecordsMap = {};
 
 function parseDateISO(dStr) {
   if (!dStr) return '';
@@ -29,8 +30,9 @@ lines.forEach((line, idx) => {
   const dateISO = parseDateISO(rawDate);
   const rawPlate = (cols[7] || '').trim().toUpperCase();
   const plate = rawPlate.replace(/[^A-Z0-9-]/g, '');
-  if (!plate) return;
+  if (!plate && !cols[8]) return;
 
+  const effectivePlate = plate || 'S/P';
   const receiptNum = (cols[8] || '').trim();
   const clientName = (cols[9] || '').trim();
   const clientPhone = (cols[10] || '').trim();
@@ -39,6 +41,7 @@ lines.forEach((line, idx) => {
   const parts = (cols[13] || '').trim();
   const priceRaw = (cols[14] || '').replace(/[\$S\/,\s]/g, '').trim();
   const price = parseFloat(priceRaw) || 0;
+  const discountsRaw = (cols[15] || '').trim();
   const creditRaw = (cols[16] || '').replace(/[\$S\/,\s]/g, '').trim();
   const credit = parseFloat(creditRaw) || 0;
   const condition = (cols[17] || '').trim();
@@ -51,7 +54,7 @@ lines.forEach((line, idx) => {
   const brand = (cols[5] || '').trim();
 
   const record = {
-    plate,
+    plate: effectivePlate,
     dateISO,
     rawDate,
     receiptNumber: receiptNum,
@@ -62,9 +65,10 @@ lines.forEach((line, idx) => {
     service,
     parts,
     price,
+    discounts: discountsRaw,
     credit,
     condition,
-    method: method || 'Efectivo',
+    method: method || (condition === 'PAGADO' ? 'Efectivo' : 'PENDIENTE'),
     destination: dest || 'EMPRESA',
     rucFactura,
     quinquennial,
@@ -72,8 +76,18 @@ lines.forEach((line, idx) => {
     brand
   };
 
-  const key = plate + '_' + dateISO;
+  const key = effectivePlate + '_' + dateISO;
   lookupMap[key] = record;
+  if (receiptNum && receiptNum !== '0') {
+    lookupMap['REC_' + receiptNum + '_' + dateISO] = record;
+  }
+
+  if (dateISO) {
+    if (!dayRecordsMap[dateISO]) {
+      dayRecordsMap[dateISO] = [];
+    }
+    dayRecordsMap[dateISO].push(record);
+  }
 });
 
 const fileContent = 'export interface WorkshopCSVRecord {\n' +
@@ -88,6 +102,7 @@ const fileContent = 'export interface WorkshopCSVRecord {\n' +
   '  service: string;\n' +
   '  parts: string;\n' +
   '  price: number;\n' +
+  '  discounts?: string;\n' +
   '  credit: number;\n' +
   '  condition: string;\n' +
   '  method: string;\n' +
@@ -98,7 +113,13 @@ const fileContent = 'export interface WorkshopCSVRecord {\n' +
   '  brand: string;\n' +
   '}\n\n' +
   'export const WORKSHOP_CSV_LOOKUP: Record<string, WorkshopCSVRecord> = ' + JSON.stringify(lookupMap) + ';\n\n' +
-  'export function getWorkshopCSVRecord(plate: string, dateISO?: string): WorkshopCSVRecord | undefined {\n' +
+  'export const WORKSHOP_DAY_RECORDS: Record<string, WorkshopCSVRecord[]> = ' + JSON.stringify(dayRecordsMap) + ';\n\n' +
+  'export function getWorkshopCSVRecord(plate: string, dateISO?: string, receiptNumber?: string): WorkshopCSVRecord | undefined {\n' +
+  '  if (receiptNumber && receiptNumber !== "0" && dateISO) {\n' +
+  '    const cleanDate = dateISO.slice(0, 10);\n' +
+  '    const exactRec = WORKSHOP_CSV_LOOKUP["REC_" + receiptNumber + "_" + cleanDate];\n' +
+  '    if (exactRec) return exactRec;\n' +
+  '  }\n' +
   '  if (!plate) return undefined;\n' +
   '  const cleanPlate = plate.toUpperCase().trim().replace(/[^A-Z0-9-]/g, "");\n' +
   '  if (dateISO) {\n' +
@@ -110,7 +131,12 @@ const fileContent = 'export interface WorkshopCSVRecord {\n' +
   '    if (k.startsWith(cleanPlate + "_")) return WORKSHOP_CSV_LOOKUP[k];\n' +
   '  }\n' +
   '  return undefined;\n' +
+  '}\n\n' +
+  'export function getWorkshopDayRecords(dateISO: string): WorkshopCSVRecord[] {\n' +
+  '  if (!dateISO) return [];\n' +
+  '  const cleanDate = dateISO.slice(0, 10);\n' +
+  '  return WORKSHOP_DAY_RECORDS[cleanDate] || [];\n' +
   '}\n';
 
 fs.writeFileSync(outputPath, fileContent, 'utf8');
-console.log('Successfully written', outputPath, 'with keys:', Object.keys(lookupMap).length);
+console.log('Successfully written', outputPath, 'with lookup keys:', Object.keys(lookupMap).length, 'and days:', Object.keys(dayRecordsMap).length);

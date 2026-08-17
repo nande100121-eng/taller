@@ -8,10 +8,12 @@ import {
 } from "@/lib/utils/credit-tracker";
 import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
+import { DailyWorkshopReportModal } from "@/components/DailyWorkshopReportModal";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import {
   CreditCard,
+  TrendingUp,
   DollarSign,
   Receipt,
   CheckCircle2,
@@ -70,7 +72,10 @@ export default function CajaPage() {
   // Search Filters
   const [searchPlate, setSearchPlate] = useState("");
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
-  const [visibleLimit, setVisibleLimit] = useState(30);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<"todos" | "pendientes" | "pagados">("todos");
+  const [visibleLimit, setVisibleLimit] = useState<number>(30);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString()); // Default today in Peru
 
   // Reset pagination on search or tab change
@@ -1132,8 +1137,19 @@ export default function CajaPage() {
           <span>Control de Comprobantes ({allBillingWorkOrders.length} registros en total)</span>
         </div>
 
-        {/* Global Search Filters (Plate & Date) & Manual Payment Button */}
+        {/* Global Search Filters (Plate & Date) & Action Buttons */}
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          {/* Daily Report to Management Button */}
+          <button
+            type="button"
+            onClick={() => setReportModalOpen(true)}
+            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Abrir Informe Diario de Taller & Caja a Gerencia"
+          >
+            <TrendingUp className="w-4 h-4 text-amber-200" />
+            <span>Informe Diario a Gerencia</span>
+          </button>
+
           <button
             type="button"
             onClick={handleOpenManualPaymentModal}
@@ -2905,6 +2921,15 @@ export default function CajaPage() {
           issuedAt={activeReceiptModal.issuedAt}
         />
       )}
+
+      {/* ========================================================================= */}
+      {/* EXECUTIVE DAILY WORKSHOP & CASH REPORT MODAL */}
+      {/* ========================================================================= */}
+      <DailyWorkshopReportModal
+        isOpen={reportModalOpen}
+        onClose={() => setReportModalOpen(false)}
+        initialTab="caja"
+      />
     </div>
   );
 }
