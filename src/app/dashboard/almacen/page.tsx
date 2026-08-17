@@ -28,7 +28,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  CheckCheck
+  CheckCheck,
+  PackagePlus,
+  ArrowDownToLine,
+  History,
+  Sparkles
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 
@@ -54,9 +58,36 @@ export default function AlmacenPage() {
     markAllMigratedWorkOrderItemsDispatched,
   } = useAppStore();
 
-  const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
-  const [scanSku, setScanSku] = useState("");
-  const [scanResult, setScanResult] = useState<typeof inventoryItems[0] | null>(null);
+  const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "ingreso">("pedidos");
+
+  // Estados para "Ingreso de Material"
+  const [ingresoSku, setIngresoSku] = useState("");
+  const [ingresoFoundItem, setIngresoFoundItem] = useState<typeof inventoryItems[0] | null>(null);
+  const [ingresoQuantity, setIngresoQuantity] = useState<number>(1);
+  const [ingresoNotes, setIngresoNotes] = useState("");
+  const [showNewMaterialForm, setShowNewMaterialForm] = useState(false);
+  const [newMaterialForm, setNewMaterialForm] = useState({
+    sku_barcode: "",
+    name: "",
+    brand: "",
+    serial_number: "",
+    unit_price: 0,
+    initial_quantity: 1,
+    min_stock_alert: 2,
+    raw_counted: "",
+  });
+  const [recentIngresos, setRecentIngresos] = useState<
+    Array<{
+      id: string;
+      sku: string;
+      name: string;
+      quantity: number;
+      previousStock: number;
+      newStock: number;
+      timestamp: string;
+      isNew: boolean;
+    }>
+  >([]);
 
   // Checkbox Row Selection State
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -529,11 +560,135 @@ export default function AlmacenPage() {
     .flatMap((o) => o.items)
     .filter((i) => !i.dispatched).length;
 
-  const handleScanLookup = () => {
+  const handleSearchIngresoSku = (codeToSearch?: string) => {
+    const term = (codeToSearch ?? ingresoSku).trim().toLowerCase();
+    if (!term) {
+      setIngresoFoundItem(null);
+      return;
+    }
     const found = inventoryItems.find(
-      (i) => i.sku_barcode.toLowerCase() === scanSku.trim().toLowerCase()
+      (i) =>
+        i.sku_barcode.toLowerCase() === term ||
+        i.name.toLowerCase().includes(term) ||
+        (i.serial_number && i.serial_number.toLowerCase() === term)
     );
-    setScanResult(found || null);
+    if (found) {
+      setIngresoFoundItem(found);
+      setShowNewMaterialForm(false);
+    } else {
+      setIngresoFoundItem(null);
+      setNewMaterialForm((prev) => ({
+        ...prev,
+        sku_barcode: codeToSearch ?? ingresoSku,
+      }));
+    }
+  };
+
+  const handleConfirmStockIngreso = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ingresoFoundItem) return;
+    if (ingresoQuantity <= 0) {
+      showWebNotification("warning", "Cantidad Inválida", "La cantidad a ingresar debe ser mayor a 0.");
+      return;
+    }
+
+    const prevStock = ingresoFoundItem.stock_quantity;
+    const newStock = prevStock + ingresoQuantity;
+    const newEntries = (ingresoFoundItem.entries || 0) + ingresoQuantity;
+
+    updateInventoryItem(ingresoFoundItem.id, {
+      stock_quantity: newStock,
+      entries: newEntries,
+    });
+
+    setRecentIngresos((prev) => [
+      {
+        id: `ing-${Date.now()}`,
+        sku: ingresoFoundItem.sku_barcode,
+        name: ingresoFoundItem.name,
+        quantity: ingresoQuantity,
+        previousStock: prevStock,
+        newStock: newStock,
+        timestamp: new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        isNew: false,
+      },
+      ...prev,
+    ]);
+
+    showWebNotification(
+      "success",
+      "Ingreso Registrado con Éxito",
+      `Se ingresaron +${ingresoQuantity} unidades de "${ingresoFoundItem.name}". Nuevo stock: ${newStock} unidades.`
+    );
+
+    // Refresh found item stock
+    setIngresoFoundItem({
+      ...ingresoFoundItem,
+      stock_quantity: newStock,
+      entries: newEntries,
+    });
+    setIngresoQuantity(1);
+    setIngresoNotes("");
+  };
+
+  const handleCreateNewMaterialIngreso = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMaterialForm.name.trim()) {
+      showWebNotification("warning", "Campo Requerido", "El nombre del producto es obligatorio.");
+      return;
+    }
+    const sku = newMaterialForm.sku_barcode.trim() || `SKU-${Date.now().toString().slice(-6)}`;
+    const qty = Number(newMaterialForm.initial_quantity) || 1;
+
+    const newItemData = {
+      sku_barcode: sku,
+      name: newMaterialForm.name.trim(),
+      brand: newMaterialForm.brand.trim() || "Genérico",
+      serial_number: newMaterialForm.serial_number.trim() || "-",
+      category: "Repuestos y Materiales",
+      unit_price: Number(newMaterialForm.unit_price) || 0,
+      stock_quantity: qty,
+      entries: qty,
+      exits: 0,
+      counted_stock: qty,
+      min_stock_alert: Number(newMaterialForm.min_stock_alert) || 2,
+    };
+
+    addInventoryItem(newItemData);
+
+    setRecentIngresos((prev) => [
+      {
+        id: `ing-${Date.now()}`,
+        sku: sku,
+        name: newItemData.name,
+        quantity: qty,
+        previousStock: 0,
+        newStock: qty,
+        timestamp: new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        isNew: true,
+      },
+      ...prev,
+    ]);
+
+    showWebNotification(
+      "success",
+      "Nuevo Material Registrado",
+      `Se registró "${newItemData.name}" con código SKU ${sku} e ingreso inicial de ${qty} unidades.`
+    );
+
+    setShowNewMaterialForm(false);
+    setIngresoSku(sku);
+    setNewMaterialForm({
+      sku_barcode: "",
+      name: "",
+      brand: "",
+      serial_number: "",
+      unit_price: 0,
+      initial_quantity: 1,
+      min_stock_alert: 2,
+      raw_counted: "",
+    });
+    setIngresoFoundItem(null);
   };
 
   const handleCreateLoan = (e: React.FormEvent) => {
@@ -665,14 +820,15 @@ export default function AlmacenPage() {
             Préstamo Herramientas ({toolLoans.length})
           </button>
           <button
-            onClick={() => setActiveTab("scanner")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-              activeTab === "scanner"
-                ? "bg-emerald-600 text-white shadow-lg"
+            onClick={() => setActiveTab("ingreso")}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === "ingreso"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg"
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            Escáner QR/Barras
+            <PackagePlus className="w-4 h-4" />
+            <span>Ingreso de Material</span>
           </button>
         </div>
       </div>
@@ -1570,49 +1726,539 @@ export default function AlmacenPage() {
         </div>
       )}
 
-      {/* TAB 4: SCANNER QR / BARRAS */}
-      {activeTab === "scanner" && (
-        <div className="max-w-xl mx-auto glass-panel p-8 rounded-3xl border border-white/10 space-y-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/30">
-            <Barcode className="w-8 h-8" />
-          </div>
-
-          <div>
-            <h2 className="text-xl font-bold text-white">Simulador Lector Código de Barras / QR</h2>
-            <p className="text-xs text-gray-400">
-              Ingrese el código SKU del repuesto o presione escaneo rápido.
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Ej: KIT-GNV-5G"
-              value={scanSku}
-              onChange={(e) => setScanSku(e.target.value)}
-              className="flex-1 px-4 py-3 bg-reygas-dark border border-white/10 rounded-xl text-sm font-mono text-white focus:border-emerald-500"
-            />
-            <button
-              onClick={handleScanLookup}
-              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-colors"
-            >
-              Buscar SKU
-            </button>
-          </div>
-
-          {scanResult && (
-            <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-left space-y-2">
-              <h4 className="font-bold text-white text-base">{scanResult.name}</h4>
-              <div className="flex justify-between text-xs text-gray-300">
-                <span>Stock Actual:</span>
-                <span className="font-bold text-emerald-400">{scanResult.stock_quantity} unidades</span>
+      {/* TAB 4: INGRESO DE MATERIAL */}
+      {activeTab === "ingreso" && (
+        <div className="space-y-8">
+          {/* Header & Mode Switcher */}
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3.5 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                <PackagePlus className="w-8 h-8" />
               </div>
-              <div className="flex justify-between text-xs text-gray-300">
-                <span>Precio Unitario:</span>
-                <span className="font-bold text-white">S/ {scanResult.unit_price.toFixed(2)}</span>
+              <div>
+                <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+                  <span>Ingreso de Material a Almacén</span>
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Abastecimiento
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Ingrese el código SKU del repuesto para sumar stock existente o registre un producto nuevo que no existe en el catálogo.
+                </p>
               </div>
             </div>
-          )}
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewMaterialForm(false);
+                  setIngresoFoundItem(null);
+                  setIngresoSku("");
+                }}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
+                  !showNewMaterialForm
+                    ? "bg-amber-500 text-black border-amber-400 font-black shadow-lg shadow-amber-500/20"
+                    : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                }`}
+              >
+                <Search className="w-4 h-4" />
+                <span>Buscar SKU Existente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewMaterialForm(true);
+                  setIngresoFoundItem(null);
+                  setNewMaterialForm({
+                    sku_barcode: ingresoSku || `SKU-${Date.now().toString().slice(-6)}`,
+                    name: "",
+                    brand: "",
+                    serial_number: "",
+                    unit_price: 0,
+                    initial_quantity: 1,
+                    min_stock_alert: 2,
+                    raw_counted: "",
+                  });
+                }}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
+                  showNewMaterialForm
+                    ? "bg-emerald-600 text-white border-emerald-500 font-black shadow-lg shadow-emerald-600/30"
+                    : "bg-emerald-950/40 text-emerald-300 border-emerald-500/40 hover:bg-emerald-950/70"
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Registrar Material Nuevo</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Column: Búsqueda o Formulario de Ingreso */}
+            <div className="lg:col-span-7 space-y-6">
+              {!showNewMaterialForm ? (
+                /* MODO BUSCAR SKU EXISTENTE */
+                <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/10 space-y-6">
+                  <div>
+                    <label className="block text-xs font-black text-amber-400 uppercase tracking-wider mb-2">
+                      Escanear o Escribir Código SKU / Código de Barras
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="flex-1 relative">
+                        <Barcode className="w-5 h-5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Ej. KIT-GNV-5G, VALV-01, MANG-ALTA..."
+                          value={ingresoSku}
+                          onChange={(e) => {
+                            setIngresoSku(e.target.value);
+                            handleSearchIngresoSku(e.target.value);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleSearchIngresoSku();
+                            }
+                          }}
+                          className="w-full pl-11 pr-4 py-3.5 bg-reygas-surface border border-white/15 rounded-2xl text-white font-mono text-sm uppercase focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-bold"
+                          autoFocus
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSearchIngresoSku()}
+                        className="px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-2xl text-xs transition-transform hover:scale-105 shadow-lg shadow-amber-500/20 flex items-center gap-1.5"
+                      >
+                        <Search className="w-4 h-4 stroke-[3]" />
+                        <span>Buscar</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Sugerencias Rápidas al Escribir */}
+                  {ingresoSku && !ingresoFoundItem && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-bold text-gray-400 uppercase">
+                        Sugerencias de búsqueda en inventario:
+                      </p>
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                        {inventoryItems
+                          .filter(
+                            (i) =>
+                              i.sku_barcode.toLowerCase().includes(ingresoSku.toLowerCase()) ||
+                              i.name.toLowerCase().includes(ingresoSku.toLowerCase())
+                          )
+                          .slice(0, 5)
+                          .map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setIngresoSku(item.sku_barcode);
+                                setIngresoFoundItem(item);
+                              }}
+                              className="w-full p-3 rounded-xl bg-reygas-surface/60 hover:bg-white/10 border border-white/5 hover:border-amber-500/30 flex items-center justify-between text-left transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="px-2 py-1 rounded-lg bg-black/60 font-mono text-xs font-bold text-amber-400 border border-amber-500/30">
+                                  {item.sku_barcode}
+                                </span>
+                                <div>
+                                  <p className="text-xs font-bold text-white">{item.name}</p>
+                                  <p className="text-[10px] text-gray-400">{item.brand || "Sin marca"} • {item.serial_number || "S/N"}</p>
+                                </div>
+                              </div>
+                              <span className="text-xs font-mono font-black text-emerald-400">
+                                Stock: {item.stock_quantity}
+                              </span>
+                            </button>
+                          ))}
+
+                        {inventoryItems.filter(
+                          (i) =>
+                            i.sku_barcode.toLowerCase().includes(ingresoSku.toLowerCase()) ||
+                            i.name.toLowerCase().includes(ingresoSku.toLowerCase())
+                        ).length === 0 && (
+                          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
+                            <div className="text-xs text-amber-300">
+                              No se encontró ningún material con el código <strong>"{ingresoSku}"</strong>.
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowNewMaterialForm(true);
+                                setNewMaterialForm({
+                                  sku_barcode: ingresoSku,
+                                  name: "",
+                                  brand: "",
+                                  serial_number: "",
+                                  unit_price: 0,
+                                  initial_quantity: 1,
+                                  min_stock_alert: 2,
+                                  raw_counted: "",
+                                });
+                              }}
+                              className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow transition-transform hover:scale-105"
+                            >
+                              + Crear este Material
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detalle y Formulario de Ingreso para Item Encontrado */}
+                  {ingresoFoundItem && (
+                    <div className="p-6 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-6 animate-fadeIn">
+                      <div className="flex items-start justify-between gap-4 border-b border-emerald-500/20 pb-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase">
+                              ✓ Material Encontrado
+                            </span>
+                            <span className="text-xs font-mono text-gray-400">
+                              SKU: <strong className="text-white">{ingresoFoundItem.sku_barcode}</strong>
+                            </span>
+                          </div>
+                          <h3 className="text-lg font-black text-white">{ingresoFoundItem.name}</h3>
+                          <p className="text-xs text-gray-300">
+                            Marca: <span className="font-semibold text-white">{ingresoFoundItem.brand || "Genérico"}</span> • Serie / Nro Parte: <span className="font-semibold text-white">{ingresoFoundItem.serial_number || "-"}</span>
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[10px] text-gray-400 block uppercase font-bold">Precio Unitario</span>
+                          <span className="text-base font-black text-amber-400 font-mono">
+                            S/ {(ingresoFoundItem.unit_price || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Métricas Actuales */}
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="p-3 rounded-xl bg-black/50 border border-white/10">
+                          <span className="text-[10px] text-gray-400 block uppercase font-bold">Stock Actual</span>
+                          <span className="text-lg font-mono font-black text-emerald-400">
+                            {ingresoFoundItem.stock_quantity}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-black/50 border border-white/10">
+                          <span className="text-[10px] text-gray-400 block uppercase font-bold">Entradas Previas</span>
+                          <span className="text-lg font-mono font-bold text-white">
+                            {ingresoFoundItem.entries || 0}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-black/50 border border-emerald-500/30">
+                          <span className="text-[10px] text-emerald-400 block uppercase font-bold">Nuevo Stock</span>
+                          <span className="text-lg font-mono font-black text-emerald-300">
+                            {ingresoFoundItem.stock_quantity + (Number(ingresoQuantity) || 0)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Formulario de Cantidad */}
+                      <form onSubmit={handleConfirmStockIngreso} className="space-y-4 pt-2">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">
+                            Cantidad de Unidades que Ingresan *
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="number"
+                              min={1}
+                              required
+                              value={ingresoQuantity}
+                              onChange={(e) => setIngresoQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                              className="w-32 px-4 py-3 bg-reygas-surface border border-emerald-500/40 rounded-xl text-white font-mono text-lg font-black text-center focus:border-emerald-400 focus:outline-none"
+                            />
+                            {/* Botones rápidos de cantidad */}
+                            <div className="flex items-center gap-1.5">
+                              {[1, 5, 10, 20, 50].map((qty) => (
+                                <button
+                                  key={qty}
+                                  type="button"
+                                  onClick={() => setIngresoQuantity(qty)}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                    ingresoQuantity === qty
+                                      ? "bg-emerald-500 text-black border-emerald-400 font-black"
+                                      : "bg-white/5 hover:bg-white/10 text-gray-300 border-white/10"
+                                  }`}
+                                >
+                                  +{qty}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                            Nota / Nro Guía / Proveedor (Opcional)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Ej. Factura F001-2894 / Proveedor Gastech..."
+                            value={ingresoNotes}
+                            onChange={(e) => setIngresoNotes(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-4 border-t border-emerald-500/20">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIngresoFoundItem(null);
+                              setIngresoSku("");
+                            }}
+                            className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+                          >
+                            Limpiar
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2"
+                          >
+                            <ArrowDownToLine className="w-4 h-4 stroke-[3]" />
+                            <span>Registrar Ingreso de Stock (+{ingresoQuantity} unid.)</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* MODO REGISTRAR NUEVO MATERIAL QUE NO EXISTE */
+                <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-amber-500/30 space-y-6 animate-fadeIn">
+                  <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                        <Sparkles className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-black text-white">Registrar Nuevo Material en Catálogo</h3>
+                        <p className="text-xs text-gray-400">
+                          Complete los datos del repuesto para ingresarlo al catálogo y sumar su stock inicial.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewMaterialForm(false)}
+                      className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleCreateNewMaterialIngreso} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Código SKU / Barras *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej. REG-TA-5G"
+                          value={newMaterialForm.sku_barcode}
+                          onChange={(e) =>
+                            setNewMaterialForm({ ...newMaterialForm, sku_barcode: e.target.value.toUpperCase() })
+                          }
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono uppercase text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Nombre del Material / Repuesto *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej. Reductor de Presión Tomasetto 5G"
+                          value={newMaterialForm.name}
+                          onChange={(e) => setNewMaterialForm({ ...newMaterialForm, name: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Marca
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Tomasetto / BRC / Lovato"
+                          value={newMaterialForm.brand}
+                          onChange={(e) => setNewMaterialForm({ ...newMaterialForm, brand: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Serie / Nro de Parte
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. SN-77182"
+                          value={newMaterialForm.serial_number}
+                          onChange={(e) => setNewMaterialForm({ ...newMaterialForm, serial_number: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Precio de Venta (S/)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          value={newMaterialForm.unit_price}
+                          onChange={(e) =>
+                            setNewMaterialForm({ ...newMaterialForm, unit_price: Number(e.target.value) })
+                          }
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1.5">
+                          Cantidad Inicial que Ingresa *
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          required
+                          value={newMaterialForm.initial_quantity}
+                          onChange={(e) =>
+                            setNewMaterialForm({
+                              ...newMaterialForm,
+                              initial_quantity: Math.max(1, parseInt(e.target.value) || 1),
+                            })
+                          }
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-emerald-500/40 rounded-xl text-white font-mono text-sm focus:border-emerald-400 focus:outline-none font-black"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                          Alerta Stock Mínimo
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={newMaterialForm.min_stock_alert}
+                          onChange={(e) =>
+                            setNewMaterialForm({
+                              ...newMaterialForm,
+                              min_stock_alert: Number(e.target.value),
+                            })
+                          }
+                          className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => setShowNewMaterialForm(false)}
+                        className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/30 transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>Guardar Nuevo Material e Ingresar Stock</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Historial de Ingresos de la Sesión */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2">
+                    <History className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-sm font-extrabold text-white">Ingresos Registrados en la Sesión</h3>
+                  </div>
+                  {recentIngresos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setRecentIngresos([])}
+                      className="text-[11px] text-gray-400 hover:text-white transition-colors"
+                    >
+                      Limpiar lista
+                    </button>
+                  )}
+                </div>
+
+                {recentIngresos.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500 space-y-2">
+                    <ArrowDownToLine className="w-8 h-8 mx-auto text-gray-600" />
+                    <p className="text-xs">Aún no ha registrado ingresos en esta sesión.</p>
+                    <p className="text-[11px] text-gray-600">
+                      Busque un SKU a la izquierda o cree un nuevo material para abastecer almacén.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                    {recentIngresos.map((ing) => (
+                      <div
+                        key={ing.id}
+                        className="p-3.5 rounded-2xl bg-reygas-surface/70 border border-white/10 space-y-2 hover:border-amber-500/30 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded-lg bg-black/60 font-mono text-[10px] font-bold text-amber-400 border border-amber-500/30">
+                                {ing.sku}
+                              </span>
+                              {ing.isNew && (
+                                <span className="px-1.5 py-0.2 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] font-black">
+                                  NUEVO
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="text-xs font-bold text-white mt-1">{ing.name}</h4>
+                          </div>
+
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono text-xs font-black border border-emerald-500/30 shrink-0">
+                            +{ing.quantity} unid.
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-white/5">
+                          <span>
+                            Stock: <strong className="text-gray-300">{ing.previousStock}</strong> &rarr;{" "}
+                            <strong className="text-emerald-400 font-bold">{ing.newStock}</strong>
+                          </span>
+                          <span className="font-mono text-gray-500">{ing.timestamp}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
