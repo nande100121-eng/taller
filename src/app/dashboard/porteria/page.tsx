@@ -88,7 +88,7 @@ export default function PorteriaPage() {
     owner_name: "",
     owner_phone: "",
     current_mileage: 0,
-    problem_description: "Ingreso para mantenimiento general y revisión",
+    problem_description: "",
   });
 
   // Keep entryDate in sync when selectedDate changes and update time
@@ -279,7 +279,7 @@ export default function PorteriaPage() {
           owner_name: existingData?.owner_name || data.owner_name || "",
           owner_phone: existingData?.owner_phone || data.owner_phone || "",
           current_mileage: existingData?.current_mileage || 0,
-          problem_description: "Ingreso verificado por reconocimiento de Garita OCR",
+          problem_description: "",
         });
       } else {
         showAlert("warning", "No se detectó una placa clara en la imagen. Ingrese los datos manualmente.");
@@ -388,7 +388,7 @@ export default function PorteriaPage() {
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
-      problem_description: entryForm.problem_description || "Ingreso para mantenimiento general y revisión",
+      problem_description: entryForm.problem_description.trim() || "Ingreso para mantenimiento general y revisión",
       entry_time: chosenDateTimeISO,
     });
 
@@ -406,7 +406,7 @@ export default function PorteriaPage() {
       owner_name: "",
       owner_phone: "",
       current_mileage: 0,
-      problem_description: "Ingreso para mantenimiento general y revisión",
+      problem_description: "",
     });
   };
 
@@ -831,6 +831,7 @@ export default function PorteriaPage() {
               <textarea
                 rows={3}
                 required
+                placeholder="Especifique el motivo de ingreso del vehículo (ej: Mantenimiento 5ta gen, calibración, revisión de fuga, cambio de filtros, etc.)..."
                 value={entryForm.problem_description}
                 onChange={(e) => setEntryForm({ ...entryForm, problem_description: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white placeholder-gray-500 focus:border-red-400 focus:outline-none transition-colors leading-relaxed font-medium"
