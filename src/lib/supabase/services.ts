@@ -452,15 +452,15 @@ async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; er
   }
 }
 
-// Generic high-speed parallel batch fetcher for tables with > 1000 records
+// Generic high-speed batch fetcher for tables with > 1000 records (Zero slow COUNT(*) locks)
 async function fetchAllSupabaseTable(tableName: string) {
   try {
     const PAGE_SIZE = 1000;
 
-    // 1. Fetch initial batch + exact row count in one fast query
-    const { data: firstBatch, count, error: firstErr } = await supabase
+    // 1. Fetch initial batch (0..999) without expensive count: "exact" table scan
+    const { data: firstBatch, error: firstErr } = await supabase
       .from(tableName)
-      .select("*", { count: "exact" })
+      .select("*")
       .range(0, PAGE_SIZE - 1);
 
     if (firstErr) {
@@ -469,31 +469,21 @@ async function fetchAllSupabaseTable(tableName: string) {
     }
 
     if (!firstBatch || firstBatch.length === 0) return [];
-    if (!count || count <= PAGE_SIZE) return firstBatch;
+    if (firstBatch.length < PAGE_SIZE) return firstBatch;
 
-    // 2. Fetch all remaining pages in parallel for lightning-fast loading
-    const totalCount = Math.min(count, 40000);
-    const ranges: { from: number; to: number }[] = [];
-    for (let from = PAGE_SIZE; from < totalCount; from += PAGE_SIZE) {
-      ranges.push({ from, to: Math.min(from + PAGE_SIZE - 1, totalCount - 1) });
-    }
+    // 2. Fetch subsequent pages only if firstBatch was saturated
+    let allRecords = [...firstBatch];
+    let offset = PAGE_SIZE;
+    while (offset < 20000) {
+      const { data: nextBatch, error: nextErr } = await supabase
+        .from(tableName)
+        .select("*")
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    const remainingBatches = await Promise.all(
-      ranges.map(async ({ from, to }) => {
-        const { data, error } = await supabase.from(tableName).select("*").range(from, to);
-        if (error) {
-          console.warn(`Supabase batch fetch error for ${tableName} [${from}-${to}]:`, error.message);
-          return [];
-        }
-        return data || [];
-      })
-    );
-
-    let allRecords = firstBatch;
-    for (const batch of remainingBatches) {
-      if (batch.length > 0) {
-        allRecords = allRecords.concat(batch);
-      }
+      if (nextErr || !nextBatch || nextBatch.length === 0) break;
+      allRecords = allRecords.concat(nextBatch);
+      if (nextBatch.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
 
     return allRecords;
@@ -1220,7 +1210,23 @@ export async function fetchSupabaseErpData() {
 
     const finalServices = (servicesRes.data && servicesRes.data.length > 0) ? servicesRes.data : fallbackServices;
 
+    const cmsData: Partial<SiteContent> = {};
+    if (contentRes.data) {
+      contentRes.data.forEach((row: any) => {
+        const sectionKey = row.key || row.section_key;
+        const rawVal = row.value !== undefined ? row.value : row.content;
+        if (sectionKey && rawVal !== undefined) {
+          try {
+            (cmsData as any)[sectionKey] = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+          } catch {
+            (cmsData as any)[sectionKey] = rawVal;
+          }
+        }
+      });
+    }
+
     return {
+      cmsData,
       technicians: finalTechnicians,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,

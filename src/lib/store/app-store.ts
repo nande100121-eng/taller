@@ -877,8 +877,8 @@ export const useAppStore = create<AppState>()(
         if (get().isSyncing) return;
         set({ isSyncing: true });
         try {
-          const cmsData = await fetchSupabaseSiteContent();
           const erpData = await fetchSupabaseErpData();
+          const cmsData = erpData?.cmsData || await fetchSupabaseSiteContent();
 
           set((state) => {
             const updates: Partial<typeof state> = { hasSyncedOnce: true };

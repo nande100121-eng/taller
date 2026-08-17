@@ -34,8 +34,15 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
     window.addEventListener("storage", handleStorage);
 
-    // 3. Window focus sync (when switching between apps / devices / tablets)
-    const handleFocus = () => syncFromSupabase();
+    // 3. Window focus sync with 15s throttle protection (prevents request storms on tablet tab switching)
+    let lastFocusTime = 0;
+    const handleFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusTime > 15000) {
+        lastFocusTime = now;
+        debouncedFullSync();
+      }
+    };
     window.addEventListener("focus", handleFocus);
 
     // 4. Supabase Realtime Broadcast channel listener (instant push across all devices/tablets)
@@ -90,10 +97,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       })
       .subscribe();
 
-    // 6. Background safety heartbeat sync (every 30s) for resilient tablet networking
+    // 6. Background safety heartbeat sync (every 90s) for resilient tablet networking without draining CPU/battery
     const interval = setInterval(() => {
       syncFromSupabase();
-    }, 30000);
+    }, 90000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
