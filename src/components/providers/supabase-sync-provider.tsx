@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import { supabase } from "@/lib/supabase/client";
-import { getSharedRealtimeChannel } from "@/lib/supabase/services";
+import { getSharedRealtimeChannel, CLIENT_SESSION_ID, getLastLocalMutationTime } from "@/lib/supabase/services";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
@@ -18,6 +18,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const debouncedFullSync = () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
+      // Avoid overwriting local optimistic changes while the user is actively saving
+      if (Date.now() - getLastLocalMutationTime() < 3500) {
+        return;
+      }
       syncFromSupabase();
     }, 400);
   };
@@ -48,6 +52,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 4. Supabase Realtime Broadcast channel listener (instant push across all devices/tablets)
     const broadcastChannel = getSharedRealtimeChannel();
     broadcastChannel.on("broadcast", { event: "db_update" }, (msg: any) => {
+      // Ignore broadcast messages originating from this same browser window
+      if (msg.payload?.senderId === CLIENT_SESSION_ID) {
+        return;
+      }
       const eventType = msg.payload?.eventType || "";
       if (eventType.includes("service")) {
         syncServicesOnly();
@@ -67,23 +75,25 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 5. Supabase Postgres changes listener on site_content and core tables (ultra-fast targeted handlers)
     const dbChannel = supabase
       .channel("schema-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => {
-        syncServicesOnly();
-      })
       .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, () => {
+        if (Date.now() - getLastLocalMutationTime() < 3500) return;
         syncServicesOnly();
         syncTechniciansOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "certifications" }, () => {
+        if (Date.now() - getLastLocalMutationTime() < 3500) return;
         syncCertificationsOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "technicians" }, () => {
+        if (Date.now() - getLastLocalMutationTime() < 3500) return;
         syncTechniciansOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items" }, () => {
+        if (Date.now() - getLastLocalMutationTime() < 3500) return;
         syncInventoryOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "schedule_records" }, () => {
+        if (Date.now() - getLastLocalMutationTime() < 3500) return;
         syncScheduleOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
@@ -99,6 +109,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     // 6. Background safety heartbeat sync (every 90s) for resilient tablet networking without draining CPU/battery
     const interval = setInterval(() => {
+      if (Date.now() - getLastLocalMutationTime() < 5000) return;
       syncFromSupabase();
     }, 90000);
 

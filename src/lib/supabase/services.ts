@@ -1,6 +1,21 @@
 import { supabase } from "./client";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, generateDefaultUsername } from "@/lib/store/app-store";
 
+// Unique browser session ID to prevent self-broadcast reload loops
+export const CLIENT_SESSION_ID =
+  typeof window !== "undefined"
+    ? (window as any).__REYGAS_CLIENT_ID ||
+      ((window as any).__REYGAS_CLIENT_ID = "cli_" + Math.random().toString(36).substring(2) + Date.now().toString(36))
+    : "server";
+
+let lastLocalMutationTimestamp = 0;
+export function markLocalMutation() {
+  lastLocalMutationTimestamp = Date.now();
+}
+export function getLastLocalMutationTime() {
+  return lastLocalMutationTimestamp;
+}
+
 // =====================================================================
 // SUPABASE REALTIME CMS & ERP DATABASE SERVICE
 // Syncs all site content, rates, inventory and ERP tables directly to PostgreSQL
@@ -31,8 +46,9 @@ export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> |
   }
 }
 
-export async function saveSupabaseSiteContent(key: string, value: any, category: string = "general") {
+export async function saveSupabaseSiteContent(key: string, value: any, category: string = "general", shouldBroadcast: boolean = true) {
   try {
+    markLocalMutation();
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
     // PostgreSQL schema primary key is section_key or key
@@ -59,10 +75,10 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
       }
     }
 
-    // 3. Broadcast instant real-time signal to all other connected devices/tablets
-    broadcastRealtimeChange(`site_content_${key}`);
-    broadcastRealtimeChange("services_updated");
-    broadcastRealtimeChange("db_update");
+    // 3. Broadcast instant real-time signal to other devices
+    if (shouldBroadcast) {
+      broadcastRealtimeChange(`site_content_${key}`);
+    }
   } catch (err) {
     console.warn("Supabase site_content deferred:", err);
   }
@@ -329,6 +345,7 @@ export async function clearSupabaseInventory() {
 // ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
+    markLocalMutation();
     let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").trim();
     if (order.allow_modifications) {
       diagText = `${diagText}\n[ALLOW_MOD]: true`.trim();
@@ -337,7 +354,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       diagText = `${diagText}\n[OBSERVACIONES]: ${order.observations}`.trim();
     }
 
-    const { error } = await supabase.from("work_orders").upsert({
+    const payload: any = {
       id: order.id,
       vehicle_plate: order.vehicle_plate || "SN-PLACA",
       status: order.status || "pagado_autorizado",
@@ -358,16 +375,33 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       certification_type: order.certification_type || null,
       certification_price: order.certification_price || 0,
       allow_modifications: !!order.allow_modifications,
-    });
-    // Also save in site_content key as fallback sync
+    };
+
+    const { error } = await supabase.from("work_orders").upsert(payload);
+    if (error) {
+      console.warn("Supabase work order upsert notice, trying core columns fallback:", error.message);
+      await supabase.from("work_orders").upsert({
+        id: order.id,
+        vehicle_plate: order.vehicle_plate || "SN-PLACA",
+        status: order.status || "pagado_autorizado",
+        assigned_technician_id: order.assigned_technician_id || null,
+        problem_description: order.problem_description || "",
+        diagnostic_notes: diagText || null,
+        observations: order.observations || null,
+        entry_time: order.entry_time || new Date().toISOString(),
+        completion_time: order.completion_time || null,
+        items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
+      });
+    }
+
+    // Always persist full snapshot in site_content to guarantee 100% cloud resilience
     await saveSupabaseSiteContent(`wo_mod_${order.id}`, {
-      allow_modifications: !!order.allow_modifications,
-      discount_amount: order.discount_amount || 0,
-      status: order.status,
+      ...order,
+      diagnostic_notes: diagText,
       updated_at: new Date().toISOString(),
-    });
+    }, "work_orders", false);
+
     broadcastRealtimeChange("work_order_updated");
-    if (error) console.warn("Supabase work order save warning:", error.message);
   } catch (err) {
     console.warn("Supabase work order deferred:", err);
   }
@@ -561,11 +595,12 @@ export function getSharedRealtimeChannel() {
 // Broadcast instant real-time signal to all other connected devices/tablets
 export async function broadcastRealtimeChange(eventType: string = "db_update") {
   try {
+    markLocalMutation();
     const channel = getSharedRealtimeChannel();
     await channel.send({
       type: "broadcast",
       event: "db_update",
-      payload: { eventType, timestamp: Date.now() },
+      payload: { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() },
     });
   } catch (err) {
     // deferred
@@ -858,6 +893,8 @@ export async function fetchSupabaseErpData() {
     let fallbackRecentIngresos: any[] = [];
     const fallbackTechs: any[] = [];
     const invBreakdownsMap = new Map<string, any[]>();
+    const invFullMap = new Map<string, any>();
+    const woModMap = new Map<string, any>();
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -934,6 +971,18 @@ export async function fetchSupabaseErpData() {
             if (Array.isArray(bd)) {
               invBreakdownsMap.set(invKey, bd);
             }
+          } catch {}
+        } else if (k && k.startsWith("inv_full_")) {
+          const invKey = k.replace("inv_full_", "");
+          try {
+            const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (val && typeof val === "object") invFullMap.set(invKey, val);
+          } catch {}
+        } else if (k && k.startsWith("wo_mod_")) {
+          const woKey = k.replace("wo_mod_", "");
+          try {
+            const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (val && typeof val === "object") woModMap.set(woKey, val);
           } catch {}
         }
       });
@@ -1086,6 +1135,12 @@ export async function fetchSupabaseErpData() {
         obs = parts[1].trim();
       }
 
+      const woMod = woModMap.get(o.id) || {};
+      const finalDiscount = (o.discount_amount !== undefined && o.discount_amount !== null)
+        ? Number(o.discount_amount)
+        : (woMod.discount_amount !== undefined ? Number(woMod.discount_amount) : 0);
+      const isAllowedMod = woMod.allow_modifications !== undefined ? !!woMod.allow_modifications : (allowMod || !!o.allow_modifications);
+
       return {
         ...o,
         quinquennial_date: quinquennialDate || o.quinquennial_date || "",
@@ -1093,8 +1148,8 @@ export async function fetchSupabaseErpData() {
         vehicle_type: vehicleType || o.vehicle_type || "",
         general_maintenance_service: generalMaintenanceService || o.general_maintenance_service || "",
         spare_parts_services: sparePartsServices || o.spare_parts_services || "",
-        discount_amount: o.discount_amount !== undefined ? Number(o.discount_amount) : 0,
-        allow_modifications: allowMod || !!o.allow_modifications,
+        discount_amount: finalDiscount,
+        allow_modifications: isAllowedMod,
         diagnostic_notes: diagNotes,
         observations: obs || o.observations || undefined,
         items: (() => {
@@ -1128,9 +1183,18 @@ export async function fetchSupabaseErpData() {
 
     const finalVehicles = Array.from(reconstructedVehiclesMap.values());
     const finalInvoices = Array.from(reconstructedInvoicesMap.values()).map((inv: any) => {
-      const bd = inv.payment_breakdown || invBreakdownsMap.get(inv.id) || (inv.work_order_id ? invBreakdownsMap.get(inv.work_order_id) : undefined);
+      const invFull = invFullMap.get(inv.id) || (inv.work_order_id ? invFullMap.get(inv.work_order_id) : undefined) || {};
+      const bd = inv.payment_breakdown || invFull.payment_breakdown || invBreakdownsMap.get(inv.id) || (inv.work_order_id ? invBreakdownsMap.get(inv.work_order_id) : undefined);
       return {
+        ...invFull,
         ...inv,
+        receipt_number: inv.receipt_number || invFull.receipt_number || "",
+        receipt_type: inv.receipt_type || invFull.receipt_type || "",
+        discounts: inv.discounts !== undefined && inv.discounts !== null && inv.discounts !== "" ? inv.discounts : (invFull.discounts !== undefined ? invFull.discounts : ""),
+        credit_amount: typeof inv.credit_amount === "number" ? inv.credit_amount : (typeof invFull.credit_amount === "number" ? invFull.credit_amount : 0),
+        payment_destination: inv.payment_destination || invFull.payment_destination || "",
+        payment_condition: inv.payment_condition || invFull.payment_condition || "",
+        observations: inv.observations || invFull.observations || "",
         payment_breakdown: typeof bd === "string" ? JSON.parse(bd) : bd,
       };
     });
@@ -1254,7 +1318,8 @@ export async function deleteSupabaseAppointment(id: string) {
 // ---------------------------------------------------------------------
 export async function saveSupabaseInvoice(inv: Invoice) {
   try {
-    const { error } = await supabase.from("invoices").upsert({
+    markLocalMutation();
+    const payload: any = {
       id: inv.id,
       work_order_id: inv.work_order_id,
       vehicle_plate: inv.vehicle_plate || "",
@@ -1278,15 +1343,40 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_condition: inv.payment_condition || null,
       payment_destination: inv.payment_destination || null,
       observations: inv.observations || null,
-    });
+    };
+
+    const { error } = await supabase.from("invoices").upsert(payload);
+    if (error) {
+      console.warn("Supabase invoice upsert notice, trying core columns fallback:", error.message);
+      await supabase.from("invoices").upsert({
+        id: inv.id,
+        work_order_id: inv.work_order_id,
+        vehicle_plate: inv.vehicle_plate || "",
+        client_name: inv.client_name || "",
+        customer_doc: inv.customer_doc || null,
+        labor_fee: typeof inv.labor_fee === "number" ? inv.labor_fee : 0,
+        parts_total: typeof inv.parts_total === "number" ? inv.parts_total : 0,
+        certification_fee: typeof inv.certification_fee === "number" ? inv.certification_fee : 0,
+        grand_total: typeof inv.grand_total === "number" ? inv.grand_total : 0,
+        payment_status: inv.payment_status || "pagado",
+        payment_method: inv.payment_method || "",
+        issued_at: inv.issued_at || new Date().toISOString(),
+      });
+    }
+
+    // Always persist full snapshot in site_content to guarantee 100% cloud resilience
+    await saveSupabaseSiteContent(`inv_full_${inv.id}`, inv, "invoices", false);
+    if (inv.work_order_id) {
+      await saveSupabaseSiteContent(`inv_full_${inv.work_order_id}`, inv, "invoices", false);
+    }
+
     if (inv.payment_breakdown && Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0) {
-      await saveSupabaseSiteContent(`inv_breakdown_${inv.id}`, inv.payment_breakdown, "invoices");
+      await saveSupabaseSiteContent(`inv_breakdown_${inv.id}`, inv.payment_breakdown, "invoices", false);
       if (inv.work_order_id) {
-        await saveSupabaseSiteContent(`inv_breakdown_${inv.work_order_id}`, inv.payment_breakdown, "invoices");
+        await saveSupabaseSiteContent(`inv_breakdown_${inv.work_order_id}`, inv.payment_breakdown, "invoices", false);
       }
     }
     broadcastRealtimeChange("invoice_updated");
-    if (error) console.warn("Supabase invoice save warning:", error.message);
   } catch (err) {
     console.warn("Supabase invoice deferred:", err);
   }
