@@ -1172,9 +1172,9 @@ export function WorkshopDailyReportView({
   ];
 
   return (
-    <div className={`w-full ${isModal ? "" : "glass-panel rounded-3xl border border-white/15 p-6 shadow-2xl space-y-6"}`}>
+    <div className={`w-full ${isModal ? "flex flex-col h-full max-h-[92vh] overflow-hidden" : "glass-panel rounded-3xl border border-white/15 p-6 shadow-2xl space-y-6"}`}>
       {/* Top Header Bar */}
-      <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${isModal ? "p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-reygas-dark via-reygas-navy to-black/60" : "border-b border-white/10 pb-4"} print:hidden`}>
+      <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${isModal ? "p-4 sm:p-6 border-b border-white/10 bg-gradient-to-r from-reygas-dark via-reygas-navy to-black/60 shrink-0" : "border-b border-white/10 pb-4"} print:hidden`}>
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
             <TrendingUp className="w-6 h-6" />
@@ -1273,7 +1273,7 @@ export function WorkshopDailyReportView({
       {/* ========================================================================= */}
       {/* NAVIGATION TABS (SCREEN ONLY) */}
       {/* ========================================================================= */}
-      <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-black/40 border-b border-white/5 overflow-x-auto print:hidden rounded-2xl">
+      <div className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-black/40 border-b border-white/5 overflow-x-auto print:hidden rounded-2xl shrink-0">
         {reportTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -1298,7 +1298,7 @@ export function WorkshopDailyReportView({
       {/* ========================================================================= */}
       {/* BODY CONTENT (SCROLLABLE ON SCREEN, CLEAN ON PRINT) */}
       {/* ========================================================================= */}
-      <div className="p-2 sm:p-4 space-y-6 print:p-0">
+      <div className={`p-4 sm:p-6 space-y-6 print:p-0 ${isModal ? "overflow-y-auto flex-1 custom-scrollbar min-h-0" : ""}`}>
         
         {/* Printable Header (Visible Only When Printing) */}
         <div className="hidden print:block border-b-2 border-black pb-4 mb-4">
@@ -1819,8 +1819,8 @@ export function DailyWorkshopReportModal({
   if (!isOpen) return null;
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static">
-      <div className="relative w-full max-w-7xl bg-reygas-navy border border-white/15 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[96vh] print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static">
+      <div className="relative w-full max-w-7xl bg-reygas-navy border border-white/15 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col h-[92vh] max-h-[92vh] print:h-auto print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
         <WorkshopDailyReportView
           isModal={true}
           onClose={onClose}
