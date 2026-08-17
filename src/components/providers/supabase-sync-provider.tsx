@@ -19,7 +19,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     };
     window.addEventListener("storage", handleStorage);
 
-    // 3. Window focus sync (when switching between apps / devices)
+    // 3. Window focus sync (when switching between apps / devices / tablets)
     const handleFocus = () => syncFromSupabase();
     window.addEventListener("focus", handleFocus);
 
@@ -31,17 +31,41 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       })
       .subscribe();
 
-    // 5. Supabase Postgres changes listener (when row is modified in DB directly)
+    // 5. Supabase Postgres changes listener on site_content and core tables
     const dbChannel = supabase
       .channel("schema-db-changes")
       .on("postgres_changes", { event: "*", schema: "public" }, () => {
         syncFromSupabase();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "technicians" }, () => {
+        syncFromSupabase();
+      })
       .subscribe();
+
+    // 6. Background safety heartbeat sync (every 15s) for resilient tablet networking
+    const interval = setInterval(() => {
+      syncFromSupabase();
+    }, 15000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
+      clearInterval(interval);
       supabase.removeChannel(broadcastChannel);
       supabase.removeChannel(dbChannel);
     };

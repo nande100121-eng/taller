@@ -53,6 +53,9 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
         console.warn(`Supabase site_content save warning [${key}]:`, updateErr.message);
       }
     }
+
+    // Broadcast instant real-time signal to all other connected devices/tablets
+    broadcastRealtimeChange(`site_content_${key}`);
   } catch (err) {
     console.warn("Supabase site_content deferred:", err);
   }

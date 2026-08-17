@@ -2446,6 +2446,7 @@ export const useAppStore = create<AppState>()(
         aiSettings: state.aiSettings,
         correlativeConfig: state.correlativeConfig,
         technicians: state.technicians,
+        workshopServices: state.workshopServices,
       }),
     }
   )
