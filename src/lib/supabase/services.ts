@@ -35,7 +35,7 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
   try {
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
-    // PostgreSQL schema primary key is section_key
+    // PostgreSQL schema primary key is section_key or key
     const payload: any = {
       section_key: key,
       key: key,
@@ -45,17 +45,40 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await supabase.from("site_content").upsert(payload, { onConflict: "section_key" });
+    // 1. Try upsert on section_key
+    let { error } = await supabase.from("site_content").upsert(payload, { onConflict: "section_key" });
 
+    // 2. If conflict resolution fails on section_key, try on key
     if (error) {
-      const { error: updateErr } = await supabase.from("site_content").update(payload).eq("section_key", key);
-      if (updateErr) {
-        console.warn(`Supabase site_content save warning [${key}]:`, updateErr.message);
+      const { error: keyErr } = await supabase.from("site_content").upsert(payload, { onConflict: "key" });
+      if (keyErr) {
+        const { error: updateErr } = await supabase.from("site_content").update(payload).or(`section_key.eq.${key},key.eq.${key}`);
+        if (updateErr) {
+          await supabase.from("site_content").insert(payload);
+        }
       }
     }
 
-    // Broadcast instant real-time signal to all other connected devices/tablets
+    // 3. If key is workshopServices, also sync directly to dedicated services table if present
+    if (key === "workshopServices" && Array.isArray(value)) {
+      try {
+        await supabase.from("services").upsert(
+          value.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            category: s.category || "General",
+            price: typeof s.price === "number" ? s.price : (parseFloat(s.price) || 0),
+            description: s.description || "",
+            is_active: s.is_active !== false,
+          }))
+        );
+      } catch {}
+    }
+
+    // 4. Broadcast instant real-time signal to all other connected devices/tablets
     broadcastRealtimeChange(`site_content_${key}`);
+    broadcastRealtimeChange("services_updated");
+    broadcastRealtimeChange("db_update");
   } catch (err) {
     console.warn("Supabase site_content deferred:", err);
   }
@@ -681,7 +704,7 @@ export async function saveSupabaseBulkScheduleRecords(
 
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
+    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes, servicesRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("technicians").select("*")),
       fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
@@ -690,6 +713,7 @@ export async function fetchSupabaseErpData() {
       fetchAllSupabaseTable("vehicles"),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
+      safeQuery<any[]>(supabase.from("services").select("*")),
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any
@@ -698,6 +722,7 @@ export async function fetchSupabaseErpData() {
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
+    let fallbackServices: any[] = [];
     let fallbackRecentIngresos: any[] = [];
     const fallbackTechs: any[] = [];
 
@@ -758,6 +783,11 @@ export async function fetchSupabaseErpData() {
           try {
             const invList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(invList)) fallbackInventory.push(...invList);
+          } catch {}
+        } else if (k === "workshopServices" || k === "workshop_services" || k === "all_services") {
+          try {
+            const sList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(sList) && sList.length > 0) fallbackServices = sList;
           } catch {}
         } else if (k === "inventory_recent_ingresos") {
           try {
@@ -1014,6 +1044,8 @@ export async function fetchSupabaseErpData() {
       finalTechnicians = fallbackTechs;
     }
 
+    const finalServices = (servicesRes.data && servicesRes.data.length > 0) ? servicesRes.data : fallbackServices;
+
     return {
       technicians: finalTechnicians,
       inventoryItems: finalInventory,
@@ -1023,6 +1055,7 @@ export async function fetchSupabaseErpData() {
       vehicles: finalVehicles.length > 0 ? finalVehicles : (vehicleData || []),
       certifications: mergedCerts.length > 0 ? mergedCerts : null,
       scheduleRecords: fallbackSched.length > 0 ? fallbackSched : null,
+      workshopServices: finalServices.length > 0 ? finalServices : null,
       recentIngresos: fallbackRecentIngresos,
     };
   } catch (err) {

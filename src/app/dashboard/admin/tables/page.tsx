@@ -39,6 +39,7 @@ import {
   Lock,
   AtSign
 } from "lucide-react";
+import { saveSupabaseSiteContent } from "@/lib/supabase/services";
 
 const ALL_ERP_STATIONS = [
   { id: "/dashboard/porteria", label: "1. Portería" },
@@ -1624,6 +1625,17 @@ export default function AdminTablesPage() {
                   Los precios configurados aquí aparecerán listados al solicitar servicios desde el tablero Kanban de Taller.
                 </p>
               </div>
+              <button
+                onClick={async () => {
+                  await saveSupabaseSiteContent("workshopServices", workshopServices, "services");
+                  showAlert("success", "¡Catálogo de servicios sincronizado en tiempo real con Supabase y todos los dispositivos!");
+                }}
+                className="px-4 py-2 bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20 active:scale-95"
+                title="Sincronizar y forzar actualización en todos los dispositivos"
+              >
+                <RefreshCw className="w-3.5 h-3.5 animate-pulse text-emerald-200" />
+                <span>Guardar y Emitir en Tiempo Real</span>
+              </button>
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-white/10">

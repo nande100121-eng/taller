@@ -17,6 +17,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
           vehicles: s.vehicles.length > 0 ? s.vehicles : (cached.vehicles || []),
           invoices: s.invoices.length > 0 ? s.invoices : (cached.invoices || []),
           scheduleRecords: s.scheduleRecords.length > 0 ? s.scheduleRecords : (cached.scheduleRecords || []),
+          workshopServices: s.workshopServices.length > 0 ? s.workshopServices : (cached.workshopServices || s.workshopServices),
           hasSyncedOnce: true,
         }));
       }
@@ -52,6 +53,12 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         syncFromSupabase();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => {
+        syncFromSupabase();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "certifications" }, () => {
         syncFromSupabase();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {

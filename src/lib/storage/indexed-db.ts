@@ -34,6 +34,7 @@ export async function getLocalWorkshopCache(): Promise<{
   vehicles?: any[];
   invoices?: any[];
   scheduleRecords?: any[];
+  workshopServices?: any[];
 } | null> {
   try {
     const db = await openDB();
@@ -59,6 +60,7 @@ export async function setLocalWorkshopCache(data: {
   vehicles?: any[];
   invoices?: any[];
   scheduleRecords?: any[];
+  workshopServices?: any[];
 }): Promise<void> {
   try {
     const db = await openDB();

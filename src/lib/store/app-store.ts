@@ -962,14 +962,18 @@ export const useAppStore = create<AppState>()(
             if (Array.isArray(erpData?.scheduleRecords) && erpData.scheduleRecords.length > 0) {
               updates.scheduleRecords = erpData.scheduleRecords;
             }
+            if (Array.isArray((erpData as any)?.workshopServices) && (erpData as any).workshopServices.length > 0) {
+              updates.workshopServices = (erpData as any).workshopServices;
+            }
 
             // Asynchronously persist full workshop master dataset to native IndexedDB cache
-            if (updates.workOrders || updates.vehicles || updates.invoices || updates.scheduleRecords) {
+            if (updates.workOrders || updates.vehicles || updates.invoices || updates.scheduleRecords || updates.workshopServices) {
               setLocalWorkshopCache({
                 workOrders: updates.workOrders || state.workOrders,
                 vehicles: updates.vehicles || state.vehicles,
                 invoices: updates.invoices || state.invoices,
                 scheduleRecords: updates.scheduleRecords || state.scheduleRecords,
+                workshopServices: updates.workshopServices || state.workshopServices,
               });
             }
 
@@ -2554,6 +2558,7 @@ if (typeof window !== "undefined") {
         vehicles: s.vehicles.length > 0 ? s.vehicles : (cached.vehicles || []),
         invoices: s.invoices.length > 0 ? s.invoices : (cached.invoices || []),
         scheduleRecords: s.scheduleRecords.length > 0 ? s.scheduleRecords : (cached.scheduleRecords || []),
+        workshopServices: s.workshopServices.length > 0 ? s.workshopServices : (cached.workshopServices || s.workshopServices),
         hasSyncedOnce: true,
       }));
     }
