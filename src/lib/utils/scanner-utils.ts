@@ -1,18 +1,24 @@
 /**
- * Utility to normalize barcode scanner input.
+ * Utility to normalize barcode scanner input and multi-word product searches.
  * Handheld barcode scanners (like SEISA YHD-8200L, Netum, Honeywell) emulate US keyboards.
  * On computers with Spanish / Latin American keyboard layouts, keycodes for hyphen '-'
  * produce apostrophe "'", "’", "´", "`", or "¿".
- * This function automatically fixes those keyboard layout translation artifacts and
- * deduplicates repeated scanner buffer dumps (e.g. RYG-ABR-0001YG-ABR-0001).
+ * This function automatically fixes those keyboard layout translation artifacts,
+ * deduplicates repeated scanner buffer dumps (e.g. RYG-ABR-0001YG-ABR-0001), and
+ * cleanly preserves spaces for typing product names (e.g. "abrazadera doradita").
  */
 export function normalizeScannerCode(raw: string): string {
   if (!raw) return "";
-  const clean = raw
+  let clean = raw
     .trim()
     .replace(/['’´`¿?_]/g, "-") // Convert Spanish keyboard translation artifacts back to hyphen
-    .replace(/\s+/g, "")
+    .replace(/\s+/g, " ") // Normalize multiple spaces to single space
     .toUpperCase();
+
+  // If it's a SKU pattern with hyphens (e.g. RYG - ABR - 0001), remove the whitespace around hyphens
+  if (/^[A-Z0-9]+\s*-\s*[A-Z0-9]+/i.test(clean)) {
+    clean = clean.replace(/\s+/g, "");
+  }
 
   // 1. Detect and extract standard SKU pattern if duplicated (e.g. RYG-ABR-0001YG-ABR-0001)
   const standardSkuMatch = clean.match(/^([A-Z0-9]+-[A-Z0-9]+-[0-9]+)/);

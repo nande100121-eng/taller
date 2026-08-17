@@ -579,25 +579,51 @@ export default function AlmacenPage() {
     const cleanTerm = normalizeScannerCode(raw);
     const cleanLower = cleanTerm.toLowerCase();
     const rawLower = raw.toLowerCase();
+    const words = rawLower.split(/\s+/).filter(Boolean);
 
-    const found = inventoryItems.find(
+    // 1. Check for exact SKU barcode match (both direct and scanner-normalized)
+    const exactSku = inventoryItems.find(
       (i) =>
         i.sku_barcode.toLowerCase() === rawLower ||
         i.sku_barcode.toLowerCase() === cleanLower ||
-        normalizeScannerCode(i.sku_barcode).toLowerCase() === cleanLower ||
-        i.name.toLowerCase() === rawLower ||
-        i.name.toLowerCase() === cleanLower ||
-        (i.serial_number && i.serial_number.toLowerCase() === rawLower) ||
-        (i.serial_number && normalizeScannerCode(i.serial_number).toLowerCase() === cleanLower)
+        normalizeScannerCode(i.sku_barcode).toLowerCase() === cleanLower
     );
-    if (found) {
-      setIngresoFoundItem(found);
+
+    if (exactSku) {
+      setIngresoFoundItem(exactSku);
       setShowNewMaterialForm(false);
+      return;
+    }
+
+    // 2. Check for exact product name match
+    const exactName = inventoryItems.find(
+      (i) => i.name.toLowerCase() === rawLower || i.name.toLowerCase() === cleanLower
+    );
+
+    if (exactName) {
+      setIngresoFoundItem(exactName);
+      setShowNewMaterialForm(false);
+      return;
+    }
+
+    // 3. Check for multi-word name/brand matches
+    const matchingItems = inventoryItems.filter((i) => {
+      const target = `${i.sku_barcode} ${i.name} ${i.brand || ""} ${i.serial_number || ""}`.toLowerCase();
+      return words.length > 0 && words.every((w) => target.includes(w));
+    });
+
+    if (matchingItems.length === 1) {
+      setIngresoFoundItem(matchingItems[0]);
+      setShowNewMaterialForm(false);
+    } else if (matchingItems.length > 1) {
+      // If multiple items match, keep search active so user can pick from suggestions list
+      setIngresoFoundItem(null);
     } else {
       setIngresoFoundItem(null);
       setNewMaterialForm((prev) => ({
         ...prev,
         sku_barcode: cleanTerm || raw.toUpperCase(),
+        name: raw,
       }));
     }
   };
@@ -1837,14 +1863,14 @@ export default function AlmacenPage() {
                 <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/10 space-y-6">
                   <div>
                     <label className="block text-xs font-black text-amber-400 uppercase tracking-wider mb-2">
-                      Escanear o Escribir Código SKU / Código de Barras
+                      Escanear Código de Barras / SKU o Buscar por Nombre de Producto
                     </label>
                     <div className="flex gap-2">
                       <div className="flex-1 relative">
                         <Barcode className="w-5 h-5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder="Escanear con pistola o escribir código SKU (ej. RYG-ABR-0001)..."
+                          placeholder="Escanear código (ej. RYG-ABR-0001) o escribir nombre (ej. Abrazadera, Reductor, Válvula)..."
                           value={ingresoSku}
                           onChange={(e) => {
                             const clean = normalizeScannerCode(e.target.value);
@@ -1874,60 +1900,78 @@ export default function AlmacenPage() {
                   </div>
 
                   {/* Sugerencias Rápidas al Escribir */}
-                  {ingresoSku && !ingresoFoundItem && (
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-bold text-gray-400 uppercase">
-                        Sugerencias de búsqueda en inventario:
-                      </p>
-                      <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                        {inventoryItems
-                          .filter(
-                            (i) =>
-                              i.sku_barcode.toLowerCase().includes(ingresoSku.toLowerCase()) ||
-                              i.name.toLowerCase().includes(ingresoSku.toLowerCase())
-                          )
-                          .slice(0, 5)
-                          .map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => {
-                                setIngresoSku(item.sku_barcode);
-                                setIngresoFoundItem(item);
-                              }}
-                              className="w-full p-3 rounded-xl bg-reygas-surface/60 hover:bg-white/10 border border-white/5 hover:border-amber-500/30 flex items-center justify-between text-left transition-colors"
-                            >
-                              <div className="flex items-center gap-3">
-                                <span className="px-2 py-1 rounded-lg bg-black/60 font-mono text-xs font-bold text-amber-400 border border-amber-500/30">
-                                  {item.sku_barcode}
-                                </span>
-                                <div>
-                                  <p className="text-xs font-bold text-white">{item.name}</p>
-                                  <p className="text-[10px] text-gray-400">{item.brand || "Sin marca"} • {item.serial_number || "S/N"}</p>
-                                </div>
-                              </div>
-                              <span className="text-xs font-mono font-black text-emerald-400">
-                                Stock: {item.stock_quantity}
-                              </span>
-                            </button>
-                          ))}
+                  {ingresoSku && !ingresoFoundItem && (() => {
+                    const rawSearch = ingresoSku.trim().toLowerCase();
+                    const cleanSearch = normalizeScannerCode(ingresoSku).toLowerCase();
+                    const searchWords = rawSearch.split(/\s+/).filter(Boolean);
 
-                        {inventoryItems.filter(
-                          (i) =>
-                            i.sku_barcode.toLowerCase().includes(ingresoSku.toLowerCase()) ||
-                            i.name.toLowerCase().includes(ingresoSku.toLowerCase())
-                        ).length === 0 && (
+                    const matchingSuggestions = inventoryItems.filter((i) => {
+                      const fullText = `${i.sku_barcode} ${i.name} ${i.brand || ""} ${i.serial_number || ""}`.toLowerCase();
+                      const matchesAllWords = searchWords.length > 0 && searchWords.every((w) => fullText.includes(w));
+                      return (
+                        i.sku_barcode.toLowerCase().includes(rawSearch) ||
+                        normalizeScannerCode(i.sku_barcode).toLowerCase().includes(cleanSearch) ||
+                        i.name.toLowerCase().includes(rawSearch) ||
+                        matchesAllWords
+                      );
+                    });
+
+                    return (
+                      <div className="space-y-2 animate-fadeIn">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[11px] font-bold text-gray-400 uppercase">
+                            Resultados coincidentes en inventario ({matchingSuggestions.length}):
+                          </p>
+                          {matchingSuggestions.length > 0 && (
+                            <span className="text-[10px] text-amber-400 font-semibold">
+                              Haga clic en un producto para seleccionarlo
+                            </span>
+                          )}
+                        </div>
+                        
+                        {matchingSuggestions.length > 0 ? (
+                          <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                            {matchingSuggestions.slice(0, 8).map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setIngresoSku(item.sku_barcode);
+                                  setIngresoFoundItem(item);
+                                }}
+                                className="w-full p-3 rounded-xl bg-reygas-surface/60 hover:bg-white/10 border border-white/5 hover:border-amber-500/30 flex items-center justify-between text-left transition-colors group"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="px-2 py-1 rounded-lg bg-black/60 font-mono text-xs font-bold text-amber-400 border border-amber-500/30 group-hover:border-amber-400">
+                                    {item.sku_barcode}
+                                  </span>
+                                  <div>
+                                    <p className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                                      {item.name}
+                                    </p>
+                                    <p className="text-[10px] text-gray-400">
+                                      {item.brand || "Sin marca"} • {item.serial_number || "S/N"}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span className="text-xs font-mono font-black text-emerald-400 shrink-0">
+                                  Stock: {item.stock_quantity}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
                           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
                             <div className="text-xs text-amber-300">
-                              No se encontró ningún material con el código <strong>"{ingresoSku}"</strong>.
+                              No se encontró ningún material con el código o nombre <strong>"{ingresoSku}"</strong>.
                             </div>
                             <button
                               type="button"
                               onClick={() => {
                                 setShowNewMaterialForm(true);
                                 setNewMaterialForm({
-                                  sku_barcode: ingresoSku,
-                                  name: "",
+                                  sku_barcode: /^[A-Z0-9]+-[A-Z0-9]+/.test(ingresoSku) ? ingresoSku : `SKU-${Date.now().toString().slice(-6)}`,
+                                  name: !/^[A-Z0-9]+-[A-Z0-9]+/.test(ingresoSku) ? ingresoSku : "",
                                   brand: "",
                                   serial_number: "",
                                   unit_price: 0,
@@ -1943,8 +1987,8 @@ export default function AlmacenPage() {
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Detalle y Formulario de Ingreso para Item Encontrado */}
                   {ingresoFoundItem && (
