@@ -1636,7 +1636,7 @@ export default function WorkshopOperationsPage() {
       <DailyWorkshopReportModal
         isOpen={reportModalOpen}
         onClose={() => setReportModalOpen(false)}
-        initialTab="caja"
+        initialTab="taller"
       />
     </div>
   );

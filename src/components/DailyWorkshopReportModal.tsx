@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
@@ -63,6 +63,14 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
 
   const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [activeTab, setActiveTab] = useState<"caja" | "taller" | "servicios" | "resumen">(initialTab);
+
+  // Sync activeTab when modal is opened with specific initialTab
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
+
   const [responsibleName, setResponsibleName] = useState<string>(
     currentUser?.name || "Jefe de Taller / Caja"
   );
@@ -1280,75 +1288,77 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
           </div>
 
           {/* ========================================================================= */}
-          {/* TOP KPI CARDS MATRIX (IDENTICAL TO USER SCREENSHOT) */}
+          {/* TOP KPI CARDS MATRIX: ONLY SHOWN FOR CAJA (AS REQUESTED) */}
           {/* ========================================================================= */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {/* Card 1: Efectivo */}
-            <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1">
-                <DollarSign className="w-3 h-3" />
-                <span>Total Efectivo</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
-                S/ {formatPEN(totals.cobradoEfectivo)}
-              </span>
-            </div>
+          {activeTab === "caja" && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {/* Card 1: Efectivo */}
+              <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1">
+                  <DollarSign className="w-3 h-3" />
+                  <span>Total Efectivo</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                  S/ {formatPEN(totals.cobradoEfectivo)}
+                </span>
+              </div>
 
-            {/* Card 2: Yapes */}
-            <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
-                <Coins className="w-3 h-3" />
-                <span>Total Yapes</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
-                S/ {formatPEN(totals.cobradoYapes)}
-              </span>
-            </div>
+              {/* Card 2: Yapes */}
+              <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
+                  <Coins className="w-3 h-3" />
+                  <span>Total Yapes</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                  S/ {formatPEN(totals.cobradoYapes)}
+                </span>
+              </div>
 
-            {/* Card 3: Transferencias */}
-            <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
-                <Building className="w-3 h-3" />
-                <span>Total Transferencias</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
-                S/ {formatPEN(totals.cobradoTransferencias)}
-              </span>
-            </div>
+              {/* Card 3: Transferencias */}
+              <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
+                  <Building className="w-3 h-3" />
+                  <span>Total Transferencias</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                  S/ {formatPEN(totals.cobradoTransferencias)}
+                </span>
+              </div>
 
-            {/* Card 4: Culqi / Tarjeta */}
-            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
-                <CreditCard className="w-3 h-3" />
-                <span>Total Culqi / Tarjeta</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
-                S/ {formatPEN(totals.cobradoCulqi)}
-              </span>
-            </div>
+              {/* Card 4: Culqi / Tarjeta */}
+              <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+                  <CreditCard className="w-3 h-3" />
+                  <span>Total Culqi / Tarjeta</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-white mt-1">
+                  S/ {formatPEN(totals.cobradoCulqi)}
+                </span>
+              </div>
 
-            {/* Card 5: Pendiente / Crédito */}
-            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                <span>Total Pendiente / Crédito</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
-                S/ {formatPEN(totals.totalPendiente)}
-              </span>
-            </div>
+              {/* Card 5: Pendiente / Crédito */}
+              <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  <span>Total Pendiente / Crédito</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
+                  S/ {formatPEN(totals.totalPendiente)}
+                </span>
+              </div>
 
-            {/* Card 6: Total Liquidación */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
-              <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" />
-                <span>Total Liquidación</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
-                S/ {formatPEN(totals.totalLiquidacion)}
-              </span>
+              {/* Card 6: Total Liquidación */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
+                <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  <span>Total Liquidación</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
+                  S/ {formatPEN(totals.totalLiquidacion)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ========================================================================= */}
           {/* TAB 1: CAJA & LIQUIDACIÓN DIARIA (CON DESGLOSE DE CONCEPTOS) */}
