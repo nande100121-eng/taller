@@ -57,6 +57,8 @@ export default function ConfiguracionPage() {
     boletaLastNumber: correlativeConfig?.boletaLastNumber || 259,
     facturaSeries: correlativeConfig?.facturaSeries || "F001",
     facturaLastNumber: correlativeConfig?.facturaLastNumber || 282,
+    notaCreditoSeries: correlativeConfig?.notaCreditoSeries || "FC01",
+    notaCreditoLastNumber: correlativeConfig?.notaCreditoLastNumber || 0,
     lastUpdateDate: correlativeConfig?.lastUpdateDate || getPeruDateString(),
   });
 
@@ -91,6 +93,8 @@ export default function ConfiguracionPage() {
         boletaLastNumber: correlativeConfig.boletaLastNumber || 259,
         facturaSeries: correlativeConfig.facturaSeries || "F001",
         facturaLastNumber: correlativeConfig.facturaLastNumber || 282,
+        notaCreditoSeries: correlativeConfig.notaCreditoSeries || "FC01",
+        notaCreditoLastNumber: correlativeConfig.notaCreditoLastNumber || 0,
         lastUpdateDate: correlativeConfig.lastUpdateDate || getPeruDateString(),
       });
     }
@@ -103,6 +107,7 @@ export default function ConfiguracionPage() {
       ticketLastNumber: Number(correlativeForm.ticketLastNumber) || 0,
       boletaLastNumber: Number(correlativeForm.boletaLastNumber) || 0,
       facturaLastNumber: Number(correlativeForm.facturaLastNumber) || 0,
+      notaCreditoLastNumber: Number(correlativeForm.notaCreditoLastNumber) || 0,
       lastUpdateDate: correlativeForm.lastUpdateDate || getPeruDateString(),
     };
     updateCorrelativeConfig(payload);
@@ -329,19 +334,19 @@ export default function ConfiguracionPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {/* Ticket de Venta */}
-            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+            <div className="p-4 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <span className="text-sm font-black text-white">🎟️ Ticket de Venta</span>
+                <span className="text-xs font-black text-white">🎟️ Ticket de Venta</span>
                 <span className="text-[10px] px-2 py-0.5 bg-gray-800 text-gray-300 font-bold rounded-lg border border-white/10">
                   Interno
                 </span>
               </div>
 
-              <div className="space-y-3 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Serie del Ticket:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Serie del Ticket:</label>
                   <input
                     type="text"
                     value={correlativeForm.ticketSeries}
@@ -352,7 +357,7 @@ export default function ConfiguracionPage() {
                 </div>
 
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Último Emitido:</label>
                   <input
                     type="number"
                     min="1"
@@ -363,24 +368,24 @@ export default function ConfiguracionPage() {
                   />
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-amber-300 font-mono">
-                  Siguiente Ticket: <strong>{correlativeForm.ticketSeries}-{(correlativeForm.ticketLastNumber + 1).toString().padStart(8, "0")}</strong>
+                <div className="p-2 rounded-xl bg-black/40 border border-white/5 text-[11px] text-amber-300 font-mono">
+                  Siguiente: <strong>{correlativeForm.ticketSeries}-{(correlativeForm.ticketLastNumber + 1).toString().padStart(8, "0")}</strong>
                 </div>
               </div>
             </div>
 
             {/* Boleta de Venta Electrónica */}
-            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+            <div className="p-4 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <span className="text-sm font-black text-white">🧾 Boleta Electrónica</span>
+                <span className="text-xs font-black text-white">🧾 Boleta Electrónica</span>
                 <span className="text-[10px] px-2 py-0.5 bg-blue-950 text-blue-300 font-bold rounded-lg border border-blue-500/30">
                   SUNAT / DNI
                 </span>
               </div>
 
-              <div className="space-y-3 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Serie de Boleta:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Serie de Boleta:</label>
                   <input
                     type="text"
                     value={correlativeForm.boletaSeries}
@@ -391,7 +396,7 @@ export default function ConfiguracionPage() {
                 </div>
 
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Último Emitido:</label>
                   <input
                     type="number"
                     min="1"
@@ -402,24 +407,24 @@ export default function ConfiguracionPage() {
                   />
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-blue-300 font-mono">
-                  Siguiente Boleta: <strong>{correlativeForm.boletaSeries}-{(correlativeForm.boletaLastNumber + 1).toString().padStart(8, "0")}</strong>
+                <div className="p-2 rounded-xl bg-black/40 border border-white/5 text-[11px] text-blue-300 font-mono">
+                  Siguiente: <strong>{correlativeForm.boletaSeries}-{(correlativeForm.boletaLastNumber + 1).toString().padStart(8, "0")}</strong>
                 </div>
               </div>
             </div>
 
             {/* Factura Electrónica */}
-            <div className="p-5 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-4">
+            <div className="p-4 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-3">
               <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                <span className="text-sm font-black text-white">📑 Factura Electrónica</span>
+                <span className="text-xs font-black text-white">📑 Factura Electrónica</span>
                 <span className="text-[10px] px-2 py-0.5 bg-purple-950 text-purple-300 font-bold rounded-lg border border-purple-500/30">
                   SUNAT / RUC
                 </span>
               </div>
 
-              <div className="space-y-3 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Serie de Factura:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Serie de Factura:</label>
                   <input
                     type="text"
                     value={correlativeForm.facturaSeries}
@@ -430,7 +435,7 @@ export default function ConfiguracionPage() {
                 </div>
 
                 <div>
-                  <label className="text-gray-400 block mb-1 font-bold">Último Correlativo Emitido:</label>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Último Emitido:</label>
                   <input
                     type="number"
                     min="1"
@@ -441,8 +446,47 @@ export default function ConfiguracionPage() {
                   />
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 text-[11px] text-purple-300 font-mono">
-                  Siguiente Factura: <strong>{correlativeForm.facturaSeries}-{(correlativeForm.facturaLastNumber + 1).toString().padStart(8, "0")}</strong>
+                <div className="p-2 rounded-xl bg-black/40 border border-white/5 text-[11px] text-purple-300 font-mono">
+                  Siguiente: <strong>{correlativeForm.facturaSeries}-{(correlativeForm.facturaLastNumber + 1).toString().padStart(8, "0")}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Nota de Crédito Electrónica */}
+            <div className="p-4 rounded-2xl bg-reygas-surface/60 border border-white/10 space-y-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-xs font-black text-white">🔄 Nota de Crédito</span>
+                <span className="text-[10px] px-2 py-0.5 bg-red-950 text-red-300 font-bold rounded-lg border border-red-500/30">
+                  Anulación Factura
+                </span>
+              </div>
+
+              <div className="space-y-2.5 text-xs">
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Serie Nota Crédito:</label>
+                  <input
+                    type="text"
+                    value={correlativeForm.notaCreditoSeries}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, notaCreditoSeries: e.target.value.toUpperCase() })}
+                    placeholder="FC01"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-amber-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-gray-400 block mb-1 font-bold text-[11px]">Último Emitido:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={correlativeForm.notaCreditoLastNumber}
+                    onChange={(e) => setCorrelativeForm({ ...correlativeForm, notaCreditoLastNumber: parseInt(e.target.value) || 0 })}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono font-bold focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="p-2 rounded-xl bg-black/40 border border-white/5 text-[11px] text-red-300 font-mono">
+                  Siguiente: <strong>{correlativeForm.notaCreditoSeries}-{(correlativeForm.notaCreditoLastNumber + 1).toString().padStart(8, "0")}</strong>
                 </div>
               </div>
             </div>

@@ -376,6 +376,8 @@ export interface CorrelativeConfig {
   boletaLastNumber: number;
   facturaSeries: string;
   facturaLastNumber: number;
+  notaCreditoSeries?: string;
+  notaCreditoLastNumber?: number;
   lastUpdateDate: string;
 }
 
@@ -412,6 +414,7 @@ export interface Invoice {
   payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
   observations?: string; // OBSERVACIONES DEL COMPROBANTE
   payment_breakdown?: PaymentSplit[]; // Desglose de pagos parciales / métodos mixtos
+  credit_note_number?: string; // N° de Nota de Crédito emitida si se anula Factura
 }
 
 export interface Appointment {
@@ -1974,35 +1977,50 @@ export const useAppStore = create<AppState>()(
             const oldNum = targetInvoice.receipt_number;
             const oldType = targetInvoice.receipt_type;
             const isClearing = receiptNumber === "" || receiptType === "" || receiptType === "Sin Comprobante";
+            let generatedNC: string | undefined = undefined;
 
-            // If we are releasing/clearing the previous correlative and this was the last assigned sequence
+            // If we are releasing/clearing the previous correlative
             if (isClearing && oldNum) {
               const cleanNum = parseInt(oldNum.replace(/\D/g, ""), 10);
-              if (!isNaN(cleanNum)) {
-                if ((oldType === "Ticket" || oldNum.startsWith("TK")) && updatedCorrelativeConfig.ticketLastNumber === cleanNum) {
+              const isFactura = oldType === "Factura" || oldNum.startsWith("F");
+              const isBoleta = oldType === "Boleta" || oldNum.startsWith("B");
+              const isTicket = oldType === "Ticket" || oldNum.startsWith("TK") || (!isFactura && !isBoleta);
+
+              if (isFactura) {
+                // FACTURA: SUNAT rules forbid rolling back or deleting Facturas.
+                // An electronic Nota de Crédito is generated instead, preserving Factura correlative.
+                const nextNCNum = (updatedCorrelativeConfig.notaCreditoLastNumber || 0) + 1;
+                const ncSeries = updatedCorrelativeConfig.notaCreditoSeries || "FC01";
+                generatedNC = `${ncSeries}-${String(nextNCNum).padStart(8, "0")}`;
+                updatedCorrelativeConfig = {
+                  ...updatedCorrelativeConfig,
+                  notaCreditoLastNumber: nextNCNum,
+                  lastUpdateDate: getPeruDateString(),
+                };
+                saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
+              } else if (!isNaN(cleanNum)) {
+                // TICKET & BOLETA: Rollback and free the correlative for future use
+                if (isTicket && updatedCorrelativeConfig.ticketLastNumber === cleanNum) {
                   updatedCorrelativeConfig = {
                     ...updatedCorrelativeConfig,
                     ticketLastNumber: Math.max(0, cleanNum - 1),
                     lastUpdateDate: getPeruDateString(),
                   };
                   saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
-                } else if ((oldType === "Boleta" || oldNum.startsWith("B")) && updatedCorrelativeConfig.boletaLastNumber === cleanNum) {
+                } else if (isBoleta && updatedCorrelativeConfig.boletaLastNumber === cleanNum) {
                   updatedCorrelativeConfig = {
                     ...updatedCorrelativeConfig,
                     boletaLastNumber: Math.max(0, cleanNum - 1),
                     lastUpdateDate: getPeruDateString(),
                   };
                   saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
-                } else if ((oldType === "Factura" || oldNum.startsWith("F")) && updatedCorrelativeConfig.facturaLastNumber === cleanNum) {
-                  updatedCorrelativeConfig = {
-                    ...updatedCorrelativeConfig,
-                    facturaLastNumber: Math.max(0, cleanNum - 1),
-                    lastUpdateDate: getPeruDateString(),
-                  };
-                  saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
                 }
               }
             }
+
+            const updatedObservations = generatedNC
+              ? `Factura ${oldNum} anulada mediante Nota de Crédito ${generatedNC}. ${targetInvoice.observations || ""}`.trim()
+              : targetInvoice.observations;
 
             const updated: Invoice = {
               ...targetInvoice,
@@ -2015,6 +2033,8 @@ export const useAppStore = create<AppState>()(
               receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || ""),
               receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || ""),
               payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
+              credit_note_number: generatedNC || targetInvoice.credit_note_number,
+              observations: updatedObservations,
               paid_at: nowISO,
             };
             saveSupabaseInvoice(updated);
