@@ -61,6 +61,9 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
   const [previewPageIndex, setPreviewPageIndex] = useState<number>(0);
   const [searchPhotoQuery, setSearchPhotoQuery] = useState<string>("");
   const [photoFilterStatus, setPhotoFilterStatus] = useState<"all" | "with_photo" | "without_photo">("all");
+  // Laser scanner calibration state
+  const [barcodeWidth, setBarcodeWidth] = useState<number>(1.9);
+  const [barcodeHeight, setBarcodeHeight] = useState<number>(42);
 
   // Count products for each letter of the alphabet
   const letterCounts = useMemo(() => {
@@ -212,11 +215,11 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
           try {
             JsBarcode(svg, val.trim() || "SKU-000", {
               format: "CODE128",
-              width: 1.5,
-              height: 34,
+              width: barcodeWidth,
+              height: barcodeHeight,
               displayValue: false,
-              margin: 2,
-              background: "transparent",
+              margin: 10,
+              background: "#ffffff",
               lineColor: "#000000",
             });
           } catch {}
@@ -246,12 +249,12 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
             <div>
               <h3 className="text-xl font-black text-white flex items-center gap-2">
                 <span>Impresión de Etiquetas con Código de Barras</span>
-                <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-black">
-                  8 Etiquetas por Hoja A4 • Fotos Propias
+                <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-black">
+                  Optimizado para Pistola Láser SEISA YHD-8200L
                 </span>
               </h3>
               <p className="text-xs text-gray-400">
-                Configure fotos personalizadas por producto, planchas ordenadas por letra inicial, marca, serie y código de barras SKU.
+                8 Etiquetas por hoja A4, fotos individuales por producto, código Code128 de alta definición con zona de silencio (Quiet Zone).
               </p>
             </div>
           </div>
@@ -375,7 +378,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-1 bg-black/40 rounded-xl border border-white/5">
+                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto p-1 bg-black/40 rounded-xl border border-white/5">
                       <button
                         type="button"
                         onClick={() => {
@@ -429,11 +432,52 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   </div>
                 </div>
 
-                {/* 2. Imagen Global / Logo por Defecto */}
+                {/* 2. Calibración de Escaneo Láser (SEISA YHD-8200L) */}
+                <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-emerald-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Calibración de Pistola Láser (SEISA)</span>
+                    </label>
+                    <span className="text-[10px] text-emerald-300 font-mono font-bold">Code128 HQ</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-gray-300">
+                      <span>Grosor de Barras:</span>
+                      <div className="flex items-center gap-1.5">
+                        {[
+                          { label: "1.7mm", val: 1.7 },
+                          { label: "1.9mm (Recomendado)", val: 1.9 },
+                          { label: "2.2mm (Grueso)", val: 2.2 },
+                        ].map((w) => (
+                          <button
+                            key={w.val}
+                            type="button"
+                            onClick={() => setBarcodeWidth(w.val)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+                              barcodeWidth === w.val
+                                ? "bg-emerald-500 text-black border-emerald-400 font-black"
+                                : "bg-white/5 text-gray-400 border-white/10"
+                            }`}
+                          >
+                            {w.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-gray-400 leading-tight">
+                      ✓ El código se imprime en fondo blanco puro con zona de silencio de 10px a los lados para lectura instantánea a distancia con láser.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. Imagen Global / Logo por Defecto & Copias */}
                 <div className="p-4 rounded-2xl bg-reygas-surface/80 border border-white/10 space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
-                      2. Foto por Defecto / Logo
+                      Foto por Defecto / Logo
                     </label>
                     <span className="text-[10px] text-gray-400">Para productos sin foto propia</span>
                   </div>
@@ -494,7 +538,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   </div>
                 </div>
 
-                {/* 3. Resumen */}
+                {/* 4. Resumen */}
                 <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 space-y-1.5 text-xs">
                   <div className="flex justify-between items-center text-gray-200">
                     <span>Etiquetas calculadas:</span>
@@ -707,73 +751,73 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
               {currentPage && currentPage.items.length > 0 ? (
                 <div className="bg-white text-black w-full max-w-[430px] h-[600px] p-2.5 rounded-lg shadow-2xl flex flex-col justify-between border border-gray-400 box-border">
                   
-                  {/* 2 Columns x 4 Rows = 8 Labels Grid with Exact Height Allocation */}
+                  {/* 2 Columns x 4 Rows = 8 Labels Grid with High-Readability 2-Tier Layout */}
                   <div className="grid grid-cols-2 grid-rows-4 gap-2 h-full">
                     {currentPage.items.map((item, idx) => {
                       const itemPhoto = item.image_url || productImageUrl || "/logo.jpg";
                       return (
                         <div
                           key={`${item.id}-${idx}`}
-                          className="border border-dashed border-gray-400 p-1.5 rounded-lg bg-white flex gap-1.5 items-center overflow-hidden shadow-sm h-full box-border group/card relative"
+                          className="border border-dashed border-gray-400 p-1.5 rounded-lg bg-white flex flex-col justify-between overflow-hidden shadow-sm h-full box-border group/card relative"
                         >
-                          {/* Espacio para Imagen del Producto con Subida Directa en Hover */}
-                          <div className="relative group/img w-14 h-14 sm:w-16 sm:h-16 border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                            <img
-                              src={itemPhoto}
-                              alt={item.name}
-                              className="max-h-full max-w-full object-contain"
-                            />
-
-                            {/* Overlay de Subir Foto en Hover */}
-                            <label className="absolute inset-0 bg-black/75 opacity-0 group-hover/img:opacity-100 flex flex-col items-center justify-center text-white cursor-pointer transition-opacity text-center p-0.5" title="Haga clic para cambiar la foto de este producto">
-                              <Camera className="w-4 h-4 text-amber-400 mb-0.5" />
-                              <span className="text-[7.5px] font-bold leading-none text-amber-300">Cambiar Foto</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handleSpecificProductImageUpload(item.id, file);
-                                  e.target.value = "";
-                                }}
-                                className="hidden"
+                          {/* TOP TIER: Image + Product Details */}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {/* Espacio para Imagen del Producto con Subida Directa en Hover */}
+                            <div className="relative group/img w-10 h-10 border border-gray-300 rounded bg-gray-50 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                              <img
+                                src={itemPhoto}
+                                alt={item.name}
+                                className="max-h-full max-w-full object-contain"
                               />
-                            </label>
 
-                            {/* Badge Verde si tiene foto propia */}
-                            {item.image_url && (
-                              <div className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" title="Foto personalizada" />
-                            )}
-                          </div>
+                              {/* Overlay de Subir Foto en Hover */}
+                              <label className="absolute inset-0 bg-black/75 opacity-0 group-hover/img:opacity-100 flex flex-col items-center justify-center text-white cursor-pointer transition-opacity text-center p-0.5" title="Cambiar foto">
+                                <Camera className="w-3 h-3 text-amber-400" />
+                                <span className="text-[6.5px] font-bold text-amber-300">Foto</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleSpecificProductImageUpload(item.id, file);
+                                    e.target.value = "";
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
 
-                          {/* Información del Producto y Código de Barras */}
-                          <div className="flex-1 min-w-0 flex flex-col justify-between h-full py-0.5">
-                            <div>
-                              {/* Nombre del Producto */}
-                              <h4 className="text-[8.5px] font-black text-black leading-tight line-clamp-2 uppercase">
+                              {/* Badge Verde si tiene foto propia */}
+                              {item.image_url && (
+                                <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-1 ring-white" title="Foto personalizada" />
+                              )}
+                            </div>
+
+                            {/* Información del Producto */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-[8px] font-black text-black leading-tight line-clamp-2 uppercase">
                                 {item.name}
                               </h4>
-                              {/* Marca y Serie */}
-                              <p className="text-[7px] text-gray-600 font-semibold truncate mt-0.5">
+                              <p className="text-[6.5px] text-gray-600 font-semibold truncate mt-0.5">
                                 {item.brand && <span>Marca: <strong className="text-black">{item.brand}</strong></span>}
                                 {item.serial_number && item.serial_number !== "-" && (
                                   <span> • S/N: <strong className="font-mono text-black">{item.serial_number}</strong></span>
                                 )}
                               </p>
                             </div>
+                          </div>
 
-                            {/* Barcode SVG + SKU */}
-                            <div className="mt-0.5 flex flex-col items-center">
-                              <BarcodeSvg
-                                value={item.sku_barcode}
-                                className="w-full h-5"
-                                width={1.1}
-                                height={20}
-                              />
-                              <span className="text-[7.5px] font-mono font-black text-black tracking-wider">
-                                {item.sku_barcode}
-                              </span>
-                            </div>
+                          {/* BOTTOM TIER: Full Width Laser-Scannable Barcode */}
+                          <div className="bg-white flex flex-col items-center justify-center pt-0.5 border-t border-gray-100">
+                            <BarcodeSvg
+                              value={item.sku_barcode}
+                              className="w-full h-6"
+                              width={barcodeWidth}
+                              height={32}
+                              margin={6}
+                            />
+                            <span className="text-[7.5px] font-mono font-black text-black tracking-wider leading-none">
+                              {item.sku_barcode}
+                            </span>
                           </div>
                         </div>
                       );
@@ -856,7 +900,7 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr",
                   gridTemplateRows: "repeat(4, 1fr)",
-                  gap: "3.5mm",
+                  gap: "4mm",
                   height: "100%",
                   boxSizing: "border-box",
                 }}
@@ -868,63 +912,71 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                       key={`print-item-${item.id}-${itemIdx}`}
                       className="barcode-card-print"
                       style={{
-                        padding: "3.5mm",
+                        padding: "3.5mm 4mm 2.5mm 4mm",
                         borderRadius: "3mm",
                         display: "flex",
-                        alignItems: "center",
-                        gap: "3mm",
+                        flexDirection: "column",
+                        justifyContent: "space-between",
                         overflow: "hidden",
                         background: "#ffffff",
                         boxSizing: "border-box",
+                        border: "1.5px dashed #333333",
                       }}
                     >
-                      {/* Espacio para Imagen del Producto */}
+                      {/* TOP TIER: Photo + Product Details */}
                       <div
                         style={{
-                          width: "28mm",
-                          height: "28mm",
-                          border: "1px solid #dddddd",
-                          borderRadius: "2mm",
-                          background: "#fafafa",
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
-                          padding: "1mm",
-                          flexShrink: 0,
-                          overflow: "hidden",
+                          gap: "3mm",
+                          width: "100%",
                           boxSizing: "border-box",
                         }}
                       >
-                        {itemPhoto && (
-                          <img
-                            src={itemPhoto}
-                            alt={item.name}
-                            style={{
-                              maxWidth: "100%",
-                              maxHeight: "100%",
-                              objectFit: "contain",
-                            }}
-                          />
-                        )}
-                      </div>
+                        {/* Espacio para Imagen del Producto */}
+                        <div
+                          style={{
+                            width: "22mm",
+                            height: "22mm",
+                            border: "1px solid #cccccc",
+                            borderRadius: "1.5mm",
+                            background: "#fafafa",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "1mm",
+                            flexShrink: 0,
+                            overflow: "hidden",
+                            boxSizing: "border-box",
+                          }}
+                        >
+                          {itemPhoto && (
+                            <img
+                              src={itemPhoto}
+                              alt={item.name}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "100%",
+                                objectFit: "contain",
+                              }}
+                            />
+                          )}
+                        </div>
 
-                      {/* Información del Producto y Código de Barras */}
-                      <div
-                        style={{
-                          flex: 1,
-                          display: "flex",
-                          flexDirection: "column",
-                          justifyContent: "space-between",
-                          height: "100%",
-                          minWidth: 0,
-                          boxSizing: "border-box",
-                        }}
-                      >
-                        <div>
+                        {/* Información del Producto */}
+                        <div
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            display: "flex",
+                            flexDirection: "column",
+                            justifyContent: "center",
+                          }}
+                        >
                           {/* Nombre del Producto */}
                           <div
                             style={{
-                              fontSize: "9.5pt",
+                              fontSize: "9pt",
                               fontWeight: "900",
                               color: "#000000",
                               lineHeight: "1.15",
@@ -938,9 +990,10 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                           {/* Marca y Serie */}
                           <div
                             style={{
-                              fontSize: "8pt",
+                              fontSize: "7.5pt",
                               color: "#444444",
                               fontWeight: "600",
+                              lineHeight: "1.2",
                             }}
                           >
                             {item.brand && <span>Marca: <strong style={{ color: "#000000" }}>{item.brand}</strong></span>}
@@ -949,27 +1002,40 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
                             )}
                           </div>
                         </div>
+                      </div>
 
-                        {/* Barcode SVG + SKU */}
-                        <div style={{ textAlign: "center", marginTop: "1.5mm" }}>
-                          <BarcodeSvg
-                            value={item.sku_barcode}
-                            className="w-full"
-                            width={1.5}
-                            height={34}
-                          />
-                          <div
-                            style={{
-                              fontSize: "8.5pt",
-                              fontWeight: "900",
-                              fontFamily: "monospace",
-                              letterSpacing: "0.5px",
-                              marginTop: "0.5mm",
-                              color: "#000000",
-                            }}
-                          >
-                            {item.sku_barcode}
-                          </div>
+                      {/* BOTTOM TIER: Full Width High-Contrast Laser Barcode */}
+                      <div
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "#ffffff",
+                          paddingTop: "1mm",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <BarcodeSvg
+                          value={item.sku_barcode}
+                          className="w-full"
+                          width={barcodeWidth}
+                          height={barcodeHeight}
+                          margin={8}
+                        />
+                        <div
+                          style={{
+                            fontSize: "8.5pt",
+                            fontWeight: "900",
+                            fontFamily: "monospace",
+                            letterSpacing: "0.5px",
+                            color: "#000000",
+                            marginTop: "0.5mm",
+                            lineHeight: "1",
+                          }}
+                        >
+                          {item.sku_barcode}
                         </div>
                       </div>
                     </div>
@@ -1004,4 +1070,5 @@ export const BarcodePrintModal: React.FC<BarcodePrintModalProps> = ({
     </>
   );
 };
+
 
