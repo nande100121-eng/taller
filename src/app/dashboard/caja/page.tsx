@@ -50,6 +50,7 @@ export default function CajaPage() {
     vehicles,
     technicians,
     correlativeConfig,
+    updateCorrelativeConfig,
     getAndIncrementReceiptNumber,
     createInvoiceForOrder,
     togglePayInvoice,
@@ -683,10 +684,25 @@ export default function CajaPage() {
       return;
     }
 
-    // Auto-advance correlative sequence in store only if standard receipt type
+    // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
     let assignedReceiptNum = "";
     if (!isSinComprobante && (paymentModal.receiptType === "Ticket" || paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura")) {
-      assignedReceiptNum = paymentModal.receiptNumber || getAndIncrementReceiptNumber(paymentModal.receiptType);
+      if (paymentModal.receiptNumber) {
+        assignedReceiptNum = paymentModal.receiptNumber;
+        const parts = assignedReceiptNum.split("-");
+        const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
+        if (!isNaN(numPart)) {
+          const typeKey = paymentModal.receiptType === "Factura" ? "facturaLastNumber" : (paymentModal.receiptType === "Boleta" ? "boletaLastNumber" : "ticketLastNumber");
+          const seriesKey = paymentModal.receiptType === "Factura" ? "facturaSeries" : (paymentModal.receiptType === "Boleta" ? "boletaSeries" : "ticketSeries");
+          updateCorrelativeConfig({
+            [typeKey]: numPart,
+            ...(parts.length > 1 ? { [seriesKey]: parts[0] } : {}),
+            lastUpdateDate: queryDate || getPeruDateString(),
+          });
+        }
+      } else {
+        assignedReceiptNum = getAndIncrementReceiptNumber(paymentModal.receiptType, queryDate || getPeruDateString());
+      }
     }
 
     const finalMethod = (isZeroAmount && (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método")) ? "" : (paymentModal.paymentMethod === "Sin Método" ? "" : paymentModal.paymentMethod || "");
@@ -845,10 +861,25 @@ export default function CajaPage() {
       return;
     }
 
-    // Auto-advance correlative sequence in store only if standard receipt type
+    // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
     let assignedReceiptNum = "";
     if (!isSinComprobante && (manualPaymentModal.receiptType === "Ticket" || manualPaymentModal.receiptType === "Boleta" || manualPaymentModal.receiptType === "Factura")) {
-      assignedReceiptNum = manualPaymentModal.receiptNumber || getAndIncrementReceiptNumber(manualPaymentModal.receiptType);
+      if (manualPaymentModal.receiptNumber) {
+        assignedReceiptNum = manualPaymentModal.receiptNumber;
+        const parts = assignedReceiptNum.split("-");
+        const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
+        if (!isNaN(numPart)) {
+          const typeKey = manualPaymentModal.receiptType === "Factura" ? "facturaLastNumber" : (manualPaymentModal.receiptType === "Boleta" ? "boletaLastNumber" : "ticketLastNumber");
+          const seriesKey = manualPaymentModal.receiptType === "Factura" ? "facturaSeries" : (manualPaymentModal.receiptType === "Boleta" ? "boletaSeries" : "ticketSeries");
+          updateCorrelativeConfig({
+            [typeKey]: numPart,
+            ...(parts.length > 1 ? { [seriesKey]: parts[0] } : {}),
+            lastUpdateDate: queryDate || getPeruDateString(),
+          });
+        }
+      } else {
+        assignedReceiptNum = getAndIncrementReceiptNumber(manualPaymentModal.receiptType, queryDate || getPeruDateString());
+      }
     }
 
     const finalMethod = (isZeroAmount && (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método")) ? "" : (manualPaymentModal.paymentMethod === "Sin Método" ? "" : manualPaymentModal.paymentMethod || "");

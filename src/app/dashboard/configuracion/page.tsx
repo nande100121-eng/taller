@@ -98,7 +98,14 @@ export default function ConfiguracionPage() {
 
   const handleSaveCorrelatives = (e: React.FormEvent) => {
     e.preventDefault();
-    updateCorrelativeConfig(correlativeForm);
+    const payload = {
+      ...correlativeForm,
+      ticketLastNumber: Number(correlativeForm.ticketLastNumber) || 0,
+      boletaLastNumber: Number(correlativeForm.boletaLastNumber) || 0,
+      facturaLastNumber: Number(correlativeForm.facturaLastNumber) || 0,
+      lastUpdateDate: correlativeForm.lastUpdateDate || getPeruDateString(),
+    };
+    updateCorrelativeConfig(payload);
     setCorrelativeSaveMsg(true);
     setTimeout(() => setCorrelativeSaveMsg(false), 4000);
   };

@@ -549,7 +549,7 @@ interface AppState {
 
   correlativeConfig: CorrelativeConfig;
   updateCorrelativeConfig: (config: Partial<CorrelativeConfig>) => void;
-  getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura") => string;
+  getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura", targetDate?: string) => string;
 
   invoices: Invoice[];
   createInvoice: (invoice: Omit<Invoice, "id">) => void;
@@ -695,8 +695,9 @@ export const useAppStore = create<AppState>()(
       updateCorrelativeConfig: (config) => {
         const next = { ...get().correlativeConfig, ...config };
         set({ correlativeConfig: next });
+        saveSupabaseSiteContent("correlativeConfig", next);
       },
-      getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura") => {
+      getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura", targetDate?: string) => {
         const current = get().correlativeConfig || {
           ticketSeries: "TK01",
           ticketLastNumber: 4545,
@@ -709,36 +710,38 @@ export const useAppStore = create<AppState>()(
 
         let nextNum = 1;
         let series = "TK01";
+        const effectiveDate = targetDate || getPeruDateString();
+        let nextConfig: CorrelativeConfig;
 
         if (type === "Factura") {
           nextNum = (current.facturaLastNumber || 0) + 1;
           series = current.facturaSeries || "F001";
-          set({
-            correlativeConfig: {
-              ...current,
-              facturaLastNumber: nextNum,
-            },
-          });
+          nextConfig = {
+            ...current,
+            facturaLastNumber: nextNum,
+            lastUpdateDate: effectiveDate,
+          };
         } else if (type === "Boleta") {
           nextNum = (current.boletaLastNumber || 0) + 1;
           series = current.boletaSeries || "B001";
-          set({
-            correlativeConfig: {
-              ...current,
-              boletaLastNumber: nextNum,
-            },
-          });
+          nextConfig = {
+            ...current,
+            boletaLastNumber: nextNum,
+            lastUpdateDate: effectiveDate,
+          };
         } else {
           // Ticket
           nextNum = (current.ticketLastNumber || 0) + 1;
           series = current.ticketSeries || "TK01";
-          set({
-            correlativeConfig: {
-              ...current,
-              ticketLastNumber: nextNum,
-            },
-          });
+          nextConfig = {
+            ...current,
+            ticketLastNumber: nextNum,
+            lastUpdateDate: effectiveDate,
+          };
         }
+
+        set({ correlativeConfig: nextConfig });
+        saveSupabaseSiteContent("correlativeConfig", nextConfig);
 
         const padded = nextNum.toString().padStart(8, "0");
         return `${series}-${padded}`;
@@ -800,6 +803,10 @@ export const useAppStore = create<AppState>()(
               // Sync AI Settings from Supabase if present
               if ((cmsData as any).aiSettings) {
                 updates.aiSettings = { ...state.aiSettings, ...(cmsData as any).aiSettings };
+              }
+              // Sync Correlative Config from Supabase if present
+              if ((cmsData as any).correlativeConfig) {
+                updates.correlativeConfig = { ...state.correlativeConfig, ...(cmsData as any).correlativeConfig };
               }
               // Sync Workshop Services Catalog from Supabase if present
               if ((cmsData as any).workshopServices && Array.isArray((cmsData as any).workshopServices)) {
@@ -2321,6 +2328,7 @@ export const useAppStore = create<AppState>()(
         userRole: state.userRole,
         currentUser: state.currentUser,
         aiSettings: state.aiSettings,
+        correlativeConfig: state.correlativeConfig,
         technicians: state.technicians,
       }),
     }
