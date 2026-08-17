@@ -86,8 +86,9 @@ export default function WorkshopOperationsPage() {
     return inventoryItems.filter(
       (item) =>
         (item.name && item.name.toLowerCase().includes(q)) ||
-        (item.sku_barcode && item.sku_barcode.toLowerCase().includes(q)) ||
         (item.brand && item.brand.toLowerCase().includes(q)) ||
+        (item.serial_number && item.serial_number.toLowerCase().includes(q)) ||
+        (item.sku_barcode && item.sku_barcode.toLowerCase().includes(q)) ||
         (item.category && item.category.toLowerCase().includes(q))
     );
   }, [inventoryItems, partsSearchQuery]);
@@ -1167,7 +1168,7 @@ export default function WorkshopOperationsPage() {
                         <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder="Escriba para buscar por nombre, código SKU o marca..."
+                          placeholder="Buscar por nombre, marca o serie/código..."
                           value={partsSearchQuery}
                           onChange={(e) => setPartsSearchQuery(e.target.value)}
                           className="w-full pl-9 pr-8 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-xs text-white placeholder-gray-500 focus:border-amber-400 focus:outline-none font-bold transition-all"
@@ -1185,7 +1186,7 @@ export default function WorkshopOperationsPage() {
                       </div>
 
                       {/* Filtered Inventory Items List */}
-                      <div className="max-h-48 overflow-y-auto space-y-1 p-1 rounded-xl bg-black/40 border border-white/10 custom-scrollbar">
+                      <div className="max-h-52 overflow-y-auto space-y-1 p-1 rounded-xl bg-black/40 border border-white/10 custom-scrollbar">
                         {filteredInventoryItems.length === 0 ? (
                           <div className="p-4 text-center text-xs text-gray-400 space-y-1">
                             <p>No se encontraron repuestos con &quot;{partsSearchQuery}&quot;.</p>
@@ -1219,13 +1220,24 @@ export default function WorkshopOperationsPage() {
                                 }`}
                               >
                                 <div className="flex-1 min-w-0 pr-3">
+                                  {/* Nombre del Producto */}
                                   <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
                                     {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 stroke-[3]" />}
                                     <span>{item.name}</span>
                                   </div>
-                                  <div className="text-[10px] text-gray-400 truncate flex items-center gap-2 mt-0.5">
-                                    <span className="font-mono text-gray-300">{item.sku_barcode}</span>
-                                    {item.brand && <span>• {item.brand}</span>}
+                                  
+                                  {/* Marca y Serie */}
+                                  <div className="text-[11px] text-gray-400 truncate flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-0.5">
+                                    <span className="text-cyan-300 font-semibold flex items-center gap-1">
+                                      <span className="text-gray-500">Marca:</span>
+                                      <span>{item.brand || "Genérico"}</span>
+                                    </span>
+                                    <span className="text-amber-300/90 font-mono flex items-center gap-1">
+                                      <span className="text-gray-500 font-sans">Serie/SKU:</span>
+                                      <span className="bg-white/5 px-1 py-0.2 rounded border border-white/10">
+                                        {item.serial_number || item.sku_barcode || "S/N"}
+                                      </span>
+                                    </span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
@@ -1248,22 +1260,32 @@ export default function WorkshopOperationsPage() {
                     </div>
 
                     {/* Selected Item Summary Pill */}
-                    {selectedInventoryId && (
-                      <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/30 flex items-center justify-between text-xs">
-                        <div className="truncate pr-2">
-                          <span className="text-[10px] text-amber-300 uppercase font-bold block">Seleccionado:</span>
-                          <span className="font-bold text-white truncate">
-                            {inventoryItems.find((i) => i.id === selectedInventoryId)?.name || "Repuesto"}
-                          </span>
+                    {selectedInventoryId && (() => {
+                      const sel = inventoryItems.find((i) => i.id === selectedInventoryId);
+                      if (!sel) return null;
+                      return (
+                        <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-between text-xs shadow-inner">
+                          <div className="truncate pr-3 space-y-0.5">
+                            <span className="text-[10px] text-amber-300 uppercase font-black tracking-wider block">
+                              Repuesto Seleccionado:
+                            </span>
+                            <span className="font-bold text-white block truncate">
+                              {sel.name}
+                            </span>
+                            <div className="text-[11px] text-gray-300 flex items-center gap-3">
+                              <span>Marca: <strong className="text-cyan-300">{sel.brand || "Genérico"}</strong></span>
+                              <span>Serie: <strong className="text-amber-300 font-mono">{sel.serial_number || sel.sku_barcode || "S/N"}</strong></span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] text-gray-400 block">Precio Catálogo</span>
+                            <span className="font-mono font-black text-base text-amber-400">
+                              S/ {sel.unit_price || 0}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-[10px] text-gray-400 block">Precio Catálogo</span>
-                          <span className="font-mono font-bold text-amber-400">
-                            S/ {inventoryItems.find((i) => i.id === selectedInventoryId)?.unit_price || 0}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     <div>
                       <label className="block text-xs font-medium text-gray-300 mb-1">Precio Unitario a Cobrar (S/)</label>
