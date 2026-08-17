@@ -101,6 +101,11 @@ export default function AlmacenPage() {
     message: string;
   } | null>(null);
 
+  // Migrated Cutoff Modal State & Attend All Modal State
+  const [migratedModalOpen, setMigratedModalOpen] = useState(false);
+  const [migratedCutoffDate, setMigratedCutoffDate] = useState("2026-08-08");
+  const [attendAllModalOpen, setAttendAllModalOpen] = useState(false);
+
   const showWebNotification = (
     type: "info" | "warning" | "success" | "error",
     title: string,
@@ -515,6 +520,15 @@ export default function AlmacenPage() {
   const endPedidosIndex = Math.min(startPedidosIndex + PEDIDOS_PER_PAGE, vehiclePartGroups.length);
   const paginatedVehiclePartGroups = vehiclePartGroups.slice(startPedidosIndex, endPedidosIndex);
 
+  // Filtered orders for migrated cutoff modal
+  const matchingMigratedOrders = workOrders.filter((o) => {
+    const orderDate = (o.entry_time || "").slice(0, 10);
+    return orderDate && orderDate <= migratedCutoffDate;
+  });
+  const matchingMigratedPendingItemsCount = matchingMigratedOrders
+    .flatMap((o) => o.items)
+    .filter((i) => !i.dispatched).length;
+
   const handleScanLookup = () => {
     const found = inventoryItems.find(
       (i) => i.sku_barcode.toLowerCase() === scanSku.trim().toLowerCase()
@@ -792,26 +806,18 @@ export default function AlmacenPage() {
               {/* Action Buttons: Marcar Atendidos */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => {
-                    if (confirm("¿Desea marcar como ATENDIDOS todos los repuestos migrados con fecha hasta el 08/08/2026?")) {
-                      markAllMigratedWorkOrderItemsDispatched("2026-08-08");
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-bold transition-colors flex items-center gap-1.5"
-                  title="Marcar como atendidos los pedidos migrados hasta el 08/08/2026"
+                  onClick={() => setMigratedModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-bold transition-all flex items-center gap-1.5 shadow"
+                  title="Configurar fecha y marcar pedidos migrados como atendidos"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Marcar Migrado como Atendido (≤ 08/08/26)</span>
+                  <span>Configurar y Marcar Migrado (≤ {migratedCutoffDate})</span>
                 </button>
 
                 {pendingPedidosCount > 0 && (
                   <button
-                    onClick={() => {
-                      if (confirm("¿Desea marcar como ATENDIDOS todos los repuestos de la vista actual?")) {
-                        markAllWorkOrderItemsDispatched();
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-colors flex items-center gap-1.5"
+                    onClick={() => setAttendAllModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all flex items-center gap-1.5 shadow"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
                     <span>Marcar Todo como Atendido</span>
@@ -1691,16 +1697,23 @@ export default function AlmacenPage() {
 
       {/* Edit / New Item Modal */}
       {editModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-xl w-full space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Package className="w-5 h-5 text-emerald-400" />
-                <span>{editingItem ? `Editar Fila - ${editingItem.name}` : "Agregar Nuevo Producto al Inventario"}</span>
-              </h3>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl shadow-black/90 space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">
+                    {editingItem ? `Editar Fila - ${editingItem.name}` : "Agregar Nuevo Producto al Inventario"}
+                  </h3>
+                  <p className="text-xs text-gray-400">Complete los datos del repuesto o material para el catálogo.</p>
+                </div>
+              </div>
               <button
                 onClick={() => setEditModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-white"
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1709,7 +1722,7 @@ export default function AlmacenPage() {
             <form onSubmit={handleSaveItemForm} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
                     CÓDIGO SKU * <span className="text-[10px] text-amber-400 font-normal">(Autocompleta)</span>
                   </label>
                   <input
@@ -1718,59 +1731,59 @@ export default function AlmacenPage() {
                     placeholder="Ej. KIT-GNV-5G"
                     value={itemForm.sku_barcode}
                     onChange={(e) => handleSkuInputChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono uppercase focus:border-emerald-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono uppercase text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRODUCTO *</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">PRODUCTO *</label>
                   <input
                     type="text"
                     required
                     value={itemForm.name}
                     onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-medium"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">MARCA</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">MARCA</label>
                   <input
                     type="text"
                     placeholder="Ej. Tomasetto / BRC"
                     value={itemForm.brand}
                     onChange={(e) => setItemForm({ ...itemForm, brand: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-medium"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">SERIE / NRO PARTE</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">SERIE / NRO PARTE</label>
                   <input
                     type="text"
                     placeholder="Ej. SN-88192"
                     value={itemForm.serial_number}
                     onChange={(e) => setItemForm({ ...itemForm, serial_number: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all font-medium"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">PRECIO DE VENTA EDITABLE (S/)</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">PRECIO DE VENTA (S/)</label>
                   <input
                     type="number"
                     step="0.01"
                     min={0}
                     value={itemForm.unit_price}
                     onChange={(e) => setItemForm({ ...itemForm, unit_price: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono focus:border-emerald-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    STOCK VIGENTE / ACTUAL {!editingItem && <span className="text-[10px] text-emerald-400 font-normal">(Informativo)</span>}
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                    STOCK VIGENTE {!editingItem && <span className="text-[10px] text-emerald-400 font-normal">(Informativo)</span>}
                   </label>
                   <input
                     type="number"
@@ -1778,10 +1791,10 @@ export default function AlmacenPage() {
                     readOnly={!editingItem}
                     value={itemForm.stock_quantity}
                     onChange={(e) => setItemForm({ ...itemForm, stock_quantity: Number(e.target.value) })}
-                    className={`w-full px-3 py-2 border rounded-lg text-sm font-mono ${
+                    className={`w-full px-3.5 py-2.5 border rounded-xl text-sm font-mono ${
                       !editingItem
-                        ? "bg-reygas-surface/60 border-white/5 text-emerald-400 font-extrabold cursor-not-allowed"
-                        : "bg-reygas-dark border-white/10 text-white focus:border-emerald-400"
+                        ? "bg-reygas-surface/60 border-white/10 text-emerald-400 font-extrabold cursor-not-allowed"
+                        : "bg-reygas-surface border-white/15 text-white focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
                     }`}
                   />
                 </div>
@@ -1789,48 +1802,48 @@ export default function AlmacenPage() {
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">ENTRADAS</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">ENTRADAS</label>
                   <input
                     type="number"
                     min={0}
                     value={itemForm.entries}
                     onChange={(e) => setItemForm({ ...itemForm, entries: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">SALIDAS</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">SALIDAS</label>
                   <input
                     type="number"
                     min={0}
                     readOnly
                     value={itemForm.exits}
-                    className="w-full px-3 py-2 bg-reygas-surface/50 border border-white/5 rounded-lg text-sm text-gray-400 font-mono"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface/50 border border-white/10 rounded-xl text-sm text-gray-400 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">CONTADOS</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">CONTADOS</label>
                   <input
                     type="number"
                     min={0}
                     value={itemForm.counted_stock}
                     onChange={(e) => setItemForm({ ...itemForm, counted_stock: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setEditModalOpen(false)}
-                  className="px-4 py-2 bg-reygas-surface text-gray-300 text-xs font-bold rounded-xl"
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   Guardar Fila
                 </button>
@@ -1842,16 +1855,21 @@ export default function AlmacenPage() {
 
       {/* Manual Exit Modal */}
       {manualExitModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="glass-panel p-6 rounded-2xl border border-white/10 max-w-lg w-full space-y-6">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <RotateCcw className="w-5 h-5 text-red-400 rotate-180" />
-                <span>Salida Manual Urgente de Repuesto</span>
-              </h3>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-500/20 text-red-400 rounded-2xl border border-red-500/30">
+                  <RotateCcw className="w-6 h-6 rotate-180" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Salida Manual Urgente</h3>
+                  <p className="text-xs text-gray-400">Registre un egreso extraordinario de repuesto.</p>
+                </div>
+              </div>
               <button
                 onClick={() => setManualExitModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-white"
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1859,12 +1877,12 @@ export default function AlmacenPage() {
 
             <form onSubmit={handleConfirmManualExit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">PRODUCTO A DESPACHAR *</label>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">PRODUCTO A DESPACHAR *</label>
                 <select
                   required
                   value={exitForm.itemId}
                   onChange={(e) => setExitForm({ ...exitForm, itemId: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                 >
                   <option value="">-- Seleccionar Repuesto del Inventario --</option>
                   {inventoryItems.map((item) => (
@@ -1876,19 +1894,19 @@ export default function AlmacenPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">CANTIDAD A SALIR *</label>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">CANTIDAD A SALIR *</label>
                 <input
                   type="number"
                   min={1}
                   required
                   value={exitForm.quantity}
                   onChange={(e) => setExitForm({ ...exitForm, quantity: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none font-bold"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">TIPO DE ASIGNACIÓN *</label>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">TIPO DE ASIGNACIÓN *</label>
                 <div className="flex items-center gap-4 pt-1">
                   <label className="flex items-center gap-2 text-xs text-white font-bold cursor-pointer">
                     <input
@@ -1915,11 +1933,11 @@ export default function AlmacenPage() {
 
               {exitForm.assignedToType === "vehicle" ? (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">PLACA DEL VEHÍCULO *</label>
+                  <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">PLACA DEL VEHÍCULO *</label>
                   <select
                     value={exitForm.vehiclePlate}
                     onChange={(e) => setExitForm({ ...exitForm, vehiclePlate: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm font-mono focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                   >
                     <option value="">-- Seleccionar Vehículo Registrado --</option>
                     {vehicles.map((v) => (
@@ -1932,13 +1950,13 @@ export default function AlmacenPage() {
               ) : (
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">
-                      SELECCIONAR DE LA TABLA MAESTRA DE PERSONAL
+                    <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+                      SELECCIONAR PERSONAL REGISTRADO
                     </label>
                     <select
                       value={exitForm.responsibleName}
                       onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
-                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                      className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                     >
                       <option value="">-- Seleccionar Personal Registrado --</option>
                       {technicians.map((t) => (
@@ -1950,7 +1968,7 @@ export default function AlmacenPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">
                       O ESCRIBIR NOMBRE DEL RESPONSABLE *
                     </label>
                     <input
@@ -1959,38 +1977,203 @@ export default function AlmacenPage() {
                       placeholder="Ej. Técnico Carlos Mendoza / Ing. Miguel Torres"
                       value={exitForm.responsibleName}
                       onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
-                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-red-400"
+                      className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                     />
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">MOTIVO / NOTAS</label>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-1.5">MOTIVO / NOTAS</label>
                 <input
                   type="text"
                   value={exitForm.reason}
                   onChange={(e) => setExitForm({ ...exitForm, reason: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white"
+                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setManualExitModalOpen(false)}
-                  className="px-4 py-2 bg-reygas-surface text-gray-300 text-xs font-bold rounded-xl"
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-reygas-red hover:bg-red-600 text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/20"
+                  className="px-5 py-2.5 bg-reygas-red hover:bg-red-600 text-white text-xs font-black rounded-xl shadow-lg shadow-red-500/30 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   Confirmar Salida Urgente
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL PARA MARCAR MIGRADO COMO ATENDIDO CON FECHA CONFIGURABLE */}
+      {/* ========================================================================= */}
+      {migratedModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl shadow-black/90 space-y-6 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-500/20 text-blue-400 rounded-2xl border border-blue-500/30">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Marcar Migrado como Atendido</h3>
+                  <p className="text-xs text-gray-400">
+                    Establezca la fecha límite para dar por despachados los pedidos de la migración.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMigratedModalOpen(false)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content & Date Selector */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-300 uppercase tracking-wider mb-2">
+                  Fecha Límite de Migración (Hasta inclusive)
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 flex items-center bg-reygas-surface rounded-xl border border-white/15 px-3.5 py-2.5">
+                    <Calendar className="w-4 h-4 text-amber-400 mr-2 shrink-0" />
+                    <input
+                      type="date"
+                      value={migratedCutoffDate}
+                      onChange={(e) => setMigratedCutoffDate(e.target.value)}
+                      className="bg-transparent text-white font-mono text-sm font-bold focus:outline-none w-full cursor-pointer"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMigratedCutoffDate("2026-08-08")}
+                    className="px-3 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 transition-colors"
+                  >
+                    08/08/2026
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMigratedCutoffDate(getPeruDateString())}
+                    className="px-3 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 transition-colors"
+                  >
+                    Hoy
+                  </button>
+                </div>
+              </div>
+
+              {/* Informative Stats Card */}
+              <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/30 space-y-2 text-xs">
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>Órdenes con fecha ≤ {migratedCutoffDate}:</span>
+                  <span className="font-bold text-white font-mono text-sm">{matchingMigratedOrders.length} órdenes</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                  <span>Repuestos pendientes que se atenderán:</span>
+                  <span className="font-bold text-amber-400 font-mono text-sm">{matchingMigratedPendingItemsCount} repuestos</span>
+                </div>
+                <p className="text-[11px] text-gray-400 pt-1 border-t border-white/10">
+                  Todos los repuestos solicitados en o antes del <strong>{migratedCutoffDate}</strong> pasarán al estado <strong className="text-emerald-400">Atendido / Despachado</strong> y se sincronizarán en Supabase.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setMigratedModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  markAllMigratedWorkOrderItemsDispatched(migratedCutoffDate);
+                  setMigratedModalOpen(false);
+                  setWebAlert({
+                    open: true,
+                    type: "success",
+                    title: "Migración Atendida",
+                    message: `Se marcaron como atendidos todos los repuestos migrados hasta el ${migratedCutoffDate}.`,
+                  });
+                }}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-lg shadow-amber-500/30 transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>Confirmar y Marcar Atendidos</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL PARA MARCAR TODO COMO ATENDIDO (VISTA ACTIVA) */}
+      {/* ========================================================================= */}
+      {attendAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-black/90 space-y-6">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                  <Check className="w-6 h-6 stroke-[3]" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Marcar Vista como Atendida</h3>
+                  <p className="text-xs text-gray-400">Atender en bloque los pedidos pendientes.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAttendAllModalOpen(false)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-300">
+              ¿Está seguro de marcar como <strong className="text-emerald-400">Atendidos y Listos</strong> todos los repuestos pendientes ({pendingPedidosCount} vehículos)?
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setAttendAllModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  markAllWorkOrderItemsDispatched();
+                  setAttendAllModalOpen(false);
+                  setWebAlert({
+                    open: true,
+                    type: "success",
+                    title: "Pedidos Atendidos",
+                    message: "Se marcaron todos los repuestos como despachados y listos.",
+                  });
+                }}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>Sí, Marcar Atendidos</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
