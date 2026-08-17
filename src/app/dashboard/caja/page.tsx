@@ -9,7 +9,7 @@ import {
 import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
-import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import {
   CreditCard,
   DollarSign,
@@ -32,7 +32,15 @@ import {
   Eye,
   FileText,
   Loader2,
-  SearchCheck
+  SearchCheck,
+  Plus,
+  Wrench,
+  Fuel,
+  Car,
+  Phone,
+  User,
+  Gauge,
+  Sparkles,
 } from "lucide-react";
 
 export default function CajaPage() {
@@ -47,6 +55,7 @@ export default function CajaPage() {
     togglePayInvoice,
     toggleOrderPayment,
     confirmInvoicePayment,
+    registerDirectWorkshopPayment,
     toggleAllowModificationsInWorkshop,
   } = useAppStore();
 
@@ -80,6 +89,36 @@ export default function CajaPage() {
     customerName: string;
     customerAddress: string;
     observations: string;
+    isSearchingRuc?: boolean;
+  } | null>(null);
+
+  // Modal State for Manual / Direct Payment Confirmation (Registro Taller)
+  const [manualPaymentModal, setManualPaymentModal] = useState<{
+    isOpen: boolean;
+    entryDate: string;
+    entryTime: string;
+    quinquennialDate: string;
+    chipExpiryDate: string;
+    vehicleType: string;
+    fuelType: "GNV" | "GLP" | "Gasolina" | "Bifuel";
+    brand: string;
+    currentMileage: number;
+    vehiclePlate: string;
+    receiptNumber: string;
+    receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
+    clientName: string;
+    clientPhone: string;
+    customerDoc: string;
+    customerAddress: string;
+    technicianName: string;
+    maintenanceService: string;
+    sparePartsServices: string;
+    price: number;
+    discounts: string;
+    creditAmount: number;
+    paymentCondition: "PAGADO" | "CREDITO" | "PENDIENTE";
+    paymentMethod: string;
+    paymentDestination: string;
     isSearchingRuc?: boolean;
   } | null>(null);
 
@@ -553,6 +592,170 @@ export default function CajaPage() {
     }
   };
 
+  // Open Manual / Direct Payment Modal for Workshop Registration
+  const handleOpenManualPaymentModal = () => {
+    const now = new Date();
+    const currentTime = now.toLocaleTimeString("es-PE", {
+      timeZone: "America/Lima",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    setManualPaymentModal({
+      isOpen: true,
+      entryDate: queryDate || getPeruDateString(),
+      entryTime: currentTime,
+      quinquennialDate: "",
+      chipExpiryDate: "",
+      vehicleType: "Automóvil",
+      fuelType: "GNV",
+      brand: "Toyota",
+      currentMileage: 0,
+      vehiclePlate: "",
+      receiptNumber: getCorrelativePreview("Ticket"),
+      receiptType: "Ticket",
+      clientName: "CLIENTES VARIOS",
+      clientPhone: "",
+      customerDoc: "",
+      customerAddress: "",
+      technicianName: technicians[0]?.full_name || "EDGAR",
+      maintenanceService: "MANTENIMIENTO GENERAL",
+      sparePartsServices: "",
+      price: 0,
+      discounts: "0",
+      creditAmount: 0,
+      paymentCondition: "PAGADO",
+      paymentMethod: "Efectivo",
+      paymentDestination: eligibleDestinations[0] || "EMPRESA",
+      isSearchingRuc: false,
+    });
+  };
+
+  // Lookup RUC for Manual Payment Modal
+  const handleLookupRucManual = async () => {
+    if (!manualPaymentModal?.customerDoc || manualPaymentModal.customerDoc.length !== 11) {
+      showAlert("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
+      return;
+    }
+    setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: true } : null));
+    try {
+      const res = await fetch(`/api/consulta-ruc?ruc=${manualPaymentModal.customerDoc}`);
+      const data = await res.json();
+      if (data.success) {
+        setManualPaymentModal((prev) =>
+          prev
+            ? {
+                ...prev,
+                isSearchingRuc: false,
+                clientName: data.razonSocial || prev.clientName,
+                customerAddress: data.direccion || prev.customerAddress,
+              }
+            : null
+        );
+        showAlert("success", `RUC verificado: ${data.razonSocial}`);
+      } else {
+        setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
+        showAlert("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
+      }
+    } catch (err) {
+      setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
+      showAlert("warning", "Error de conexión al consultar RUC.");
+    }
+  };
+
+  // Submit Manual / Direct Workshop Payment
+  const handleSaveManualPayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualPaymentModal) return;
+
+    const plate = manualPaymentModal.vehiclePlate.toUpperCase().trim();
+    if (!plate) {
+      showAlert("warning", "Ingrese una placa de vehículo válida.");
+      return;
+    }
+
+    const newDateTimeISO = buildPeruISOString(manualPaymentModal.entryDate, manualPaymentModal.entryTime || "08:30");
+    const isZeroAmount = (manualPaymentModal.price || 0) === 0;
+    const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
+
+    if (!isZeroAmount && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
+      showAlert("warning", "Debe seleccionar un Método de Pago.");
+      return;
+    }
+
+    if (!isZeroAmount && !manualPaymentModal.paymentDestination && manualPaymentModal.paymentDestination !== "Ninguno") {
+      showAlert("warning", "Debe seleccionar el Destino del Pago.");
+      return;
+    }
+
+    if (manualPaymentModal.receiptType === "Factura" && (!manualPaymentModal.customerDoc || manualPaymentModal.customerDoc.length !== 11)) {
+      showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
+      return;
+    }
+
+    // Auto-advance correlative sequence in store only if standard receipt type
+    let assignedReceiptNum = "";
+    if (!isSinComprobante && (manualPaymentModal.receiptType === "Ticket" || manualPaymentModal.receiptType === "Boleta" || manualPaymentModal.receiptType === "Factura")) {
+      assignedReceiptNum = manualPaymentModal.receiptNumber || getAndIncrementReceiptNumber(manualPaymentModal.receiptType);
+    }
+
+    const finalMethod = (isZeroAmount && (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método")) ? "" : (manualPaymentModal.paymentMethod === "Sin Método" ? "" : manualPaymentModal.paymentMethod || "");
+    const finalDest = (isZeroAmount && (!manualPaymentModal.paymentDestination || manualPaymentModal.paymentDestination === "Ninguno")) ? "" : (manualPaymentModal.paymentDestination === "Ninguno" ? "" : manualPaymentModal.paymentDestination || "");
+    const finalReceiptType = isSinComprobante ? "" : manualPaymentModal.receiptType;
+
+    const { workOrder: newWo, invoice: newInv } = registerDirectWorkshopPayment({
+      vehicle_plate: plate,
+      brand: manualPaymentModal.brand || "Automóvil",
+      fuel_type: manualPaymentModal.fuelType,
+      vehicle_type: manualPaymentModal.vehicleType,
+      current_mileage: Number(manualPaymentModal.currentMileage) || 0,
+      owner_name: manualPaymentModal.clientName || "Cliente Taller",
+      owner_phone: manualPaymentModal.clientPhone || "",
+      customer_doc: manualPaymentModal.customerDoc || "",
+      customer_address: manualPaymentModal.customerAddress || "",
+      entry_time: newDateTimeISO,
+      technician_name: manualPaymentModal.technicianName,
+      problem_description: manualPaymentModal.maintenanceService,
+      general_maintenance_service: manualPaymentModal.maintenanceService,
+      spare_parts_services: manualPaymentModal.sparePartsServices,
+      price: Number(manualPaymentModal.price) || 0,
+      discounts: manualPaymentModal.discounts || "0",
+      credit_amount: Number(manualPaymentModal.creditAmount) || 0,
+      payment_condition: manualPaymentModal.paymentCondition || "PAGADO",
+      payment_method: finalMethod,
+      payment_destination: finalDest,
+      receipt_type: finalReceiptType,
+      receipt_number: assignedReceiptNum,
+      quinquennial_date: manualPaymentModal.quinquennialDate,
+      chip_expiry_date: manualPaymentModal.chipExpiryDate,
+    });
+
+    showAlert("success", `¡Cobro directo de ${plate} (S/ ${Number(manualPaymentModal.price).toFixed(2)}) registrado y sincronizado en la Tabla de Registro Taller!`);
+
+    const shouldPrint = !isSinComprobante && Number(manualPaymentModal.price) > 0;
+    const modalData = { ...manualPaymentModal };
+    setManualPaymentModal(null);
+
+    if (shouldPrint) {
+      setActiveReceiptModal({
+        isOpen: true,
+        workOrder: newWo,
+        invoice: newInv,
+        receiptType: (finalReceiptType || "Ticket") as any,
+        receiptNumber: assignedReceiptNum,
+        customerDoc: modalData.customerDoc,
+        customerName: modalData.clientName,
+        customerAddress: modalData.customerAddress,
+        plate: plate,
+        observations: modalData.sparePartsServices || modalData.maintenanceService || "",
+        grandTotal: Number(modalData.price) || 0,
+        items: newWo.items,
+        paymentMethod: finalMethod,
+        issuedAt: newDateTimeISO,
+      });
+    }
+  };
+
   // Open receipt viewer from card
   const handleOpenReceiptViewer = (wo: any, inv?: any, total: number = 0) => {
     const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
@@ -671,8 +874,18 @@ export default function CajaPage() {
           <span>Control de Comprobantes ({allBillingWorkOrders.length} registros en total)</span>
         </div>
 
-        {/* Global Search Filters (Plate & Date) */}
+        {/* Global Search Filters (Plate & Date) & Manual Payment Button */}
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={handleOpenManualPaymentModal}
+            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Registrar una atención directa o manual con todos los datos para la Tabla Registro Taller"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>+ Cobro Manual (Registro Taller)</span>
+          </button>
+
           <div className="relative flex-1 sm:flex-none">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -1359,6 +1572,431 @@ export default function CajaPage() {
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Confirmar, Cobrar e Imprimir</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL DE CONFIRMACIÓN DE PAGO MANUAL (REGISTRO TALLER) */}
+      {/* ========================================================================= */}
+      {manualPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl border border-white/20 shadow-2xl bg-[#0d121f]/95 overflow-hidden my-auto animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-emerald-950/40 via-purple-950/30 to-reygas-surface">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>Registro y Confirmación de Pago Directo (Taller)</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 uppercase">
+                      Tabla Registro Taller
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    Ingreso manual de atenciones, comprobantes y datos completos del vehículo para la base de datos de Taller.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManualPaymentModal(null)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleSaveManualPayment} className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar text-xs">
+              {/* Sección 1: Fecha, Hora y Fechas Técnicas */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>1. Fecha, Hora de Ingreso e Inspecciones Técnicas</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Fecha de Ingreso / Atención *</label>
+                    <input
+                      type="date"
+                      required
+                      value={manualPaymentModal.entryDate}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, entryDate: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Hora de Ingreso *</label>
+                    <input
+                      type="time"
+                      required
+                      value={manualPaymentModal.entryTime}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, entryTime: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold flex items-center justify-between">
+                      <span>Fecha Quinquenal (5ta)</span>
+                      <span className="text-[10px] text-amber-400">GNV</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={manualPaymentModal.quinquennialDate}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, quinquennialDate: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold flex items-center justify-between">
+                      <span>Fecha Chip Anual</span>
+                      <span className="text-[10px] text-purple-400">Revisión</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={manualPaymentModal.chipExpiryDate}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, chipExpiryDate: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección 2: Datos del Vehículo & Cliente */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Car className="w-3.5 h-3.5" />
+                  <span>2. Datos del Vehículo y del Cliente</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Placa del Vehículo *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej: ABC-123"
+                      value={manualPaymentModal.vehiclePlate}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, vehiclePlate: e.target.value.toUpperCase().replace(/\s+/g, "") })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-black focus:border-amber-400 uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Tipo de Vehículo</label>
+                    <select
+                      value={manualPaymentModal.vehicleType}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, vehicleType: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    >
+                      <option value="Automóvil">Automóvil (Sedán/Hatchback)</option>
+                      <option value="Camioneta">Camioneta / SUV</option>
+                      <option value="Station Wagon">Station Wagon</option>
+                      <option value="Taxi">Taxi</option>
+                      <option value="Pick-up">Pick-up</option>
+                      <option value="Miniván">Miniván</option>
+                      <option value="Bus / Microbús">Bus / Microbús</option>
+                      <option value="Mototaxi">Mototaxi / Moto</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Sistema / Combustible</label>
+                    <select
+                      value={manualPaymentModal.fuelType}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, fuelType: e.target.value as any })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400 font-bold"
+                    >
+                      <option value="GNV">GNV (Gas Natural)</option>
+                      <option value="GLP">GLP (Gas Licuado)</option>
+                      <option value="Gasolina">Gasolina</option>
+                      <option value="Bifuel">Bifuel (Dual)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Marca</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Toyota, Nissan"
+                      value={manualPaymentModal.brand}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, brand: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Kilometraje (KM)</label>
+                    <input
+                      type="number"
+                      placeholder="Ej: 85000"
+                      value={manualPaymentModal.currentMileage || ""}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, currentMileage: Number(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Nombre del Cliente / Razón Social</label>
+                    <input
+                      type="text"
+                      placeholder="CLIENTES VARIOS"
+                      value={manualPaymentModal.clientName}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, clientName: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Celular / Teléfono</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: 987654321"
+                      value={manualPaymentModal.clientPhone}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, clientPhone: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">DNI / RUC del Cliente</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="DNI (8) o RUC (11)"
+                        value={manualPaymentModal.customerDoc}
+                        onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, customerDoc: e.target.value.replace(/\D/g, "") })}
+                        className="flex-1 px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-purple-400"
+                      />
+                      {manualPaymentModal.customerDoc.length === 11 && (
+                        <button
+                          type="button"
+                          onClick={handleLookupRucManual}
+                          disabled={manualPaymentModal.isSearchingRuc}
+                          className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold flex items-center gap-1 shrink-0"
+                          title="Consultar RUC en SUNAT"
+                        >
+                          {manualPaymentModal.isSearchingRuc ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SearchCheck className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-gray-300 block mb-1 font-bold">Dirección Fiscal / Domicilio</label>
+                  <input
+                    type="text"
+                    placeholder="Dirección del cliente / empresa"
+                    value={manualPaymentModal.customerAddress}
+                    onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, customerAddress: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              {/* Sección 3: Servicios del Taller & Técnico */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span>3. Servicios de Taller y Técnico Asignado</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Técnico Responsable</label>
+                    <select
+                      value={manualPaymentModal.technicianName}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, technicianName: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-bold focus:border-amber-400"
+                    >
+                      {technicians.map((t) => (
+                        <option key={t.id} value={t.full_name}>
+                          👤 {t.full_name} ({t.specialty})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Mantenimiento General / Diagnóstico</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Mantenimiento y Calibración 5ta Gen"
+                      value={manualPaymentModal.maintenanceService}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, maintenanceService: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Repuestos & Servicios Adicionales</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Filtro de gas, bujías, juego de orings"
+                      value={manualPaymentModal.sparePartsServices}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, sparePartsServices: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección 4: Comprobante, Cobro y Liquidación */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>4. Comprobante de Pago, Condición & Liquidación</span>
+                </h4>
+
+                {/* Tipo de Comprobante */}
+                <div>
+                  <label className="text-gray-300 block mb-1.5 font-bold">Tipo de Comprobante a Emitir</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(["Ticket", "Boleta", "Factura", "Sin Comprobante"] as const).map((type) => {
+                      const isSelected = manualPaymentModal.receiptType === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => {
+                            const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
+                            setManualPaymentModal({
+                              ...manualPaymentModal,
+                              receiptType: type,
+                              receiptNumber: nextNum,
+                              clientName:
+                                type === "Ticket" && (!manualPaymentModal.clientName || manualPaymentModal.clientName === "Cliente Taller")
+                                  ? "CLIENTES VARIOS"
+                                  : manualPaymentModal.clientName,
+                            });
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                            isSelected
+                              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                              : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                          }`}
+                        >
+                          <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
+                          <span>{type}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">N° Comprobante</label>
+                    <input
+                      type="text"
+                      placeholder={manualPaymentModal.receiptType === "Sin Comprobante" ? "(Sin comprobante)" : "N° Comprobante"}
+                      value={manualPaymentModal.receiptNumber}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, receiptNumber: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-bold focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Precio Total a Cobrar (S/) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={manualPaymentModal.price}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, price: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-sm focus:border-emerald-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Condición de Pago</label>
+                    <select
+                      value={manualPaymentModal.paymentCondition}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, paymentCondition: e.target.value as any })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-bold focus:border-amber-400"
+                    >
+                      <option value="PAGADO">PAGADO (Confirmado)</option>
+                      <option value="CREDITO">CREDITO (Por Cobrar)</option>
+                      <option value="PENDIENTE">PENDIENTE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">Descuentos</label>
+                    <input
+                      type="text"
+                      placeholder="0"
+                      value={manualPaymentModal.discounts}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, discounts: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Método de Pago */}
+                <div>
+                  <label className="text-gray-300 block mb-1.5 font-bold flex items-center justify-between">
+                    <span>Método de Pago</span>
+                    {manualPaymentModal.price === 0 && (
+                      <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                    )}
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
+                      const isSelected = method === "Sin Método" ? (!manualPaymentModal.paymentMethod || manualPaymentModal.paymentMethod === "Sin Método") : manualPaymentModal.paymentMethod === method;
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() => setManualPaymentModal({ ...manualPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
+                          className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                            isSelected
+                              ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                              : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                          }`}
+                        >
+                          <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
+                          <span>{method}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Destino del Pago */}
+                <div>
+                  <label className="text-gray-300 block mb-1 font-bold flex items-center justify-between">
+                    <span>Destino del Pago / Responsable</span>
+                    {manualPaymentModal.price === 0 && (
+                      <span className="text-[10px] text-gray-400 font-normal">(Opcional si es S/ 0.00)</span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <select
+                      value={manualPaymentModal.paymentDestination}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, paymentDestination: e.target.value })}
+                      className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
+                    >
+                      <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                      {eligibleDestinations.map((dest) => (
+                        <option key={dest} value={dest}>
+                          {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setManualPaymentModal(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Guardar y Confirmar en Registro Taller</span>
                 </button>
               </div>
             </form>

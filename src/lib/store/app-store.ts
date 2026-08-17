@@ -569,6 +569,32 @@ interface AppState {
     customerName?: string;
     customerAddress?: string;
   }) => void;
+  registerDirectWorkshopPayment: (data: {
+    vehicle_plate: string;
+    brand?: string;
+    fuel_type?: "GNV" | "GLP" | "Gasolina" | "Bifuel";
+    vehicle_type?: string;
+    current_mileage?: number;
+    owner_name?: string;
+    owner_phone?: string;
+    customer_doc?: string;
+    customer_address?: string;
+    entry_time: string;
+    technician_name?: string;
+    problem_description?: string;
+    general_maintenance_service?: string;
+    spare_parts_services?: string;
+    price: number;
+    discounts?: string;
+    credit_amount?: number;
+    payment_condition?: string;
+    payment_method?: string;
+    payment_destination?: string;
+    receipt_type?: string;
+    receipt_number?: string;
+    quinquennial_date?: string;
+    chip_expiry_date?: string;
+  }) => { workOrder: WorkOrder; invoice: Invoice };
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
   setBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => void;
@@ -1908,7 +1934,7 @@ export const useAppStore = create<AppState>()(
         customerDoc,
         customerName,
         customerAddress,
-      }) =>
+      }) => {
         set((state) => {
           let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
           if (!targetInvoice && workOrderId) {
@@ -1976,7 +2002,99 @@ export const useAppStore = create<AppState>()(
             invoices: updatedInvoices,
             workOrders: updatedOrders,
           };
-        }),
+        });
+      },
+
+      registerDirectWorkshopPayment: (data) => {
+        const plate = data.vehicle_plate.toUpperCase().trim();
+        const newOrderId = `wo-${Date.now()}`;
+        const newInvoiceId = `inv-${Date.now()}`;
+        const entryTime = data.entry_time || new Date().toISOString();
+
+        // 1. Vehicle
+        const vehicle: Vehicle = {
+          plate,
+          brand: data.brand || "Automóvil",
+          model: "Genérico",
+          year: 2023,
+          color: "Plata",
+          fuel_type: data.fuel_type || "GNV",
+          owner_name: data.owner_name || "Cliente Taller",
+          owner_phone: data.owner_phone || "",
+          current_mileage: data.current_mileage || 0,
+          last_visit_date: entryTime,
+        };
+        saveSupabaseVehicle(vehicle);
+
+        // 2. Work Order
+        const items = data.spare_parts_services || data.general_maintenance_service || data.problem_description
+          ? [
+              {
+                id: `item-${newOrderId}`,
+                description: data.spare_parts_services || data.general_maintenance_service || data.problem_description || "SERVICIO DE TALLER",
+                quantity: 1,
+                unit_price: Number(data.price) || 0,
+                subtotal: Number(data.price) || 0,
+              },
+            ]
+          : [];
+
+        const newWorkOrder: WorkOrder = {
+          id: newOrderId,
+          vehicle_plate: plate,
+          status: "pagado_autorizado",
+          assigned_technician_id: data.technician_name,
+          problem_description: data.problem_description || data.general_maintenance_service || "Mantenimiento General",
+          general_maintenance_service: data.general_maintenance_service || data.problem_description || "Mantenimiento General",
+          spare_parts_services: data.spare_parts_services,
+          quinquennial_date: data.quinquennial_date,
+          chip_expiry_date: data.chip_expiry_date,
+          entry_time: entryTime,
+          items,
+          requires_certification: false,
+        };
+        saveSupabaseWorkOrder(newWorkOrder);
+
+        // 3. Invoice
+        const newInvoice: Invoice = {
+          id: newInvoiceId,
+          work_order_id: newOrderId,
+          vehicle_plate: plate,
+          client_name: data.owner_name || "Cliente Taller",
+          customer_doc: data.customer_doc || "",
+          customer_address: data.customer_address || "",
+          labor_fee: 0,
+          parts_total: Number(data.price) || 0,
+          certification_fee: 0,
+          grand_total: Number(data.price) || 0,
+          payment_status: (data.payment_condition === "PENDIENTE" ? "pendiente" : "pagado") as any,
+          payment_condition: data.payment_condition || "PAGADO",
+          payment_method: data.payment_method || "",
+          payment_destination: data.payment_destination || "",
+          receipt_number: data.receipt_number || "",
+          receipt_type: data.receipt_type || "",
+          discounts: data.discounts || "0",
+          credit_amount: Number(data.credit_amount) || 0,
+          issued_at: entryTime,
+          paid_at: data.payment_condition === "PENDIENTE" ? undefined : entryTime,
+        };
+        saveSupabaseInvoice(newInvoice);
+
+        set((state) => {
+          const existingVehIdx = state.vehicles.findIndex((v) => v.plate.toUpperCase() === plate);
+          const updatedVehicles = existingVehIdx >= 0
+            ? state.vehicles.map((v, i) => i === existingVehIdx ? { ...v, ...vehicle } : v)
+            : [vehicle, ...state.vehicles];
+
+          return {
+            vehicles: updatedVehicles,
+            workOrders: [newWorkOrder, ...state.workOrders],
+            invoices: [newInvoice, ...state.invoices],
+          };
+        });
+
+        return { workOrder: newWorkOrder, invoice: newInvoice };
+      },
 
       appointments: [],
 
