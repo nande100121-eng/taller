@@ -576,27 +576,28 @@ export default function AlmacenPage() {
       setIngresoFoundItem(null);
       return;
     }
-    const cleanTerm = normalizeScannerCode(raw).toLowerCase();
+    const cleanTerm = normalizeScannerCode(raw);
+    const cleanLower = cleanTerm.toLowerCase();
     const rawLower = raw.toLowerCase();
 
     const found = inventoryItems.find(
       (i) =>
         i.sku_barcode.toLowerCase() === rawLower ||
-        normalizeScannerCode(i.sku_barcode).toLowerCase() === cleanTerm ||
-        i.name.toLowerCase().includes(rawLower) ||
+        i.sku_barcode.toLowerCase() === cleanLower ||
+        normalizeScannerCode(i.sku_barcode).toLowerCase() === cleanLower ||
+        i.name.toLowerCase() === rawLower ||
+        i.name.toLowerCase() === cleanLower ||
         (i.serial_number && i.serial_number.toLowerCase() === rawLower) ||
-        (i.serial_number && normalizeScannerCode(i.serial_number).toLowerCase() === cleanTerm)
+        (i.serial_number && normalizeScannerCode(i.serial_number).toLowerCase() === cleanLower)
     );
     if (found) {
       setIngresoFoundItem(found);
-      setIngresoSku(found.sku_barcode);
       setShowNewMaterialForm(false);
     } else {
       setIngresoFoundItem(null);
-      const autoCleaned = normalizeScannerCode(raw) || raw.toUpperCase();
       setNewMaterialForm((prev) => ({
         ...prev,
-        sku_barcode: autoCleaned,
+        sku_barcode: cleanTerm || raw.toUpperCase(),
       }));
     }
   };
