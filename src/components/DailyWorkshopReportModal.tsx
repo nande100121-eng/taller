@@ -938,18 +938,99 @@ export function WorkshopDailyReportView({
                   })}
                 </tr>
 
-                {/* Row Total Combined (1,565.00) */}
-                <tr className="bg-[#f59e0b] text-black font-black text-xs">
-                  <td className="py-2 px-2 font-black uppercase tracking-wider" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                {/* 1. Row Total Combined (1,565.00) */}
+                <tr className="bg-[#f59e0b] text-black font-black text-xs border-t border-amber-600">
+                  <td className="py-1.5 px-2 font-black uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
                     TOTAL YAPES + TRANSF.
                   </td>
                   <td
-                    className="py-2 px-2 text-right font-mono font-black text-sm"
+                    className="py-1.5 px-2 text-right font-mono font-black text-xs"
                     colSpan={electronicMatrix.transfStaff.length}
                   >
                     S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
                   </td>
                 </tr>
+
+                {/* 2. Row Total Efectivo */}
+                <tr className="bg-emerald-950/70 text-emerald-300 font-extrabold text-xs border-t border-emerald-500/20">
+                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                    💵 TOTAL EFECTIVO
+                  </td>
+                  <td
+                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-emerald-300"
+                    colSpan={electronicMatrix.transfStaff.length}
+                  >
+                    S/ {formatPEN(totals.cobradoEfectivo)}
+                  </td>
+                </tr>
+
+                {/* 3. Row Total Pendiente */}
+                <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
+                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                    ⏳ TOTAL PENDIENTE
+                  </td>
+                  <td
+                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
+                    colSpan={electronicMatrix.transfStaff.length}
+                  >
+                    S/ {formatPEN(totals.totalPendiente)}
+                  </td>
+                </tr>
+
+                {/* 4. Row Total Culqi / Tarjeta */}
+                <tr className="bg-amber-950/70 text-amber-300 font-extrabold text-xs border-t border-amber-500/20">
+                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                    💳 TOTAL CULQI / TARJETA
+                  </td>
+                  <td
+                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-amber-300"
+                    colSpan={electronicMatrix.transfStaff.length}
+                  >
+                    S/ {formatPEN(totals.cobradoCulqi)}
+                  </td>
+                </tr>
+
+                {/* 5. Row Total Validación Cuadre General del Día */}
+                {(() => {
+                  const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.cobradoCulqi;
+                  const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
+
+                  return (
+                    <tr
+                      className={`text-xs font-black border-t-2 ${
+                        isCuadrado
+                          ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
+                          : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
+                      }`}
+                    >
+                      <td
+                        className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
+                        colSpan={electronicMatrix.yapeStaff.length + 1}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span>TOTAL GENERAL DEL DÍA</span>
+                          {isCuadrado ? (
+                            <span className="px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300 text-[10px] font-black flex items-center gap-1 shadow">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                              <span>CUADRADO ✔</span>
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-black/40 text-rose-200 border border-rose-300 text-[10px] font-black flex items-center gap-1 shadow">
+                              <AlertTriangle className="w-3 h-3 text-rose-300" />
+                              <span>VERIFICAR ⚠</span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td
+                        className="py-2 px-2 text-right font-mono font-black text-sm text-white"
+                        colSpan={electronicMatrix.transfStaff.length}
+                      >
+                        S/ {formatPEN(grandCuadre)}
+                      </td>
+                    </tr>
+                  );
+                })()}
               </tfoot>
             </table>
           </div>
