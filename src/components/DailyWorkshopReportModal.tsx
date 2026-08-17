@@ -530,45 +530,76 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
     };
   }, [consolidatedRows]);
 
-  // Yapes and Transfers Matrix by Destination (Image 3)
-  const yapeDestinations = useMemo(() => {
-    const dynamicDests = new Set<string>();
+  // Electronic Matrix: Yapes & Transferencias by Destination (Matching User Images 1 & 2)
+  const electronicMatrix = useMemo(() => {
+    const yapeStaff = ["JAIME", "ISABEL", "FRANCO", "EMPRESA"];
+    const transfStaff = ["EMPRESA"];
+
+    // Also include any dynamic staff if present in data
     consolidatedRows.forEach((r) => {
-      if (r.yape > 0 && r.yapeDestino && r.yapeDestino !== "-") dynamicDests.add(r.yapeDestino.toUpperCase());
-      if (r.transferencia > 0 && r.transfDestino && r.transfDestino !== "-") dynamicDests.add(r.transfDestino.toUpperCase());
+      if (r.yape > 0 && r.yapeDestino && !yapeStaff.includes(r.yapeDestino)) {
+        yapeStaff.splice(yapeStaff.length - 1, 0, r.yapeDestino);
+      }
+      if (r.transferencia > 0 && r.transfDestino && !transfStaff.includes(r.transfDestino)) {
+        transfStaff.push(r.transfDestino);
+      }
     });
 
-    const defaultStaff = ["JAIME", "ISABEL", "FRANCO", "EMPRESA"];
-    defaultStaff.forEach((d) => dynamicDests.add(d));
-    const cols = Array.from(dynamicDests);
-
-    const rowsList: Array<{ rowIdx: number; values: Record<string, number> }> = [];
-    const sumByCol: Record<string, number> = {};
-    cols.forEach((c) => (sumByCol[c] = 0));
+    const sumYapesByCol: Record<string, number> = {};
+    const sumTransfByCol: Record<string, number> = {};
+    yapeStaff.forEach((s) => (sumYapesByCol[s] = 0));
+    transfStaff.forEach((s) => (sumTransfByCol[s] = 0));
 
     // Get rows with electronic payments (Yape or Transferencia)
     const electronicRows = consolidatedRows.filter((r) => r.yape > 0 || r.transferencia > 0);
     const maxIdx = Math.max(15, electronicRows.length);
+    const rowsList: Array<{
+      rowIdx: number;
+      yapeValues: Record<string, number>;
+      transfValues: Record<string, number>;
+    }> = [];
 
     for (let i = 0; i < maxIdx; i++) {
       const r = electronicRows[i];
-      const valObj: Record<string, number> = {};
-      cols.forEach((c) => (valObj[c] = 0));
+      const yValObj: Record<string, number> = {};
+      const tValObj: Record<string, number> = {};
+      yapeStaff.forEach((s) => (yValObj[s] = 0));
+      transfStaff.forEach((s) => (tValObj[s] = 0));
 
       if (r) {
-        const dest = cols.includes(r.yapeDestino)
-          ? r.yapeDestino
-          : cols.includes(r.transfDestino)
-          ? r.transfDestino
-          : "EMPRESA";
-        const amount = (r.yape > 0 ? r.yape : 0) + (r.transferencia > 0 ? r.transferencia : 0);
-        valObj[dest] = amount;
-        sumByCol[dest] = (sumByCol[dest] || 0) + amount;
+        if (r.yape > 0) {
+          const dest = yapeStaff.includes(r.yapeDestino) ? r.yapeDestino : "EMPRESA";
+          yValObj[dest] = r.yape;
+          sumYapesByCol[dest] = (sumYapesByCol[dest] || 0) + r.yape;
+        }
+        if (r.transferencia > 0) {
+          const dest = transfStaff.includes(r.transfDestino) ? r.transfDestino : "EMPRESA";
+          tValObj[dest] = r.transferencia;
+          sumTransfByCol[dest] = (sumTransfByCol[dest] || 0) + r.transferencia;
+        }
       }
-      rowsList.push({ rowIdx: i + 1, values: valObj });
+
+      rowsList.push({
+        rowIdx: i + 1,
+        yapeValues: yValObj,
+        transfValues: tValObj,
+      });
     }
 
-    return { cols, rowsList, sumByCol };
+    const totalYapes = Object.values(sumYapesByCol).reduce((a, b) => a + b, 0);
+    const totalTransf = Object.values(sumTransfByCol).reduce((a, b) => a + b, 0);
+    const grandElectronicTotal = totalYapes + totalTransf;
+
+    return {
+      yapeStaff,
+      transfStaff,
+      rowsList,
+      sumYapesByCol,
+      sumTransfByCol,
+      totalYapes,
+      totalTransf,
+      grandElectronicTotal,
+    };
   }, [consolidatedRows]);
 
   // Workshop Technician Performance Metrics
@@ -616,6 +647,424 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
 
     return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} atenciones (${completed} pagadas/completadas, ${inProgress} pendientes/crédito). La facturación total ascendió a S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o crédito.`;
   }, [consolidatedRows, totals, selectedDate]);
+
+  // Helper component to render Main Report Table + Side Electronic Matrix (Used in Caja, Taller and Resumen)
+  const renderMainReportAndMatrix = (showConceptBreakdown: boolean) => (
+    <div className="space-y-4">
+      {/* Category Breakdown 3-Card Summary Banner (Only when showConceptBreakdown is true) */}
+      {showConceptBreakdown && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* 1. Servicios */}
+          <div className="p-3 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex items-center justify-between shadow">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                <Wrench className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase text-teal-300 tracking-wider block">
+                  Venta en Servicios
+                </span>
+                <span className="text-xs text-gray-400 font-medium">
+                  Mano de obra, calibraciones ({categoryBreakdown.servCount})
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-base font-mono font-black text-white block">
+                S/ {formatPEN(categoryBreakdown.servTotal)}
+              </span>
+              <span className="text-[10px] font-bold text-teal-400">
+                {categoryBreakdown.servPercent.toFixed(1)}% del total
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Repuestos */}
+          <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <Package className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
+                  Venta en Repuestos
+                </span>
+                <span className="text-xs text-gray-400 font-medium">
+                  Bujías, bobinas, filtros, cables ({categoryBreakdown.repCount})
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-base font-mono font-black text-white block">
+                S/ {formatPEN(categoryBreakdown.repTotal)}
+              </span>
+              <span className="text-[10px] font-bold text-emerald-400">
+                {categoryBreakdown.repPercent.toFixed(1)}% del total
+              </span>
+            </div>
+          </div>
+
+          {/* 3. Certificaciones */}
+          <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between shadow">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider block">
+                  Venta en Certificaciones
+                </span>
+                <span className="text-xs text-gray-400 font-medium">
+                  Anual GNV/GLP, Quinquenal, Chip ({categoryBreakdown.certCount})
+                </span>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-base font-mono font-black text-white block">
+                S/ {formatPEN(categoryBreakdown.certTotal)}
+              </span>
+              <span className="text-[10px] font-bold text-purple-400">
+                {categoryBreakdown.certPercent.toFixed(1)}% del total
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        {/* Main Cash & Attention Table (8 cols on lg) */}
+        <div className="lg:col-span-8 space-y-2">
+          <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+            
+            {/* Table Title Header Bar in Vibrant Gold */}
+            <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
+              <span className="tracking-wide">REYGAS TALLER</span>
+              <span className="text-base font-black">REPORTE DEL DÍA {formatPeruDate(selectedDate)}</span>
+              <span className="text-xs bg-black/20 px-2.5 py-0.5 rounded-full font-mono">
+                {consolidatedRows.length} ATENCIONES
+              </span>
+            </div>
+
+            <table className="w-full text-xs text-left border-collapse font-mono">
+              <thead>
+                <tr className="bg-[#ffd269] text-black font-extrabold uppercase text-[11px] border-b border-amber-600/30 print:bg-gray-100">
+                  <th className="py-2 px-2 text-center w-10 border-r border-amber-600/20">ITEM</th>
+                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
+                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
+                  <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
+                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
+                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
+                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
+                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
+                  <th className="py-2 px-2 text-center w-16 border-r border-amber-600/20 bg-[#eab308] text-black">CULQI</th>
+                  <th className="py-2 px-2 text-center w-24 bg-[#e2e8f0] text-black">RESPONSABLE</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-[11px]">
+                {consolidatedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-gray-400 italic">
+                      No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
+                    </td>
+                  </tr>
+                ) : (
+                  consolidatedRows.map((r, idx) => (
+                    <tr
+                      key={r.id + idx}
+                      className="hover:bg-white/5 transition-colors text-white"
+                    >
+                      <td className="py-2 px-2 text-center text-gray-400 font-bold border-r border-white/5">
+                        {r.itemNumber}
+                      </td>
+                      <td className="py-2 px-2 text-right font-black text-amber-300 border-r border-white/5">
+                        {formatPEN(r.total)}
+                      </td>
+                      <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
+                        {r.plate}
+                      </td>
+                      <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
+                        {r.description}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
+                        {r.isPending ? formatPEN(r.total) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
+                        {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-purple-400 bg-purple-950/10 border-r border-white/5">
+                        {r.yape > 0 ? formatPEN(r.yape) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-blue-400 bg-blue-950/10 border-r border-white/5">
+                        {r.transferencia > 0 ? formatPEN(r.transferencia) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-amber-400 bg-amber-950/10 border-r border-white/5">
+                        {r.culqi > 0 ? formatPEN(r.culqi) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-center font-bold text-gray-300 bg-white/[0.02] text-[10px]">
+                        {r.responsable}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              <tfoot>
+                {/* Summary Bar 1: COBRADO */}
+                <tr className="bg-black text-xs font-black border-t-2 border-amber-500/40">
+                  <td className="py-2.5 px-3 bg-[#10b981] text-black font-extrabold uppercase border-r border-white/10 text-center" colSpan={3}>
+                    COBRADO: S/ {formatPEN(totals.totalLiquidacion)}
+                  </td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-gray-400 border-r border-white/10">
+                    Subtotales:
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.totalPendiente)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.cobradoEfectivo)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-purple-400 bg-purple-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.cobradoYapes)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-blue-400 bg-blue-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.cobradoTransferencias)}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-amber-400 bg-amber-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.cobradoCulqi)}
+                  </td>
+                  <td className="py-2 px-2 bg-black"></td>
+                </tr>
+
+                {/* Summary Bar 2: TOTAL GENERAL (COBRADO + PENDIENTES) */}
+                <tr className="bg-[#f59e0b] text-black font-black text-sm border-t border-black/20">
+                  <td className="py-3 px-4 font-black uppercase tracking-wider text-left" colSpan={3}>
+                    TOTAL
+                  </td>
+                  <td className="py-3 px-4 text-center font-mono font-black text-base" colSpan={7}>
+                    S/ {formatPEN(totals.totalFacturado)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
+        <div className="lg:col-span-4 space-y-2">
+          <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+            
+            {/* Header with separate Yapes and Transferencia banners */}
+            <div className="grid grid-cols-12 text-center text-xs font-black uppercase tracking-wider">
+              <div className="col-span-8 bg-[#a21caf] text-white py-2 flex items-center justify-center gap-1.5 border-r border-purple-400/30">
+                <Coins className="w-4 h-4" />
+                <span>YAPES</span>
+              </div>
+              <div className="col-span-4 bg-[#2563eb] text-white py-2 flex items-center justify-center gap-1.5">
+                <Building className="w-4 h-4" />
+                <span>TRANSFERENCIA</span>
+              </div>
+            </div>
+
+            <table className="w-full text-xs text-left border-collapse font-mono">
+              <thead>
+                <tr className="bg-[#e9d5ff] text-black font-extrabold uppercase text-[10px] border-b border-purple-300">
+                  <th className="py-1.5 px-1 text-center w-7 border-r border-purple-300">N°</th>
+                  {electronicMatrix.yapeStaff.map((col) => (
+                    <th
+                      key={"y_" + col}
+                      className={`py-1.5 px-1 text-center font-black border-r border-purple-300 ${
+                        col === "EMPRESA" ? "bg-[#bbf7d0] text-emerald-950" : ""
+                      }`}
+                    >
+                      {col}
+                    </th>
+                  ))}
+                  {electronicMatrix.transfStaff.map((col) => (
+                    <th
+                      key={"t_" + col}
+                      className="py-1.5 px-1 text-center font-black border-r border-purple-300 bg-[#bfdbfe] text-blue-950"
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-[11px]">
+                {electronicMatrix.rowsList.map((row) => (
+                  <tr key={row.rowIdx} className="hover:bg-white/5 text-white">
+                    <td className="py-1 px-1 text-center text-gray-500 font-bold border-r border-white/5 text-[10px]">
+                      {row.rowIdx}
+                    </td>
+                    {electronicMatrix.yapeStaff.map((col) => {
+                      const val = row.yapeValues[col] || 0;
+                      return (
+                        <td
+                          key={"y_val_" + col}
+                          className={`py-1 px-1 text-right border-r border-white/5 ${
+                            val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
+                          }`}
+                        >
+                          {val > 0 ? formatPEN(val) : "-"}
+                        </td>
+                      );
+                    })}
+                    {electronicMatrix.transfStaff.map((col) => {
+                      const val = row.transfValues[col] || 0;
+                      return (
+                        <td
+                          key={"t_val_" + col}
+                          className={`py-1 px-1 text-right border-r border-white/5 ${
+                            val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
+                          }`}
+                        >
+                          {val > 0 ? formatPEN(val) : "-"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                {/* Row Σ for individual columns */}
+                <tr className="bg-black text-[11px] font-black border-t-2 border-purple-500/40">
+                  <td className="py-2 px-1 text-center text-purple-400 font-black border-r border-white/10">
+                    Σ
+                  </td>
+                  {electronicMatrix.yapeStaff.map((col) => {
+                    const sum = electronicMatrix.sumYapesByCol[col] || 0;
+                    return (
+                      <td
+                        key={"y_sum_" + col}
+                        className="py-2 px-1 text-right font-mono font-black text-purple-300 border-r border-white/10"
+                      >
+                        S/ {formatPEN(sum)}
+                      </td>
+                    );
+                  })}
+                  {electronicMatrix.transfStaff.map((col) => {
+                    const sum = electronicMatrix.sumTransfByCol[col] || 0;
+                    return (
+                      <td
+                        key={"t_sum_" + col}
+                        className="py-2 px-1 text-right font-mono font-black text-blue-300 border-r border-white/10"
+                      >
+                        S/ {formatPEN(sum)}
+                      </td>
+                    );
+                  })}
+                </tr>
+
+                {/* Row Total Combined */}
+                <tr className="bg-[#f59e0b] text-black font-black text-xs">
+                  <td className="py-2 px-2 font-black uppercase tracking-wider" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                    TOTAL YAPES + TRANSF.
+                  </td>
+                  <td
+                    className="py-2 px-2 text-right font-mono font-black text-sm"
+                    colSpan={electronicMatrix.transfStaff.length}
+                  >
+                    S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES (Only in Caja tab) */}
+          {showConceptBreakdown && (
+            <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+              <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-cyan-300" />
+                  <span>VENTAS POR CONCEPTO</span>
+                </div>
+                <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                  S/ {formatPEN(categoryBreakdown.grandTotal)}
+                </span>
+              </div>
+
+              <table className="w-full text-xs text-left border-collapse font-mono">
+                <thead>
+                  <tr className="bg-[#ccfbf1] text-teal-950 font-extrabold uppercase text-[10px] border-b border-teal-300">
+                    <th className="py-1.5 px-2.5">CONCEPTO</th>
+                    <th className="py-1.5 px-2 text-center">ATENCIONES</th>
+                    <th className="py-1.5 px-2 text-right">TOTAL (S/)</th>
+                    <th className="py-1.5 px-2 text-right">% DEL TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-[11px]">
+                  {/* 1. Servicios */}
+                  <tr className="hover:bg-white/5 text-white">
+                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
+                      <span>🔧</span>
+                      <span>Servicios & Mano de Obra</span>
+                    </td>
+                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                      {categoryBreakdown.servCount}
+                    </td>
+                    <td className="py-2 px-2 text-right font-black text-teal-300">
+                      S/ {formatPEN(categoryBreakdown.servTotal)}
+                    </td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                      {categoryBreakdown.servPercent.toFixed(1)}%
+                    </td>
+                  </tr>
+
+                  {/* 2. Repuestos */}
+                  <tr className="hover:bg-white/5 text-white">
+                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
+                      <span>📦</span>
+                      <span>Repuestos & Autopartes</span>
+                    </td>
+                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                      {categoryBreakdown.repCount}
+                    </td>
+                    <td className="py-2 px-2 text-right font-black text-emerald-300">
+                      S/ {formatPEN(categoryBreakdown.repTotal)}
+                    </td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                      {categoryBreakdown.repPercent.toFixed(1)}%
+                    </td>
+                  </tr>
+
+                  {/* 3. Certificaciones */}
+                  <tr className="hover:bg-white/5 text-white">
+                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
+                      <span>📜</span>
+                      <span>Certificaciones GNV / GLP</span>
+                    </td>
+                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                      {categoryBreakdown.certCount}
+                    </td>
+                    <td className="py-2 px-2 text-right font-black text-purple-300">
+                      S/ {formatPEN(categoryBreakdown.certTotal)}
+                    </td>
+                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                      {categoryBreakdown.certPercent.toFixed(1)}%
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="bg-[#f59e0b] text-black font-black text-xs">
+                    <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={2}>
+                      TOTAL GENERAL
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-sm">
+                      S/ {formatPEN(categoryBreakdown.grandTotal)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-bold text-[10px]">
+                      100.0%
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
 
   // Print Report Handler
   const handlePrint = () => {
@@ -902,387 +1351,19 @@ export function DailyWorkshopReportModal({ isOpen, onClose, initialTab = "caja" 
           </div>
 
           {/* ========================================================================= */}
-          {/* TAB 1: CAJA & LIQUIDACIÓN DIARIA (EXACT LAYOUT FROM USER SCREENSHOT) */}
+          {/* TAB 1: CAJA & LIQUIDACIÓN DIARIA (CON DESGLOSE DE CONCEPTOS) */}
           {/* ========================================================================= */}
-          {(activeTab === "caja" || activeTab === "resumen") && (
-            <div className="space-y-4">
-              {/* Category Breakdown 3-Card Summary Banner */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {/* 1. Servicios */}
-                <div className="p-3 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex items-center justify-between shadow">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
-                      <Wrench className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-teal-300 tracking-wider block">
-                        Venta en Servicios
-                      </span>
-                      <span className="text-xs text-gray-400 font-medium">
-                        Mano de obra, calibraciones ({categoryBreakdown.servCount})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-base font-mono font-black text-white block">
-                      S/ {formatPEN(categoryBreakdown.servTotal)}
-                    </span>
-                    <span className="text-[10px] font-bold text-teal-400">
-                      {categoryBreakdown.servPercent.toFixed(1)}% del total
-                    </span>
-                  </div>
-                </div>
-
-                {/* 2. Repuestos */}
-                <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      <Package className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
-                        Venta en Repuestos
-                      </span>
-                      <span className="text-xs text-gray-400 font-medium">
-                        Bujías, bobinas, filtros, cables ({categoryBreakdown.repCount})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-base font-mono font-black text-white block">
-                      S/ {formatPEN(categoryBreakdown.repTotal)}
-                    </span>
-                    <span className="text-[10px] font-bold text-emerald-400">
-                      {categoryBreakdown.repPercent.toFixed(1)}% del total
-                    </span>
-                  </div>
-                </div>
-
-                {/* 3. Certificaciones */}
-                <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between shadow">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider block">
-                        Venta en Certificaciones
-                      </span>
-                      <span className="text-xs text-gray-400 font-medium">
-                        Anual GNV/GLP, Quinquenal, Chip ({categoryBreakdown.certCount})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-base font-mono font-black text-white block">
-                      S/ {formatPEN(categoryBreakdown.certTotal)}
-                    </span>
-                    <span className="text-[10px] font-bold text-purple-400">
-                      {categoryBreakdown.certPercent.toFixed(1)}% del total
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                
-                {/* Main Cash & Attention Table (8 cols on lg) */}
-                <div className="lg:col-span-8 space-y-2">
-                  <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-                    
-                    {/* Table Title Header Bar in Vibrant Gold */}
-                    <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
-                      <span className="tracking-wide">REYGAS TALLER</span>
-                      <span className="text-base font-black">REPORTE DE CAJA {formatPeruDate(selectedDate)}</span>
-                      <span className="text-xs bg-black/20 px-2.5 py-0.5 rounded-full font-mono">
-                        {consolidatedRows.length} ATENCIONES
-                      </span>
-                    </div>
-
-                    <table className="w-full text-xs text-left border-collapse">
-                      <thead>
-                        <tr className="bg-[#ffd269] text-black font-extrabold uppercase text-[11px] border-b border-amber-600/30 print:bg-gray-100">
-                          <th className="py-2 px-2 text-center w-10 border-r border-amber-600/20">ITEM</th>
-                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
-                          <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
-                          <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
-                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
-                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
-                          <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
-                          <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
-                          <th className="py-2 px-2 text-center w-16 border-r border-amber-600/20 bg-[#eab308] text-black">CULQI</th>
-                          <th className="py-2 px-2 text-center w-24 bg-[#e2e8f0] text-black">RESPONSABLE</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                        {consolidatedRows.length === 0 ? (
-                          <tr>
-                            <td colSpan={10} className="py-12 text-center text-gray-400 italic">
-                              No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
-                            </td>
-                          </tr>
-                        ) : (
-                          consolidatedRows.map((r, idx) => (
-                            <tr
-                              key={r.id + idx}
-                              className="hover:bg-white/5 transition-colors text-white"
-                            >
-                              <td className="py-2 px-2 text-center text-gray-400 font-bold border-r border-white/5">
-                                {r.itemNumber}
-                              </td>
-                              <td className="py-2 px-2 text-right font-black text-amber-300 border-r border-white/5">
-                                {formatPEN(r.total)}
-                              </td>
-                              <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
-                                {r.plate}
-                              </td>
-                              <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
-                                {r.description}
-                              </td>
-                              <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
-                                {r.isPending ? formatPEN(r.total) : "-"}
-                              </td>
-                              <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
-                                {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
-                              </td>
-                              <td className="py-2 px-2 text-right font-bold text-purple-400 bg-purple-950/10 border-r border-white/5">
-                                {r.yape > 0 ? formatPEN(r.yape) : "-"}
-                              </td>
-                              <td className="py-2 px-2 text-right font-bold text-blue-400 bg-blue-950/10 border-r border-white/5">
-                                {r.transferencia > 0 ? formatPEN(r.transferencia) : "-"}
-                              </td>
-                              <td className="py-2 px-2 text-right font-bold text-amber-400 bg-amber-950/10 border-r border-white/5">
-                                {r.culqi > 0 ? formatPEN(r.culqi) : "-"}
-                              </td>
-                              <td className="py-2 px-2 text-center font-bold text-gray-300 bg-white/[0.02] text-[10px]">
-                                {r.responsable}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                      <tfoot>
-                        {/* Summary Bar 1: COBRADO */}
-                        <tr className="bg-black text-xs font-black border-t-2 border-amber-500/40">
-                          <td className="py-2 px-2 text-cyan-400 font-extrabold uppercase border-r border-white/10" colSpan={3}>
-                            COBRADO
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono font-black text-white border-r border-white/10">
-                            S/ {formatPEN(totals.totalLiquidacion)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
-                            S/ {formatPEN(totals.totalPendiente)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
-                            S/ {formatPEN(totals.cobradoEfectivo)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-purple-400 bg-purple-950/40 border-r border-white/10">
-                            S/ {formatPEN(totals.cobradoYapes)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-blue-400 bg-blue-950/40 border-r border-white/10">
-                            S/ {formatPEN(totals.cobradoTransferencias)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-amber-400 bg-amber-950/40 border-r border-white/10">
-                            S/ {formatPEN(totals.cobradoCulqi)}
-                          </td>
-                          <td className="py-2 px-2 bg-black"></td>
-                        </tr>
-
-                        {/* Summary Bar 2: TOTAL GENERAL */}
-                        <tr className="bg-[#f59e0b] text-black font-black text-sm">
-                          <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
-                            TOTAL GENERAL
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={7}>
-                            S/ {formatPEN(totals.totalFacturado)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
-                <div className="lg:col-span-4 space-y-2">
-                  <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-                    
-                    {/* Header with dual tabs Yape / Transferencia */}
-                    <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
-                      <div className="flex items-center gap-1.5">
-                        <Coins className="w-4 h-4" />
-                        <span>YAPES POR DESTINO</span>
-                      </div>
-                      <span className="bg-[#2563eb] text-white px-2 py-0.5 rounded text-[10px] font-bold">
-                        TRANSFERENCIA
-                      </span>
-                    </div>
-
-                    <table className="w-full text-xs text-left border-collapse">
-                      <thead>
-                        <tr className="bg-[#e9d5ff] text-black font-extrabold uppercase text-[10px] border-b border-purple-300">
-                          <th className="py-1.5 px-1 text-center w-8 border-r border-purple-300">N°</th>
-                          {yapeDestinations.cols.map((col) => (
-                            <th
-                              key={col}
-                              className={`py-1.5 px-1.5 text-center font-black border-r border-purple-300 ${
-                                col === "EMPRESA" ? "bg-[#bbf7d0] text-emerald-950" : ""
-                              }`}
-                            >
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                        {yapeDestinations.rowsList.map((row) => (
-                          <tr key={row.rowIdx} className="hover:bg-white/5 text-white">
-                            <td className="py-1 px-1 text-center text-gray-500 font-bold border-r border-white/5 text-[10px]">
-                              {row.rowIdx}
-                            </td>
-                            {yapeDestinations.cols.map((col) => {
-                              const val = row.values[col] || 0;
-                              return (
-                                <td
-                                  key={col}
-                                  className={`py-1 px-1.5 text-right border-r border-white/5 ${
-                                    val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
-                                  }`}
-                                >
-                                  {val > 0 ? formatPEN(val) : "-"}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-black text-[11px] font-black border-t-2 border-purple-500/40">
-                          <td className="py-2 px-1 text-center text-purple-400 font-black border-r border-white/10">
-                            Σ
-                          </td>
-                          {yapeDestinations.cols.map((col) => {
-                            const sum = yapeDestinations.sumByCol[col] || 0;
-                            return (
-                              <td
-                                key={col}
-                                className="py-2 px-1.5 text-right font-mono font-black text-purple-300 border-r border-white/10"
-                              >
-                                S/ {formatPEN(sum)}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                        <tr className="bg-[#f59e0b] text-black font-black text-xs">
-                          <td className="py-2 px-2 font-black uppercase tracking-wider" colSpan={2}>
-                            TOTAL YAPES
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-sm" colSpan={yapeDestinations.cols.length - 1}>
-                            S/ {formatPEN(totals.cobradoYapes)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-
-                  {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES */}
-                  <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-                    <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
-                      <div className="flex items-center gap-1.5">
-                        <Layers className="w-4 h-4 text-cyan-300" />
-                        <span>VENTAS POR CONCEPTO (SERVICIOS, REPUESTOS Y CERTIFICACIONES)</span>
-                      </div>
-                      <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
-                        S/ {formatPEN(categoryBreakdown.grandTotal)}
-                      </span>
-                    </div>
-
-                    <table className="w-full text-xs text-left border-collapse font-mono">
-                      <thead>
-                        <tr className="bg-[#ccfbf1] text-teal-950 font-extrabold uppercase text-[10px] border-b border-teal-300">
-                          <th className="py-1.5 px-2.5">CONCEPTO</th>
-                          <th className="py-1.5 px-2 text-center">ATENCIONES</th>
-                          <th className="py-1.5 px-2 text-right">TOTAL (S/)</th>
-                          <th className="py-1.5 px-2 text-right">% DEL TOTAL</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5 text-[11px]">
-                        {/* 1. Servicios */}
-                        <tr className="hover:bg-white/5 text-white">
-                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
-                            <span>🔧</span>
-                            <span>Servicios & Mano de Obra</span>
-                          </td>
-                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                            {categoryBreakdown.servCount}
-                          </td>
-                          <td className="py-2 px-2 text-right font-black text-teal-300">
-                            S/ {formatPEN(categoryBreakdown.servTotal)}
-                          </td>
-                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                            {categoryBreakdown.servPercent.toFixed(1)}%
-                          </td>
-                        </tr>
-
-                        {/* 2. Repuestos */}
-                        <tr className="hover:bg-white/5 text-white">
-                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
-                            <span>📦</span>
-                            <span>Repuestos & Autopartes</span>
-                          </td>
-                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                            {categoryBreakdown.repCount}
-                          </td>
-                          <td className="py-2 px-2 text-right font-black text-emerald-300">
-                            S/ {formatPEN(categoryBreakdown.repTotal)}
-                          </td>
-                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                            {categoryBreakdown.repPercent.toFixed(1)}%
-                          </td>
-                        </tr>
-
-                        {/* 3. Certificaciones */}
-                        <tr className="hover:bg-white/5 text-white">
-                          <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
-                            <span>📜</span>
-                            <span>Certificaciones GNV / GLP</span>
-                          </td>
-                          <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                            {categoryBreakdown.certCount}
-                          </td>
-                          <td className="py-2 px-2 text-right font-black text-purple-300">
-                            S/ {formatPEN(categoryBreakdown.certTotal)}
-                          </td>
-                          <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                            {categoryBreakdown.certPercent.toFixed(1)}%
-                          </td>
-                        </tr>
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-[#f59e0b] text-black font-black text-xs">
-                          <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={2}>
-                            TOTAL GENERAL POR CONCEPTO
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-black text-sm">
-                            S/ {formatPEN(categoryBreakdown.grandTotal)}
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-bold text-[10px]">
-                            100.0%
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          )}
+          {(activeTab === "caja" || activeTab === "resumen") && renderMainReportAndMatrix(true)}
 
           {/* ========================================================================= */}
-          {/* TAB 2: PRODUCTIVIDAD & ÓRDENES DE TRABAJO EN TALLER */}
+          {/* TAB 2: PRODUCTIVIDAD & ÓRDENES DE TRABAJO EN TALLER (SIN DESGLOSE DE CONCEPTOS) */}
           {/* ========================================================================= */}
-          {(activeTab === "taller" || activeTab === "resumen") && (
-            <div className="space-y-4">
+          {activeTab === "taller" && (
+            <div className="space-y-6">
+              {/* Main Report Table + Side Electronic Matrix without concept breakdown */}
+              {renderMainReportAndMatrix(false)}
+
+              {/* Technician Production & Work Orders in Patio */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 
                 {/* Technician Production Summary (5 cols on lg) */}
