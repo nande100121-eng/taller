@@ -506,7 +506,7 @@ interface AppState {
   registerVehicle: (v: Vehicle) => void;
 
   workOrders: WorkOrder[];
-  createWorkOrder: (order: Omit<WorkOrder, "id" | "entry_time" | "items"> & { items?: WorkOrderItem[] }) => void;
+  createWorkOrder: (order: Omit<WorkOrder, "id" | "entry_time" | "items"> & { id?: string; entry_time?: string; items?: WorkOrderItem[] }) => void;
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
@@ -1229,8 +1229,8 @@ export const useAppStore = create<AppState>()(
       createWorkOrder: (order) => {
         const newOrder: WorkOrder = {
           ...order,
-          id: generateUUID(),
-          entry_time: new Date().toISOString(),
+          id: order.id || generateUUID(),
+          entry_time: order.entry_time || new Date().toISOString(),
           items: order.items || [],
         };
         saveSupabaseWorkOrder(newOrder);

@@ -51,6 +51,17 @@ export default function RecepcionPage() {
   const [activeTab, setActiveTab] = useState<"citas" | "radar">("citas");
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  // Dark Glassmorphic Confirmation Modal State (replaces native window.confirm)
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    danger?: boolean;
+  } | null>(null);
+
   // Cartilla Registration Modal State (Alimenta Tabla de Programación)
   const [cartillaModalOpen, setCartillaModalOpen] = useState(false);
   const [cartillaForm, setCartillaForm] = useState({
@@ -379,10 +390,18 @@ export default function RecepcionPage() {
   };
 
   const handleDeleteAppointment = (id: string, plate: string) => {
-    if (confirm(`¿Estás seguro de eliminar la cita del vehículo ${plate}?`)) {
-      deleteAppointment(id);
-      showSuccess(`Cita de ${plate} eliminada.`);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: "Eliminar Cita",
+      message: `¿Está seguro de eliminar la cita del vehículo ${plate}? Esta acción eliminará el registro de la lista.`,
+      confirmLabel: "Sí, Eliminar",
+      cancelLabel: "Cancelar",
+      danger: true,
+      onConfirm: () => {
+        deleteAppointment(id);
+        showSuccess(`Cita de ${plate} eliminada.`);
+      },
+    });
   };
 
   const handleOpenTransferModal = (app: Appointment) => {
@@ -1631,6 +1650,60 @@ export default function RecepcionPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION MODAL */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-black/90 space-y-6">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-3 rounded-2xl border ${confirmModal.danger ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-amber-500/20 text-amber-400 border-amber-500/30"}`}>
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">{confirmModal.title}</h3>
+                  <p className="text-xs text-gray-400">Confirmación de Acción</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-200 leading-relaxed font-medium">
+              {confirmModal.message}
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+              >
+                {confirmModal.cancelLabel || "Cancelar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(null);
+                }}
+                className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${
+                  confirmModal.danger
+                    ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
+                    : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
+                }`}
+              >
+                {confirmModal.confirmLabel || "Aceptar"}
+              </button>
+            </div>
           </div>
         </div>
       )}
