@@ -732,7 +732,32 @@ export async function fetchSupabaseErpData() {
         allow_modifications: allowMod || !!o.allow_modifications,
         diagnostic_notes: diagNotes,
         observations: obs || o.observations || undefined,
-        items: typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [],
+        items: (() => {
+          let parsed: any[] = [];
+          try {
+            parsed = typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [];
+          } catch {
+            parsed = [];
+          }
+          const orderDateStr = (o.entry_time || "").slice(0, 10);
+          const isMigratedOrBilled =
+            (orderDateStr && orderDateStr <= "2026-08-08") ||
+            o.status === "finalizado" ||
+            o.status === "entregado" ||
+            reconstructedInvoicesMap.has(o.id) ||
+            reconstructedInvoicesMap.has(o.vehicle_plate);
+
+          return parsed.map((it: any) => {
+            if (isMigratedOrBilled && (it.dispatched === undefined || it.dispatched === null || it.dispatched === false)) {
+              return {
+                ...it,
+                dispatched: true,
+                dispatched_at: it.dispatched_at || o.entry_time || new Date().toISOString(),
+              };
+            }
+            return it;
+          });
+        })(),
       };
     });
 

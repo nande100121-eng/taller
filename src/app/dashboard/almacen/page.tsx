@@ -50,6 +50,8 @@ export default function AlmacenPage() {
     vehicles,
     markWorkOrderItemDispatched,
     toggleWorkOrderItemDispatched,
+    markAllWorkOrderItemsDispatched,
+    markAllMigratedWorkOrderItemsDispatched,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<"pedidos" | "inventario" | "herramientas" | "scanner">("pedidos");
@@ -413,6 +415,9 @@ export default function AlmacenPage() {
   const [pedidosDate, setPedidosDate] = useState<string>(getPeruDateString());
   const [showAllPedidosDates, setShowAllPedidosDates] = useState<boolean>(false);
   const [pedidosDispatchFilter, setPedidosDispatchFilter] = useState<"todos" | "pendientes" | "atendidos">("todos");
+  const PEDIDOS_PER_PAGE = 10;
+  const [pedidosPage, setPedidosPage] = useState<number>(1);
+  const [pedidosPageInput, setPedidosPageInput] = useState<string>("1");
 
   const changePedidosDateByDays = (deltaDays: number) => {
     const [y, m, d] = (pedidosDate || getPeruDateString()).split("-").map(Number);
@@ -420,6 +425,8 @@ export default function AlmacenPage() {
     dateObj.setDate(dateObj.getDate() + deltaDays);
     setPedidosDate(getPeruDateString(dateObj));
     setShowAllPedidosDates(false);
+    setPedidosPage(1);
+    setPedidosPageInput("1");
   };
 
   // Helper to extract YYYY-MM-DD from order entry_time
@@ -501,6 +508,12 @@ export default function AlmacenPage() {
 
     return matchesDate && matchesStatus;
   });
+
+  // Pagination for Pedidos por Vehículo
+  const totalPedidosPages = Math.ceil(vehiclePartGroups.length / PEDIDOS_PER_PAGE) || 1;
+  const startPedidosIndex = (pedidosPage - 1) * PEDIDOS_PER_PAGE;
+  const endPedidosIndex = Math.min(startPedidosIndex + PEDIDOS_PER_PAGE, vehiclePartGroups.length);
+  const paginatedVehiclePartGroups = vehiclePartGroups.slice(startPedidosIndex, endPedidosIndex);
 
   const handleScanLookup = () => {
     const found = inventoryItems.find(
@@ -725,11 +738,15 @@ export default function AlmacenPage() {
               </div>
             </div>
 
-            {/* STATUS FILTER BUTTONS: PENDIENTES / ATENDIDOS / TODOS */}
-            <div className="flex flex-wrap items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
+            {/* STATUS FILTER BUTTONS: PENDIENTES / ATENDIDOS / TODOS & BULK ACTIONS */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => setPedidosDispatchFilter("todos")}
+                  onClick={() => {
+                    setPedidosDispatchFilter("todos");
+                    setPedidosPage(1);
+                    setPedidosPageInput("1");
+                  }}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
                     pedidosDispatchFilter === "todos"
                       ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
@@ -740,7 +757,11 @@ export default function AlmacenPage() {
                 </button>
 
                 <button
-                  onClick={() => setPedidosDispatchFilter("pendientes")}
+                  onClick={() => {
+                    setPedidosDispatchFilter("pendientes");
+                    setPedidosPage(1);
+                    setPedidosPageInput("1");
+                  }}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
                     pedidosDispatchFilter === "pendientes"
                       ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
@@ -752,7 +773,11 @@ export default function AlmacenPage() {
                 </button>
 
                 <button
-                  onClick={() => setPedidosDispatchFilter("atendidos")}
+                  onClick={() => {
+                    setPedidosDispatchFilter("atendidos");
+                    setPedidosPage(1);
+                    setPedidosPageInput("1");
+                  }}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
                     pedidosDispatchFilter === "atendidos"
                       ? "bg-cyan-600 text-white border-cyan-500 shadow-md font-black ring-2 ring-cyan-300"
@@ -764,12 +789,42 @@ export default function AlmacenPage() {
                 </button>
               </div>
 
-              <div className="text-xs text-gray-400 flex items-center gap-2">
-                <span className="text-amber-400 font-bold">
-                  {showAllPedidosDates ? "Todas las Fechas" : `Fecha: ${pedidosDate}`}
-                </span>
-                <span>•</span>
-                <span>{vehiclePartGroups.length} vehículos mostrados</span>
+              {/* Action Buttons: Marcar Atendidos */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (confirm("¿Desea marcar como ATENDIDOS todos los repuestos migrados con fecha hasta el 08/08/2026?")) {
+                      markAllMigratedWorkOrderItemsDispatched("2026-08-08");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-bold transition-colors flex items-center gap-1.5"
+                  title="Marcar como atendidos los pedidos migrados hasta el 08/08/2026"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Marcar Migrado como Atendido (≤ 08/08/26)</span>
+                </button>
+
+                {pendingPedidosCount > 0 && (
+                  <button
+                    onClick={() => {
+                      if (confirm("¿Desea marcar como ATENDIDOS todos los repuestos de la vista actual?")) {
+                        markAllWorkOrderItemsDispatched();
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-colors flex items-center gap-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Marcar Todo como Atendido</span>
+                  </button>
+                )}
+
+                <div className="text-xs text-gray-400 flex items-center gap-2 pl-2 border-l border-white/10">
+                  <span className="text-amber-400 font-bold">
+                    {showAllPedidosDates ? "Todas las Fechas" : `Fecha: ${pedidosDate}`}
+                  </span>
+                  <span>•</span>
+                  <span>{vehiclePartGroups.length} vehículos</span>
+                </div>
               </div>
             </div>
 
@@ -787,7 +842,7 @@ export default function AlmacenPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                {vehiclePartGroups.map((group) => {
+                {paginatedVehiclePartGroups.map((group) => {
                   const pendingCountInCard = group.items.filter((i) => !i.dispatched).length;
 
                   return (
@@ -900,6 +955,79 @@ export default function AlmacenPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* PEDIDOS PAGINATION CONTROLS (SIMILAR A REGISTRO TALLER) */}
+            {totalPedidosPages > 1 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-white/10 pt-4 text-xs text-gray-300">
+                <div>
+                  Mostrando pedidos <span className="text-white font-bold">{startPedidosIndex + 1}</span> a{" "}
+                  <span className="text-white font-bold">{endPedidosIndex}</span> de{" "}
+                  <span className="text-white font-bold">{vehiclePartGroups.length}</span> totales
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const nextP = Math.max(1, pedidosPage - 1);
+                      setPedidosPage(nextP);
+                      setPedidosPageInput(String(nextP));
+                    }}
+                    disabled={pedidosPage <= 1}
+                    className="px-3.5 py-2 rounded-xl bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                  >
+                    <span>&larr;</span>
+                    <span>Anterior ({PEDIDOS_PER_PAGE})</span>
+                  </button>
+
+                  {/* Direct Jump to Page Input */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/60 border border-amber-500/40 text-gray-300 font-semibold shadow">
+                    <span className="text-amber-400 font-bold">Página</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPedidosPages}
+                      value={pedidosPageInput}
+                      onChange={(e) => setPedidosPageInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = parseInt(pedidosPageInput);
+                          if (!isNaN(val) && val >= 1 && val <= totalPedidosPages) {
+                            setPedidosPage(val);
+                          }
+                        }
+                      }}
+                      className="w-16 px-2 py-1 bg-reygas-dark border border-white/20 rounded-lg text-white font-mono font-black text-center focus:border-amber-400 focus:outline-none"
+                    />
+                    <span>de <strong className="text-white font-black">{totalPedidosPages}</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = parseInt(pedidosPageInput);
+                        if (!isNaN(val) && val >= 1 && val <= totalPedidosPages) {
+                          setPedidosPage(val);
+                        }
+                      }}
+                      className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-lg transition-transform hover:scale-105 shadow text-xs"
+                    >
+                      Ir
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      const nextP = Math.min(totalPedidosPages, pedidosPage + 1);
+                      setPedidosPage(nextP);
+                      setPedidosPageInput(String(nextP));
+                    }}
+                    disabled={pedidosPage >= totalPedidosPages}
+                    className="px-3.5 py-2 rounded-xl bg-reygas-surface hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white font-bold transition-all flex items-center gap-1.5"
+                  >
+                    <span>Siguiente ({PEDIDOS_PER_PAGE})</span>
+                    <span>&rarr;</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
