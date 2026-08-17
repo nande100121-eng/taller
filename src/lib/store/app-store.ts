@@ -727,7 +727,8 @@ export const useAppStore = create<AppState>()(
         saveSupabaseSiteContent("correlativeConfig", next);
       },
       getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura", targetDate?: string) => {
-        const current = get().correlativeConfig || {
+        const state = get();
+        const current = state.correlativeConfig || {
           ticketSeries: "TK01",
           ticketLastNumber: 4545,
           boletaSeries: "B001",
@@ -737,13 +738,42 @@ export const useAppStore = create<AppState>()(
           lastUpdateDate: getPeruDateString(),
         };
 
+        const effectiveDate = targetDate || getPeruDateString();
+        const allInvoices = state.invoices || [];
+
+        // Scan existing invoices in the database/store to find the maximum existing number for this receipt type
+        let maxExistingInDb = 0;
+        allInvoices.forEach((inv) => {
+          const numStr = (inv.receipt_number || "").trim();
+          if (!numStr) return;
+
+          const upper = numStr.toUpperCase();
+          const isFactura = inv.receipt_type === "Factura" || upper.startsWith("F0") || upper.startsWith("F1") || upper.startsWith("FA");
+          const isBoleta = inv.receipt_type === "Boleta" || upper.startsWith("B0") || upper.startsWith("B1") || upper.startsWith("BO");
+          const isTicket = inv.receipt_type === "Ticket" || upper.startsWith("TK") || upper.startsWith("T0") || (!isFactura && !isBoleta);
+
+          let matches = false;
+          if (type === "Factura" && isFactura) matches = true;
+          else if (type === "Boleta" && isBoleta) matches = true;
+          else if (type === "Ticket" && isTicket) matches = true;
+
+          if (matches) {
+            // Extract trailing numbers or numerical part
+            const clean = parseInt(numStr.replace(/\D/g, ""), 10);
+            if (!isNaN(clean) && clean > maxExistingInDb && clean < 99999999) {
+              maxExistingInDb = clean;
+            }
+          }
+        });
+
         let nextNum = 1;
         let series = "TK01";
-        const effectiveDate = targetDate || getPeruDateString();
         let nextConfig: CorrelativeConfig;
 
         if (type === "Factura") {
-          nextNum = (current.facturaLastNumber || 0) + 1;
+          const configuredBase = Number(current.facturaLastNumber) || 0;
+          const highestBase = Math.max(configuredBase, maxExistingInDb);
+          nextNum = highestBase + 1;
           series = current.facturaSeries || "F001";
           nextConfig = {
             ...current,
@@ -751,7 +781,9 @@ export const useAppStore = create<AppState>()(
             lastUpdateDate: effectiveDate,
           };
         } else if (type === "Boleta") {
-          nextNum = (current.boletaLastNumber || 0) + 1;
+          const configuredBase = Number(current.boletaLastNumber) || 0;
+          const highestBase = Math.max(configuredBase, maxExistingInDb);
+          nextNum = highestBase + 1;
           series = current.boletaSeries || "B001";
           nextConfig = {
             ...current,
@@ -760,7 +792,9 @@ export const useAppStore = create<AppState>()(
           };
         } else {
           // Ticket
-          nextNum = (current.ticketLastNumber || 0) + 1;
+          const configuredBase = Number(current.ticketLastNumber) || 0;
+          const highestBase = Math.max(configuredBase, maxExistingInDb);
+          nextNum = highestBase + 1;
           series = current.ticketSeries || "TK01";
           nextConfig = {
             ...current,
