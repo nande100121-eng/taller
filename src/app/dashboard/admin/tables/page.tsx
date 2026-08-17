@@ -242,17 +242,22 @@ export default function AdminTablesPage() {
     const user = tech.username || generateDefaultUsername(tech.full_name);
     const pass = tech.password || user;
     const email = tech.email?.trim();
-    const loginUrl = typeof window !== "undefined" ? window.location.origin : "https://reygas.com";
+    const originUrl = typeof window !== "undefined" ? window.location.origin : "https://reygas.com";
+    const loginUrl = `${originUrl}/login`;
+    const resetPassUrl = `${originUrl}/cambiar-clave?u=${encodeURIComponent(user)}`;
 
     const subject = encodeURIComponent(`Credenciales de Acceso - ReyGas ERP (${tech.full_name})`);
     const body = encodeURIComponent(
       `Hola ${tech.full_name},\n\n` +
-      `Se ha configurado tu cuenta en el Sistema ERP ReyGas:\n\n` +
+      `Se ha configurado tu cuenta de acceso en el Sistema ERP ReyGas:\n\n` +
       `• URL de Acceso: ${loginUrl}\n` +
       `• Usuario: ${user}\n` +
-      `• Contraseña: ${pass}\n` +
+      `• Contraseña Inicial / Temporal: ${pass}\n` +
       `• Especialidad: ${tech.specialty}\n` +
       `• Estaciones Permitidas: ${(tech.allowed_tabs || ALL_ERP_STATIONS.map((s) => s.id)).length} de ${ALL_ERP_STATIONS.length}\n\n` +
+      `🔑 ENLACE DIRECTO PARA CAMBIAR TU CONTRASEÑA:\n` +
+      `Puedes establecer tu contraseña personalizada haciendo clic en el siguiente enlace:\n` +
+      `${resetPassUrl}\n\n` +
       `Por favor inicia sesión desde la tablet de taller o tu equipo autorizado.\n\n` +
       `Atentamente,\nAdministración y Gerencia ReyGas`
     );
@@ -261,8 +266,8 @@ export default function AdminTablesPage() {
       window.open(`mailto:${email}?subject=${subject}&body=${body}`, "_blank");
       showAlert("success", `Abriendo cliente de correo para ${email}.`);
     } else {
-      navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass} | URL: ${loginUrl}`);
-      showAlert("warning", `Personal sin correo. Se copiaron las credenciales al portapapeles.`);
+      navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass} | Acceso: ${loginUrl} | Cambiar Clave: ${resetPassUrl}`);
+      showAlert("warning", `Personal sin correo. Se copiaron las credenciales y el enlace de cambio de clave al portapapeles.`);
       handleOpenEditTechModal(tech);
     }
   };

@@ -498,6 +498,7 @@ interface AppState {
   technicians: Technician[];
   addTechnician: (tech: Omit<Technician, "id">) => void;
   updateTechnician: (id: string, tech: Partial<Technician>) => void;
+  changeTechnicianPassword: (identifier: string, newPass: string) => { success: boolean; message: string; technician?: Technician };
   toggleTechnicianActive: (id: string) => void;
   deleteTechnician: (id: string) => void;
 
@@ -1136,6 +1137,42 @@ export const useAppStore = create<AppState>()(
           saveSupabaseTechnician(targetTech, updatedTechs);
         }
         set({ technicians: updatedTechs });
+      },
+
+      changeTechnicianPassword: (identifier, newPass) => {
+        const cleanId = identifier.trim().toLowerCase();
+        const techList = get().technicians;
+        
+        // Match by username, email, or id
+        const target = techList.find(
+          (t) =>
+            t.id === identifier ||
+            (t.username && t.username.toLowerCase() === cleanId) ||
+            (t.email && t.email.toLowerCase() === cleanId) ||
+            (generateDefaultUsername(t.full_name).toLowerCase() === cleanId)
+        );
+
+        if (!target) {
+          return {
+            success: false,
+            message: `No se encontró ningún usuario con el identificador "${identifier}".`,
+          };
+        }
+
+        const updatedTech: Technician = {
+          ...target,
+          password: newPass.trim(),
+        };
+
+        const updatedTechs = techList.map((t) => (t.id === target.id ? updatedTech : t));
+        saveSupabaseTechnician(updatedTech, updatedTechs);
+        set({ technicians: updatedTechs });
+
+        return {
+          success: true,
+          message: `Contraseña de ${target.full_name} actualizada exitosamente.`,
+          technician: updatedTech,
+        };
       },
 
       toggleTechnicianActive: (id) => {

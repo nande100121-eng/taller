@@ -91,11 +91,20 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-reygas-red/30 flex items-center justify-center gap-2"
+            className="w-full py-3 bg-reygas-red hover:bg-reygas-redDark text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-reygas-red/30 flex items-center justify-center gap-2 active:scale-95"
           >
             <span>Iniciar Sesión en ERP</span>
             <ArrowRight className="w-4 h-4" />
           </button>
+
+          <div className="text-center pt-1">
+            <a
+              href="/cambiar-clave"
+              className="text-xs text-gray-400 hover:text-indigo-300 underline transition-colors"
+            >
+              ¿Deseas cambiar o restablecer tu contraseña?
+            </a>
+          </div>
         </form>
 
         {/* Quick Demo Credentials */}
