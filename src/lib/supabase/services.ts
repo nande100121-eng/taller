@@ -95,6 +95,16 @@ export async function saveSupabaseTechnician(tech: Technician) {
   }
 }
 
+export async function deleteSupabaseTechnician(id: string) {
+  try {
+    await supabase.from("technicians").delete().eq("id", id);
+    await supabase.from("site_content").delete().eq("key", `tech_perms_${id}`);
+    broadcastRealtimeChange("technician_deleted");
+  } catch (err) {
+    console.warn("Supabase technician delete deferred:", err);
+  }
+}
+
 // ---------------------------------------------------------------------
 // INVENTORY SUPABASE SYNC
 // ---------------------------------------------------------------------

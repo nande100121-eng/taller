@@ -7,6 +7,7 @@ import {
   saveSupabaseSiteContent,
   saveFullSiteContentToSupabase,
   saveSupabaseTechnician,
+  deleteSupabaseTechnician,
   saveSupabaseInventoryItem,
   saveSupabaseWorkOrder,
   saveSupabaseVehicle,
@@ -464,6 +465,7 @@ interface AppState {
   addTechnician: (tech: Omit<Technician, "id">) => void;
   updateTechnician: (id: string, tech: Partial<Technician>) => void;
   toggleTechnicianActive: (id: string) => void;
+  deleteTechnician: (id: string) => void;
 
   vehicles: Vehicle[];
   registerVehicle: (v: Vehicle) => void;
@@ -1107,6 +1109,13 @@ export const useAppStore = create<AppState>()(
           });
           return { technicians: updatedTechs };
         });
+      },
+
+      deleteTechnician: (id) => {
+        deleteSupabaseTechnician(id);
+        set((state) => ({
+          technicians: state.technicians.filter((t) => t.id !== id),
+        }));
       },
 
       vehicles: [],

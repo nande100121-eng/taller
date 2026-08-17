@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, generateUUID } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
@@ -52,6 +52,7 @@ export default function AdminTablesPage() {
     addTechnician,
     updateTechnician,
     toggleTechnicianActive,
+    deleteTechnician,
     workshopServices,
     addWorkshopService,
     updateWorkshopService,
@@ -132,6 +133,47 @@ export default function AdminTablesPage() {
     phone: "",
     can_receive_payment: false,
   });
+
+  // Technician Edit Modal State
+  const [editingTech, setEditingTech] = useState<Technician | null>(null);
+  const [techEditModalOpen, setTechEditModalOpen] = useState(false);
+  const [techEditForm, setTechEditForm] = useState({
+    full_name: "",
+    specialty: "",
+    phone: "",
+    can_receive_payment: false,
+    is_active: true,
+  });
+
+  const handleOpenEditTechModal = (tech: Technician) => {
+    setEditingTech(tech);
+    setTechEditForm({
+      full_name: tech.full_name || "",
+      specialty: tech.specialty || "",
+      phone: tech.phone || "",
+      can_receive_payment: !!tech.can_receive_payment,
+      is_active: tech.is_active !== false,
+    });
+    setTechEditModalOpen(true);
+  };
+
+  const handleSaveTechEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTech) return;
+    if (!techEditForm.full_name.trim()) {
+      showAlert("warning", "El nombre completo es obligatorio.");
+      return;
+    }
+    updateTechnician(editingTech.id, {
+      full_name: techEditForm.full_name.trim(),
+      specialty: techEditForm.specialty.trim() || "Técnico Especialista",
+      phone: techEditForm.phone.trim(),
+      can_receive_payment: techEditForm.can_receive_payment,
+      is_active: techEditForm.is_active,
+    });
+    showAlert("success", `Datos de ${techEditForm.full_name} actualizados con éxito.`);
+    setTechEditModalOpen(false);
+  };
 
   // Schedule Record Add/Edit Form State
   const [editingSchedule, setEditingSchedule] = useState<ScheduleRecord | null>(null);
@@ -1036,6 +1078,30 @@ export default function AdminTablesPage() {
                         >
                           {t.is_active ? "Activo" : "Inactivo"}
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditTechModal(t)}
+                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white transition-all border border-indigo-500/30 flex items-center gap-1 active:scale-95"
+                          title="Editar nombre, teléfono y especialidad"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Editar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`¿Está seguro de eliminar a ${t.full_name} del personal?`)) {
+                              deleteTechnician(t.id);
+                              showAlert("success", `${t.full_name} fue eliminado del personal.`);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Eliminar personal"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
 
@@ -1578,6 +1644,116 @@ export default function AdminTablesPage() {
                 >
                   <Check className="w-4 h-4" />
                   <span>Guardar Programación</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* EDIT TECHNICIAN MODAL (NOMBRE, TELÉFONO, ESPECIALIDAD & COBRO) */}
+      {/* ========================================================================= */}
+      {techEditModalOpen && editingTech && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 rounded-3xl border border-indigo-500/40 max-w-md w-full space-y-5 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Editar Datos del Personal</h3>
+                  <p className="text-[11px] text-gray-400">Actualizar nombre, especialidad y teléfono</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTechEditModalOpen(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTechEdit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Nombre Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Mario Alvarado"
+                  value={techEditForm.full_name}
+                  onChange={(e) => setTechEditForm({ ...techEditForm, full_name: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Especialidad Principal *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Diagnóstico ECU & Inyección Gas"
+                  value={techEditForm.specialty}
+                  onChange={(e) => setTechEditForm({ ...techEditForm, specialty: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1">
+                  Teléfono de Contacto
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+51 987654321"
+                  value={techEditForm.phone}
+                  onChange={(e) => setTechEditForm({ ...techEditForm, phone: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={techEditForm.can_receive_payment}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, can_receive_payment: e.target.checked })}
+                    className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span>💳 Habilitar Cobro</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-indigo-200 text-xs font-bold cursor-pointer hover:bg-indigo-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={techEditForm.is_active}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, is_active: e.target.checked })}
+                    className="rounded border-indigo-500 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span>🟢 Personal Activo</span>
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setTechEditModalOpen(false)}
+                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-white/10 text-gray-300 hover:text-white font-bold rounded-xl text-xs border border-white/10 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Cambios</span>
                 </button>
               </div>
             </form>
