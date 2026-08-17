@@ -430,16 +430,18 @@ export default function AlmacenPage() {
         importBulkInventoryItems(parsedItems);
         showWebNotification(
           "success",
-          "¡Importación Exitosa!",
-          `Se importaron con éxito ${parsedItems.length} filas de productos totalmente limpias.`
+          "¡Catálogo CSV Sincronizado!",
+          `Se importaron y sincronizaron con Supabase ${parsedItems.length} productos del archivo "${file.name}".`
         );
       } else {
         showWebNotification(
           "error",
           "Error de Interpretación",
-          "No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por comas o tabulaciones."
+          "No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por punto y coma (;) o comas (,)."
         );
       }
+      // Reset input so re-uploading the same file works immediately
+      e.target.value = "";
     };
     reader.readAsText(file);
   };

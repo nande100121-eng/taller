@@ -120,7 +120,7 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
   }
 }
 
-export async function saveSupabaseBulkInventory(items: InventoryItem[]) {
+export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise<{ success: boolean; count: number; errorMsg?: string }> {
   try {
     const CHUNK_SIZE = 150;
     const payload = items.map((item) => ({
@@ -144,8 +144,11 @@ export async function saveSupabaseBulkInventory(items: InventoryItem[]) {
       const { error } = await supabase.from("inventory_items").upsert(chunk);
       if (error) console.warn("Supabase bulk inventory save warning:", error.message);
     }
-  } catch (err) {
-    console.warn("Supabase bulk inventory deferred:", err);
+    broadcastRealtimeChange("inventory_bulk_updated");
+    return { success: true, count: payload.length };
+  } catch (err: any) {
+    console.warn("Supabase bulk inventory error:", err);
+    return { success: false, count: 0, errorMsg: err?.message || "Error al guardar en Supabase" };
   }
 }
 
@@ -538,9 +541,9 @@ export async function saveSupabaseBulkScheduleRecords(
 
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invRes, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
+    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("technicians").select("*")),
-      safeQuery<any[]>(supabase.from("inventory_items").select("*")),
+      fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
       safeQuery<any[]>(supabase.from("appointments").select("*")),
       fetchAllSupabaseTable("invoices"),
@@ -772,7 +775,7 @@ export async function fetchSupabaseErpData() {
             allowed_tabs: permsMap[t.id] || t.allowed_tabs || undefined,
           }))
         : null,
-      inventoryItems: invRes.data ? invRes.data : null,
+      inventoryItems: Array.isArray(invData) ? invData : [],
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
       appointments: appRes.data ? appRes.data : null,
       invoices: finalInvoices.length > 0 ? finalInvoices : (invoiceData || []),

@@ -723,7 +723,7 @@ export const useAppStore = create<AppState>()(
             if (Array.isArray(erpData?.technicians) && erpData.technicians.length > 0) {
               updates.technicians = erpData.technicians;
             }
-            if (Array.isArray(erpData?.inventoryItems) && erpData.inventoryItems.length > 0) {
+            if (Array.isArray(erpData?.inventoryItems)) {
               updates.inventoryItems = erpData.inventoryItems;
             }
             if (Array.isArray(erpData?.workOrders) && erpData.workOrders.length > 0) {
@@ -1369,86 +1369,13 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      inventoryItems: [
-        {
-          id: "inv-1",
-          sku_barcode: "KIT-GNV-5G",
-          name: "Kit Completo Conversión GNV 5ta Gen Tomasetto",
-          brand: "Tomasetto Achille",
-          serial_number: "TOM-5G-881",
-          category: "Kits de Conversión",
-          unit_price: 2800,
-          initial_stock: 10,
-          entries: 5,
-          exits: 3,
-          stock_quantity: 12,
-          counted_stock: 12,
-          min_stock_alert: 3,
-        },
-        {
-          id: "inv-2",
-          sku_barcode: "KIT-GLP-5G",
-          name: "Kit Completo Conversión GLP 5ta Gen BRC",
-          brand: "BRC Gas Equipment",
-          serial_number: "BRC-GLP-992",
-          category: "Kits de Conversión",
-          unit_price: 2600,
-          initial_stock: 5,
-          entries: 5,
-          exits: 2,
-          stock_quantity: 8,
-          counted_stock: 8,
-          min_stock_alert: 2,
-        },
-        {
-          id: "inv-3",
-          sku_barcode: "FIL-GAS-14",
-          name: "Filtro de Gas Línea 14mm GNV/GLP",
-          brand: "Stag Autogas",
-          serial_number: "STG-FL-14",
-          category: "Filtros & Mantenimiento",
-          unit_price: 35,
-          initial_stock: 30,
-          entries: 20,
-          exits: 5,
-          stock_quantity: 45,
-          counted_stock: 45,
-          min_stock_alert: 10,
-        },
-        {
-          id: "inv-4",
-          sku_barcode: "INY-VAL-4C",
-          name: "Rampa de Inyectores Valtek 4 Cilindros",
-          brand: "Valtek",
-          serial_number: "VLT-30-4C",
-          category: "Inyección de Gas",
-          unit_price: 240,
-          initial_stock: 10,
-          entries: 8,
-          exits: 3,
-          stock_quantity: 15,
-          counted_stock: 15,
-          min_stock_alert: 4,
-        },
-        {
-          id: "inv-5",
-          sku_barcode: "RED-TOM-AT09",
-          name: "Reductor de Presión Tomasetto AT09",
-          brand: "Tomasetto Achille",
-          serial_number: "RED-AT09-441",
-          category: "Reductores",
-          unit_price: 420,
-          initial_stock: 8,
-          entries: 4,
-          exits: 3,
-          stock_quantity: 9,
-          counted_stock: 9,
-          min_stock_alert: 2,
-        },
-      ],
+      inventoryItems: [],
 
       addInventoryItem: (item) => {
-        const newItem = { ...item, id: `inv-${Date.now()}` };
+        const newItem: InventoryItem = {
+          ...item,
+          id: (item as any).id || generateUUID(),
+        };
         saveSupabaseInventoryItem(newItem);
         set((state) => ({
           inventoryItems: [...state.inventoryItems, newItem],
@@ -1489,14 +1416,14 @@ export const useAppStore = create<AppState>()(
       },
 
       importBulkInventoryItems: (items) => {
-        const newItems = items.map((item, idx) => ({
+        const newItems: InventoryItem[] = items.map((item, idx) => ({
           ...item,
-          id: `inv-${Date.now()}-${idx}`,
+          id: (item as any).id || generateUUID(),
         }));
         saveSupabaseBulkInventory(newItems);
-        set((state) => ({
-          inventoryItems: [...state.inventoryItems, ...newItems],
-        }));
+        set({
+          inventoryItems: newItems,
+        });
       },
 
       deductStock: (id, qty) => {
@@ -1513,26 +1440,7 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      toolLoans: [
-        {
-          id: "tool-1",
-          tool_name: "Escáner Automotriz Multimarca Launch X431",
-          serial_number: "SN-987123",
-          technician_name: "Carlos Mendoza",
-          borrowed_at: new Date(Date.now() - 7200000).toISOString(),
-          status: "prestado",
-          notes: "Diagnóstico de ECU en Hyundai XYZ-987",
-        },
-        {
-          id: "tool-2",
-          tool_name: "Manómetro Digital de Alta Presión GNV",
-          serial_number: "MN-44512",
-          technician_name: "Roberto Gómez",
-          borrowed_at: new Date(Date.now() - 14400000).toISOString(),
-          status: "prestado",
-          notes: "Verificación de reductor Tomasetto",
-        },
-      ],
+      toolLoans: [],
 
       addToolLoan: (loan) =>
         set((state) => ({
@@ -1976,22 +1884,7 @@ export const useAppStore = create<AppState>()(
         });
       },
 
-      attendanceLogs: [
-        {
-          id: "att-1",
-          employee_name: "Carlos Mendoza",
-          check_time: "2026-08-08 07:54:12",
-          log_type: "Entrada",
-          source_file: "BIOMETRICO_AGOSTO_2026.TXT",
-        },
-        {
-          id: "att-2",
-          employee_name: "Roberto Gómez",
-          check_time: "2026-08-08 08:01:05",
-          log_type: "Entrada",
-          source_file: "BIOMETRICO_AGOSTO_2026.TXT",
-        },
-      ],
+      attendanceLogs: [],
 
       scheduleRecords: [],
 
