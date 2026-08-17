@@ -99,6 +99,8 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
         password: tech.password || "",
       };
       await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians");
+      const normName = tech.full_name.trim().toLowerCase();
+      await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians");
 
       // Also upsert to technicians table
       await supabase.from("technicians").upsert({
@@ -143,13 +145,17 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       phone: tech.phone,
       is_active: tech.is_active,
     });
-    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
+    const permsPayload = {
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
       email: tech.email || "",
       username: tech.username || "",
       password: tech.password || "",
-    }, "technicians");
+    };
+    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians");
+    const normName = tech.full_name.trim().toLowerCase();
+    await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians");
+
     if (allTechs && Array.isArray(allTechs)) {
       await saveSupabaseSiteContent("all_technicians", allTechs, "technicians");
     }
@@ -683,6 +689,7 @@ export async function fetchSupabaseErpData() {
 
     // Build permissions, certifications, and schedule records from site_content if any
     const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
@@ -692,7 +699,21 @@ export async function fetchSupabaseErpData() {
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
         const k = row.key || row.section_key;
-        if (k && k.startsWith("tech_perms_")) {
+        if (k && k.startsWith("tech_perms_name_")) {
+          const techName = decodeURIComponent(k.replace("tech_perms_name_", "")).trim().toLowerCase();
+          try {
+            const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (rawVal && typeof rawVal === "object") {
+              permsNameMap[techName] = {
+                allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
+                can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                email: rawVal.email || "",
+                username: rawVal.username || "",
+                password: rawVal.password || "",
+              };
+            }
+          } catch {}
+        } else if (k && k.startsWith("tech_perms_")) {
           const techId = k.replace("tech_perms_", "");
           try {
             const rawVal = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
@@ -935,13 +956,18 @@ export async function fetchSupabaseErpData() {
       finalInventory = invData;
     }
 
-    const fallbackTechMap = new Map<string, any>(fallbackTechs.map((ft) => [ft.id, ft]));
+    const fallbackTechMap = new Map<string, any>();
+    fallbackTechs.forEach((ft) => {
+      if (ft.id) fallbackTechMap.set(ft.id, ft);
+      if (ft.full_name) fallbackTechMap.set(ft.full_name.trim().toLowerCase(), ft);
+    });
 
     let finalTechnicians: Technician[] | null = null;
     if (techRes.data && techRes.data.length > 0) {
       finalTechnicians = techRes.data.map((t: any) => {
-        const perm = permsMap[t.id];
-        const fbTech = fallbackTechMap.get(t.id);
+        const normName = (t.full_name || "").trim().toLowerCase();
+        const perm = permsMap[t.id] || permsNameMap[normName];
+        const fbTech = fallbackTechMap.get(t.id) || fallbackTechMap.get(normName);
         const defUser = generateDefaultUsername(t.full_name);
 
         let finalAllowedTabs: string[] | undefined = undefined;

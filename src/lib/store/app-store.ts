@@ -778,7 +778,24 @@ export const useAppStore = create<AppState>()(
               }
             }
             if (Array.isArray(erpData?.technicians) && erpData.technicians.length > 0) {
-              updates.technicians = erpData.technicians;
+              const localTechMap = new Map(state.technicians.map((t) => [t.id, t]));
+              const localNameMap = new Map(state.technicians.map((t) => [t.full_name.trim().toLowerCase(), t]));
+
+              updates.technicians = erpData.technicians.map((et) => {
+                const existing = localTechMap.get(et.id) || localNameMap.get((et.full_name || "").trim().toLowerCase());
+                const allowed = Array.isArray(et.allowed_tabs)
+                  ? et.allowed_tabs
+                  : (Array.isArray(existing?.allowed_tabs) ? existing.allowed_tabs : undefined);
+
+                return {
+                  ...existing,
+                  ...et,
+                  allowed_tabs: allowed,
+                  email: et.email || existing?.email || "",
+                  username: et.username || existing?.username || generateDefaultUsername(et.full_name),
+                  password: et.password || existing?.password || generateDefaultUsername(et.full_name),
+                };
+              });
             }
             if (Array.isArray(erpData?.inventoryItems)) {
               updates.inventoryItems = erpData.inventoryItems;
