@@ -98,6 +98,7 @@ export async function saveSupabaseTechnician(tech: Technician) {
 // ---------------------------------------------------------------------
 export async function saveSupabaseInventoryItem(item: InventoryItem) {
   try {
+    // 1. Try upserting with all columns
     const { error } = await supabase.from("inventory_items").upsert({
       id: item.id,
       sku_barcode: item.sku_barcode,
@@ -114,16 +115,32 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
       unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
       min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
     });
-    if (error) console.warn("Supabase inventory save warning:", error.message);
+
+    if (error) {
+      // 2. Fallback to base columns if extended columns (brand, serial_number, etc.) do not exist yet
+      console.warn("Retrying with base inventory columns due to schema error:", error.message);
+      await supabase.from("inventory_items").upsert({
+        id: item.id,
+        sku_barcode: item.sku_barcode,
+        name: item.name,
+        category: item.category || "Repuestos",
+        stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
+        unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
+        min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
+      });
+    }
   } catch (err) {
-    console.warn("Supabase inventory deferred:", err);
+    console.warn("Supabase inventory save deferred:", err);
   }
 }
 
 export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise<{ success: boolean; count: number; errorMsg?: string }> {
   try {
+    // 1. Always persist full catalog snapshot to site_content as reliable cloud backup
+    await saveSupabaseSiteContent("all_inventory_records", items, "inventory");
+
     const CHUNK_SIZE = 150;
-    const payload = items.map((item) => ({
+    const fullPayload = items.map((item) => ({
       id: item.id,
       sku_barcode: item.sku_barcode,
       name: item.name,
@@ -139,13 +156,39 @@ export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise
       unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
       min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
     }));
-    for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
-      const chunk = payload.slice(i, i + CHUNK_SIZE);
+
+    let hasColumnError = false;
+
+    for (let i = 0; i < fullPayload.length; i += CHUNK_SIZE) {
+      const chunk = fullPayload.slice(i, i + CHUNK_SIZE);
       const { error } = await supabase.from("inventory_items").upsert(chunk);
-      if (error) console.warn("Supabase bulk inventory save warning:", error.message);
+      if (error) {
+        hasColumnError = true;
+        console.warn("Supabase bulk inventory save warning (will retry with base columns):", error.message);
+        break;
+      }
     }
+
+    // 2. If table lacks extended columns, fallback to upserting base columns into inventory_items
+    if (hasColumnError) {
+      const basePayload = items.map((item) => ({
+        id: item.id,
+        sku_barcode: item.sku_barcode,
+        name: item.name,
+        category: item.category || "Repuestos",
+        stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
+        unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
+        min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
+      }));
+
+      for (let i = 0; i < basePayload.length; i += CHUNK_SIZE) {
+        const chunk = basePayload.slice(i, i + CHUNK_SIZE);
+        await supabase.from("inventory_items").upsert(chunk);
+      }
+    }
+
     broadcastRealtimeChange("inventory_bulk_updated");
-    return { success: true, count: payload.length };
+    return { success: true, count: items.length };
   } catch (err: any) {
     console.warn("Supabase bulk inventory error:", err);
     return { success: false, count: 0, errorMsg: err?.message || "Error al guardar en Supabase" };
@@ -172,6 +215,7 @@ export async function deleteMultipleSupabaseInventoryItems(ids: string[]) {
 
 export async function clearSupabaseInventory() {
   try {
+    await saveSupabaseSiteContent("all_inventory_records", [], "inventory");
     const { error } = await supabase.from("inventory_items").delete().neq("id", "");
     if (error) console.warn("Supabase inventory clear warning:", error.message);
   } catch (err) {
@@ -556,6 +600,7 @@ export async function fetchSupabaseErpData() {
     const permsMap: Record<string, string[]> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
+    const fallbackInventory: InventoryItem[] = [];
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -579,6 +624,11 @@ export async function fetchSupabaseErpData() {
           try {
             const sList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(sList)) fallbackSched.push(...sList);
+          } catch {}
+        } else if (k === "all_inventory_records") {
+          try {
+            const invList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            if (Array.isArray(invList)) fallbackInventory.push(...invList);
           } catch {}
         }
       });
@@ -768,6 +818,13 @@ export async function fetchSupabaseErpData() {
     const finalInvoices = Array.from(reconstructedInvoicesMap.values());
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
+    let finalInventory: InventoryItem[] = [];
+    if (fallbackInventory.length > 0) {
+      finalInventory = fallbackInventory;
+    } else if (Array.isArray(invData) && invData.length > 0) {
+      finalInventory = invData;
+    }
+
     return {
       technicians: techRes.data
         ? techRes.data.map((t: any) => ({
@@ -775,7 +832,7 @@ export async function fetchSupabaseErpData() {
             allowed_tabs: permsMap[t.id] || t.allowed_tabs || undefined,
           }))
         : null,
-      inventoryItems: Array.isArray(invData) ? invData : [],
+      inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
       appointments: appRes.data ? appRes.data : null,
       invoices: finalInvoices.length > 0 ? finalInvoices : (invoiceData || []),
