@@ -94,12 +94,13 @@ export default function AlmacenPage() {
   const [stockFilter, setStockFilter] = useState<"todos" | "bajo" | "critico" | "errores" | "no_validado">("todos");
   const [inventorySearch, setInventorySearch] = useState("");
   const deferredInventorySearch = React.useDeferredValue(inventorySearch);
+  const [selectedLetter, setSelectedLetter] = useState<string>("TODAS");
   const [inventoryPage, setInventoryPage] = useState(1);
   const INVENTORY_ITEMS_PER_PAGE = 50;
 
   React.useEffect(() => {
     setInventoryPage(1);
-  }, [deferredInventorySearch, stockFilter]);
+  }, [deferredInventorySearch, stockFilter, selectedLetter]);
 
   // Styled Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -812,6 +813,37 @@ export default function AlmacenPage() {
     (item) => item.stock_quantity === 0
   );
 
+  const ALPHABET_LETTERS = React.useMemo(() => {
+    return ["TODAS", "0-9", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
+  }, []);
+
+  const letterStats = React.useMemo(() => {
+    const map = new Map<string, { count: number; units: number }>();
+    ALPHABET_LETTERS.forEach((l) => map.set(l, { count: 0, units: 0 }));
+
+    inventoryItems.forEach((item) => {
+      const rawName = (item.name || "").trim().toUpperCase();
+      const firstChar = rawName.charAt(0);
+      const isDigit = /^[0-9]/.test(firstChar);
+      const isAlpha = /^[A-Z]/.test(firstChar);
+      const targetLetter = isAlpha ? firstChar : isDigit ? "0-9" : "0-9";
+
+      const current = map.get(targetLetter) || { count: 0, units: 0 };
+      map.set(targetLetter, {
+        count: current.count + 1,
+        units: current.units + (Number(item.stock_quantity) || 0),
+      });
+
+      const allStats = map.get("TODAS") || { count: 0, units: 0 };
+      map.set("TODAS", {
+        count: allStats.count + 1,
+        units: allStats.units + (Number(item.stock_quantity) || 0),
+      });
+    });
+
+    return map;
+  }, [inventoryItems, ALPHABET_LETTERS]);
+
   const displayInventoryItems = inventoryItems
     .filter((item) => {
       const searchRaw = deferredInventorySearch.trim().toLowerCase();
@@ -841,7 +873,14 @@ export default function AlmacenPage() {
           ? item.stock_quantity === 0
           : true;
 
-      return matchesSearch && matchesStock;
+      const matchesLetter =
+        selectedLetter === "TODAS"
+          ? true
+          : selectedLetter === "0-9"
+          ? /^[0-9]/.test((item.name || "").trim())
+          : (item.name || "").trim().toUpperCase().startsWith(selectedLetter);
+
+      return matchesSearch && matchesStock && matchesLetter;
     })
     .sort((a, b) =>
       (a.sku_barcode || "").localeCompare(b.sku_barcode || "", undefined, {
@@ -849,6 +888,10 @@ export default function AlmacenPage() {
         sensitivity: "base",
       })
     );
+
+  const displayTotalUnits = React.useMemo(() => {
+    return displayInventoryItems.reduce((acc, item) => acc + (Number(item.stock_quantity) || 0), 0);
+  }, [displayInventoryItems]);
 
   const totalInventoryItems = displayInventoryItems.length;
   const totalInventoryPages = Math.ceil(totalInventoryItems / INVENTORY_ITEMS_PER_PAGE) || 1;
@@ -1493,16 +1536,74 @@ export default function AlmacenPage() {
                     <span>Stock Bajo ({lowStockItems.length})</span>
                   </button>
 
-                  <button
-                    onClick={() => setStockFilter("critico")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                      stockFilter === "critico"
-                        ? "bg-gray-700 text-white border-gray-500 shadow-md font-black"
-                        : "bg-reygas-surface text-gray-400 border-white/10 hover:text-white"
-                    }`}
-                  >
-                    <span>Agotados ({criticalStockItems.length})</span>
-                  </button>
+                </div>
+              </div>
+
+              {/* ALPHABET STARTING LETTER FILTER BAR & UNIT COUNT METRICS */}
+              <div className="space-y-2.5 p-3.5 rounded-2xl bg-black/40 border border-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🔤</span>
+                    <span>Filtrar por Letra Inicial del Producto:</span>
+                  </span>
+
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="text-gray-300 font-medium">
+                      Productos: <strong className="text-white font-mono font-black">{totalInventoryItems}</strong>
+                    </span>
+                    <span className="text-gray-400">•</span>
+                    <span className="text-gray-300 font-medium">
+                      Total Unidades Físicas: <strong className="text-emerald-400 font-mono font-black">{displayTotalUnits.toLocaleString()} unid.</strong>
+                    </span>
+                    {selectedLetter !== "TODAS" && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLetter("TODAS")}
+                        className="ml-2 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white text-[10px] font-bold transition-colors"
+                      >
+                        Limpiar Letra &times;
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Alphabet Pills Horizontal Scroll */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 touch-scroll">
+                  {ALPHABET_LETTERS.map((letter) => {
+                    const stats = letterStats.get(letter) || { count: 0, units: 0 };
+                    const isSelected = selectedLetter === letter;
+                    const hasItems = stats.count > 0;
+
+                    return (
+                      <button
+                        key={letter}
+                        type="button"
+                        disabled={!hasItems && letter !== "TODAS"}
+                        onClick={() => setSelectedLetter(letter)}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 ${
+                          isSelected
+                            ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30 scale-105 ring-2 ring-amber-400"
+                            : hasItems
+                            ? "bg-reygas-surface/80 hover:bg-white/15 text-white border border-white/10"
+                            : "bg-transparent text-gray-600 border border-white/5 opacity-40 cursor-not-allowed"
+                        }`}
+                        title={`${letter}: ${stats.count} productos (${stats.units} unidades)`}
+                      >
+                        <span>{letter}</span>
+                        {hasItems && letter !== "TODAS" && (
+                          <span
+                            className={`px-1.5 py-0.2 rounded-md font-mono text-[9px] font-black ${
+                              isSelected
+                                ? "bg-black/30 text-black"
+                                : "bg-black/50 text-amber-400 border border-amber-500/20"
+                            }`}
+                          >
+                            {stats.count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
