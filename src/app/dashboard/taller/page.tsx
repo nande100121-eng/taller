@@ -443,10 +443,12 @@ export default function WorkshopOperationsPage() {
   const handleAddRequisition = () => {
     if (!activeOrderModal) return;
 
+    const targetOrderId = activeOrderModal;
+
     if (modalMode === "parts") {
       if (pendingPartsCart.length > 0) {
         addMultipleWorkOrderItems(
-          activeOrderModal,
+          targetOrderId,
           pendingPartsCart.map((p) => ({
             inventory_item_id: p.inventory_item_id,
             item_type: "repuesto",
@@ -455,54 +457,84 @@ export default function WorkshopOperationsPage() {
             unit_price: p.unit_price,
           }))
         );
-        updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+        updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
+        setStatusFilter("esperando_repuestos");
         setPendingPartsCart([]);
+        setWebAlert({
+          open: true,
+          title: "¡Repuestos Solicitados!",
+          message: "Los repuestos fueron registrados y enviados a Almacén. La vista se ha trasladado automáticamente a '3. Esperando Repuestos'.",
+        });
       } else {
         // Fallback for single direct item if user did not press "Añadir a la lista"
         if (requisitionType === "repuesto") {
           const item = inventoryItems.find((i) => i.id === selectedInventoryId);
           if (item) {
-            addWorkOrderItem(activeOrderModal, {
+            addWorkOrderItem(targetOrderId, {
               inventory_item_id: item.id,
               item_type: "repuesto",
               description: item.name,
               quantity: Number(partQty) || 1,
               unit_price: Number(customItemPrice) || item.unit_price || 0,
             });
-            updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+            updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
+            setStatusFilter("esperando_repuestos");
+            setWebAlert({
+              open: true,
+              title: "¡Repuesto Solicitado!",
+              message: `El repuesto "${item.name}" fue enviado a Almacén. La vista se ha trasladado a '3. Esperando Repuestos'.`,
+            });
           }
         } else {
           if (!customItemName.trim()) return;
-          addWorkOrderItem(activeOrderModal, {
+          addWorkOrderItem(targetOrderId, {
             item_type: "repuesto",
             description: customItemName.trim(),
             quantity: Number(partQty) || 1,
             unit_price: Number(customItemPrice) || 0,
           });
-          updateWorkOrderStatus(activeOrderModal, "esperando_repuestos");
+          updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
+          setStatusFilter("esperando_repuestos");
+          setWebAlert({
+            open: true,
+            title: "¡Repuesto Manual Solicitado!",
+            message: `El repuesto "${customItemName.trim()}" fue agregado a la OT. La vista se ha trasladado a '3. Esperando Repuestos'.`,
+          });
         }
       }
     } else if (modalMode === "service") {
       if (requisitionType === "servicio") {
         const srv = workshopServices.find((s) => s.id === selectedServiceId);
         if (srv) {
-          addWorkOrderItem(activeOrderModal, {
+          addWorkOrderItem(targetOrderId, {
             item_type: "servicio",
             description: srv.name,
             quantity: Number(partQty) || 1,
             unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
           });
-          updateWorkOrderStatus(activeOrderModal, "en_servicio");
+          updateWorkOrderStatus(targetOrderId, "en_servicio");
+          setStatusFilter("en_servicio");
+          setWebAlert({
+            open: true,
+            title: "¡Servicio Asignado!",
+            message: `El servicio "${srv.name}" fue asignado a la orden. La vista se ha trasladado a '4. En Servicio'.`,
+          });
         }
       } else {
         if (!customItemName.trim()) return;
-        addWorkOrderItem(activeOrderModal, {
+        addWorkOrderItem(targetOrderId, {
           item_type: "servicio",
           description: customItemName.trim(),
           quantity: Number(partQty) || 1,
           unit_price: Number(customItemPrice) || 0,
         });
-        updateWorkOrderStatus(activeOrderModal, "en_servicio");
+        updateWorkOrderStatus(targetOrderId, "en_servicio");
+        setStatusFilter("en_servicio");
+        setWebAlert({
+          open: true,
+          title: "¡Servicio Personalizado Asignado!",
+          message: `El servicio "${customItemName.trim()}" fue asignado a la orden. La vista se ha trasladado a '4. En Servicio'.`,
+        });
       }
     }
     setActiveOrderModal(null);
