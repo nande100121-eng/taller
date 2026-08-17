@@ -35,52 +35,34 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
   try {
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
-    // Check if an existing row with this key or section_key exists
-    const { data: existing } = await supabase
-      .from("site_content")
-      .select("id, key, section_key")
-      .or(`key.eq.${key},section_key.eq.${key}`)
-      .limit(1);
-
-    if (existing && existing.length > 0) {
-      const rowId = existing[0].id;
-      const updateData: any = {
-        updated_at: new Date().toISOString(),
-      };
-      if (existing[0].key !== undefined) updateData.key = key;
-      if (existing[0].section_key !== undefined) updateData.section_key = key;
-      updateData.value = serializedValue;
-      updateData.category = category;
-      if (typeof value === "object") updateData.content = value;
-
-      const { error: updateErr } = await supabase
-        .from("site_content")
-        .update(updateData)
-        .eq("id", rowId);
-
-      if (updateErr) {
-        console.warn(`Supabase site_content update error for [${key}]:`, updateErr.message);
-      }
-    } else {
-      // Row doesn't exist yet: insert it
-      const insertData: any = {
+    // Standard upsert with onConflict: "key" (PostgreSQL UNIQUE key constraint)
+    const { error } = await supabase.from("site_content").upsert(
+      {
         key,
         value: serializedValue,
         category,
         updated_at: new Date().toISOString(),
-      };
-      const { error: insertErr } = await supabase.from("site_content").insert(insertData);
-      if (insertErr) {
-        // Fallback Schema 2: section_key & content
-        await supabase.from("site_content").insert({
-          section_key: key,
-          content: typeof value === "object" ? value : { data: value },
+      },
+      { onConflict: "key" }
+    );
+
+    if (error) {
+      // If upsert reports an issue, fallback to update by key
+      const updateRes = await supabase
+        .from("site_content")
+        .update({
+          value: serializedValue,
+          category,
           updated_at: new Date().toISOString(),
-        });
+        })
+        .eq("key", key);
+
+      if (updateRes.error) {
+        console.warn(`Supabase site_content save warning [${key}]:`, updateRes.error.message);
       }
     }
   } catch (err) {
-    console.warn("Supabase API call deferred:", err);
+    console.warn("Supabase site_content deferred:", err);
   }
 }
 
@@ -103,13 +85,21 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
       await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians");
 
       // Also upsert to technicians table
-      await supabase.from("technicians").upsert({
+      const { error: techErr } = await supabase.from("technicians").upsert({
         id: tech.id,
         full_name: tech.full_name,
         specialty: tech.specialty,
         phone: tech.phone,
         is_active: tech.is_active,
       });
+      if (techErr) {
+        await supabase.from("technicians").upsert({
+          full_name: tech.full_name,
+          specialty: tech.specialty,
+          phone: tech.phone,
+          is_active: tech.is_active,
+        });
+      }
     }
 
     broadcastRealtimeChange("technician_saved");
@@ -145,6 +135,15 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       phone: tech.phone,
       is_active: tech.is_active,
     });
+    if (error) {
+      await supabase.from("technicians").upsert({
+        full_name: tech.full_name,
+        specialty: tech.specialty,
+        phone: tech.phone,
+        is_active: tech.is_active,
+      });
+    }
+
     const permsPayload = {
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
@@ -159,7 +158,6 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
     if (allTechs && Array.isArray(allTechs)) {
       await saveSupabaseSiteContent("all_technicians", allTechs, "technicians");
     }
-    if (error) console.warn("Supabase technician save warning:", error.message);
     broadcastRealtimeChange("technician_saved");
   } catch (err) {
     console.warn("Supabase technician deferred:", err);
