@@ -111,7 +111,7 @@ export default function AlmacenPage() {
     open: boolean;
     title: string;
     message: string;
-    actionType: "delete_single" | "delete_selected" | "purge_all";
+    actionType: "delete_single" | "delete_selected" | "purge_all" | "revert_ingreso";
     targetId?: string;
     targetName?: string;
   } | null>(null);
@@ -253,6 +253,46 @@ export default function AlmacenPage() {
     });
   };
 
+  const handleRevertRecentIngreso = (ing: {
+    id: string;
+    itemId?: string;
+    sku: string;
+    name: string;
+    quantity: number;
+    previousStock: number;
+    newStock: number;
+    isNew?: boolean;
+  }) => {
+    const item = inventoryItems.find(
+      (i) => (ing.itemId && i.id === ing.itemId) || i.sku_barcode === ing.sku
+    );
+
+    if (item) {
+      const revertedStock = Math.max(0, item.stock_quantity - ing.quantity);
+      const revertedEntries = Math.max(0, (item.entries || 0) - ing.quantity);
+      updateInventoryItem(item.id, {
+        stock_quantity: revertedStock,
+        entries: revertedEntries,
+      });
+
+      if (ingresoFoundItem && ingresoFoundItem.id === item.id) {
+        setIngresoFoundItem({
+          ...ingresoFoundItem,
+          stock_quantity: revertedStock,
+          entries: revertedEntries,
+        });
+      }
+    }
+
+    setRecentIngresos((prev) => prev.filter((i) => i.id !== ing.id));
+
+    showWebNotification(
+      "success",
+      "Registro de Ingreso Anulado y Revertido",
+      `Se anuló el ingreso de +${ing.quantity} unidades de "${ing.name}". El stock actual se recalculó a ${item ? Math.max(0, item.stock_quantity - ing.quantity) : ing.previousStock} unidades.`
+    );
+  };
+
   const handleExecuteConfirmedAction = () => {
     if (!confirmModal) return;
 
@@ -265,6 +305,11 @@ export default function AlmacenPage() {
     } else if (confirmModal.actionType === "purge_all") {
       clearAllInventory();
       setSelectedRowIds([]);
+    } else if (confirmModal.actionType === "revert_ingreso" && confirmModal.targetId) {
+      const ing = recentIngresos.find((i) => i.id === confirmModal.targetId);
+      if (ing) {
+        handleRevertRecentIngreso(ing);
+      }
     }
 
     setConfirmModal(null);
@@ -648,6 +693,7 @@ export default function AlmacenPage() {
     setRecentIngresos((prev) => [
       {
         id: `ing-${Date.now()}`,
+        itemId: ingresoFoundItem.id,
         sku: ingresoFoundItem.sku_barcode,
         name: ingresoFoundItem.name,
         quantity: ingresoQuantity,
@@ -703,6 +749,7 @@ export default function AlmacenPage() {
     setRecentIngresos((prev) => [
       {
         id: `ing-${Date.now()}`,
+        itemId: `inv-${sku}`,
         sku: sku,
         name: newItemData.name,
         quantity: qty,
@@ -2320,9 +2367,28 @@ export default function AlmacenPage() {
                             <h4 className="text-xs font-bold text-white mt-1">{ing.name}</h4>
                           </div>
 
-                          <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono text-xs font-black border border-emerald-500/30 shrink-0">
-                            +{ing.quantity} unid.
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-400 font-mono text-xs font-black border border-emerald-500/30">
+                              +{ing.quantity} unid.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmModal({
+                                  open: true,
+                                  title: "Anular Ingreso de Material",
+                                  message: `¿Desea anular este registro de ingreso (+${ing.quantity} unid.) de "${ing.name}" y revertir su stock a ${ing.previousStock}?`,
+                                  actionType: "revert_ingreso",
+                                  targetId: ing.id,
+                                  targetName: ing.name,
+                                });
+                              }}
+                              title="Anular y borrar este ingreso si se equivocó"
+                              className="p-1.5 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-500/15 border border-white/5 hover:border-red-500/30 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-white/5">
