@@ -1415,12 +1415,17 @@ export default function CajaPage() {
 
                 const effectiveBrand = vehicle?.brand && vehicle.brand !== "Automóvil" ? vehicle.brand : (csvRec?.brand || "Automóvil");
 
-                const effectiveReceiptNum = invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N" 
+                const isSinComp = invoice?.receipt_type === "Sin Comprobante" || (invoice && invoice.receipt_type === "" && !invoice.receipt_number);
+                const effectiveReceiptNum = isSinComp
+                  ? ""
+                  : invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N" 
                   ? invoice.receipt_number 
                   : (csvRec?.receiptNumber || "");
 
                 const rawType = (invoice?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
-                const effectiveReceiptType = rawType.includes("FACTURA") 
+                const effectiveReceiptType = isSinComp
+                  ? "Sin Comprobante"
+                  : rawType.includes("FACTURA") 
                   ? "Factura" 
                   : rawType.includes("BOLETA") 
                   ? "Boleta" 
@@ -1429,7 +1434,9 @@ export default function CajaPage() {
                 const effectiveMethod = invoice?.payment_method || csvRec?.method || "Efectivo";
                 const effectiveDestination = invoice?.payment_destination || csvRec?.destination || "EMPRESA";
 
-                const buttonReceiptLabel = effectiveReceiptNum && effectiveReceiptNum !== "0"
+                const buttonReceiptLabel = isSinComp
+                  ? "Sin Comp."
+                  : effectiveReceiptNum && effectiveReceiptNum !== "0"
                   ? (effectiveReceiptType === "Factura" ? `F001-${effectiveReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : effectiveReceiptNum)
                   : "S/N";
 

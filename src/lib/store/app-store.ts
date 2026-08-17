@@ -1966,11 +1966,44 @@ export const useAppStore = create<AppState>()(
           const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
           const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
           const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
-
           const nowISO = new Date().toISOString();
           let updatedInvoices = [...state.invoices];
+          let updatedCorrelativeConfig = state.correlativeConfig;
 
           if (targetInvoice) {
+            const oldNum = targetInvoice.receipt_number;
+            const oldType = targetInvoice.receipt_type;
+            const isClearing = receiptNumber === "" || receiptType === "" || receiptType === "Sin Comprobante";
+
+            // If we are releasing/clearing the previous correlative and this was the last assigned sequence
+            if (isClearing && oldNum) {
+              const cleanNum = parseInt(oldNum.replace(/\D/g, ""), 10);
+              if (!isNaN(cleanNum)) {
+                if ((oldType === "Ticket" || oldNum.startsWith("TK")) && updatedCorrelativeConfig.ticketLastNumber === cleanNum) {
+                  updatedCorrelativeConfig = {
+                    ...updatedCorrelativeConfig,
+                    ticketLastNumber: Math.max(0, cleanNum - 1),
+                    lastUpdateDate: getPeruDateString(),
+                  };
+                  saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
+                } else if ((oldType === "Boleta" || oldNum.startsWith("B")) && updatedCorrelativeConfig.boletaLastNumber === cleanNum) {
+                  updatedCorrelativeConfig = {
+                    ...updatedCorrelativeConfig,
+                    boletaLastNumber: Math.max(0, cleanNum - 1),
+                    lastUpdateDate: getPeruDateString(),
+                  };
+                  saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
+                } else if ((oldType === "Factura" || oldNum.startsWith("F")) && updatedCorrelativeConfig.facturaLastNumber === cleanNum) {
+                  updatedCorrelativeConfig = {
+                    ...updatedCorrelativeConfig,
+                    facturaLastNumber: Math.max(0, cleanNum - 1),
+                    lastUpdateDate: getPeruDateString(),
+                  };
+                  saveSupabaseSiteContent("correlativeConfig", updatedCorrelativeConfig, "config");
+                }
+              }
+            }
+
             const updated: Invoice = {
               ...targetInvoice,
               client_name: customerName || targetInvoice.client_name || vehicle?.owner_name || "Cliente Taller",
@@ -1979,9 +2012,9 @@ export const useAppStore = create<AppState>()(
               payment_status: "pagado" as const,
               payment_method: paymentMethod || targetInvoice.payment_method || "Efectivo",
               payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
-              receipt_number: receiptNumber || targetInvoice.receipt_number || "",
-              receipt_type: receiptType || targetInvoice.receipt_type || "Ticket",
-              payment_breakdown: paymentBreakdown || targetInvoice.payment_breakdown,
+              receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || ""),
+              receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || ""),
+              payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
               paid_at: nowISO,
             };
             saveSupabaseInvoice(updated);
@@ -2003,8 +2036,8 @@ export const useAppStore = create<AppState>()(
               payment_status: "pagado",
               payment_method: paymentMethod || "Efectivo",
               payment_destination: paymentDestination || "EMPRESA",
-              receipt_number: receiptNumber || "",
-              receipt_type: receiptType || "Ticket",
+              receipt_number: receiptNumber !== undefined ? receiptNumber : "",
+              receipt_type: receiptType !== undefined ? receiptType : "",
               payment_breakdown: paymentBreakdown,
               issued_at: targetOrder.entry_time || nowISO,
               paid_at: nowISO,
@@ -2025,6 +2058,7 @@ export const useAppStore = create<AppState>()(
           return {
             invoices: updatedInvoices,
             workOrders: updatedOrders,
+            correlativeConfig: updatedCorrelativeConfig,
           };
         });
       },
