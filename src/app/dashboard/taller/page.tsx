@@ -37,6 +37,7 @@ export default function WorkshopOperationsPage() {
   const {
     workOrders,
     updateWorkOrderStatus,
+    updateWorkOrder,
     assignTechnicianToOrder,
     technicians,
     vehicles,
@@ -59,11 +60,13 @@ export default function WorkshopOperationsPage() {
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
-  const [modalMode, setModalMode] = useState<"diagnostic" | "parts" | "service" | "technician" | "certificate">("diagnostic");
+  const [modalMode, setModalMode] = useState<"diagnostic" | "parts" | "service" | "technician" | "certificate" | "inspection_dates">("diagnostic");
 
   // Form states inside modals
   const [diagnosticText, setDiagnosticText] = useState("");
   const [observationsText, setObservationsText] = useState("");
+  const [quinquennialDate, setQuinquennialDate] = useState("");
+  const [chipExpiryDate, setChipExpiryDate] = useState("");
   const [selectedTechId, setSelectedTechId] = useState("");
   const [certType, setCertType] = useState<string>("Certificado Anual GNV");
   const [certPrice, setCertPrice] = useState<number>(80);
@@ -130,11 +133,20 @@ export default function WorkshopOperationsPage() {
     { status: "por_cobrar", label: "5. Por Cobrar", color: "bg-emerald-500" },
   ];
 
-  const handleOpenDiagnostic = (orderId: string, currentNotes?: string, currentObservations?: string) => {
+  const handleOpenDiagnostic = (orderId: string, currentNotes?: string, currentObservations?: string, currentQuinquennial?: string, currentChip?: string) => {
     setActiveOrderModal(orderId);
     setModalMode("diagnostic");
     setDiagnosticText(currentNotes || "");
     setObservationsText(currentObservations || "");
+    setQuinquennialDate(currentQuinquennial || "");
+    setChipExpiryDate(currentChip || "");
+  };
+
+  const handleOpenInspectionDates = (orderId: string, currentQuinquennial?: string, currentChip?: string) => {
+    setActiveOrderModal(orderId);
+    setModalMode("inspection_dates");
+    setQuinquennialDate(currentQuinquennial || "");
+    setChipExpiryDate(currentChip || "");
   };
 
   const handleOpenParts = (orderId: string) => {
@@ -188,6 +200,27 @@ export default function WorkshopOperationsPage() {
   const handleSaveDiagnostic = () => {
     if (activeOrderModal) {
       updateDiagnosticAndObservations(activeOrderModal, diagnosticText, observationsText);
+      if (quinquennialDate || chipExpiryDate) {
+        updateWorkOrder(activeOrderModal, {
+          quinquennial_date: quinquennialDate,
+          chip_expiry_date: chipExpiryDate,
+        });
+      }
+      setActiveOrderModal(null);
+    }
+  };
+
+  const handleSaveInspectionDates = () => {
+    if (activeOrderModal) {
+      updateWorkOrder(activeOrderModal, {
+        quinquennial_date: quinquennialDate,
+        chip_expiry_date: chipExpiryDate,
+      });
+      setWebAlert({
+        open: true,
+        title: "¡Fechas de Inspección Guardadas!",
+        message: `Fecha Quinquenal (${quinquennialDate || "Pendiente"}) y Chip Anual (${chipExpiryDate || "Pendiente"}) registradas con éxito. Se guardarán en la Tabla Registro Taller al confirmar el cobro en Caja.`
+      });
       setActiveOrderModal(null);
     }
   };
@@ -674,19 +707,60 @@ export default function WorkshopOperationsPage() {
                         <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
                       </div>
                     </div>
+
+                    {/* FECHAS DE INSPECCIÓN: QUINQUENAL & CHIP ANUAL */}
+                    <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase text-purple-400 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Fechas de Inspección (Quinquenal / Chip)</span>
+                        </span>
+                        {!isLocked && (
+                          <button
+                            onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
+                            className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>Registrar / Editar</span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2 rounded-lg bg-black/40 border border-purple-500/20">
+                          <span className="text-[10px] text-gray-400 block font-semibold">Fecha Quinquenal:</span>
+                          <span className="font-mono font-bold text-purple-300">
+                            {wo.quinquennial_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded-lg bg-black/40 border border-cyan-500/20">
+                          <span className="text-[10px] text-gray-400 block font-semibold">Fecha Chip Anual:</span>
+                          <span className="font-mono font-bold text-cyan-300">
+                            {wo.chip_expiry_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS & CERTIFICACION */}
                   <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Action buttons toolbar: 4 distinct, separate actions */}
+                    {/* Action buttons toolbar: 5 distinct, separate actions */}
                     {!isLocked && (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <button
-                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations, wo.quinquennial_date, wo.chip_expiry_date)}
                           className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors shadow"
                         >
                           <Cpu className="w-3.5 h-3.5" />
                           <span>Diagnóstico</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
+                          className="py-2 px-2 bg-purple-950/70 hover:bg-purple-900/80 text-purple-300 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-400/40 transition-colors shadow"
+                        >
+                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Fechas Chip/5ta</span>
                         </button>
 
                         <button
@@ -707,7 +781,7 @@ export default function WorkshopOperationsPage() {
 
                         <button
                           onClick={() => handleOpenCertModal(wo.id)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow sm:col-span-2 ${
                             wo.requires_certification
                               ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
                               : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
@@ -836,6 +910,12 @@ export default function WorkshopOperationsPage() {
                     <span>Diagnóstico Técnico & Observaciones</span>
                   </>
                 )}
+                {modalMode === "inspection_dates" && (
+                  <>
+                    <Calendar className="w-5 h-5 text-purple-400" />
+                    <span>Fechas de Inspección (Quinquenal & Chip Anual)</span>
+                  </>
+                )}
                 {modalMode === "parts" && (
                   <>
                     <PackagePlus className="w-5 h-5 text-amber-400" />
@@ -944,11 +1024,87 @@ export default function WorkshopOperationsPage() {
                   />
                 </div>
 
+                {/* Fechas Quinquenal y Chip opcionales durante Diagnóstico */}
+                <div className="p-3 rounded-xl bg-black/40 border border-purple-500/30 space-y-2">
+                  <span className="text-[11px] font-bold text-purple-300 uppercase block">
+                    3. Fechas de Inspección (Vencimiento Quinquenal / Chip)
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-400 font-semibold mb-1">F. Quinquenal (5ta)</label>
+                      <input
+                        type="date"
+                        value={quinquennialDate}
+                        onChange={(e) => setQuinquennialDate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white font-mono focus:border-purple-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-400 font-semibold mb-1">F. Chip Anual</label>
+                      <input
+                        type="date"
+                        value={chipExpiryDate}
+                        onChange={(e) => setChipExpiryDate(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white font-mono focus:border-cyan-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <button
                   onClick={handleSaveDiagnostic}
                   className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-sm transition-colors"
                 >
                   Guardar Diagnóstico y Observaciones
+                </button>
+              </div>
+            )}
+
+            {/* Modal Fechas Quinquenal & Chip Anual Dedicado */}
+            {modalMode === "inspection_dates" && (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200">
+                  Ingrese o actualice las fechas de inspección técnica. Estos datos se registrarán en la <strong>Tabla de Registro de Taller</strong> cuando se confirme el pago en Caja.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-purple-300 uppercase mb-1.5 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-purple-400" />
+                    <span>Fecha Quinquenal (Prueba Hidrostática de Cilindro)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={quinquennialDate}
+                    onChange={(e) => setQuinquennialDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-mono font-bold focus:border-purple-400 focus:outline-none"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Corresponde a la revisión cada 5 años del cilindro de gas.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-cyan-300 uppercase mb-1.5 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-cyan-400" />
+                    <span>Fecha Chip Anual (Certificación Anual)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={chipExpiryDate}
+                    onChange={(e) => setChipExpiryDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-mono font-bold focus:border-cyan-400 focus:outline-none"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Corresponde a la certificación anual de chip para habilitación en grifos.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleSaveInspectionDates}
+                  className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Fechas de Inspección</span>
                 </button>
               </div>
             )}

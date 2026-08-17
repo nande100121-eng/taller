@@ -831,6 +831,18 @@ export default function CajaPage() {
                             <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
                               Técnico: <strong className="text-amber-400">{tech?.full_name || csvRec?.technician || "Asignado"}</strong>
                             </span>
+
+                            {wo.quinquennial_date && (
+                              <span className="text-[11px] px-2.5 py-1 rounded-lg bg-purple-950/80 text-purple-300 border border-purple-500/40 font-mono font-bold">
+                                📅 5ta: <strong className="text-white">{wo.quinquennial_date}</strong>
+                              </span>
+                            )}
+
+                            {wo.chip_expiry_date && (
+                              <span className="text-[11px] px-2.5 py-1 rounded-lg bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 font-mono font-bold">
+                                🏷️ Chip: <strong className="text-white">{wo.chip_expiry_date}</strong>
+                              </span>
+                            )}
                           </div>
                         </div>
 
