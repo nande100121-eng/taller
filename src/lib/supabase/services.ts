@@ -424,54 +424,42 @@ async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; er
   }
 }
 
-// Generic fast parallel batch fetcher for tables with > 1000 records
+// Generic safe sequential batch fetcher for tables with > 1000 records
 async function fetchAllSupabaseTable(tableName: string) {
   try {
     const PAGE_SIZE = 1000;
-    const { data: firstPage, error } = await supabase
-      .from(tableName)
-      .select("*")
-      .range(0, PAGE_SIZE - 1);
+    let allRecords: any[] = [];
+    let from = 0;
+    let hasMore = true;
 
-    if (error || !firstPage || firstPage.length === 0) {
-      return firstPage || [];
-    }
+    while (hasMore && from < 30000) {
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .range(from, to);
 
-    if (firstPage.length < PAGE_SIZE) {
-      return firstPage;
-    }
+      if (error) {
+        console.warn(`Supabase fetch warning for ${tableName} at range [${from}, ${to}]:`, error.message);
+        break;
+      }
 
-    // If more rows exist, fetch remaining pages in fast parallel batches
-    let allRecords = [...firstPage];
-    const parallelRanges = [
-      [1000, 1999],
-      [2000, 2999],
-      [3000, 3999],
-      [4000, 4999],
-      [5000, 5999],
-      [6000, 6999],
-      [7000, 7999],
-      [8000, 8999],
-      [9000, 9999],
-      [10000, 10999],
-    ];
-
-    const results = await Promise.all(
-      parallelRanges.map(([from, to]) =>
-        supabase.from(tableName).select("*").range(from, to)
-      )
-    );
-
-    for (const res of results) {
-      if (res.data && res.data.length > 0) {
-        allRecords = allRecords.concat(res.data);
+      if (data && data.length > 0) {
+        allRecords = allRecords.concat(data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      } else {
+        hasMore = false;
       }
     }
 
     return allRecords;
   } catch (err) {
     console.warn(`Supabase pagination fetch deferred for table ${tableName}:`, err);
-    return null;
+    return [];
   }
 }
 
@@ -1265,13 +1253,15 @@ export async function saveSupabaseBulkWorkshopData(
       }
     }
 
-    // 4. Save entire workshop data package in site_content backup
-    await saveSupabaseSiteContent("master_workshop_backup", {
-      vehicles,
-      workOrders: orders,
-      invoices,
-      updated_at: new Date().toISOString(),
-    }, "workshop");
+    // 4. Save metadata summary backup in site_content (avoids 25MB payload rejection)
+    try {
+      await saveSupabaseSiteContent("master_workshop_backup", {
+        total_vehicles: vehicles.length,
+        total_orders: orders.length,
+        total_invoices: invoices.length,
+        last_updated: new Date().toISOString(),
+      }, "workshop");
+    } catch {}
 
     broadcastRealtimeChange("bulk_workshop_saved");
 

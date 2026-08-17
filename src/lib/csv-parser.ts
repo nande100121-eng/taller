@@ -101,8 +101,8 @@ export function parseWorkshopRow(cols: string[]): ParsedWorkshopRecord | null {
 
   // 1. Date is in cols[0]
   const rawDate = (cols[0] || "").trim();
-  if (!rawDate || rawDate.toLowerCase().includes("fecha")) return null;
-  const dateISO = parseISODate(rawDate);
+  if (rawDate.toLowerCase().includes("fecha")) return null;
+  const dateISO = rawDate ? parseISODate(rawDate) : new Date().toISOString();
 
   // Find Plate index dynamically (usually 7 in 21/22-col format)
   let plateIdx = 7;
