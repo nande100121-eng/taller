@@ -328,12 +328,12 @@ export default function CajaPage() {
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
 
-  // Filtered orders for Caja Tab
+  // Filtered orders for Caja Tab (Pending payments first, then newest entry_time)
   const filteredCajaOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
     const targetDate = queryDate || getPeruDateString();
 
-    return allBillingWorkOrders.filter((wo) => {
+    const filtered = allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const isPaid = isOrderPaid(wo, inv);
 
@@ -355,13 +355,28 @@ export default function CajaPage() {
 
       return matchPlate && matchStatus;
     });
+
+    // Priority Sort: Pendientes de pago first, then newest entry_time descending
+    return filtered.sort((a, b) => {
+      const invA = invoicesByWorkOrderId.get(a.id);
+      const invB = invoicesByWorkOrderId.get(b.id);
+      const paidA = isOrderPaid(a, invA);
+      const paidB = isOrderPaid(b, invB);
+
+      if (!paidA && paidB) return -1;
+      if (paidA && !paidB) return 1;
+
+      const timeA = a.entry_time || "";
+      const timeB = b.entry_time || "";
+      return timeB.localeCompare(timeA);
+    });
   }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, isOrderPaid, queryDate]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
   const filteredConsultasOrders = React.useMemo(() => {
     const term = deferredSearchPlate ? deferredSearchPlate.trim().toUpperCase() : "";
 
-    return allBillingWorkOrders.filter((wo) => {
+    const filtered = allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
 
@@ -378,7 +393,22 @@ export default function CajaPage() {
 
       return matchPlate && matchDate;
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate]);
+
+    // Priority Sort: Pendientes de pago first, then newest entry_time descending
+    return filtered.sort((a, b) => {
+      const invA = invoicesByWorkOrderId.get(a.id);
+      const invB = invoicesByWorkOrderId.get(b.id);
+      const paidA = isOrderPaid(a, invA);
+      const paidB = isOrderPaid(b, invB);
+
+      if (!paidA && paidB) return -1;
+      if (paidA && !paidB) return 1;
+
+      const timeA = a.entry_time || "";
+      const timeB = b.entry_time || "";
+      return timeB.localeCompare(timeA);
+    });
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, queryDate, isOrderPaid]);
 
   // Helper to compute next correlative preview based on type
   const getCorrelativePreview = (type: "Ticket" | "Boleta" | "Factura") => {
