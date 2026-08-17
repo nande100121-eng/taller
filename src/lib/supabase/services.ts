@@ -1111,25 +1111,32 @@ export async function saveSupabaseBulkWorkshopData(
     const CHUNK_SIZE = 150;
     let lastError: string | null = null;
 
-    // 1. Vehicles chunked save
+    // 1. Vehicles chunked save (Deduplicate by plate to prevent PostgreSQL ON CONFLICT error)
     if (vehicles.length > 0) {
-      const vehiclesPayload = vehicles.map((v) => ({
-        plate: v.plate || "",
-        brand: v.brand || "",
-        model: v.model || "",
-        year: v.year || 0,
-        color: v.color || "",
-        fuel_type: v.fuel_type || "",
-        vehicle_type: v.vehicle_type || null,
-        owner_name: v.owner_name || "",
-        owner_phone: v.owner_phone || "",
-        current_mileage: v.current_mileage || 0,
-        last_visit_date: v.last_visit_date || new Date().toISOString(),
-      }));
+      const uniqueVehiclesMap = new Map<string, any>();
+      vehicles.forEach((v) => {
+        const plate = (v.plate || "").trim().toUpperCase();
+        if (!plate) return;
+        uniqueVehiclesMap.set(plate, {
+          plate: plate,
+          brand: v.brand || "",
+          model: v.model || "",
+          year: v.year || 0,
+          color: v.color || "",
+          fuel_type: v.fuel_type || "",
+          vehicle_type: v.vehicle_type || null,
+          owner_name: v.owner_name || "",
+          owner_phone: v.owner_phone || "",
+          current_mileage: v.current_mileage || 0,
+          last_visit_date: v.last_visit_date || new Date().toISOString(),
+        });
+      });
+
+      const vehiclesPayload = Array.from(uniqueVehiclesMap.values());
 
       for (let i = 0; i < vehiclesPayload.length; i += CHUNK_SIZE) {
         const chunk = vehiclesPayload.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase.from("vehicles").upsert(chunk);
+        const { error } = await supabase.from("vehicles").upsert(chunk, { onConflict: "plate" });
         if (error) {
           console.warn("Supabase vehicles upsert notice:", error.message);
         }
@@ -1142,7 +1149,10 @@ export async function saveSupabaseBulkWorkshopData(
       const invoicesMap = new Map((invoices || []).map((i) => [i.work_order_id, i]));
       const invoicesByPlate = new Map((invoices || []).map((i) => [i.vehicle_plate, i]));
 
-      const ordersPayload = orders.map((o) => {
+      const uniqueOrdersMap = new Map<string, any>();
+
+      orders.forEach((o) => {
+        if (!o.id) return;
         const veh = vehiclesMap.get(o.vehicle_plate);
         const inv = invoicesMap.get(o.id) || invoicesByPlate.get(o.vehicle_plate);
 
@@ -1176,7 +1186,7 @@ export async function saveSupabaseBulkWorkshopData(
         }
         diagText = `${diagText}\n[ERP_META]:${JSON.stringify(meta)}`.trim();
 
-        return {
+        uniqueOrdersMap.set(o.id, {
           id: o.id,
           vehicle_plate: o.vehicle_plate || "SN-PLACA",
           status: o.status || "pagado_autorizado",
@@ -1196,12 +1206,14 @@ export async function saveSupabaseBulkWorkshopData(
           certification_type: o.certification_type || null,
           certification_price: o.certification_price || 0,
           allow_modifications: !!o.allow_modifications,
-        };
+        });
       });
+
+      const ordersPayload = Array.from(uniqueOrdersMap.values());
 
       for (let i = 0; i < ordersPayload.length; i += CHUNK_SIZE) {
         const chunk = ordersPayload.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase.from("work_orders").upsert(chunk);
+        const { error } = await supabase.from("work_orders").upsert(chunk, { onConflict: "id" });
         if (error) {
           console.warn("Supabase work_orders upsert warning:", error.message);
           lastError = `Tabla órdenes: ${error.message}`;
@@ -1211,35 +1223,42 @@ export async function saveSupabaseBulkWorkshopData(
 
     // 3. Invoices chunked save (all columns included)
     if (invoices.length > 0) {
-      const invoicesPayload = invoices.map((inv) => ({
-        id: inv.id,
-        work_order_id: inv.work_order_id,
-        vehicle_plate: inv.vehicle_plate || "SN-PLACA",
-        client_name: inv.client_name || "Cliente Taller",
-        customer_doc: inv.customer_doc || null,
-        customer_address: inv.customer_address || null,
-        labor_fee: typeof inv.labor_fee === "number" && !isNaN(inv.labor_fee) ? inv.labor_fee : 0,
-        parts_total: typeof inv.parts_total === "number" && !isNaN(inv.parts_total) ? inv.parts_total : 0,
-        certification_fee: typeof inv.certification_fee === "number" && !isNaN(inv.certification_fee) ? inv.certification_fee : 0,
-        grand_total: typeof inv.grand_total === "number" && !isNaN(inv.grand_total) ? inv.grand_total : 0,
-        payment_status: inv.payment_status || "pagado",
-        payment_method: inv.payment_method || "",
-        issued_at: inv.issued_at || new Date().toISOString(),
-        paid_at: inv.paid_at || null,
-        receipt_number: inv.receipt_number || null,
-        receipt_type: inv.receipt_type || null,
-        discounts: inv.discounts !== undefined ? String(inv.discounts) : null,
-        credit_amount: typeof inv.credit_amount === "number" ? inv.credit_amount : 0,
-        raw_price_str: inv.raw_price_str || null,
-        raw_credit_str: inv.raw_credit_str || null,
-        payment_condition: inv.payment_condition || null,
-        payment_destination: inv.payment_destination || null,
-        observations: inv.observations || null,
-      }));
+      const uniqueInvoicesMap = new Map<string, any>();
+
+      invoices.forEach((inv) => {
+        if (!inv.id) return;
+        uniqueInvoicesMap.set(inv.id, {
+          id: inv.id,
+          work_order_id: inv.work_order_id,
+          vehicle_plate: inv.vehicle_plate || "SN-PLACA",
+          client_name: inv.client_name || "Cliente Taller",
+          customer_doc: inv.customer_doc || null,
+          customer_address: inv.customer_address || null,
+          labor_fee: typeof inv.labor_fee === "number" && !isNaN(inv.labor_fee) ? inv.labor_fee : 0,
+          parts_total: typeof inv.parts_total === "number" && !isNaN(inv.parts_total) ? inv.parts_total : 0,
+          certification_fee: typeof inv.certification_fee === "number" && !isNaN(inv.certification_fee) ? inv.certification_fee : 0,
+          grand_total: typeof inv.grand_total === "number" && !isNaN(inv.grand_total) ? inv.grand_total : 0,
+          payment_status: inv.payment_status || "pagado",
+          payment_method: inv.payment_method || "",
+          issued_at: inv.issued_at || new Date().toISOString(),
+          paid_at: inv.paid_at || null,
+          receipt_number: inv.receipt_number || null,
+          receipt_type: inv.receipt_type || null,
+          discounts: inv.discounts !== undefined ? String(inv.discounts) : null,
+          credit_amount: typeof inv.credit_amount === "number" ? inv.credit_amount : 0,
+          raw_price_str: inv.raw_price_str || null,
+          raw_credit_str: inv.raw_credit_str || null,
+          payment_condition: inv.payment_condition || null,
+          payment_destination: inv.payment_destination || null,
+          observations: inv.observations || null,
+        });
+      });
+
+      const invoicesPayload = Array.from(uniqueInvoicesMap.values());
 
       for (let i = 0; i < invoicesPayload.length; i += CHUNK_SIZE) {
         const chunk = invoicesPayload.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase.from("invoices").upsert(chunk);
+        const { error } = await supabase.from("invoices").upsert(chunk, { onConflict: "id" });
         if (error) {
           console.warn("Supabase invoices upsert warning:", error.message);
         }
