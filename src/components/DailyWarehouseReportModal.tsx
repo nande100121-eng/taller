@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { useAppStore, InventoryItem, ToolLoan } from "@/lib/store/app-store";
+import { useAppStore } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import {
   FileText,
@@ -18,17 +18,9 @@ import {
   CheckCircle2,
   Wrench,
   DollarSign,
-  TrendingUp,
-  Building,
-  UserCheck,
   ShieldAlert,
-  Info,
-  Layers,
   Sparkles,
-  RotateCcw,
-  Check,
   Car,
-  PieChart,
   BarChart3,
   Coins
 } from "lucide-react";
@@ -37,6 +29,20 @@ interface DailyWarehouseReportModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+// Universal Formatting Helpers with Thousands Separator
+export const formatPEN = (amount: number | null | undefined): string => {
+  const safe = typeof amount === "number" && !isNaN(amount) ? amount : 0;
+  return safe.toLocaleString("es-PE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+export const formatQty = (qty: number | null | undefined): string => {
+  const safe = typeof qty === "number" && !isNaN(qty) ? Math.round(qty) : 0;
+  return safe.toLocaleString("es-PE");
+};
 
 export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseReportModalProps) {
   const {
@@ -131,7 +137,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
     return dayIngresos.reduce((acc, ing) => acc + (Number(ing.quantity) || 0), 0);
   }, [dayIngresos]);
 
-  // Filter Dispatched Items (Salidas) for the Selected Date
+  // Filter Dispatched Items (Salidas) strictly for the Selected Date
   const dayDispatchedItems = useMemo(() => {
     const results: Array<{
       orderId: string;
@@ -150,21 +156,29 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
 
     workOrders.forEach((order) => {
       const orderDate = order.entry_time ? order.entry_time.split("T")[0] : "";
-      const isDateMatch = orderDate === selectedDate || (!orderDate && isToday);
-
       const veh = vehiclesMap.get(order.vehicle_plate?.toUpperCase().trim());
       const client = veh?.owner_name || "Cliente General";
       const techObj = technicians.find((t) => t.id === order.assigned_technician_id);
       const tech = techObj?.full_name || "Técnico de Taller";
 
       (order.items || []).forEach((item) => {
-        const inv = inventoryItems.find(
-          (i) => i.name.toLowerCase() === item.description.toLowerCase() || (item.inventory_item_id && i.id === item.inventory_item_id)
-        );
-        const qty = Number(item.quantity) || 1;
-        const price = Number(item.unit_price) || (inv ? inv.unit_price : 0);
+        const itemDate = item.dispatched_at
+          ? item.dispatched_at.split("T")[0]
+          : item.requested_at
+          ? item.requested_at.split("T")[0]
+          : orderDate;
 
-        if (isDateMatch || item.dispatched) {
+        // Strictly check if date matches selectedDate AND item was dispatched
+        const isDateMatch = itemDate === selectedDate && !!item.dispatched;
+
+        if (isDateMatch) {
+          const inv = inventoryItems.find(
+            (i) => i.name.toLowerCase() === item.description.toLowerCase() || (item.inventory_item_id && i.id === item.inventory_item_id)
+          );
+          const qty = Math.max(0, Number(item.quantity) || 1);
+          const rawPrice = Number(item.unit_price) || (inv ? Number(inv.unit_price) : 0);
+          const price = isNaN(rawPrice) ? 0 : Math.max(0, rawPrice);
+
           results.push({
             orderId: order.id,
             plate: order.vehicle_plate || "S/P",
@@ -184,7 +198,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
     });
 
     return results;
-  }, [workOrders, selectedDate, isToday, vehiclesMap, inventoryItems, technicians]);
+  }, [workOrders, selectedDate, vehiclesMap, inventoryItems, technicians]);
 
   const totalDayDispatchedUnits = useMemo(() => {
     return dayDispatchedItems.reduce((acc, item) => acc + item.quantity, 0);
@@ -355,7 +369,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
               }`}
             >
               <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Ingresos de Hoy ({dayIngresos.length})</span>
+              <span>Ingresos de Hoy ({formatQty(dayIngresos.length)})</span>
             </button>
 
             <button
@@ -367,7 +381,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
               }`}
             >
               <ArrowUpFromLine className="w-3.5 h-3.5 text-blue-400" />
-              <span>Despachos a Taller ({dayDispatchedItems.length})</span>
+              <span>Despachos a Taller ({formatQty(dayDispatchedItems.length)})</span>
             </button>
 
             <button
@@ -379,10 +393,10 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-              <span>Compras Urgentes ({criticalItems.length})</span>
+              <span>Compras Urgentes ({formatQty(criticalItems.length)})</span>
               {zeroStockCount > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[9px] font-black">
-                  {zeroStockCount} Agotados
+                  {formatQty(zeroStockCount)} Agotados
                 </span>
               )}
             </button>
@@ -396,7 +410,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
               }`}
             >
               <Wrench className="w-3.5 h-3.5 text-purple-400" />
-              <span>Herramientas Prestadas ({activeToolLoans.length})</span>
+              <span>Herramientas Prestadas ({formatQty(activeToolLoans.length)})</span>
             </button>
           </div>
 
@@ -410,8 +424,8 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   <Package className="w-3.5 h-3.5 text-emerald-400" />
                   Catálogo
                 </span>
-                <p className="text-xl font-black text-white font-mono">{totalCatalogItems}</p>
-                <p className="text-[10px] text-gray-500 font-medium">{totalStockUnits.toLocaleString()} unid. totales</p>
+                <p className="text-xl font-black text-white font-mono">{formatQty(totalCatalogItems)}</p>
+                <p className="text-[10px] text-gray-500 font-medium">{formatQty(totalStockUnits)} unid. totales</p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-1">
@@ -420,7 +434,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   Valorización
                 </span>
                 <p className="text-xl font-black text-amber-400 font-mono">
-                  S/ {totalStockValuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  S/ {formatPEN(totalStockValuation)}
                 </p>
                 <p className="text-[10px] text-gray-500 font-medium">En stock físico</p>
               </div>
@@ -431,7 +445,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   Top 10 Inmovilizado
                 </span>
                 <p className="text-xl font-black text-orange-400 font-mono">
-                  S/ {totalTopSleepingCapital.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  S/ {formatPEN(totalTopSleepingCapital)}
                 </p>
                 <p className="text-[10px] text-orange-300/80 font-medium">Dinero sin rotación</p>
               </div>
@@ -441,8 +455,8 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   <ArrowDownToLine className="w-3.5 h-3.5 text-emerald-400" />
                   Ingresos Hoy
                 </span>
-                <p className="text-xl font-black text-emerald-400 font-mono">+{totalDayIngresoUnits}</p>
-                <p className="text-[10px] text-emerald-300/80 font-medium">{dayIngresos.length} registros cargados</p>
+                <p className="text-xl font-black text-emerald-400 font-mono">+{formatQty(totalDayIngresoUnits)}</p>
+                <p className="text-[10px] text-emerald-300/80 font-medium">{formatQty(dayIngresos.length)} registros cargados</p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20 space-y-1">
@@ -450,8 +464,8 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   <ArrowUpFromLine className="w-3.5 h-3.5 text-blue-400" />
                   Despachos Hoy
                 </span>
-                <p className="text-xl font-black text-blue-400 font-mono">-{totalDayDispatchedUnits}</p>
-                <p className="text-[10px] text-blue-300/80 font-medium">S/ {totalDayDispatchedValuation.toFixed(2)} consumido</p>
+                <p className="text-xl font-black text-blue-400 font-mono">-{formatQty(totalDayDispatchedUnits)}</p>
+                <p className="text-[10px] text-blue-300/80 font-medium">S/ {formatPEN(totalDayDispatchedValuation)} consumido</p>
               </div>
 
               <div className={`p-3.5 rounded-2xl border space-y-1 ${
@@ -463,7 +477,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
                   Agotados
                 </span>
-                <p className="text-xl font-black text-red-400 font-mono">{zeroStockCount}</p>
+                <p className="text-xl font-black text-red-400 font-mono">{formatQty(zeroStockCount)}</p>
                 <p className="text-[10px] text-gray-400 font-medium">Stock en 0 unid.</p>
               </div>
             </div>
@@ -481,27 +495,27 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                     </h3>
                   </div>
                   <p className="text-xs sm:text-sm text-gray-200 leading-relaxed font-medium">
-                    Al corte del día <strong className="text-white">{formatPeruDate(selectedDate)}</strong>, el almacén de <strong className="text-amber-400">ReyGas</strong> cuenta con <strong className="text-white">{totalCatalogItems} repuestos</strong> catalogados con un stock total físico de <strong className="text-white">{totalStockUnits.toLocaleString()} unidades</strong> valorizadas en <strong className="text-amber-400">S/ {totalStockValuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>.
+                    Al corte del día <strong className="text-white">{formatPeruDate(selectedDate)}</strong>, el almacén de <strong className="text-amber-400">ReyGas</strong> cuenta con <strong className="text-white">{formatQty(totalCatalogItems)} repuestos</strong> catalogados con un stock total físico de <strong className="text-white">{formatQty(totalStockUnits)} unidades</strong> valorizadas en <strong className="text-amber-400">S/ {formatPEN(totalStockValuation)}</strong>.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs text-gray-300">
                     <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-start gap-2">
                       <Coins className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-white">Dinero Durmiendo:</strong> En los 10 materiales más caros hay <strong className="text-orange-400 font-mono font-bold">S/ {totalTopSleepingCapital.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> inmovilizados sin rotación constante.
+                        <strong className="text-white">Dinero Durmiendo:</strong> En los 10 materiales más caros hay <strong className="text-orange-400 font-mono font-bold">S/ {formatPEN(totalTopSleepingCapital)}</strong> inmovilizados sin rotación constante.
                       </div>
                     </div>
 
                     <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-white">Movimientos del Día:</strong> Se registraron <span className="text-emerald-400 font-bold">{dayIngresos.length} ingresos (+{totalDayIngresoUnits} unid.)</span> y se despacharon <span className="text-blue-400 font-bold">{dayDispatchedItems.length} repuestos (-{totalDayDispatchedUnits} unid.)</span> a taller.
+                        <strong className="text-white">Movimientos del Día:</strong> Se registraron <span className="text-emerald-400 font-bold">{formatQty(dayIngresos.length)} ingresos (+{formatQty(totalDayIngresoUnits)} unid.)</span> y se despacharon <span className="text-blue-400 font-bold">{formatQty(dayDispatchedItems.length)} repuestos (-{formatQty(totalDayDispatchedUnits)} unid.)</span> a taller por un valor de <strong className="text-amber-300 font-mono">S/ {formatPEN(totalDayDispatchedValuation)}</strong>.
                       </div>
                     </div>
 
                     <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                       <div>
-                        <strong className="text-white">Atención Gerencial:</strong> Hay <span className="text-red-400 font-bold">{criticalItems.length} ítems en nivel crítico</span> (<span className="text-red-300 font-extrabold">{zeroStockCount} en Stock 0</span>) que requieren reposición prioritaria.
+                        <strong className="text-white">Atención Gerencial:</strong> Hay <span className="text-red-400 font-bold">{formatQty(criticalItems.length)} ítems en nivel crítico</span> (<span className="text-red-300 font-extrabold">{formatQty(zeroStockCount)} en Stock 0</span>) que requieren reposición prioritaria.
                       </div>
                     </div>
                   </div>
@@ -591,7 +605,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                             #{idx + 1} {item.sku_barcode}
                           </span>
                           <span className="text-[10px] font-bold text-gray-400">
-                            {item.stock_quantity} unid.
+                            {formatQty(item.stock_quantity)} unid.
                           </span>
                         </div>
                         <h5 className="text-xs font-bold text-white truncate" title={item.name}>
@@ -601,7 +615,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="text-gray-400">Total S/:</span>
                             <strong className="text-orange-400 font-mono font-black">
-                              S/ {item.valuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              S/ {formatPEN(item.valuation)}
                             </strong>
                           </div>
                           {/* Mini Progress Bar */}
@@ -634,7 +648,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="px-3.5 py-1.5 rounded-xl bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono text-xs font-black">
-                      Total Top 10: S/ {totalTopSleepingCapital.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      Total Top 10: S/ {formatPEN(totalTopSleepingCapital)}
                     </span>
                   </div>
                 </div>
@@ -661,7 +675,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                                   <h4 className="text-xs sm:text-sm font-black text-white">{item.name}</h4>
                                 </div>
                                 <span className="text-[11px] text-gray-400">
-                                  Marca: {item.brand || "Genérico"} • P. Venta: S/ {item.unit_price.toFixed(2)} c/u
+                                  Marca: {item.brand || "Genérico"} • P. Venta: S/ {formatPEN(item.unit_price)} c/u
                                 </span>
                               </div>
                             </div>
@@ -669,10 +683,10 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                             <div className="flex items-center gap-3 sm:text-right shrink-0">
                               <div>
                                 <div className="font-mono font-black text-sm sm:text-base text-orange-400">
-                                  S/ {item.valuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  S/ {formatPEN(item.valuation)}
                                 </div>
                                 <div className="text-[10px] text-gray-400 font-mono">
-                                  {item.stock_quantity} unidades en stock
+                                  {formatQty(item.stock_quantity)} unidades en stock
                                 </div>
                               </div>
 
@@ -682,7 +696,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                                 </span>
                               ) : (
                                 <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[9px] font-black uppercase">
-                                  {item.exits} Salidas
+                                  {formatQty(item.exits)} Salidas
                                 </span>
                               )}
                             </div>
@@ -698,7 +712,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                             </div>
                             <div className="flex justify-between text-[9px] text-gray-500 font-mono">
                               <span>0%</span>
-                              <span>{percentage}% del máximo (S/ {maxItemValuation.toLocaleString()})</span>
+                              <span>{percentage}% del máximo (S/ {formatPEN(maxItemValuation)})</span>
                               <span>100%</span>
                             </div>
                           </div>
@@ -716,10 +730,10 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                     <ArrowDownToLine className="w-4 h-4 text-emerald-400" />
-                    Detalle de Ingresos y Abastecimientos del Día ({dayIngresos.length})
+                    Detalle de Ingresos y Abastecimientos del Día ({formatQty(dayIngresos.length)})
                   </h3>
                   <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 font-mono text-xs font-black rounded-xl border border-emerald-500/30">
-                    Total Ingresado: +{totalDayIngresoUnits} unidades
+                    Total Ingresado: +{formatQty(totalDayIngresoUnits)} unidades
                   </span>
                 </div>
 
@@ -751,11 +765,11 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                             <td className="p-3 font-mono text-amber-400 font-bold">{ing.sku}</td>
                             <td className="p-3 text-white font-bold">{ing.name}</td>
                             <td className="p-3 text-center font-mono font-black text-emerald-400">
-                              +{ing.quantity} unid.
+                              +{formatQty(ing.quantity)} unid.
                             </td>
                             <td className="p-3 text-center font-mono text-gray-300">
-                              <span className="text-gray-400">{ing.previousStock}</span> &rarr;{" "}
-                              <strong className="text-emerald-400">{ing.newStock}</strong>
+                              <span className="text-gray-400">{formatQty(ing.previousStock)}</span> &rarr;{" "}
+                              <strong className="text-emerald-400">{formatQty(ing.newStock)}</strong>
                             </td>
                             <td className="p-3 text-center">
                               {ing.isNew ? (
@@ -783,14 +797,14 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                     <ArrowUpFromLine className="w-4 h-4 text-blue-400" />
-                    Detalle de Repuestos Despachados a Vehículos en Taller ({dayDispatchedItems.length})
+                    Detalle de Repuestos Despachados a Vehículos en Taller ({formatQty(dayDispatchedItems.length)})
                   </h3>
                   <div className="flex items-center gap-2">
                     <span className="px-3 py-1 bg-blue-500/20 text-blue-300 font-mono text-xs font-black rounded-xl border border-blue-500/30">
-                      Total Despachado: -{totalDayDispatchedUnits} unidades
+                      Total Despachado: -{formatQty(totalDayDispatchedUnits)} unidades
                     </span>
                     <span className="px-3 py-1 bg-amber-500/20 text-amber-300 font-mono text-xs font-black rounded-xl border border-amber-500/30">
-                      S/ {totalDayDispatchedValuation.toFixed(2)}
+                      S/ {formatPEN(totalDayDispatchedValuation)}
                     </span>
                   </div>
                 </div>
@@ -825,13 +839,13 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                               <span className="font-mono text-[10px] text-gray-500">{item.skuBarcode}</span>
                             </td>
                             <td className="p-3 text-center font-mono font-black text-blue-400">
-                              {item.quantity} unid.
+                              {formatQty(item.quantity)} unid.
                             </td>
                             <td className="p-3 text-right font-mono text-gray-300">
-                              S/ {item.unitPrice.toFixed(2)}
+                              S/ {formatPEN(item.unitPrice)}
                             </td>
                             <td className="p-3 text-right font-mono font-bold text-amber-300">
-                              S/ {item.totalPrice.toFixed(2)}
+                              S/ {formatPEN(item.totalPrice)}
                             </td>
                             <td className="p-3 text-gray-300">{item.technicianName}</td>
                             <td className="p-3 text-center">
@@ -860,10 +874,10 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-red-400" />
-                    Lista Prioritaria de Repuestos para Compra Urgente ({criticalItems.length})
+                    Lista Prioritaria de Repuestos para Compra Urgente ({formatQty(criticalItems.length)})
                   </h3>
                   <span className="px-3 py-1 bg-red-500/20 text-red-300 font-mono text-xs font-black rounded-xl border border-red-500/30">
-                    {zeroStockCount} Agotados | {lowStockCount} Bajo Nivel Mínimo
+                    {formatQty(zeroStockCount)} Agotados | {formatQty(lowStockCount)} Bajo Nivel Mínimo
                   </span>
                 </div>
 
@@ -896,10 +910,10 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                             <td className="p-3 text-gray-400">{item.brand || "Genérico"}</td>
                             <td className="p-3 text-center font-mono font-black">
                               <span className={item.stock_quantity === 0 ? "text-red-400 font-extrabold" : "text-amber-400"}>
-                                {item.stock_quantity} unid.
+                                {formatQty(item.stock_quantity)} unid.
                               </span>
                             </td>
-                            <td className="p-3 text-center font-mono text-gray-400">{item.min_stock_alert} unid.</td>
+                            <td className="p-3 text-center font-mono text-gray-400">{formatQty(item.min_stock_alert)} unid.</td>
                             <td className="p-3 text-center">
                               {item.stock_quantity === 0 ? (
                                 <span className="px-2 py-0.5 rounded-full bg-red-500 text-white text-[10px] font-black uppercase tracking-wider animate-pulse">
@@ -911,7 +925,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                                 </span>
                               )}
                             </td>
-                            <td className="p-3 text-right font-mono text-gray-300">S/ {item.unit_price.toFixed(2)}</td>
+                            <td className="p-3 text-right font-mono text-gray-300">S/ {formatPEN(item.unit_price)}</td>
                             <td className="p-3 text-center">
                               <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold text-amber-300">
                                 Emitir O/C Inmediata
@@ -932,7 +946,7 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                     <Wrench className="w-4 h-4 text-purple-400" />
-                    Control de Herramientas de Taller en Préstamo ({activeToolLoans.length})
+                    Control de Herramientas de Taller en Préstamo ({formatQty(activeToolLoans.length)})
                   </h3>
                 </div>
 
@@ -1063,34 +1077,34 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "5px", marginBottom: "10px" }}>
                 <div style={{ border: "1.5px solid #333", padding: "5px", borderRadius: "4px", textAlign: "center" }}>
                   <div style={{ fontSize: "7.5px", fontWeight: "bold", color: "#555" }}>TOTAL CATÁLOGO</div>
-                  <div style={{ fontSize: "13px", fontWeight: "900" }}>{totalCatalogItems} ítems</div>
-                  <div style={{ fontSize: "7.5px", color: "#666" }}>{totalStockUnits} unid.</div>
+                  <div style={{ fontSize: "13px", fontWeight: "900" }}>{formatQty(totalCatalogItems)} ítems</div>
+                  <div style={{ fontSize: "7.5px", color: "#666" }}>{formatQty(totalStockUnits)} unid.</div>
                 </div>
                 <div style={{ border: "1.5px solid #333", padding: "5px", borderRadius: "4px", textAlign: "center", background: "#fafafa" }}>
                   <div style={{ fontSize: "7.5px", fontWeight: "bold", color: "#555" }}>VALORIZACIÓN TOTAL</div>
-                  <div style={{ fontSize: "11px", fontWeight: "900" }}>S/ {totalStockValuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: "11px", fontWeight: "900" }}>S/ {formatPEN(totalStockValuation)}</div>
                   <div style={{ fontSize: "7.5px", color: "#666" }}>Stock vigente</div>
                 </div>
                 <div style={{ border: "1.5px solid #e65100", padding: "5px", borderRadius: "4px", textAlign: "center", background: "#fff3e0" }}>
                   <div style={{ fontSize: "7.5px", fontWeight: "bold", color: "#e65100" }}>TOP 10 INMOVILIZADO</div>
-                  <div style={{ fontSize: "11px", fontWeight: "900", color: "#e65100" }}>S/ {totalTopSleepingCapital.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: "11px", fontWeight: "900", color: "#e65100" }}>S/ {formatPEN(totalTopSleepingCapital)}</div>
                   <div style={{ fontSize: "7.5px", color: "#666" }}>Dinero durmiendo</div>
                 </div>
                 <div style={{ border: "1.5px solid #1565c0", padding: "5px", borderRadius: "4px", textAlign: "center", background: "#e3f2fd" }}>
                   <div style={{ fontSize: "7.5px", fontWeight: "bold", color: "#1565c0" }}>DESPACHOS A TALLER</div>
-                  <div style={{ fontSize: "13px", fontWeight: "900", color: "#1565c0" }}>-{totalDayDispatchedUnits} unid.</div>
-                  <div style={{ fontSize: "7.5px", color: "#555" }}>S/ {totalDayDispatchedValuation.toFixed(2)}</div>
+                  <div style={{ fontSize: "13px", fontWeight: "900", color: "#1565c0" }}>-{formatQty(totalDayDispatchedUnits)} unid.</div>
+                  <div style={{ fontSize: "7.5px", color: "#555" }}>S/ {formatPEN(totalDayDispatchedValuation)}</div>
                 </div>
                 <div style={{ border: "1.5px solid #c62828", padding: "5px", borderRadius: "4px", textAlign: "center", background: "#ffebee" }}>
                   <div style={{ fontSize: "7.5px", fontWeight: "bold", color: "#c62828" }}>COMPRAS URGENTES</div>
-                  <div style={{ fontSize: "13px", fontWeight: "900", color: "#c62828" }}>{criticalItems.length} ítems</div>
-                  <div style={{ fontSize: "7.5px", color: "#c62828", fontWeight: "bold" }}>{zeroStockCount} en Stock 0</div>
+                  <div style={{ fontSize: "13px", fontWeight: "900", color: "#c62828" }}>{formatQty(criticalItems.length)} ítems</div>
+                  <div style={{ fontSize: "7.5px", color: "#c62828", fontWeight: "bold" }}>{formatQty(zeroStockCount)} en Stock 0</div>
                 </div>
               </div>
 
               {/* Executive Summary Narrative */}
               <div style={{ border: "1px solid #ccc", padding: "6px 8px", borderRadius: "4px", background: "#fdfdfd", fontSize: "9px", lineHeight: "1.35", marginBottom: "10px" }}>
-                <strong>RESUMEN EJECUTIVO:</strong> Al corte del día <strong>{formatPeruDate(selectedDate)}</strong>, el almacén cuenta con <strong>{totalCatalogItems} repuestos</strong> valorizados en <strong>S/ {totalStockValuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Se identifican <strong>S/ {totalTopSleepingCapital.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> concentrados en los 10 materiales más costosos sin alta rotación. Se despacharon <strong>{totalDayDispatchedUnits} unidades</strong> a vehículos en taller y se reportan <strong>{criticalItems.length} repuestos en semáforo crítico</strong> para compra urgente.
+                <strong>RESUMEN EJECUTIVO:</strong> Al corte del día <strong>{formatPeruDate(selectedDate)}</strong>, el almacén cuenta con <strong>{formatQty(totalCatalogItems)} repuestos</strong> valorizados en <strong>S/ {formatPEN(totalStockValuation)}</strong>. Se identifican <strong>S/ {formatPEN(totalTopSleepingCapital)}</strong> concentrados en los 10 materiales más costosos sin alta rotación. Se despacharon <strong>{formatQty(totalDayDispatchedUnits)} unidades</strong> a vehículos en taller por un valor de <strong>S/ {formatPEN(totalDayDispatchedValuation)}</strong> y se reportan <strong>{formatQty(criticalItems.length)} repuestos en semáforo crítico</strong> para compra urgente.
               </div>
 
               {/* Section 1: Top Materiales Más Valorizados (Dinero Durmiendo) */}
@@ -1116,13 +1130,13 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                         <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold", textAlign: "center" }}>{idx + 1}</td>
                         <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{item.sku_barcode}</td>
                         <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{item.name}</td>
-                        <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{item.stock_quantity} unid.</td>
-                        <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "right" }}>S/ {item.unit_price.toFixed(2)}</td>
+                        <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{formatQty(item.stock_quantity)} unid.</td>
+                        <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "right" }}>S/ {formatPEN(item.unit_price)}</td>
                         <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold", color: "#e65100" }}>
-                          S/ {item.valuation.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          S/ {formatPEN(item.valuation)}
                         </td>
                         <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontSize: "8px" }}>
-                          {item.exits === 0 ? "⚠️ Sin Salidas" : `${item.exits} salidas`}
+                          {item.exits === 0 ? "⚠️ Sin Salidas" : `${formatQty(item.exits)} salidas`}
                         </td>
                       </tr>
                     ))}
@@ -1157,8 +1171,8 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{d.plate}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd" }}>{d.clientName}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{d.partName}</td>
-                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{d.quantity}</td>
-                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold" }}>S/ {d.totalPrice.toFixed(2)}</td>
+                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{formatQty(d.quantity)}</td>
+                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold" }}>S/ {formatPEN(d.totalPrice)}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd" }}>{d.technicianName}</td>
                         </tr>
                       ))}
@@ -1194,9 +1208,9 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{c.sku_barcode}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", fontWeight: "bold" }}>{c.name}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "900", color: c.stock_quantity === 0 ? "#c62828" : "#000" }}>
-                            {c.stock_quantity}
+                            {formatQty(c.stock_quantity)}
                           </td>
-                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center" }}>{c.min_stock_alert}</td>
+                          <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center" }}>{formatQty(c.min_stock_alert)}</td>
                           <td style={{ padding: "2.5px 4px", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold", color: c.stock_quantity === 0 ? "#c62828" : "#f57f17" }}>
                             {c.stock_quantity === 0 ? "AGOTADO" : "BAJO MÍNIMO"}
                           </td>

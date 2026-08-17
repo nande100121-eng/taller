@@ -86,6 +86,27 @@ Tablas con encabezados oscuros, fuentes legibles, badges de estado redondeados y
 - **Destinatario:** Gerencia General o Directorio.
 - **Área de Texto de Observaciones:** Campo libre donde el responsable puede anotar incidencias o justificaciones antes de imprimir.
 
+### 3.6 Formateo Obligatorio: Separación de Miles y Moneda en Soles (S/)
+Todos los números, cantidades físicas y montos en soles mostrados tanto en la interfaz interactiva como en la hoja de impresión A4 DEBEN formatearse obligatoriamente con separadores de miles:
+```tsx
+// Helper estándar para Soles (S/)
+export const formatPEN = (amount: number) => {
+  const safe = isNaN(amount) ? 0 : amount;
+  return safe.toLocaleString("es-PE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+// Helper estándar para Cantidades / Unidades
+export const formatQty = (qty: number) => {
+  const safe = isNaN(qty) ? 0 : qty;
+  return safe.toLocaleString("es-PE");
+};
+```
+* **Prohibido:** Mostrar números planos sin comas de miles (ej. `5860` o `S/ 692044937.72`).
+* **Correcto:** `5,860 unid.` y `S/ 69,204.50`.
+
 ---
 
 ## 4. Estándar de Impresión y Exportación PDF (A4 Formal)
