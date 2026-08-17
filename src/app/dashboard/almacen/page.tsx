@@ -553,13 +553,14 @@ export default function AlmacenPage() {
     return dateStr.slice(0, 10);
   };
 
-  // Group work orders with items by vehicle plate
+  // Group work orders with physical warehouse items by vehicle plate (Services are excluded from warehouse dispatch)
   const allVehiclePartGroups = workOrders
-    .filter((wo) => wo.items && wo.items.length > 0)
+    .filter((wo) => wo.items && wo.items.some((i) => i.item_type !== "servicio"))
     .map((wo) => {
       const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
       const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
       const dateKey = extractDateKey(wo.entry_time);
+      const physicalParts = (wo.items || []).filter((i) => i.item_type !== "servicio");
 
       return {
         orderId: wo.id,
@@ -573,7 +574,7 @@ export default function AlmacenPage() {
         fuel_type: vehicle?.fuel_type || "",
         ownerName: vehicle?.owner_name || "",
         techName: tech?.full_name || wo.assigned_technician_id || "Técnico No Asignado",
-        items: wo.items,
+        items: physicalParts,
       };
     });
 
@@ -620,7 +621,7 @@ export default function AlmacenPage() {
   });
   const matchingMigratedPendingItemsCount = matchingMigratedOrders
     .flatMap((o) => o.items)
-    .filter((i) => !i.dispatched).length;
+    .filter((i) => i.item_type !== "servicio" && !i.dispatched).length;
 
   const handleSearchIngresoSku = (codeToSearch?: string) => {
     const raw = (codeToSearch ?? ingresoSku).trim();

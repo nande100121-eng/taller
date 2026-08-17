@@ -1328,12 +1328,15 @@ export const useAppStore = create<AppState>()(
           workOrders: state.workOrders.map((o) => {
             if (o.id !== orderId) return o;
             const subtotal = item.quantity * item.unit_price;
+            const isService = item.item_type === "servicio";
+            const nowISO = new Date().toISOString();
             const newItem: WorkOrderItem = {
               ...item,
               id: `item-${Date.now()}`,
               subtotal,
-              dispatched: false,
-              requested_at: new Date().toISOString(),
+              dispatched: isService ? true : false,
+              dispatched_at: isService ? nowISO : undefined,
+              requested_at: nowISO,
             };
             const updatedOrder = {
               ...o,
