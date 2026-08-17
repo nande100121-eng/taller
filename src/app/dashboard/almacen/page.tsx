@@ -54,7 +54,7 @@ export default function AlmacenPage() {
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
 
   // Inventory Filter & Low Stock Filter State
-  const [stockFilter, setStockFilter] = useState<"todos" | "bajo" | "critico">("todos");
+  const [stockFilter, setStockFilter] = useState<"todos" | "bajo" | "critico" | "errores" | "no_validado">("todos");
   const [inventorySearch, setInventorySearch] = useState("");
   const deferredInventorySearch = React.useDeferredValue(inventorySearch);
   const [inventoryPage, setInventoryPage] = useState(1);
@@ -341,25 +341,37 @@ export default function AlmacenPage() {
       const rows = parseCSVRows(rawText);
       const parsedItems: Omit<InventoryItem, "id">[] = [];
 
+      const parseNumber = (val?: string, fallback = 0) => {
+        if (!val) return fallback;
+        const clean = val.trim().replace(/[^0-9.-]/g, "");
+        const num = parseFloat(clean);
+        return isNaN(num) ? fallback : num;
+      };
+
       rows.forEach((cols, idx) => {
         if (idx === 0 || cols.length === 0) return;
 
         if (cols.length >= 2) {
-          const cleanSku = cols[0].replace(/[^A-Za-z0-9_-]/g, "") || `SKU-IMP-${idx}`;
-          const cleanName = cols[1] || `Producto ${idx}`;
+          const cleanSku = (cols[0] || "").trim() || `SKU-IMP-${idx}`;
+          const cleanName = (cols[1] || "").trim() || `Producto ${idx}`;
+          const rawCounted = (cols[9] || "").trim();
+
+          const initialStock = parseNumber(cols[5], 0);
+          const currentStock = cols[8] !== undefined && cols[8].trim() !== "" ? parseNumber(cols[8], initialStock) : initialStock;
 
           parsedItems.push({
             sku_barcode: cleanSku,
             name: cleanName,
-            brand: cols[2] || "Genérico",
-            serial_number: cols[3] || "S/N",
-            unit_price: parseFloat(cols[4]?.replace(/[^0-9.]/g, "") || "") || 100,
-            initial_stock: parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 10,
-            entries: parseInt(cols[6]?.replace(/[^0-9]/g, "") || "") || 0,
-            exits: parseInt(cols[7]?.replace(/[^0-9]/g, "") || "") || 0,
-            stock_quantity: parseInt(cols[8]?.replace(/[^0-9]/g, "") || "") || (parseInt(cols[5]?.replace(/[^0-9]/g, "") || "") || 10),
-            counted_stock: parseInt(cols[9]?.replace(/[^0-9]/g, "") || "") || (parseInt(cols[8]?.replace(/[^0-9]/g, "") || "") || 10),
-            category: "Importación Excel",
+            brand: (cols[2] || "").trim(),
+            serial_number: (cols[3] || "").trim(),
+            unit_price: parseNumber(cols[4], 0),
+            initial_stock: initialStock,
+            entries: parseNumber(cols[6], 0),
+            exits: parseNumber(cols[7], 0),
+            stock_quantity: currentStock,
+            counted_status: rawCounted || "NO CONTADO",
+            counted_stock: !isNaN(Number(rawCounted)) && rawCounted !== "" ? parseFloat(rawCounted) : undefined,
+            category: "Repuestos",
             min_stock_alert: 2,
           });
         }
@@ -438,6 +450,65 @@ export default function AlmacenPage() {
       notes: "Uso en bahía de diagnóstico",
     });
   };
+
+  // Inventory Filtering & Pagination Calculations
+  const errorStockItems = inventoryItems.filter(
+    (item) => typeof item.stock_quantity === "number" && item.stock_quantity < 0
+  );
+  const unvalidatedItems = inventoryItems.filter(
+    (item) =>
+      !item.counted_status ||
+      item.counted_status.trim().toUpperCase() === "NO CONTADO" ||
+      item.counted_status.trim().toUpperCase().includes("NO") ||
+      item.counted_status.trim().toUpperCase().includes("PENDIENTE")
+  );
+  const lowStockItems = inventoryItems.filter(
+    (item) => item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert
+  );
+  const criticalStockItems = inventoryItems.filter(
+    (item) => item.stock_quantity === 0
+  );
+
+  const displayInventoryItems = inventoryItems
+    .filter((item) => {
+      const matchesSearch =
+        !deferredInventorySearch ||
+        item.name.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
+        item.sku_barcode.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
+        (item.brand || "").toLowerCase().includes(deferredInventorySearch.toLowerCase());
+
+      const matchesStock =
+        stockFilter === "todos"
+          ? true
+          : stockFilter === "errores"
+          ? item.stock_quantity < 0
+          : stockFilter === "no_validado"
+          ? !item.counted_status ||
+            item.counted_status.trim().toUpperCase() === "NO CONTADO" ||
+            item.counted_status.trim().toUpperCase().includes("NO") ||
+            item.counted_status.trim().toUpperCase().includes("PENDIENTE")
+          : stockFilter === "bajo"
+          ? item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert
+          : stockFilter === "critico"
+          ? item.stock_quantity === 0
+          : true;
+
+      return matchesSearch && matchesStock;
+    })
+    .sort((a, b) =>
+      (a.sku_barcode || "").localeCompare(b.sku_barcode || "", undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+
+  const totalInventoryItems = displayInventoryItems.length;
+  const totalInventoryPages = Math.ceil(totalInventoryItems / INVENTORY_ITEMS_PER_PAGE) || 1;
+  const startInvIndex = (inventoryPage - 1) * INVENTORY_ITEMS_PER_PAGE;
+  const paginatedInventoryItems = displayInventoryItems.slice(
+    startInvIndex,
+    startInvIndex + INVENTORY_ITEMS_PER_PAGE
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -638,50 +709,10 @@ export default function AlmacenPage() {
       )}
 
       {/* TAB 2: INVENTARIO & STOCK CON SELECCION MULTIPLE, FILTRO DE BAJO STOCK Y LIMPIEZA */}
-      {activeTab === "inventario" && (() => {
-        const lowStockItems = inventoryItems.filter(
-          (item) => item.stock_quantity <= item.min_stock_alert
-        );
-        const criticalStockItems = inventoryItems.filter(
-          (item) => item.stock_quantity === 0
-        );
-
-        const displayInventoryItems = inventoryItems
-          .filter((item) => {
-            const matchesSearch =
-              !deferredInventorySearch ||
-              item.name.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
-              item.sku_barcode.toLowerCase().includes(deferredInventorySearch.toLowerCase()) ||
-              (item.brand || "").toLowerCase().includes(deferredInventorySearch.toLowerCase());
-
-            const matchesStock =
-              stockFilter === "todos"
-                ? true
-                : stockFilter === "bajo"
-                ? item.stock_quantity <= item.min_stock_alert
-                : item.stock_quantity === 0;
-
-            return matchesSearch && matchesStock;
-          })
-          .sort((a, b) =>
-            (a.sku_barcode || "").localeCompare(b.sku_barcode || "", undefined, {
-              numeric: true,
-              sensitivity: "base",
-            })
-          );
-
-        const totalInventoryItems = displayInventoryItems.length;
-        const totalInventoryPages = Math.ceil(totalInventoryItems / INVENTORY_ITEMS_PER_PAGE) || 1;
-        const startInvIndex = (inventoryPage - 1) * INVENTORY_ITEMS_PER_PAGE;
-        const paginatedInventoryItems = displayInventoryItems.slice(
-          startInvIndex,
-          startInvIndex + INVENTORY_ITEMS_PER_PAGE
-        );
-
-        return (
-          <div className="space-y-6">
-            {/* ALERT BANNER FOR LOW OR CRITICAL STOCK MATERIALS */}
-            {lowStockItems.length > 0 && (
+      {activeTab === "inventario" && (
+        <div className="space-y-6">
+            {/* ALERT BANNER FOR NEGATIVE, LOW OR CRITICAL STOCK MATERIALS */}
+            {(errorStockItems.length > 0 || lowStockItems.length > 0) && (
               <div className="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shrink-0">
@@ -689,28 +720,48 @@ export default function AlmacenPage() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
-                      <span>⚠️ Alerta de Reabastecimiento de Almacén</span>
+                      <span>⚠️ Alerta de Almacén & Stock</span>
+                      {errorStockItems.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
+                          {errorStockItems.length} con Stock Negativo
+                        </span>
+                      )}
                       <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
-                        {lowStockItems.length} {lowStockItems.length === 1 ? "Material" : "Materiales"}
+                        {lowStockItems.length} con Stock Bajo
                       </span>
                     </h3>
                     <p className="text-xs text-amber-200/90 font-medium">
-                      Existen {lowStockItems.length} repuestos o materiales con stock igual o inferior al límite mínimo permitido ({criticalStockItems.length} agotados).
+                      Existen {errorStockItems.length} ítems con error de stock negativo y {lowStockItems.length} materiales con stock bajo o agotado.
                     </p>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setStockFilter(stockFilter === "bajo" ? "todos" : "bajo")}
-                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
-                    stockFilter === "bajo"
-                      ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
-                      : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
-                  }`}
-                >
-                  <Filter className="w-3.5 h-3.5" />
-                  <span>{stockFilter === "bajo" ? "Mostrando Solo Stock Bajo ✓" : "🔍 Filtrar Solo Stock Bajo"}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  {errorStockItems.length > 0 && (
+                    <button
+                      onClick={() => setStockFilter(stockFilter === "errores" ? "todos" : "errores")}
+                      className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
+                        stockFilter === "errores"
+                          ? "bg-red-600 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400"
+                          : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40"
+                      }`}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>{stockFilter === "errores" ? "Viendo Errores Negativos ✓" : "Ver Errores Negativos"}</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setStockFilter(stockFilter === "bajo" ? "todos" : "bajo")}
+                    className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
+                      stockFilter === "bajo"
+                        ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
+                        : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
+                    }`}
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>{stockFilter === "bajo" ? "Viendo Stock Bajo ✓" : "Ver Stock Bajo"}</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -722,7 +773,7 @@ export default function AlmacenPage() {
                     <span>Catálogo de Inventario de Almacén</span>
                   </h2>
                   <p className="text-xs text-gray-400">
-                    Selección por casillas (checkboxes), alerta de bajo stock, filtro por estado de inventario y vaciado completo.
+                    Filtro de errores negativos, ítems no validados, stock bajo y vaciado de base de datos.
                   </p>
                 </div>
 
@@ -779,7 +830,7 @@ export default function AlmacenPage() {
               </div>
 
               {/* SEARCH & LOW/CRITICAL STOCK FILTER TOOLBAR */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
                 <div className="relative flex-1 max-w-md">
                   <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -792,7 +843,7 @@ export default function AlmacenPage() {
                 </div>
 
                 {/* Quick Stock Filter Tabs */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => setStockFilter("todos")}
                     className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
@@ -805,26 +856,49 @@ export default function AlmacenPage() {
                   </button>
 
                   <button
+                    onClick={() => setStockFilter("errores")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                      stockFilter === "errores"
+                        ? "bg-red-600 text-white border-red-500 shadow-md font-black ring-2 ring-red-400"
+                        : "bg-red-950/40 text-red-300 border-red-500/40 hover:bg-red-950/70"
+                    }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                    <span>⚠️ Errores / Negativos ({errorStockItems.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setStockFilter("no_validado")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
+                      stockFilter === "no_validado"
+                        ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
+                        : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    <span>📋 No Validado ({unvalidatedItems.length})</span>
+                  </button>
+
+                  <button
                     onClick={() => setStockFilter("bajo")}
                     className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
                       stockFilter === "bajo"
                         ? "bg-amber-500 text-black border-amber-400 shadow-md font-black"
-                        : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                        : "bg-amber-950/20 text-amber-300/80 border-amber-500/30 hover:bg-amber-950/50"
                     }`}
                   >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>⚠️ Stock Bajo / Crítico ({lowStockItems.length})</span>
+                    <span>Stock Bajo ({lowStockItems.length})</span>
                   </button>
 
                   <button
                     onClick={() => setStockFilter("critico")}
                     className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
                       stockFilter === "critico"
-                        ? "bg-red-600 text-white border-red-500 shadow-md font-black"
-                        : "bg-red-950/40 text-red-300 border-red-500/40 hover:bg-red-950/70"
+                        ? "bg-gray-700 text-white border-gray-500 shadow-md font-black"
+                        : "bg-reygas-surface text-gray-400 border-white/10 hover:text-white"
                     }`}
                   >
-                    <span>🚫 Agotados ({criticalStockItems.length})</span>
+                    <span>Agotados ({criticalStockItems.length})</span>
                   </button>
                 </div>
               </div>
@@ -867,7 +941,11 @@ export default function AlmacenPage() {
                         <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
                           <Package className="w-10 h-10 text-gray-600 mx-auto" />
                           <p className="font-bold text-sm">
-                            {stockFilter === "bajo"
+                            {stockFilter === "errores"
+                              ? "No se encontraron materiales con stock negativo."
+                              : stockFilter === "no_validado"
+                              ? "No hay materiales pendientes de validación / no contados."
+                              : stockFilter === "bajo"
                               ? "No hay materiales con stock bajo o crítico."
                               : stockFilter === "critico"
                               ? "No hay materiales agotados en 0."
@@ -880,7 +958,8 @@ export default function AlmacenPage() {
                       </tr>
                     ) : (
                       paginatedInventoryItems.map((item, idx) => {
-                        const isLow = item.stock_quantity <= item.min_stock_alert;
+                        const isLow = item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert;
+                        const isNegative = typeof item.stock_quantity === "number" && item.stock_quantity < 0;
                         const isSelected = selectedRowIds.includes(item.id);
                         const globalIdx = startInvIndex + idx + 1;
 
@@ -888,7 +967,11 @@ export default function AlmacenPage() {
                         <tr
                           key={item.id}
                           className={`transition-colors ${
-                            isSelected ? "bg-emerald-950/30" : "hover:bg-white/5"
+                            isNegative
+                              ? "bg-red-950/20 hover:bg-red-950/40"
+                              : isSelected
+                              ? "bg-emerald-950/30"
+                              : "hover:bg-white/5"
                           }`}
                         >
                           <td className="p-3 text-center">
@@ -920,21 +1003,21 @@ export default function AlmacenPage() {
                           </td>
                           <td
                             className="p-3 text-gray-300 max-w-[120px] truncate"
-                            title={item.brand || "Genérico"}
+                            title={item.brand || ""}
                           >
-                            {item.brand || "Genérico"}
+                            {item.brand || ""}
                           </td>
                           <td
                             className="p-3 font-mono text-gray-400 max-w-[120px] truncate"
-                            title={item.serial_number || "S/N"}
+                            title={item.serial_number || ""}
                           >
-                            {item.serial_number || "S/N"}
+                            {item.serial_number || ""}
                           </td>
                           <td className="p-3 font-bold text-white font-mono">
                             S/ {(item.unit_price || 0).toFixed(2)}
                           </td>
                           <td className="p-3 font-mono text-gray-300">
-                            {item.initial_stock ?? item.stock_quantity}
+                            {item.initial_stock !== undefined ? item.initial_stock : item.stock_quantity}
                           </td>
                           <td className="p-3 font-mono text-emerald-400 font-bold">
                             +{item.entries || 0}
@@ -945,17 +1028,39 @@ export default function AlmacenPage() {
                           <td className="p-3">
                             <span
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${
-                                isLow
-                                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                isNegative
+                                  ? "bg-red-600/30 text-red-400 border border-red-500 font-black shadow-sm"
+                                  : isLow
+                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                                   : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                               }`}
                             >
-                              {isLow && <AlertTriangle className="w-3 h-3" />}
+                              {isNegative ? (
+                                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                              ) : isLow ? (
+                                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                              ) : null}
                               {item.stock_quantity} unids
                             </span>
                           </td>
-                          <td className="p-3 font-mono text-gray-200">
-                            {item.counted_stock ?? item.stock_quantity}
+                          <td className="p-3 font-mono">
+                            {item.counted_status ? (
+                              item.counted_status.trim().toUpperCase() === "NO CONTADO" ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 text-[11px]">
+                                  NO CONTADO
+                                </span>
+                              ) : item.counted_status.trim().toUpperCase() === "CONTADO" ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 text-[11px]">
+                                  CONTADO
+                                </span>
+                              ) : (
+                                <span className="text-gray-200">{item.counted_status}</span>
+                              )
+                            ) : item.counted_stock !== undefined ? (
+                              <span className="text-gray-300">{item.counted_stock}</span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
                           </td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -985,43 +1090,34 @@ export default function AlmacenPage() {
 
             {/* Inventory Pagination Controls */}
             {totalInventoryPages > 1 && (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl glass-panel border border-white/10 text-xs">
-                <span className="text-gray-400 font-medium">
-                  Mostrando del{" "}
-                  <strong className="text-white font-mono">{startInvIndex + 1}</strong> al{" "}
-                  <strong className="text-white font-mono">
-                    {Math.min(startInvIndex + INVENTORY_ITEMS_PER_PAGE, totalInventoryItems)}
-                  </strong>{" "}
-                  de <strong className="text-emerald-400 font-mono">{totalInventoryItems}</strong> materiales
+              <div className="flex items-center justify-between gap-4 border-t border-white/10 pt-4 text-xs text-gray-400">
+                <span>
+                  Mostrando {startInvIndex + 1} - {Math.min(startInvIndex + INVENTORY_ITEMS_PER_PAGE, totalInventoryItems)} de {totalInventoryItems} ítems
                 </span>
-
                 <div className="flex items-center gap-2">
                   <button
+                    disabled={inventoryPage <= 1}
                     onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
-                    disabled={inventoryPage === 1}
-                    className="px-3 py-1.5 rounded-lg bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold border border-white/10 transition-all touch-target"
+                    className="px-3 py-1.5 bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 text-white rounded-lg border border-white/10 transition-colors"
                   >
-                    ◀ Anterior
+                    Anterior
                   </button>
-
-                  <span className="px-3 py-1.5 rounded-lg bg-reygas-dark text-emerald-400 font-mono font-bold border border-emerald-500/30">
+                  <span className="font-bold text-white">
                     Página {inventoryPage} de {totalInventoryPages}
                   </span>
-
                   <button
+                    disabled={inventoryPage >= totalInventoryPages}
                     onClick={() => setInventoryPage((p) => Math.min(totalInventoryPages, p + 1))}
-                    disabled={inventoryPage === totalInventoryPages}
-                    className="px-3 py-1.5 rounded-lg bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold border border-white/10 transition-all touch-target"
+                    className="px-3 py-1.5 bg-reygas-surface hover:bg-gray-700 disabled:opacity-40 text-white rounded-lg border border-white/10 transition-colors"
                   >
-                    Siguiente ▶
+                    Siguiente
                   </button>
                 </div>
               </div>
             )}
           </div>
         </div>
-      );
-    })()}
+      )}
 
       {/* TAB 3: PRESTAMO HERRAMIENTAS */}
       {activeTab === "herramientas" && (

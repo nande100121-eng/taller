@@ -102,14 +102,50 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
       id: item.id,
       sku_barcode: item.sku_barcode,
       name: item.name,
-      category: item.category,
-      stock_quantity: item.stock_quantity,
-      unit_price: item.unit_price,
-      min_stock_alert: item.min_stock_alert,
+      brand: item.brand || null,
+      serial_number: item.serial_number || null,
+      category: item.category || "Repuestos",
+      stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
+      initial_stock: typeof item.initial_stock === "number" ? item.initial_stock : null,
+      entries: typeof item.entries === "number" ? item.entries : 0,
+      exits: typeof item.exits === "number" ? item.exits : 0,
+      counted_stock: typeof item.counted_stock === "number" ? item.counted_stock : null,
+      counted_status: item.counted_status || null,
+      unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
+      min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
     });
     if (error) console.warn("Supabase inventory save warning:", error.message);
   } catch (err) {
     console.warn("Supabase inventory deferred:", err);
+  }
+}
+
+export async function saveSupabaseBulkInventory(items: InventoryItem[]) {
+  try {
+    const CHUNK_SIZE = 150;
+    const payload = items.map((item) => ({
+      id: item.id,
+      sku_barcode: item.sku_barcode,
+      name: item.name,
+      brand: item.brand || null,
+      serial_number: item.serial_number || null,
+      category: item.category || "Repuestos",
+      stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
+      initial_stock: typeof item.initial_stock === "number" ? item.initial_stock : null,
+      entries: typeof item.entries === "number" ? item.entries : 0,
+      exits: typeof item.exits === "number" ? item.exits : 0,
+      counted_stock: typeof item.counted_stock === "number" ? item.counted_stock : null,
+      counted_status: item.counted_status || null,
+      unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
+      min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
+    }));
+    for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
+      const chunk = payload.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase.from("inventory_items").upsert(chunk);
+      if (error) console.warn("Supabase bulk inventory save warning:", error.message);
+    }
+  } catch (err) {
+    console.warn("Supabase bulk inventory deferred:", err);
   }
 }
 

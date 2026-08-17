@@ -27,6 +27,7 @@ import {
   deleteSupabaseMultipleScheduleRecords,
   clearSupabaseScheduleRecords,
   saveSupabaseBulkScheduleRecords,
+  saveSupabaseBulkInventory,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 
@@ -303,6 +304,7 @@ export interface InventoryItem {
   exits?: number;
   stock_quantity: number; // Stock Vigente
   counted_stock?: number;
+  counted_status?: string; // CONTADOS (e.g. "NO CONTADO", "CONTADO", or exact string from CSV)
   min_stock_alert: number;
 }
 
@@ -1458,7 +1460,7 @@ export const useAppStore = create<AppState>()(
           ...item,
           id: `inv-${Date.now()}-${idx}`,
         }));
-        newItems.forEach((i) => saveSupabaseInventoryItem(i));
+        saveSupabaseBulkInventory(newItems);
         set((state) => ({
           inventoryItems: [...state.inventoryItems, ...newItems],
         }));

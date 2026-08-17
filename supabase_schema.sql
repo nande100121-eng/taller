@@ -84,7 +84,14 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
 );
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS sku_barcode TEXT;
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS category TEXT;
-ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS stock_quantity INT DEFAULT 0;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS brand TEXT;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS serial_number TEXT;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS initial_stock NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS entries NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS exits NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC(10,2) DEFAULT 0;
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS counted_stock NUMERIC(10,2);
+ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS counted_status TEXT;
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2) DEFAULT 0;
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS min_stock_alert INT DEFAULT 0;
 ALTER TABLE public.inventory_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
