@@ -30,7 +30,9 @@ import {
   Filter,
   Gauge,
   HelpCircle,
-  Trash2
+  Trash2,
+  ShoppingBag,
+  Package
 } from "lucide-react";
 import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 
@@ -75,7 +77,8 @@ export default function PorteriaPage() {
     });
   };
 
-  // Form for vehicle entry
+  // Form for vehicle entry or direct parts sale
+  const [isVentaDirecta, setIsVentaDirecta] = useState(false);
   const [entryDate, setEntryDate] = useState<string>(selectedDate);
   const [entryTime, setEntryTime] = useState<string>(getCurrentPeruTime());
   const [entryForm, setEntryForm] = useState({
@@ -360,9 +363,14 @@ export default function PorteriaPage() {
    */
   const handleRegisterEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    const plate = entryForm.plate.toUpperCase().trim();
-    if (!plate) {
+    const plate = isVentaDirecta ? "VENTA" : entryForm.plate.toUpperCase().trim();
+    if (!isVentaDirecta && !plate) {
       showAlert("warning", "Ingrese una placa válida.");
+      return;
+    }
+
+    if (isVentaDirecta && !entryForm.problem_description.trim()) {
+      showAlert("warning", "Ingrese el motivo o detalle de los repuestos a vender.");
       return;
     }
 
@@ -370,17 +378,17 @@ export default function PorteriaPage() {
     const finalTime = entryTime || getCurrentPeruTime();
     const chosenDateTimeISO = buildPeruISOString(entryDate || selectedDate, finalTime);
 
-    // 1. Register or update vehicle
+    // 1. Register or update vehicle (for direct parts sales, registers under standard VENTA plate)
     registerVehicle({
       plate,
-      brand: entryForm.brand || "Automóvil",
-      model: entryForm.model || "Genérico",
-      year: Number(entryForm.year) || 2023,
-      color: entryForm.color || "Plata",
-      fuel_type: entryForm.fuel_type,
-      owner_name: entryForm.owner_name || "Cliente Taller",
-      owner_phone: entryForm.owner_phone || "+51 987654321",
-      current_mileage: Number(entryForm.current_mileage) || 0,
+      brand: isVentaDirecta ? "VENTA DE REPUESTOS" : (entryForm.brand || "Automóvil"),
+      model: isVentaDirecta ? "MOSTRADOR" : (entryForm.model || "Genérico"),
+      year: isVentaDirecta ? 2025 : (Number(entryForm.year) || 2023),
+      color: isVentaDirecta ? "Sin Vehículo" : (entryForm.color || "Plata"),
+      fuel_type: isVentaDirecta ? "GNV" : entryForm.fuel_type,
+      owner_name: entryForm.owner_name.trim() || (isVentaDirecta ? "Cliente Mostrador / Venta" : "Cliente Taller"),
+      owner_phone: entryForm.owner_phone.trim() || (isVentaDirecta ? "-" : "+51 987654321"),
+      current_mileage: isVentaDirecta ? 0 : (Number(entryForm.current_mileage) || 0),
       last_visit_date: chosenDateTimeISO,
     });
 
@@ -388,16 +396,20 @@ export default function PorteriaPage() {
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
-      problem_description: entryForm.problem_description.trim() || "Ingreso para mantenimiento general y revisión",
+      problem_description: entryForm.problem_description.trim() || (isVentaDirecta ? "Venta directa de repuestos al mostrador" : "Ingreso para mantenimiento general y revisión"),
       entry_time: chosenDateTimeISO,
     });
 
-    showAlert("success", `¡Ingreso del vehículo ${plate} registrado a las ${finalTime} para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
+    if (isVentaDirecta) {
+      showAlert("success", `¡Venta de repuesto registrada bajo código VENTA a las ${finalTime} y enviada a Taller/Caja con OT abierta!`);
+    } else {
+      showAlert("success", `¡Ingreso del vehículo ${plate} registrado a las ${finalTime} para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
+    }
 
     // Reset form
     setEntryTime(getCurrentPeruTime());
     setEntryForm({
-      plate: "",
+      plate: isVentaDirecta ? "VENTA" : "",
       brand: "",
       model: "",
       year: 2023,
@@ -667,21 +679,72 @@ export default function PorteriaPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Entry Registration Form (5 cols) */}
-        <div className="lg:col-span-5 glass-panel p-6 rounded-3xl border border-white/10 space-y-6 shadow-2xl">
+        <div className="lg:col-span-5 glass-panel p-6 rounded-3xl border border-white/10 space-y-5 shadow-2xl">
           <div className="flex items-center justify-between border-b border-white/10 pb-3">
             <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-red-500/20 text-red-400">
-                <Car className="w-5 h-5" />
+              <div className={`p-2 rounded-xl ${isVentaDirecta ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
+                {isVentaDirecta ? <ShoppingBag className="w-5 h-5" /> : <Car className="w-5 h-5" />}
               </div>
               <div>
-                <h2 className="text-lg font-black text-white">Registrar Ingreso de Vehículo</h2>
-                <p className="text-[11px] text-gray-400">Apertura inmediata de orden de trabajo en Taller.</p>
+                <h2 className="text-lg font-black text-white">
+                  {isVentaDirecta ? "Registrar Venta de Repuesto" : "Registrar Ingreso de Vehículo"}
+                </h2>
+                <p className="text-[11px] text-gray-400">
+                  {isVentaDirecta ? "Apertura de OT para venta directa al mostrador / recomendado." : "Apertura inmediata de orden de trabajo en Taller."}
+                </p>
               </div>
             </div>
-            <span className="text-[10px] px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-gray-300 font-mono font-bold">
-              Búsqueda Automática
+            <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-bold border ${
+              isVentaDirecta ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-gray-300 border-white/10"
+            }`}>
+              {isVentaDirecta ? "Venta Mostrador" : "Búsqueda Auto"}
             </span>
           </div>
+
+          {/* Toggle Tipo de Registro: Vehículo vs Venta Directa */}
+          <div className="grid grid-cols-2 p-1 bg-black/60 rounded-2xl border border-white/15 text-xs font-black">
+            <button
+              type="button"
+              onClick={() => {
+                setIsVentaDirecta(false);
+                setEntryForm((prev) => ({ ...prev, plate: "" }));
+              }}
+              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                !isVentaDirecta
+                  ? "bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-lg shadow-red-600/30"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <Car className="w-4 h-4 shrink-0" />
+              <span>🚗 Ingreso Vehículo</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsVentaDirecta(true);
+                setEntryForm((prev) => ({ ...prev, plate: "VENTA" }));
+              }}
+              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${
+                isVentaDirecta
+                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4 shrink-0" />
+              <span>📦 Venta de Repuesto</span>
+            </button>
+          </div>
+
+          {/* Info Banner if Venta Directa */}
+          {isVentaDirecta && (
+            <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-2xl text-emerald-300 text-xs flex items-center gap-2.5 animate-fadeIn">
+              <ShoppingBag className="w-4 h-4 shrink-0 text-emerald-400" />
+              <div>
+                <span className="font-black block">Modo Venta de Repuestos (Sin Vehículo)</span>
+                <span className="text-[11px] text-emerald-200/80">Código automático <strong className="text-white font-mono bg-black/50 px-1.5 py-0.5 rounded">VENTA</strong>. Solo ingrese el motivo/repuesto y cliente.</span>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleRegisterEntry} className="space-y-4">
             
@@ -713,138 +776,190 @@ export default function PorteriaPage() {
               </div>
             </div>
 
-            {/* Plate & Fuel Type */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                  Placa Vehículo *
-                </label>
-                <div className="relative">
+            {/* If NOT Venta Directa: Full Vehicle Fields */}
+            {!isVentaDirecta ? (
+              <>
+                {/* Plate & Fuel Type */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                      Placa Vehículo *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        placeholder="ABC-123"
+                        value={entryForm.plate}
+                        onChange={(e) => handlePlateChange(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-sm text-white font-mono font-black uppercase focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none pr-8 transition-all"
+                      />
+                      <Search className="w-4 h-4 text-gray-400 absolute right-3 top-3" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                      Tipo Combustible
+                    </label>
+                    <select
+                      value={entryForm.fuel_type}
+                      onChange={(e) => setEntryForm({ ...entryForm, fuel_type: e.target.value as any })}
+                      className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-sm text-white font-bold focus:border-red-400 focus:outline-none"
+                    >
+                      <option value="GNV">GNV</option>
+                      <option value="GLP">GLP</option>
+                      <option value="Gasolina">Gasolina</option>
+                      <option value="Bifuel">Bifuel</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Brand, Model, Color */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Marca</label>
+                    <input
+                      type="text"
+                      placeholder="Toyota"
+                      value={entryForm.brand}
+                      onChange={(e) => setEntryForm({ ...entryForm, brand: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Modelo</label>
+                    <input
+                      type="text"
+                      placeholder="Yaris"
+                      value={entryForm.model}
+                      onChange={(e) => setEntryForm({ ...entryForm, model: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Color</label>
+                    <input
+                      type="text"
+                      placeholder="Plata"
+                      value={entryForm.color}
+                      onChange={(e) => setEntryForm({ ...entryForm, color: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Owner, Phone, Mileage */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                      Propietario / Conductor
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Nombre Cliente"
+                      value={entryForm.owner_name}
+                      onChange={(e) => setEntryForm({ ...entryForm, owner_name: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                      Teléfono
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="+51 987654321"
+                      value={entryForm.owner_phone}
+                      onChange={(e) => setEntryForm({ ...entryForm, owner_phone: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                      Kilometraje (km)
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      value={entryForm.current_mileage || ""}
+                      onChange={(e) => setEntryForm({ ...entryForm, current_mileage: Number(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none font-medium"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* If Venta Directa: Simplified Client Details */
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-black/40 rounded-2xl border border-white/10">
+                <div>
+                  <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                    Cliente / Recomendado por (Opcional)
+                  </label>
                   <input
                     type="text"
-                    required
-                    placeholder="ABC-123"
-                    value={entryForm.plate}
-                    onChange={(e) => handlePlateChange(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-sm text-white font-mono font-black uppercase focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none pr-8 transition-all"
+                    placeholder="Nombre del comprador..."
+                    value={entryForm.owner_name}
+                    onChange={(e) => setEntryForm({ ...entryForm, owner_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 focus:outline-none font-medium"
                   />
-                  <Search className="w-4 h-4 text-gray-400 absolute right-3 top-3" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                    Teléfono WhatsApp (Opcional)
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="+51 987654321"
+                    value={entryForm.owner_phone}
+                    onChange={(e) => setEntryForm({ ...entryForm, owner_phone: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 focus:outline-none font-medium"
+                  />
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                  Tipo Combustible
-                </label>
-                <select
-                  value={entryForm.fuel_type}
-                  onChange={(e) => setEntryForm({ ...entryForm, fuel_type: e.target.value as any })}
-                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-sm text-white font-bold focus:border-red-400 focus:outline-none"
-                >
-                  <option value="GNV">GNV</option>
-                  <option value="GLP">GLP</option>
-                  <option value="Gasolina">Gasolina</option>
-                  <option value="Bifuel">Bifuel</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Brand, Model, Color */}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Marca</label>
-                <input
-                  type="text"
-                  placeholder="Toyota"
-                  value={entryForm.brand}
-                  onChange={(e) => setEntryForm({ ...entryForm, brand: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Modelo</label>
-                <input
-                  type="text"
-                  placeholder="Yaris"
-                  value={entryForm.model}
-                  onChange={(e) => setEntryForm({ ...entryForm, model: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Color</label>
-                <input
-                  type="text"
-                  placeholder="Plata"
-                  value={entryForm.color}
-                  onChange={(e) => setEntryForm({ ...entryForm, color: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-            </div>
-
-            {/* Owner, Phone, Mileage */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="sm:col-span-1">
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                  Propietario / Conductor
-                </label>
-                <input
-                  type="text"
-                  placeholder="Nombre Cliente"
-                  value={entryForm.owner_name}
-                  onChange={(e) => setEntryForm({ ...entryForm, owner_name: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-              <div className="sm:col-span-1">
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                  Teléfono
-                </label>
-                <input
-                  type="tel"
-                  placeholder="+51 987654321"
-                  value={entryForm.owner_phone}
-                  onChange={(e) => setEntryForm({ ...entryForm, owner_phone: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-              <div className="sm:col-span-1">
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                  Kilometraje (km)
-                </label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={entryForm.current_mileage || ""}
-                  onChange={(e) => setEntryForm({ ...entryForm, current_mileage: Number(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none font-medium"
-                />
-              </div>
-            </div>
-
-            {/* Reason for entry */}
+            {/* Reason for entry / Repuestos a vender */}
             <div>
               <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                Motivo de Ingreso / Falla Reportada *
+                {isVentaDirecta ? "Detalle de Repuestos a Vender / Motivo *" : "Motivo de Ingreso / Falla Reportada *"}
               </label>
               <textarea
-                rows={3}
+                rows={isVentaDirecta ? 3 : 2}
                 required
-                placeholder="Especifique el motivo de ingreso del vehículo (ej: Mantenimiento 5ta gen, calibración, revisión de fuga, cambio de filtros, etc.)..."
+                placeholder={
+                  isVentaDirecta
+                    ? "Ej: 2 CONECTORES SENSOR MAP JAC-REFINE, 1 FILTRO DE GAS, 4 BUJIAS, etc."
+                    : "Especifique el motivo de ingreso del vehículo (ej: Mantenimiento 5ta gen, calibración, revisión de fuga, cambio de filtros, etc.)..."
+                }
                 value={entryForm.problem_description}
                 onChange={(e) => setEntryForm({ ...entryForm, problem_description: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white placeholder-gray-500 focus:border-red-400 focus:outline-none transition-colors leading-relaxed font-medium"
+                className={`w-full px-3.5 py-2.5 bg-reygas-surface border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none transition-colors leading-relaxed font-medium ${
+                  isVentaDirecta ? "border-emerald-500/40 focus:border-emerald-400" : "border-white/15 focus:border-red-400"
+                }`}
               />
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full py-3.5 bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black rounded-2xl text-sm transition-transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-xl shadow-red-600/30"
+              className={`w-full py-3.5 font-black rounded-2xl text-sm transition-transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-xl ${
+                isVentaDirecta
+                  ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-600/30"
+                  : "bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-red-600/30"
+              }`}
             >
-              <Plus className="w-5 h-5" />
-              <span>Registrar Ingreso y Abrir OT</span>
+              {isVentaDirecta ? (
+                <>
+                  <ShoppingBag className="w-5 h-5" />
+                  <span>Registrar Venta y Abrir OT</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-5 h-5" />
+                  <span>Registrar Ingreso y Abrir OT</span>
+                </>
+              )}
             </button>
           </form>
         </div>
