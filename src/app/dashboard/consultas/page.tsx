@@ -721,7 +721,7 @@ export default function ConsultasPage() {
                           )}
 
                           <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
-                            Mecánico: <strong className="text-amber-400">{tech?.full_name || "Asignado"}</strong>
+                            Mecánico: <strong className="text-amber-400">{tech?.full_name || ""}</strong>
                           </span>
                         </div>
                       </div>
@@ -986,7 +986,7 @@ export default function ConsultasPage() {
                               🔧 Trabajo / Mantenimiento Realizado:
                             </span>
                             <span className="text-xs font-bold text-gray-300 bg-black/40 px-2.5 py-1 rounded-lg">
-                              Mecánico: <strong className="text-white">{tech?.full_name || wo.assigned_technician_id || "Asignado"}</strong>
+                              Mecánico: <strong className="text-white">{tech?.full_name || wo.assigned_technician_id || ""}</strong>
                             </span>
                           </div>
                           <p className="text-sm font-bold text-white">

@@ -1474,7 +1474,7 @@ export default function CajaPage() {
                             </span>
 
                             <span className="text-xs px-2.5 py-1 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
-                              Técnico: <strong className="text-amber-400">{tech?.full_name || csvRec?.technician || "Asignado"}</strong>
+                              Técnico: <strong className="text-amber-400">{tech?.full_name || ""}</strong>
                             </span>
 
                             {wo.quinquennial_date && (
