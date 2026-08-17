@@ -832,19 +832,22 @@ export const useAppStore = create<AppState>()(
         };
         const updated = [...get().workshopServices, newService];
         set({ workshopServices: updated });
-        saveSupabaseSiteContent("workshopServices", updated);
+        saveSupabaseSiteContent("workshopServices", updated, "services");
+        saveSupabaseSiteContent("services", updated, "services");
       },
 
       updateWorkshopService: (id, updates) => {
         const updated = get().workshopServices.map((s) => (s.id === id ? { ...s, ...updates } : s));
         set({ workshopServices: updated });
-        saveSupabaseSiteContent("workshopServices", updated);
+        saveSupabaseSiteContent("workshopServices", updated, "services");
+        saveSupabaseSiteContent("services", updated, "services");
       },
 
       deleteWorkshopService: (id) => {
         const updated = get().workshopServices.filter((s) => s.id !== id);
         set({ workshopServices: updated });
-        saveSupabaseSiteContent("workshopServices", updated);
+        saveSupabaseSiteContent("workshopServices", updated, "services");
+        saveSupabaseSiteContent("services", updated, "services");
       },
 
       isSyncing: false,
@@ -907,24 +910,26 @@ export const useAppStore = create<AppState>()(
         } catch {}
       },
 
+      // Full Supabase Sync (On-Demand / Background Real-time Trigger)
       syncFromSupabase: async () => {
-        // Prevent concurrent sync calls
         if (get().isSyncing) return;
         set({ isSyncing: true });
+
         try {
           const erpData = await fetchSupabaseErpData();
-          const cmsData = erpData?.cmsData || await fetchSupabaseSiteContent();
 
-          set((state) => {
-            const updates: Partial<typeof state> = { hasSyncedOnce: true };
+          if (erpData) {
+            const updates: Partial<AppState> = { hasSyncedOnce: true };
+            const state = get();
 
-            if (cmsData && Object.keys(cmsData).length > 0) {
-              const sanitizedCms: any = {};
-              for (const [k, v] of Object.entries(cmsData)) {
-                if (v !== null && v !== undefined) {
-                  sanitizedCms[k] = v;
-                }
-              }
+            if (erpData.cmsData) {
+              const cmsData = erpData.cmsData;
+              const sanitizedCms: Partial<SiteContent> = { ...cmsData };
+              delete (sanitizedCms as any).all_inventory_records;
+              delete (sanitizedCms as any).all_technicians;
+              delete (sanitizedCms as any).all_schedule_records;
+              delete (sanitizedCms as any).master_workshop_backup;
+
               updates.siteContent = {
                 ...state.siteContent,
                 ...sanitizedCms,
@@ -970,12 +975,24 @@ export const useAppStore = create<AppState>()(
                 updates.aiSettings = { ...state.aiSettings, ...(cmsData as any).aiSettings };
               }
               // Sync Correlative Config from Supabase if present
-              if ((cmsData as any).correlativeConfig) {
-                updates.correlativeConfig = { ...state.correlativeConfig, ...(cmsData as any).correlativeConfig };
+              const rawCorrel = (cmsData as any).correlativeConfig || (cmsData as any).correlative_config;
+              if (rawCorrel && typeof rawCorrel === "object") {
+                updates.correlativeConfig = {
+                  ticketSeries: rawCorrel.ticketSeries || state.correlativeConfig?.ticketSeries || "TK01",
+                  ticketLastNumber: Number(rawCorrel.ticketLastNumber !== undefined ? rawCorrel.ticketLastNumber : (state.correlativeConfig?.ticketLastNumber || 4545)),
+                  boletaSeries: rawCorrel.boletaSeries || state.correlativeConfig?.boletaSeries || "B001",
+                  boletaLastNumber: Number(rawCorrel.boletaLastNumber !== undefined ? rawCorrel.boletaLastNumber : (state.correlativeConfig?.boletaLastNumber || 259)),
+                  facturaSeries: rawCorrel.facturaSeries || state.correlativeConfig?.facturaSeries || "F001",
+                  facturaLastNumber: Number(rawCorrel.facturaLastNumber !== undefined ? rawCorrel.facturaLastNumber : (state.correlativeConfig?.facturaLastNumber || 282)),
+                  notaCreditoSeries: rawCorrel.notaCreditoSeries || state.correlativeConfig?.notaCreditoSeries || "FC01",
+                  notaCreditoLastNumber: Number(rawCorrel.notaCreditoLastNumber !== undefined ? rawCorrel.notaCreditoLastNumber : (state.correlativeConfig?.notaCreditoLastNumber || 0)),
+                  lastUpdateDate: rawCorrel.lastUpdateDate || state.correlativeConfig?.lastUpdateDate || getPeruDateString(),
+                };
               }
               // Sync Workshop Services Catalog from Supabase if present
-              if ((cmsData as any).workshopServices && Array.isArray((cmsData as any).workshopServices)) {
-                updates.workshopServices = (cmsData as any).workshopServices;
+              const srvList = (cmsData as any).services || (cmsData as any).workshopServices || erpData?.workshopServices;
+              if (Array.isArray(srvList) && srvList.length > 0) {
+                updates.workshopServices = srvList;
               }
             }
             if (Array.isArray(erpData?.technicians) && erpData.technicians.length > 0) {
@@ -1027,8 +1044,8 @@ export const useAppStore = create<AppState>()(
               updates.workshopServices = (erpData as any).workshopServices;
             }
 
-            return updates;
-          });
+            set(updates);
+          }
         } catch (err) {
           console.warn("Supabase sync warning:", err);
         } finally {

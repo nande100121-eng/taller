@@ -1267,8 +1267,7 @@ export async function fetchSupabaseErpData() {
       finalTechnicians = fallbackTechs;
     }
 
-    const finalServices = fallbackServices;
-
+    let finalServices: any[] = [];
     const cmsData: Partial<SiteContent> = {};
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -1276,7 +1275,11 @@ export async function fetchSupabaseErpData() {
         const rawVal = row.value !== undefined ? row.value : row.content;
         if (sectionKey && rawVal !== undefined) {
           try {
-            (cmsData as any)[sectionKey] = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+            const parsed = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+            (cmsData as any)[sectionKey] = parsed;
+            if ((sectionKey === "services" || sectionKey === "workshopServices") && Array.isArray(parsed) && parsed.length > 0) {
+              finalServices = parsed;
+            }
           } catch {
             (cmsData as any)[sectionKey] = rawVal;
           }

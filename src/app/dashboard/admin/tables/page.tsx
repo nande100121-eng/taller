@@ -90,9 +90,13 @@ export default function AdminTablesPage() {
   // Active Tab
   const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios" | "programacion">("taller");
 
-  // Search filter
+  // Search and Date Filters for Master Workshop Table
   const [searchTerm, setSearchTerm] = useState("");
   const deferredSearchTerm = React.useDeferredValue(searchTerm);
+  const [timeFilter, setTimeFilter] = useState<"todos" | "hoy" | "fecha" | "rango">("todos");
+  const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
+  const [startDate, setStartDate] = useState<string>(getPeruDateString());
+  const [endDate, setEndDate] = useState<string>(getPeruDateString());
 
   // Pagination state (250 items per page for instant mobile & tablet rendering)
   const [currentPage, setCurrentPage] = useState(1);
@@ -102,7 +106,7 @@ export default function AdminTablesPage() {
   useEffect(() => {
     setCurrentPage(1);
     setPageInput("1");
-  }, [deferredSearchTerm]);
+  }, [deferredSearchTerm, timeFilter, queryDate, startDate, endDate]);
 
   useEffect(() => {
     setPageInput(currentPage.toString());
@@ -669,12 +673,28 @@ export default function AdminTablesPage() {
     return map;
   }, [vehicles]);
 
-  // Filter master records with instant memoized lookup
+  // Filter master records with instant memoized lookup and unified date filtering
   const filteredOrders = React.useMemo(() => {
-    if (!deferredSearchTerm.trim()) return workOrders;
     const term = deferredSearchTerm.trim().toUpperCase();
+    const todayPeru = getPeruDateString();
 
     return workOrders.filter((wo) => {
+      // 1. Date Filter
+      if (timeFilter !== "todos") {
+        const rawDate = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        if (timeFilter === "hoy") {
+          if (rawDate !== todayPeru) return false;
+        } else if (timeFilter === "fecha") {
+          if (rawDate !== queryDate) return false;
+        } else if (timeFilter === "rango") {
+          if (!rawDate) return false;
+          if (startDate && rawDate < startDate) return false;
+          if (endDate && rawDate > endDate) return false;
+        }
+      }
+
+      // 2. Text Search Filter
+      if (!term) return true;
       const inv = invoicesByWorkOrderId.get(wo.id);
       const veh = vehiclesByPlate.get(wo.vehicle_plate);
 
@@ -685,7 +705,7 @@ export default function AdminTablesPage() {
         (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
       );
     });
-  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, deferredSearchTerm]);
+  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, deferredSearchTerm, timeFilter, queryDate, startDate, endDate]);
 
   // Calculate Pagination slice
   const totalItems = filteredOrders.length;
@@ -950,63 +970,165 @@ export default function AdminTablesPage() {
       {/* ========================================================================= */}
       {activeTab === "taller" && (
         <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-          {/* Controls & Import Toolbar */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Buscar por placa, cliente o comprobante..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white uppercase focus:border-indigo-400 w-64"
-                />
+          {/* Date Filter Bar & Controls Toolbar */}
+          <div className="flex flex-col gap-4 border-b border-white/10 pb-4">
+            {/* Top Row: Date Navigator & Filter Mode Selector */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-black/40 p-3 rounded-2xl border border-white/5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] uppercase font-bold text-gray-400 flex items-center gap-1.5 mr-1">
+                  <Calendar className="w-4 h-4 text-indigo-400" />
+                  <span>Filtrar por Fecha:</span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter("todos")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    timeFilter === "todos"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                  }`}
+                >
+                  Histórico ({workOrders.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTimeFilter("hoy");
+                    setQueryDate(getPeruDateString());
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    timeFilter === "hoy"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                  }`}
+                >
+                  Hoy
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter("fecha")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    timeFilter === "fecha"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                  }`}
+                >
+                  Por Día Específico
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTimeFilter("rango")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    timeFilter === "rango"
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                  }`}
+                >
+                  Por Rango
+                </button>
               </div>
 
-              <button
-                onClick={() => syncFromSupabase()}
-                disabled={isSyncing}
-                className="px-3.5 py-2 bg-reygas-surface hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all flex items-center gap-1.5 shadow"
-                title="Refrescar datos manualmente desde la base de datos Supabase"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isSyncing ? "animate-spin" : ""}`} />
-                <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
-              </button>
+              {/* Date Inputs based on Filter Mode */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {timeFilter === "fecha" && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 font-bold">Fecha:</label>
+                    <input
+                      type="date"
+                      value={queryDate}
+                      onChange={(e) => setQueryDate(e.target.value)}
+                      className="px-3 py-1.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400"
+                    />
+                  </div>
+                )}
 
-              {selectedIds.length > 0 && (
-                <button
-                  onClick={triggerDeleteBulk}
-                  className="px-3.5 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-red-600/30 animate-pulse"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Eliminar Seleccionados ({selectedIds.length})</span>
-                </button>
-              )}
+                {timeFilter === "rango" && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-xs text-gray-400 font-bold">Desde:</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="px-2.5 py-1.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400"
+                    />
+                    <label className="text-xs text-gray-400 font-bold">Hasta:</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="px-2.5 py-1.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400"
+                    />
+                  </div>
+                )}
+
+                <div className="px-3 py-1 rounded-xl bg-white/5 text-[11px] font-bold text-gray-300 border border-white/10">
+                  Mostrando: <span className="text-indigo-300 font-black">{filteredOrders.length}</span> registros
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap">
-                <Upload className="w-4 h-4" />
-                <span>Cargar Excel Taller (21 Encabezados)</span>
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  onChange={handleImportFullWorkshopExcelCSV}
-                  className="hidden"
-                />
-              </label>
+            {/* Bottom Row: Text Search, Refresh, Bulk Actions & Excel Upload */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por placa, cliente o comprobante..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white uppercase focus:border-indigo-400 w-64"
+                  />
+                </div>
 
-              {workOrders.length > 0 && (
                 <button
-                  onClick={triggerClearAll}
-                  className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-300 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
-                  title="Eliminar absolutamente todos los registros de la tabla maestra"
+                  onClick={() => syncFromSupabase()}
+                  disabled={isSyncing}
+                  className="px-3.5 py-2 bg-reygas-surface hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all flex items-center gap-1.5 shadow"
+                  title="Refrescar datos manualmente desde la base de datos Supabase"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                  <span>Vaciar Todo</span>
+                  <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isSyncing ? "animate-spin" : ""}`} />
+                  <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
                 </button>
-              )}
+
+                {selectedIds.length > 0 && (
+                  <button
+                    onClick={triggerDeleteBulk}
+                    className="px-3.5 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-red-600/30 animate-pulse"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Eliminar Seleccionados ({selectedIds.length})</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap">
+                  <Upload className="w-4 h-4" />
+                  <span>Cargar Excel Taller (21 Encabezados)</span>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={handleImportFullWorkshopExcelCSV}
+                    className="hidden"
+                  />
+                </label>
+
+                {workOrders.length > 0 && (
+                  <button
+                    onClick={triggerClearAll}
+                    className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-300 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
+                    title="Eliminar absolutamente todos los registros de la tabla maestra"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    <span>Vaciar Todo</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
