@@ -1512,6 +1512,7 @@ export const useAppStore = create<AppState>()(
         deleteSupabaseWorkOrder(id);
         set((state) => ({
           workOrders: state.workOrders.filter((o) => o.id !== id),
+          invoices: state.invoices.filter((i) => i.work_order_id !== id),
         }));
       },
 
@@ -1519,6 +1520,7 @@ export const useAppStore = create<AppState>()(
         deleteSupabaseMultipleWorkOrders(ids);
         set((state) => ({
           workOrders: state.workOrders.filter((o) => !ids.includes(o.id)),
+          invoices: state.invoices.filter((i) => !i.work_order_id || !ids.includes(i.work_order_id)),
         }));
       },
 

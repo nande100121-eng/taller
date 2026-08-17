@@ -49,6 +49,7 @@ export default function WorkshopOperationsPage() {
     updateDiagnosticNotes,
     updateDiagnosticAndObservations,
     requestCertificationForWorkOrder,
+    deleteWorkOrder,
   } = useAppStore();
 
   const [timeFilter, setTimeFilter] = useState<"hoy" | "todos">("hoy");
@@ -57,6 +58,7 @@ export default function WorkshopOperationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ingresado");
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
 
   // Modals for actions
   const [activeOrderModal, setActiveOrderModal] = useState<string | null>(null);
@@ -582,9 +584,21 @@ export default function WorkshopOperationsPage() {
                   {/* Left Column: Vehicle Info */}
                   <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-white/10 pb-4 lg:pb-0 lg:pr-4">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                        {wo.vehicle_plate}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                          {wo.vehicle_plate}
+                        </span>
+                        {!isPaid && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteModalOrder({ id: wo.id, plate: wo.vehicle_plate, entryTime: wo.entry_time })}
+                            className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all cursor-pointer shadow"
+                            title="Borrar registro de ingreso erróneo (Placa / Fecha equivocada)"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                       <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
                         OT #{wo.id}
                       </span>
@@ -1497,6 +1511,67 @@ export default function WorkshopOperationsPage() {
                 className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-xs shadow-lg shadow-cyan-600/30 transition-transform hover:scale-105"
               >
                 Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ERRONEOUS ENTRY WORK ORDER CONFIRMATION MODAL */}
+      {deleteModalOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-red-500/40 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+              <div className="p-3 rounded-2xl bg-red-500/20 text-red-400 border border-red-500/30">
+                <Trash2 className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">¿Eliminar Tarjeta de Ingreso?</h3>
+                <span className="text-xs text-red-400 font-bold font-mono">
+                  Vehículo Placa: {deleteModalOrder.plate}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs text-gray-300">
+              <p>
+                Esta acción eliminará por completo la orden de trabajo <strong className="text-white font-mono">#{deleteModalOrder.id}</strong> del taller y de la base de datos.
+              </p>
+              <div className="text-amber-300 bg-amber-950/40 p-3 rounded-xl border border-amber-500/30 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Corrección de Error en Portería</span>
+                </div>
+                <p className="text-[11px] text-gray-300">
+                  Si se registró una fecha errónea, placa equivocada o ingreso duplicado, al borrarla quedará libre para registrarse nuevamente de forma correcta.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setDeleteModalOrder(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteWorkOrder(deleteModalOrder.id);
+                  const deletedPlate = deleteModalOrder.plate;
+                  setDeleteModalOrder(null);
+                  setWebAlert({
+                    open: true,
+                    title: "Tarjeta Eliminada",
+                    message: `El registro de ingreso del vehículo ${deletedPlate} ha sido eliminado correctamente del taller y liberado para nuevo registro.`,
+                  });
+                }}
+                className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Confirmar y Eliminar</span>
               </button>
             </div>
           </div>

@@ -363,7 +363,9 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
 
 export async function deleteSupabaseWorkOrder(id: string) {
   try {
+    await supabase.from("invoices").delete().eq("work_order_id", id);
     const { error } = await supabase.from("work_orders").delete().eq("id", id);
+    broadcastRealtimeChange("work_order_deleted");
     if (error) console.warn("Supabase work order delete warning:", error.message);
   } catch (err) {
     console.warn("Supabase work order delete deferred:", err);
