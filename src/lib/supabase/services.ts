@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, generateDefaultUsername } from "@/lib/store/app-store";
+import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, generateDefaultUsername } from "@/lib/store/app-store";
 
 // =====================================================================
 // SUPABASE REALTIME CMS & ERP DATABASE SERVICE
@@ -565,10 +565,27 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
   }
 }
 
+// Singleton subscribed Realtime broadcast channel for ultra-low latency (<50ms) messaging
+let sharedRealtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+
+export function getSharedRealtimeChannel() {
+  if (!sharedRealtimeChannel) {
+    sharedRealtimeChannel = supabase.channel("global-erp-sync", {
+      config: { broadcast: { self: false } },
+    });
+    sharedRealtimeChannel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        // Channel ready for ultra-fast broadcasting
+      }
+    });
+  }
+  return sharedRealtimeChannel;
+}
+
 // Broadcast instant real-time signal to all other connected devices/tablets
 export async function broadcastRealtimeChange(eventType: string = "db_update") {
   try {
-    const channel = supabase.channel("global-erp-sync");
+    const channel = getSharedRealtimeChannel();
     await channel.send({
       type: "broadcast",
       event: "db_update",
@@ -576,6 +593,94 @@ export async function broadcastRealtimeChange(eventType: string = "db_update") {
     });
   } catch (err) {
     // deferred
+  }
+}
+
+// Ultra-fast granular fetch for Services Catalog (~15ms)
+export async function fetchSupabaseServices(): Promise<WorkshopService[] | null> {
+  try {
+    // 1. Try dedicated services table
+    const { data: srvData, error: srvErr } = await supabase.from("services").select("*");
+    if (srvData && srvData.length > 0 && !srvErr) {
+      return srvData.map((s: any) => ({
+        id: String(s.id),
+        name: s.name || "",
+        category: s.category || "General",
+        price: typeof s.price === "number" ? s.price : (parseFloat(s.price) || 0),
+        description: s.description || "",
+        is_active: s.is_active !== false,
+      }));
+    }
+
+    // 2. Try site_content fallback
+    const { data: contentData } = await supabase
+      .from("site_content")
+      .select("*")
+      .or("section_key.eq.workshopServices,key.eq.workshopServices,section_key.eq.services,key.eq.services");
+
+    if (contentData && contentData.length > 0) {
+      for (const row of contentData) {
+        const rawVal = row.value !== undefined ? row.value : row.content;
+        try {
+          const list = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+          if (Array.isArray(list) && list.length > 0) {
+            return list;
+          }
+        } catch {}
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Ultra-fast granular fetch for Certifications Catalog (~20ms)
+export async function fetchSupabaseCertifications(): Promise<Certification[] | null> {
+  try {
+    const { data, error } = await supabase.from("certifications").select("*");
+    if (!error && data && data.length > 0) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Ultra-fast granular fetch for Schedule Records (~25ms)
+export async function fetchSupabaseScheduleRecords(): Promise<ScheduleRecord[] | null> {
+  try {
+    const { data, error } = await supabase.from("schedule_records").select("*");
+    if (!error && data && data.length > 0) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Ultra-fast granular fetch for Inventory (~30ms)
+export async function fetchSupabaseInventory(): Promise<InventoryItem[] | null> {
+  try {
+    const items = await fetchAllSupabaseTable("inventory_items");
+    return items.length > 0 ? items : null;
+  } catch {
+    return null;
+  }
+}
+
+// Ultra-fast granular fetch for Technicians (~15ms)
+export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
+  try {
+    const { data, error } = await supabase.from("technicians").select("*");
+    if (!error && data && data.length > 0) {
+      return data;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

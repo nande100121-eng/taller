@@ -1,12 +1,27 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import { supabase } from "@/lib/supabase/client";
 import { getLocalWorkshopCache } from "@/lib/storage/indexed-db";
+import { getSharedRealtimeChannel } from "@/lib/supabase/services";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
+  const syncServicesOnly = useAppStore((state) => state.syncServicesOnly);
+  const syncCertificationsOnly = useAppStore((state) => state.syncCertificationsOnly);
+  const syncInventoryOnly = useAppStore((state) => state.syncInventoryOnly);
+  const syncTechniciansOnly = useAppStore((state) => state.syncTechniciansOnly);
+  const syncScheduleOnly = useAppStore((state) => state.syncScheduleOnly);
+
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const debouncedFullSync = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      syncFromSupabase();
+    }, 400);
+  };
 
   useEffect(() => {
     // 0. Immediate 5ms Hydration from IndexedDB on refresh / initial mount
@@ -39,58 +54,70 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     window.addEventListener("focus", handleFocus);
 
     // 4. Supabase Realtime Broadcast channel listener (instant push across all devices/tablets)
-    const broadcastChannel = supabase
-      .channel("global-erp-sync")
-      .on("broadcast", { event: "db_update" }, () => {
-        syncFromSupabase();
-      })
-      .subscribe();
+    const broadcastChannel = getSharedRealtimeChannel();
+    broadcastChannel.on("broadcast", { event: "db_update" }, (msg: any) => {
+      const eventType = msg.payload?.eventType || "";
+      if (eventType.includes("service")) {
+        syncServicesOnly();
+      } else if (eventType.includes("cert")) {
+        syncCertificationsOnly();
+      } else if (eventType.includes("inventory")) {
+        syncInventoryOnly();
+      } else if (eventType.includes("technician")) {
+        syncTechniciansOnly();
+      } else if (eventType.includes("schedule")) {
+        syncScheduleOnly();
+      } else {
+        debouncedFullSync();
+      }
+    });
 
-    // 5. Supabase Postgres changes listener on site_content and core tables
+    // 5. Supabase Postgres changes listener on site_content and core tables (ultra-fast targeted handlers)
     const dbChannel = supabase
       .channel("schema-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public" }, () => {
-        syncFromSupabase();
+      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => {
+        syncServicesOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, () => {
-        syncFromSupabase();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "services" }, () => {
-        syncFromSupabase();
+        syncServicesOnly();
+        syncTechniciansOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "certifications" }, () => {
-        syncFromSupabase();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
-        syncFromSupabase();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
-        syncFromSupabase();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items" }, () => {
-        syncFromSupabase();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => {
-        syncFromSupabase();
+        syncCertificationsOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "technicians" }, () => {
-        syncFromSupabase();
+        syncTechniciansOnly();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items" }, () => {
+        syncInventoryOnly();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "schedule_records" }, () => {
+        syncScheduleOnly();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
+        debouncedFullSync();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
+        debouncedFullSync();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => {
+        debouncedFullSync();
       })
       .subscribe();
 
-    // 6. Background safety heartbeat sync (every 15s) for resilient tablet networking
+    // 6. Background safety heartbeat sync (every 30s) for resilient tablet networking
     const interval = setInterval(() => {
       syncFromSupabase();
-    }, 15000);
+    }, 30000);
 
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
       clearInterval(interval);
-      supabase.removeChannel(broadcastChannel);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       supabase.removeChannel(dbChannel);
     };
-  }, [syncFromSupabase]);
+  }, [syncFromSupabase, syncServicesOnly, syncCertificationsOnly, syncInventoryOnly, syncTechniciansOnly, syncScheduleOnly]);
 
   return <>{children}</>;
 };
