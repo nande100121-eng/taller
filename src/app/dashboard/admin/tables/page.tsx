@@ -1190,7 +1190,7 @@ export default function AdminTablesPage() {
 
             <div className="space-y-4">
               {technicians.map((t) => {
-                const allowed = t.allowed_tabs || ALL_ERP_STATIONS.map((s) => s.id);
+                const allowed = Array.isArray(t.allowed_tabs) ? t.allowed_tabs : ALL_ERP_STATIONS.map((s) => s.id);
                 const allActive = allowed.length === ALL_ERP_STATIONS.length;
                 const user = t.username || generateDefaultUsername(t.full_name);
                 const pass = t.password || user;

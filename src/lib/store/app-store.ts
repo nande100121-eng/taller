@@ -33,6 +33,20 @@ import {
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 
+export const ALL_ERP_STATIONS_DEFAULT = [
+  "/dashboard/porteria",
+  "/dashboard/recepcion",
+  "/dashboard/taller",
+  "/dashboard/almacen",
+  "/dashboard/caja",
+  "/dashboard/certificaciones",
+  "/dashboard/asistencia",
+  "/dashboard/consultas",
+  "/dashboard/reportes",
+  "/dashboard/admin/tables",
+  "/dashboard/configuracion",
+];
+
 export function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -1102,46 +1116,46 @@ export const useAppStore = create<AppState>()(
           id: `tech-${Date.now()}`,
           username: tech.username?.trim() || defUser,
           password: tech.password?.trim() || defUser,
+          allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : ALL_ERP_STATIONS_DEFAULT,
         };
-        saveSupabaseTechnician(newTech);
-        set((state) => ({
-          technicians: [...state.technicians, newTech],
-        }));
+        const updatedTechs = [...get().technicians, newTech];
+        saveSupabaseTechnician(newTech, updatedTechs);
+        set({ technicians: updatedTechs });
       },
 
       updateTechnician: (id, updates) => {
-        set((state) => {
-          const updatedTechs = state.technicians.map((t) => {
-            if (t.id === id) {
-              const updated = { ...t, ...updates };
-              saveSupabaseTechnician(updated);
-              return updated;
-            }
-            return t;
-          });
-          return { technicians: updatedTechs };
+        const updatedTechs = get().technicians.map((t) => {
+          if (t.id === id) {
+            const updated = { ...t, ...updates };
+            return updated;
+          }
+          return t;
         });
+        const targetTech = updatedTechs.find((t) => t.id === id);
+        if (targetTech) {
+          saveSupabaseTechnician(targetTech, updatedTechs);
+        }
+        set({ technicians: updatedTechs });
       },
 
       toggleTechnicianActive: (id) => {
-        set((state) => {
-          const updatedTechs = state.technicians.map((t) => {
-            if (t.id === id) {
-              const updated = { ...t, is_active: !t.is_active };
-              saveSupabaseTechnician(updated);
-              return updated;
-            }
-            return t;
-          });
-          return { technicians: updatedTechs };
+        const updatedTechs = get().technicians.map((t) => {
+          if (t.id === id) {
+            return { ...t, is_active: !t.is_active };
+          }
+          return t;
         });
+        const targetTech = updatedTechs.find((t) => t.id === id);
+        if (targetTech) {
+          saveSupabaseTechnician(targetTech, updatedTechs);
+        }
+        set({ technicians: updatedTechs });
       },
 
       deleteTechnician: (id) => {
-        deleteSupabaseTechnician(id);
-        set((state) => ({
-          technicians: state.technicians.filter((t) => t.id !== id),
-        }));
+        const updatedTechs = get().technicians.filter((t) => t.id !== id);
+        deleteSupabaseTechnician(id, updatedTechs);
+        set({ technicians: updatedTechs });
       },
 
       vehicles: [],

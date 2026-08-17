@@ -75,7 +75,7 @@ export async function saveFullSiteContentToSupabase(content: SiteContent): Promi
 // ---------------------------------------------------------------------
 // TECHNICIANS SUPABASE SYNC
 // ---------------------------------------------------------------------
-export async function saveSupabaseTechnician(tech: Technician) {
+export async function saveSupabaseTechnician(tech: Technician, allTechs?: Technician[]) {
   try {
     const { error } = await supabase.from("technicians").upsert({
       id: tech.id,
@@ -85,12 +85,15 @@ export async function saveSupabaseTechnician(tech: Technician) {
       is_active: tech.is_active,
     });
     await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
-      allowed_tabs: tech.allowed_tabs || [],
+      allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
       email: tech.email || "",
       username: tech.username || "",
       password: tech.password || "",
-    });
+    }, "technicians");
+    if (allTechs && Array.isArray(allTechs)) {
+      await saveSupabaseSiteContent("all_technicians", allTechs, "technicians");
+    }
     if (error) console.warn("Supabase technician save warning:", error.message);
     broadcastRealtimeChange("technician_saved");
   } catch (err) {
@@ -98,10 +101,13 @@ export async function saveSupabaseTechnician(tech: Technician) {
   }
 }
 
-export async function deleteSupabaseTechnician(id: string) {
+export async function deleteSupabaseTechnician(id: string, allTechs?: Technician[]) {
   try {
     await supabase.from("technicians").delete().eq("id", id);
     await supabase.from("site_content").delete().eq("key", `tech_perms_${id}`);
+    if (allTechs && Array.isArray(allTechs)) {
+      await saveSupabaseSiteContent("all_technicians", allTechs.filter((t) => t.id !== id), "technicians");
+    }
     broadcastRealtimeChange("technician_deleted");
   } catch (err) {
     console.warn("Supabase technician delete deferred:", err);
@@ -622,6 +628,7 @@ export async function fetchSupabaseErpData() {
     const fallbackSched: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
     let fallbackRecentIngresos: any[] = [];
+    const fallbackTechs: any[] = [];
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -641,6 +648,11 @@ export async function fetchSupabaseErpData() {
                 password: rawVal.password || "",
               };
             }
+          } catch {}
+        } else if (k === "all_technicians") {
+          try {
+            const tList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(tList)) fallbackTechs.push(...tList);
           } catch {}
         } else if (k && k.startsWith("cert_")) {
           try {
@@ -864,21 +876,41 @@ export async function fetchSupabaseErpData() {
       finalInventory = invData;
     }
 
+    const fallbackTechMap = new Map<string, any>(fallbackTechs.map((ft) => [ft.id, ft]));
+
+    let finalTechnicians: Technician[] | null = null;
+    if (techRes.data && techRes.data.length > 0) {
+      finalTechnicians = techRes.data.map((t: any) => {
+        const perm = permsMap[t.id];
+        const fbTech = fallbackTechMap.get(t.id);
+        const defUser = generateDefaultUsername(t.full_name);
+
+        let finalAllowedTabs: string[] | undefined = undefined;
+        if (perm?.allowed_tabs !== undefined && Array.isArray(perm.allowed_tabs)) {
+          finalAllowedTabs = perm.allowed_tabs;
+        } else if (fbTech?.allowed_tabs !== undefined && Array.isArray(fbTech.allowed_tabs)) {
+          finalAllowedTabs = fbTech.allowed_tabs;
+        } else if (t.allowed_tabs !== undefined && Array.isArray(t.allowed_tabs)) {
+          finalAllowedTabs = t.allowed_tabs;
+        }
+
+        return {
+          ...t,
+          email: perm?.email || fbTech?.email || t.email || "",
+          username: perm?.username || fbTech?.username || t.username || defUser,
+          password: perm?.password || fbTech?.password || t.password || defUser,
+          allowed_tabs: finalAllowedTabs,
+          can_receive_payment: perm?.can_receive_payment !== undefined
+            ? perm.can_receive_payment
+            : (fbTech?.can_receive_payment !== undefined ? fbTech.can_receive_payment : !!t.can_receive_payment),
+        };
+      });
+    } else if (fallbackTechs.length > 0) {
+      finalTechnicians = fallbackTechs;
+    }
+
     return {
-      technicians: techRes.data
-        ? techRes.data.map((t: any) => {
-            const perm = permsMap[t.id];
-            const defUser = generateDefaultUsername(t.full_name);
-            return {
-              ...t,
-              email: perm?.email || t.email || "",
-              username: perm?.username || t.username || defUser,
-              password: perm?.password || t.password || defUser,
-              allowed_tabs: perm?.allowed_tabs || t.allowed_tabs || undefined,
-              can_receive_payment: perm?.can_receive_payment !== undefined ? perm.can_receive_payment : !!t.can_receive_payment,
-            };
-          })
-        : null,
+      technicians: finalTechnicians,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
       appointments: appRes.data ? appRes.data : null,
