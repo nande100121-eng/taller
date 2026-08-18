@@ -938,14 +938,20 @@ export default function CajaPage() {
     let finalMethod = (isZeroAmount && (!paymentModal.paymentMethod || paymentModal.paymentMethod === "Sin Método")) ? "" : (paymentModal.paymentMethod === "Sin Método" ? "" : paymentModal.paymentMethod || "");
     let finalDest = (isZeroAmount && (!paymentModal.paymentDestination || paymentModal.paymentDestination === "Ninguno")) ? "" : (paymentModal.paymentDestination === "Ninguno" ? "" : paymentModal.paymentDestination || "");
     let paymentBreakdown: PaymentSplit[] | undefined = undefined;
+    // Pago parcial permitido: si la suma del desglose es menor al total, la diferencia
+    // se registra como SALDO PENDIENTE (crédito) en la factura.
+    let isPartialSplit = false;
+    let paidSplitAmount = 0;
 
     if (!isZeroAmount && paymentModal.isSplitPayment && paymentModal.paymentSplits && paymentModal.paymentSplits.length > 0) {
       const totalSplits = paymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      const diff = Math.abs(paymentModal.grandTotal - totalSplits);
-      if (diff > 0.05) {
-        notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
+      if (totalSplits > paymentModal.grandTotal + 0.05) {
+        notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) no puede exceder el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}).`);
         return;
       }
+      // Abono parcial: registrar la diferencia como saldo pendiente
+      isPartialSplit = paymentModal.grandTotal - totalSplits > 0.05;
+      paidSplitAmount = totalSplits;
       let splits = paymentModal.paymentSplits;
       if (paymentModal.splitTicketMode === "perMethod" && !isSinComprobante) {
         // Pago mixto multi-ticket: cada método lleva su propio TIPO (Ticket/Boleta/Factura) y N° de comprobante
@@ -1001,34 +1007,55 @@ export default function CajaPage() {
           ? (paymentBreakdown[0].receipt_type || paymentModal.receiptType)
           : paymentModal.receiptType);
 
-    confirmInvoicePayment({
-      invoiceId: paymentModal.invoice?.id,
-      workOrderId: paymentModal.workOrder?.id,
-      paymentMethod: finalMethod,
-      paymentDestination: finalDest,
-      receiptNumber: assignedReceiptNum,
-      receiptType: finalReceiptType,
-      customerDoc: paymentModal.customerDoc,
-      customerName: paymentModal.customerName,
-      customerAddress: paymentModal.customerAddress,
-      paymentBreakdown: paymentBreakdown,
-    });
+    const pendingSplitBalance = Math.max(0, Number((paymentModal.grandTotal - paidSplitAmount).toFixed(2)));
 
-    notify("success", isZeroAmount
-      ? `¡Atención (S/ 0.00) de ${paymentModal.workOrder?.vehicle_plate} confirmada y registrada con éxito!`
-      : `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
+    if (isPartialSplit) {
+      // Abono parcial desde el modal de cobro: registrar el pago recibido y dejar
+      // la diferencia como SALDO PENDIENTE (crédito) en la factura.
+      registerInvoicePayment({
+        invoiceId: paymentModal.invoice?.id,
+        workOrderId: paymentModal.workOrder?.id,
+        amount: paidSplitAmount,
+        paymentMethod: finalMethod,
+        paymentDestination: finalDest,
+        receiptNumber: assignedReceiptNum,
+        receiptType: finalReceiptType,
+        paymentBreakdown: paymentBreakdown,
+        observation: paymentModal.observations || undefined,
+      });
+      notify("success", `¡Abono parcial de S/ ${paidSplitAmount.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}! Saldo pendiente: S/ ${pendingSplitBalance.toFixed(2)}`);
+    } else {
+      confirmInvoicePayment({
+        invoiceId: paymentModal.invoice?.id,
+        workOrderId: paymentModal.workOrder?.id,
+        paymentMethod: finalMethod,
+        paymentDestination: finalDest,
+        receiptNumber: assignedReceiptNum,
+        receiptType: finalReceiptType,
+        customerDoc: paymentModal.customerDoc,
+        customerName: paymentModal.customerName,
+        customerAddress: paymentModal.customerAddress,
+        paymentBreakdown: paymentBreakdown,
+      });
+
+      notify("success", isZeroAmount
+        ? `¡Atención (S/ 0.00) de ${paymentModal.workOrder?.vehicle_plate} confirmada y registrada con éxito!`
+        : `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
+    }
 
     // Prepare active receipt modal for immediate print / download only if not Sin Comprobante
     const currentWo = paymentModal.workOrder;
     const currentInv = paymentModal.invoice;
-    const currentTotal = paymentModal.grandTotal;
+    const currentTotal = isPartialSplit ? paidSplitAmount : paymentModal.grandTotal;
     const currentItems = paymentModal.breakdownItems;
     const currentMethod = finalMethod;
     const currentDoc = paymentModal.customerDoc;
     const currentName = paymentModal.customerName;
     const currentAddress = paymentModal.customerAddress;
     const currentType = finalReceiptType;
-    const currentObs = paymentModal.observations;
+    const currentObs = isPartialSplit
+      ? `ABONO PARCIAL - SALDO PENDIENTE S/ ${pendingSplitBalance.toFixed(2)}${paymentModal.observations ? ` | ${paymentModal.observations}` : ""}`
+      : paymentModal.observations;
     const currentBreakdown = paymentBreakdown;
 
     setPaymentModal(null);
@@ -2730,21 +2757,10 @@ export default function CajaPage() {
                                 <span>Cuadra Exacto (S/ {paymentModal.grandTotal.toFixed(2)})</span>
                               </span>
                             ) : diff > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const lastIdx = (paymentModal.paymentSplits || []).length - 1;
-                                  if (lastIdx >= 0) {
-                                    const updated = (paymentModal.paymentSplits || []).map((p, i) =>
-                                      i === lastIdx ? { ...p, amount: Number((p.amount + diff).toFixed(2)) } : p
-                                    );
-                                    setPaymentModal({ ...paymentModal, paymentSplits: updated });
-                                  }
-                                }}
-                                className="px-2.5 py-1 bg-amber-500 text-black rounded-lg text-[11px] font-black hover:bg-amber-400 transition-colors shadow"
-                              >
-                                Falta S/ {diff.toFixed(2)} (Ajustar)
-                              </button>
+                              <span className="flex items-center gap-1.5 text-amber-300">
+                                <AlertCircle className="w-4 h-4" />
+                                <span>Abono parcial: S/ {diff.toFixed(2)} quedarán como <strong>saldo pendiente</strong></span>
+                              </span>
                             ) : (
                               <span>Excede por S/ {Math.abs(diff).toFixed(2)}</span>
                             )}
