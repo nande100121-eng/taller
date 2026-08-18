@@ -2737,6 +2737,7 @@ export default function CajaPage() {
                               type="number"
                               step="0.01"
                               min="0"
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               value={split.amount}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value) || 0;
@@ -2998,6 +2999,7 @@ export default function CajaPage() {
                     <input
                       type="number"
                       placeholder="Ej: 85000"
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       value={manualPaymentModal.currentMileage || ""}
                       onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, currentMileage: Number(e.target.value) || 0 })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
@@ -3171,6 +3173,7 @@ export default function CajaPage() {
                       step="0.01"
                       min="0"
                       required
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       value={manualPaymentModal.price}
                       onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, price: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-sm focus:border-emerald-400"
@@ -3525,6 +3528,7 @@ export default function CajaPage() {
                                 type="number"
                                 step="0.01"
                                 min="0"
+                                onWheel={(e) => (e.target as HTMLInputElement).blur()}
                                 value={split.amount}
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value) || 0;
@@ -3709,13 +3713,14 @@ export default function CajaPage() {
                 <div>
                   <label className="text-gray-300 block mb-1.5 font-bold">Monto a Abonar Ahora (S/) *</label>
                   <div className="relative">
-                    <DollarSign className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <span className="text-cyan-400 font-black text-sm absolute left-3 top-1/2 -translate-y-1/2">S/</span>
                     <input
                       type="number"
                       step="0.01"
                       min="0.01"
                       max={Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar)}
                       required
+                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       value={partialPaymentModal.amount || ""}
                       onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, amount: parseFloat(e.target.value) || 0 })}
                       className="w-full pl-9 pr-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-base focus:border-cyan-400"
@@ -4089,6 +4094,7 @@ export default function CajaPage() {
                               type="number"
                               step="0.01"
                               min="0"
+                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
                               value={split.amount || ""}
                               onChange={(e) => {
                                 const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
