@@ -25,6 +25,7 @@ interface ThermalReceiptModalProps {
   paymentMethod?: string;
   paymentBreakdown?: PaymentSplit[];
   multiTicket?: boolean;
+  pagoResumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number };
   issuedAt?: string;
 }
 
@@ -46,6 +47,7 @@ export default function ThermalReceiptModal({
   paymentMethod = "CONTADO",
   paymentBreakdown,
   multiTicket,
+  pagoResumen,
   issuedAt,
 }: ThermalReceiptModalProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -162,10 +164,10 @@ export default function ThermalReceiptModal({
         }))
       : [
           {
-            description: workOrder?.problem_description || "CERTIFICACION ANUAL GNV",
+            description: workOrder?.problem_description || "SERVICIO DE TALLER",
             quantity: 1,
-            unit_price: grandTotal || invoice?.grand_total || 80,
-            subtotal: grandTotal || invoice?.grand_total || 80,
+            unit_price: grandTotal || invoice?.grand_total || 0,
+            subtotal: grandTotal || invoice?.grand_total || 0,
           },
         ]);
 
@@ -224,6 +226,14 @@ export default function ThermalReceiptModal({
         return "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=" + encodeURIComponent(qr);
       })()
     : "";
+
+  // Resumen de pago (abonos parciales): total, monto actual, pagado acumulado y saldo
+  const resumenSaldo = pagoResumen
+    ? Math.max(0, Number((pagoResumen.montoTotal - pagoResumen.montoPagadoAcumulado).toFixed(2)))
+    : null;
+  const resumenPagadoAntes = pagoResumen
+    ? Math.max(0, Number((pagoResumen.montoPagadoAcumulado - pagoResumen.montoActual).toFixed(2)))
+    : null;
 
   // Build standard SUNAT fiscal QR String
   const sunatQrString = buildSunatFiscalQrString({
@@ -363,7 +373,7 @@ export default function ThermalReceiptModal({
     };
 
     // Single 80mm paper builder (one ticket / one method)
-    const buildPaper = (num: string, methodLabel: string, total: number, splits: PaymentSplit[], note?: string, type: "Ticket" | "Boleta" | "Factura" = effectiveType) => {
+    const buildPaper = (num: string, methodLabel: string, total: number, splits: PaymentSplit[], note?: string, type: "Ticket" | "Boleta" | "Factura" = effectiveType, resumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number }) => {
       const noteHtml = note
         ? '<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;font-weight:bold;"><b>NOTA:</b> ' + note + "</div>"
         : "";
@@ -416,6 +426,19 @@ export default function ThermalReceiptModal({
         "</tr>" +
         "</table>" +
         "</div>" +
+        (resumen ? (() => {
+          const rSaldo = Math.max(0, Number((resumen.montoTotal - resumen.montoPagadoAcumulado).toFixed(2)));
+          const rAntes = Math.max(0, Number((resumen.montoPagadoAcumulado - resumen.montoActual).toFixed(2)));
+          return '<div style="border-top:1px dashed #000;margin-top:3px;padding-top:3px;font-size:9.5px;">' +
+            '<div style="text-align:center;font-weight:900;text-transform:uppercase;border-bottom:1px dashed #000;padding-bottom:2px;margin-bottom:2px;">Resumen de Pago</div>' +
+            '<div style="display:flex;justify-content:space-between;"><span>Monto Total:</span><strong>S/ ' + resumen.montoTotal.toFixed(2) + '</strong></div>' +
+            (rAntes > 0
+              ? '<div style="display:flex;justify-content:space-between;"><span>Monto Pagado (acumulado):</span><strong>S/ ' + resumen.montoPagadoAcumulado.toFixed(2) + '</strong></div>' +
+                '<div style="display:flex;justify-content:space-between;"><span>Monto Actual (este pago):</span><strong>S/ ' + resumen.montoActual.toFixed(2) + '</strong></div>'
+              : '<div style="display:flex;justify-content:space-between;"><span>Monto Parcial (este pago):</span><strong>S/ ' + resumen.montoActual.toFixed(2) + '</strong></div>') +
+            '<div style="display:flex;justify-content:space-between;font-weight:900;"><span>Saldo por Pagar:</span><strong>S/ ' + rSaldo.toFixed(2) + '</strong></div>' +
+            "</div>";
+        })() : "") +
         buildQrSection(num, total, type) +
         '<div style="border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 1px;margin:4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;text-align:center;">' + words + "</div>" +
         buildFooterHtml(type) +
@@ -430,11 +453,11 @@ export default function ThermalReceiptModal({
       papersHtml = effectiveSplits.map((s, i) => {
         const total = Number(s.amount) || 0;
         const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura" ? s.receipt_type : "Ticket") as "Ticket" | "Boleta" | "Factura";
-        const paper = buildPaper(s.receipt_number || effectiveNumber, s.method, total, [s], "PAGO PARCIAL CON " + s.method.toUpperCase(), st);
+        const paper = buildPaper(s.receipt_number || effectiveNumber, s.method, total, [s], "PAGO PARCIAL CON " + s.method.toUpperCase(), st, i === 0 ? (pagoResumen || undefined) : undefined);
         return paper + (i < effectiveSplits.length - 1 ? '<div style="page-break-after:always;"></div>' : "");
       }).join("");
     } else {
-      papersHtml = buildPaper(effectiveNumber, paymentMethod || "Efectivo", effectiveTotal, effectiveSplits);
+      papersHtml = buildPaper(effectiveNumber, paymentMethod || "Efectivo", effectiveTotal, effectiveSplits, undefined, effectiveType, pagoResumen || undefined);
     }
 
     doc.open();
@@ -638,6 +661,23 @@ export default function ThermalReceiptModal({
                 </div>
               ) : null}
             </div>
+
+            {/* Resumen de Pago (abonos parciales / pagos) */}
+            {pagoResumen && !useMultiTickets && resumenSaldo !== null && resumenPagadoAntes !== null && (
+              <div className="border-t border-dashed border-black pt-1.5 mt-1 text-[9.5px] space-y-0.5">
+                <div className="text-center font-black text-[10px] uppercase border-b border-dashed border-black pb-0.5">Resumen de Pago</div>
+                <div className="flex justify-between"><span>Monto Total:</span><strong>S/ {pagoResumen.montoTotal.toFixed(2)}</strong></div>
+                {resumenPagadoAntes > 0 ? (
+                  <>
+                    <div className="flex justify-between"><span>Monto Pagado (acumulado):</span><strong>S/ {pagoResumen.montoPagadoAcumulado.toFixed(2)}</strong></div>
+                    <div className="flex justify-between"><span>Monto Actual (este pago):</span><strong>S/ {pagoResumen.montoActual.toFixed(2)}</strong></div>
+                  </>
+                ) : (
+                  <div className="flex justify-between"><span>Monto Parcial (este pago):</span><strong>S/ {pagoResumen.montoActual.toFixed(2)}</strong></div>
+                )}
+                <div className="flex justify-between font-black border-t border-dashed border-black pt-0.5"><span>Saldo por Pagar:</span><strong>S/ {resumenSaldo.toFixed(2)}</strong></div>
+              </div>
+            )}
 
             {/* 4. Items Table (CANT. P.UNIT. IMPORTE aligned horizontally and in bold) */}
             <div className="border-t border-dashed border-black pt-1">

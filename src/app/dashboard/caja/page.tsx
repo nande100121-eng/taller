@@ -209,6 +209,7 @@ export default function CajaPage() {
     discountAmount?: number;
     paymentMethod?: string;
     paymentBreakdown?: PaymentSplit[];
+    pagoResumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number };
     issuedAt?: string;
   } | null>(null);
 
@@ -1093,6 +1094,14 @@ export default function CajaPage() {
         items: currentItems,
         paymentMethod: currentMethod,
         paymentBreakdown: currentBreakdown,
+        // Resumen de pago: total, monto actual y pagado acumulado (saldo se calcula en el comprobante)
+        pagoResumen: {
+          montoTotal: paymentModal.grandTotal,
+          montoActual: isPartialSplit ? paidSplitAmount : paymentModal.grandTotal,
+          montoPagadoAcumulado: (Array.isArray(paymentModal.invoice?.payment_history)
+            ? paymentModal.invoice.payment_history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+            : 0) + (isPartialSplit ? paidSplitAmount : paymentModal.grandTotal),
+        },
         issuedAt: new Date().toISOString(),
       });
     }
@@ -1272,6 +1281,12 @@ export default function CajaPage() {
         items: partialPaymentModal.workOrder?.items,
         paymentMethod: finalMethod,
         paymentBreakdown,
+        // Resumen de pago: total, monto actual (este abono), pagado acumulado y saldo
+        pagoResumen: {
+          montoTotal: Number(partialPaymentModal.totalDue) || Number(partialPaymentModal.invoice?.grand_total) || 0,
+          montoActual: amount,
+          montoPagadoAcumulado: Math.max(0, (Number(partialPaymentModal.totalDue) || 0) - balance) + amount,
+        },
         issuedAt: new Date().toISOString(),
       });
     }
@@ -1549,6 +1564,14 @@ export default function CajaPage() {
       items: wo.items && wo.items.length > 0 ? wo.items : undefined,
       discountAmount: effectiveDiscount,
       paymentMethod: effectiveMethod,
+      // Resumen de pago al ver el comprobante: total, pagado acumulado y último monto
+      pagoResumen: (() => {
+        const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
+        const acc = hist.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+        const last = hist.length > 0 ? Number(hist[hist.length - 1].amount) || 0 : acc;
+        const invTotal = total > 0 ? total : (Number(inv?.grand_total) || 0);
+        return { montoTotal: invTotal, montoActual: last, montoPagadoAcumulado: acc };
+      })(),
       issuedAt: inv?.issued_at || wo.entry_time || new Date().toISOString(),
     });
   };
@@ -4442,6 +4465,7 @@ export default function CajaPage() {
           discountAmount={activeReceiptModal.discountAmount}
           paymentMethod={activeReceiptModal.paymentMethod}
           paymentBreakdown={activeReceiptModal.paymentBreakdown || activeReceiptModal.invoice?.payment_breakdown}
+          pagoResumen={activeReceiptModal.pagoResumen}
           issuedAt={activeReceiptModal.issuedAt}
         />
       )}
