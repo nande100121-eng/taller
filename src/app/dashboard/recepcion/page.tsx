@@ -384,9 +384,14 @@ export default function RecepcionPage() {
 
   const handleCreateNewAppointment = (e: React.FormEvent) => {
     e.preventDefault();
-    // Validación de disponibilidad: no permitir duplicar en un horario lleno
+    // Validación de fecha (calendario unificado MiniDatePicker)
     const nDate = newForm.scheduled_date?.slice(0, 10);
     const nTime = newForm.scheduled_date?.slice(11, 16);
+    if (!nDate) {
+      notify("warning", "Seleccione la fecha de la cita en el calendario.");
+      return;
+    }
+    // Validación de disponibilidad: no permitir duplicar en un horario lleno
     if (nDate && nTime) {
       const occ = getOccupancyForDate(nDate, nTime);
       if (occ.isFull) {
@@ -416,9 +421,14 @@ export default function RecepcionPage() {
     e.preventDefault();
     if (!editingApp || !editForm) return;
 
-    // Validación de disponibilidad (excluye la cita en edición para no contarse a sí misma)
+    // Validación de fecha (calendario unificado MiniDatePicker)
     const eDate = editForm.scheduled_date?.slice(0, 10);
     const eTime = editForm.scheduled_date?.slice(11, 16);
+    if (!eDate) {
+      notify("warning", "Seleccione la fecha de la cita en el calendario.");
+      return;
+    }
+    // Validación de disponibilidad (excluye la cita en edición para no contarse a sí misma)
     if (eDate && eTime) {
       const occ = getOccupancyForDate(eDate, eTime, editingApp.id);
       if (occ.isFull) {
@@ -1416,16 +1426,12 @@ export default function RecepcionPage() {
                 <label className="block text-xs font-medium text-gray-300 mb-1">
                   Fecha de la Cita *
                 </label>
-                <input
-                  type="date"
-                  required
+                <MiniDatePicker
                   value={editForm.scheduled_date ? editForm.scheduled_date.slice(0, 10) : ""}
-                  onChange={(e) => {
-                    const d = e.target.value;
+                  onChange={(d) => {
                     const curTime = editForm.scheduled_date?.includes("T") ? editForm.scheduled_date.slice(11, 16) : "08:00";
-                    setEditForm({ ...editForm, scheduled_date: d ? `${d}T${curTime}` : "" });
+                    setEditForm({ ...editForm, scheduled_date: d ? d + "T" + curTime : "" });
                   }}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red font-mono"
                 />
               </div>
 
@@ -1716,16 +1722,12 @@ export default function RecepcionPage() {
                 <label className="block text-xs font-medium text-gray-300 mb-1">
                   Fecha de la Cita *
                 </label>
-                <input
-                  type="date"
-                  required
+                <MiniDatePicker
                   value={newForm.scheduled_date.slice(0, 10)}
-                  onChange={(e) => {
-                    const d = e.target.value;
+                  onChange={(d) => {
                     const curTime = newForm.scheduled_date.includes("T") ? newForm.scheduled_date.slice(11, 16) : "08:00";
-                    setNewForm({ ...newForm, scheduled_date: d ? `${d}T${curTime}` : "" });
+                    setNewForm({ ...newForm, scheduled_date: d ? d + "T" + curTime : "" });
                   }}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red font-mono"
                 />
               </div>
 

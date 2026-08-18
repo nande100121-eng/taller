@@ -72,6 +72,18 @@ export default function WorkshopOperationsPage() {
     deleteWorkOrder,
   } = useAppStore();
 
+  // Formatea una duración en ms como "Xh Ym" / "Xd Xh Ym" / "Y min"
+  const formatDuration = (ms: number): string => {
+    if (!ms || ms < 0 || isNaN(ms)) return "-";
+    const totalMin = Math.floor(ms / 60000);
+    const d = Math.floor(totalMin / 1440);
+    const h = Math.floor((totalMin % 1440) / 60);
+    const m = totalMin % 60;
+    if (d > 0) return d + "d " + h + "h " + m + "m";
+    if (h > 0) return h + "h " + m + "m";
+    return m + " min";
+  };
+
   const [timeFilter, setTimeFilter] = useState<"hoy" | "todos">("hoy");
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
   const [searchPlate, setSearchPlate] = useState("");
@@ -863,6 +875,14 @@ export default function WorkshopOperationsPage() {
               (wo.discount_amount || 0)
             );
 
+            // Tiempo del servicio: desde el ingreso a Taller hasta que terminó (por cobrar / pagado)
+            const entryMs = wo.entry_time ? new Date(wo.entry_time).getTime() : 0;
+            const finishMs = wo.completion_time ? new Date(wo.completion_time).getTime() : 0;
+            const serviceFinished = finishMs > 0;
+            const endForElapsed = serviceFinished ? finishMs : (entryMs ? Date.now() : 0);
+            const elapsedMs = entryMs && endForElapsed ? Math.max(0, endForElapsed - entryMs) : 0;
+            const serviceDuration = entryMs ? formatDuration(elapsedMs) : "-";
+
             return (
               <div
                 key={wo.id}
@@ -1054,6 +1074,21 @@ export default function WorkshopOperationsPage() {
                           </div>
                         </div>
 
+                        {/* Tiempo del servicio: ingreso a Taller -> terminado (por cobrar / pagado) */}
+                        <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/40 text-xs text-cyan-200 space-y-1.5">
+                          <span className="font-bold text-cyan-300 block text-[11px] uppercase">
+                            ⏱️ Tiempo del Servicio:
+                          </span>
+                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                            <span>Ingreso: <strong className="font-mono">{wo.entry_time ? formatPeruDateTime(wo.entry_time) : "-"}</strong></span>
+                            <span>Terminado: <strong className="font-mono">{serviceFinished ? formatPeruDateTime(wo.completion_time || "") : (isExplicitPending || isPaid ? "-" : "⏳ En proceso")}</strong></span>
+                          </div>
+                          <div className="flex items-center justify-between border-t border-cyan-500/20 pt-1">
+                            <span>Duración del técnico:</span>
+                            <strong className="text-cyan-300 font-black text-sm">{serviceFinished ? serviceDuration : (entryMs ? "En proceso (" + serviceDuration + ")" : "-")}</strong>
+                          </div>
+                        </div>
+
                         <div className="p-3 rounded-xl bg-reygas-dark/80 border border-white/5 text-xs text-gray-300">
                           <span className="font-bold text-amber-400 block text-[11px] uppercase">
                             Reporte / Motivo de Ingreso:
@@ -1083,24 +1118,30 @@ export default function WorkshopOperationsPage() {
                             </p>
                           </div>
 
-                          {wo.observations && (
-                            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 space-y-1">
-                              <span className="font-bold text-amber-400 block text-[11px] uppercase flex items-center justify-between">
-                                <span>Observaciones Adicionales:</span>
-                                {!isLocked && (
-                                  <button
-                                    onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                                    className="text-[10px] text-amber-300 hover:text-white underline font-normal"
-                                  >
-                                    Editar Observaciones
-                                  </button>
-                                )}
-                              </span>
-                              <p className="mt-0.5 text-xs">
-                                {wo.observations}
+                          {/* Observación / Motivo de demora (siempre visible para registrar demoras) */}
+                          <div className={`p-3 rounded-xl border text-xs space-y-1 ${wo.observations
+                            ? "bg-amber-950/30 border-amber-500/40 text-amber-200"
+                            : "bg-black/30 border-dashed border-white/15 text-gray-400"
+                            }`}>
+                            <span className="font-bold block text-[11px] uppercase flex items-center justify-between">
+                              <span>📝 Observación / Motivo de demora:</span>
+                              {!isLocked && (
+                                <button
+                                  onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                                  className="text-[10px] underline font-normal"
+                                >
+                                  {wo.observations ? "Editar" : "+ Añadir"}
+                                </button>
+                              )}
+                            </span>
+                            {wo.observations ? (
+                              <p className="mt-0.5 text-xs">{wo.observations}</p>
+                            ) : (
+                              <p className="mt-0.5 text-[11px] italic">
+                                Sin observaciones. (Indique aquí el motivo de demora del servicio, si lo hubiera)
                               </p>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </div>
 
                         {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}

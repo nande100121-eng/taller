@@ -1658,9 +1658,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateWorkOrderStatus: (id, status) => {
     set((state) => {
+      // Estados que indican que el servicio terminó (permite calcular cuánto demoró el técnico)
+      const FINISHED_STATUSES = ["por_cobrar", "pendiente_pago", "pagado_autorizado", "finalizado", "entregado"];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === id) {
-          const updated = { ...o, status };
+          const isFinishing = FINISHED_STATUSES.includes(status);
+          const updated = {
+            ...o,
+            status,
+            // Registra cuándo terminó el servicio (primera vez que pasa a estado final)
+            completion_time: isFinishing ? (o.completion_time || new Date().toISOString()) : o.completion_time,
+          };
           saveSupabaseWorkOrder(updated);
           return updated;
         }
