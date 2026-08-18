@@ -953,7 +953,7 @@ export default function RecepcionPage() {
                 <p className="text-sm">No hay citas que coincidan con el filtro de placa / estado.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4">
                 {filteredAppointments.map((app) => {
                   const currentScheduled = cardDates[app.id] || app.scheduled_date || getPeruDateTimeLocal();
                   const isAppExpanded = expandedAppCards.has(app.id);
@@ -984,14 +984,13 @@ export default function RecepcionPage() {
                           <button
                             type="button"
                             onClick={() => toggleAppCard(app.id)}
-                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all ${isAppExpanded
+                            className={`p-1.5 rounded-lg border transition-all shrink-0 ${isAppExpanded
                               ? "bg-blue-600/20 text-blue-300 border-blue-500/40"
                               : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
                               }`}
                             title={isAppExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
                           >
-                            {isAppExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                            <span>{isAppExpanded ? "Contraer" : "Expandir"}</span>
+                            {isAppExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
                         </div>
 

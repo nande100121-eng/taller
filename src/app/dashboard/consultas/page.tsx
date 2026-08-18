@@ -744,14 +744,13 @@ export default function ConsultasPage() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); toggleConsCard(wo.id); }}
-                            className={`px-2.5 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 transition-all ${isConsExpanded
+                            className={`p-1.5 rounded-lg border transition-all ${isConsExpanded
                               ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
                               : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
                               }`}
                             title={isConsExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
                           >
-                            {isConsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                            <span>{isConsExpanded ? "Contraer" : "Expandir"}</span>
+                            {isConsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </button>
                         </div>
                       </div>

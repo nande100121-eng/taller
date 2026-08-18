@@ -1986,14 +1986,13 @@ export default function CajaPage() {
                             <button
                               type="button"
                               onClick={() => toggleCard(wo.id)}
-                              className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-black flex items-center gap-1 transition-all ${isCardExpanded
+                              className={`p-1.5 rounded-lg border transition-all ${isCardExpanded
                                 ? "bg-purple-600/20 text-purple-300 border-purple-500/40"
                                 : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
                                 }`}
                               title={isCardExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
                             >
-                              {isCardExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                              <span>{isCardExpanded ? "Contraer" : "Expandir"}</span>
+                              {isCardExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             </button>
                           </div>
                         </div>
