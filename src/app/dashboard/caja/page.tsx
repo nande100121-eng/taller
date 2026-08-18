@@ -12,6 +12,7 @@ import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
+import { lookupPlateClientData, isCompletePlate } from "@/lib/utils/plate-autofill";
 import {
   CreditCard,
   TrendingUp,
@@ -3127,7 +3128,25 @@ export default function CajaPage() {
                       required
                       placeholder="Ej: ABC-123"
                       value={manualPaymentModal.vehiclePlate}
-                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, vehiclePlate: formatPlate(e.target.value) })}
+                      onChange={(e) => {
+                        const plate = formatPlate(e.target.value);
+                        setManualPaymentModal((prev) => (prev ? { ...prev, vehiclePlate: plate } : prev));
+                        // Autocompleta Nombre/Teléfono del cliente desde la Tabla Registro del Taller
+                        if (isCompletePlate(plate)) {
+                          void lookupPlateClientData(plate, vehicles).then((data) => {
+                            if (!data.found) return;
+                            setManualPaymentModal((prev) =>
+                              prev
+                                ? {
+                                  ...prev,
+                                  clientName: data.client_name || prev.clientName,
+                                  clientPhone: data.client_phone || prev.clientPhone,
+                                }
+                                : prev
+                            );
+                          });
+                        }
+                      }}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-black focus:border-amber-400 uppercase"
                     />
                   </div>

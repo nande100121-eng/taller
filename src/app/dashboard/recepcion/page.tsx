@@ -36,6 +36,7 @@ import {
 import { getPeruDateTimeLocal, formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
+import { lookupPlateClientData, isCompletePlate } from "@/lib/utils/plate-autofill";
 import ReactDOM from "react-dom";
 
 const MONTH_NAMES = [
@@ -334,6 +335,22 @@ export default function RecepcionPage() {
     notes: "",
     responsible: "",
   });
+
+  // Personal autorizado como "Responsable de la Atención" (permiso activado en Tabla Maestra)
+  const attentionResponsibles = technicians.filter((t) => t.is_active !== false && !!t.is_attention_responsible);
+
+  // Autocompleta Nombre y Teléfono del cliente desde la Tabla Registro del Taller
+  // (vehículos del ERP + histórico CSV) cuando se escribe una placa completa.
+  const autofillPlateClient = async (
+    plate: string,
+    apply: (name: string, phone: string) => void
+  ) => {
+    if (!isCompletePlate(plate)) return;
+    const data = await lookupPlateClientData(plate, vehicles);
+    if (data.found) {
+      apply(data.client_name, data.client_phone);
+    }
+  };
 
   // Abrir modal de nueva cita con el formulario limpio y el primer servicio del catálogo por defecto
   const catalogServices = (workshopServices || []).filter((s) => s.is_active !== false);
@@ -1367,7 +1384,15 @@ export default function RecepcionPage() {
                     type="text"
                     required
                     value={editForm.plate}
-                    onChange={(e) => setEditForm({ ...editForm, plate: formatPlate(e.target.value) })}
+                    onChange={(e) => {
+                      const plate = formatPlate(e.target.value);
+                      setEditForm((prev) => (prev ? { ...prev, plate } : prev));
+                      void autofillPlateClient(plate, (name, phone) => {
+                        setEditForm((prev) =>
+                          prev ? { ...prev, client_name: name || prev.client_name, client_phone: phone || prev.client_phone } : prev
+                        );
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white uppercase focus:outline-none focus:border-reygas-red font-mono font-bold"
                   />
                 </div>
@@ -1671,7 +1696,18 @@ export default function RecepcionPage() {
                     required
                     placeholder="ABC-123"
                     value={newForm.plate}
-                    onChange={(e) => setNewForm({ ...newForm, plate: formatPlate(e.target.value) })}
+                    onChange={(e) => {
+                      const plate = formatPlate(e.target.value);
+                      setNewForm((prev) => ({ ...prev, plate }));
+                      // Busca en la Tabla Registro del Taller y completa nombre + teléfono
+                      void autofillPlateClient(plate, (name, phone) => {
+                        setNewForm((prev) => ({
+                          ...prev,
+                          client_name: name || prev.client_name,
+                          client_phone: phone || prev.client_phone,
+                        }));
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white uppercase focus:outline-none focus:border-reygas-red font-mono font-bold"
                   />
                 </div>
@@ -1707,15 +1743,35 @@ export default function RecepcionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Responsable de la Atención (opcional)
+                  Responsable de la Atención {attentionResponsibles.length > 0 ? "" : "(opcional)"}
                 </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Kelly, Cristhel"
-                  value={newForm.responsible}
-                  onChange={(e) => setNewForm({ ...newForm, responsible: capitalizeFirst(e.target.value) })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
-                />
+                {attentionResponsibles.length > 0 ? (
+                  <select
+                    value={newForm.responsible}
+                    onChange={(e) => setNewForm({ ...newForm, responsible: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {attentionResponsibles.map((t) => (
+                      <option key={t.id} value={t.full_name}>
+                        {t.full_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Ej: Kelly, Cristhel"
+                    value={newForm.responsible}
+                    onChange={(e) => setNewForm({ ...newForm, responsible: capitalizeFirst(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  />
+                )}
+                {attentionResponsibles.length > 0 && (
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Solo personal con permiso "Responsable de Atención" en Tabla Maestra.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -2218,9 +2274,17 @@ export default function RecepcionPage() {
                     required
                     placeholder="ABC-123"
                     value={cartillaForm.vehicle_plate}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, vehicle_plate: formatPlate(e.target.value) })
-                    }
+                    onChange={(e) => {
+                      const plate = formatPlate(e.target.value);
+                      setCartillaForm((prev) => ({ ...prev, vehicle_plate: plate }));
+                      void autofillPlateClient(plate, (name, phone) => {
+                        setCartillaForm((prev) => ({
+                          ...prev,
+                          client_name: name || prev.client_name,
+                          client_phone: phone || prev.client_phone,
+                        }));
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white uppercase font-mono font-bold focus:border-emerald-400"
                   />
                 </div>

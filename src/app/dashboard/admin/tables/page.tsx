@@ -219,6 +219,7 @@ export default function AdminTablesPage() {
     custom_password: "",
     can_receive_payment: false,
     is_debt_responsible: false,
+    is_attention_responsible: false,
   });
 
   // Technician Password Visibility Map on Cards
@@ -241,6 +242,7 @@ export default function AdminTablesPage() {
     password: "",
     can_receive_payment: false,
     is_debt_responsible: false,
+    is_attention_responsible: false,
     is_active: true,
   });
 
@@ -269,6 +271,7 @@ export default function AdminTablesPage() {
       password: tech.password || defUser,
       can_receive_payment: !!tech.can_receive_payment,
       is_debt_responsible: !!tech.is_debt_responsible,
+      is_attention_responsible: !!tech.is_attention_responsible,
       is_active: tech.is_active !== false,
     });
     setShowEditPassword(false);
@@ -292,6 +295,7 @@ export default function AdminTablesPage() {
       password: techEditForm.password.trim() || defUser,
       can_receive_payment: techEditForm.can_receive_payment,
       is_debt_responsible: techEditForm.is_debt_responsible,
+      is_attention_responsible: techEditForm.is_attention_responsible,
       is_active: techEditForm.is_active,
     });
     setTechEditModalOpen(false);
@@ -553,6 +557,7 @@ export default function AdminTablesPage() {
       is_active: true,
       can_receive_payment: techForm.can_receive_payment,
       is_debt_responsible: techForm.is_debt_responsible,
+      is_attention_responsible: techForm.is_attention_responsible,
     });
     setTechForm({
       full_name: "",
@@ -562,6 +567,7 @@ export default function AdminTablesPage() {
       custom_password: "",
       can_receive_payment: false,
       is_debt_responsible: false,
+      is_attention_responsible: false,
     });
   };
 
@@ -1508,6 +1514,16 @@ export default function AdminTablesPage() {
                 <span>🏦 Responsable de Saldo Pendiente (aparece en selectores de deuda)</span>
               </label>
 
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 text-xs font-bold cursor-pointer hover:bg-cyan-950/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={techForm.is_attention_responsible}
+                  onChange={(e) => setTechForm({ ...techForm, is_attention_responsible: e.target.checked })}
+                  className="rounded border-cyan-500 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                />
+                <span>🧑‍🔧 Responsable de Atención (aparece en el selector de Responsable de la Atención de Reservas y Citas)</span>
+              </label>
+
               <button
                 type="submit"
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95"
@@ -1610,6 +1626,19 @@ export default function AdminTablesPage() {
                             className="rounded border-rose-500 text-rose-600 focus:ring-rose-500"
                           />
                           <span>🏦 Resp. Saldo</span>
+                        </label>
+
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 text-xs font-bold cursor-pointer hover:bg-cyan-950/70 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!t.is_attention_responsible}
+                            onChange={(e) => {
+                              updateTechnician(t.id, { is_attention_responsible: e.target.checked });
+                            }}
+                            className="rounded border-cyan-500 text-cyan-600 focus:ring-cyan-500"
+                            title="Habilitado como Responsable de la Atención (selector de citas)"
+                          />
+                          <span>🧑‍🔧 Resp. Atención</span>
                         </label>
 
                         <button
@@ -2428,6 +2457,16 @@ export default function AdminTablesPage() {
                     className="rounded border-rose-500 text-rose-600 focus:ring-rose-500 cursor-pointer"
                   />
                   <span>🏦 Responsable de Saldo Pendiente</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 text-cyan-200 text-xs font-bold cursor-pointer hover:bg-cyan-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={!!techEditForm.is_attention_responsible}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, is_attention_responsible: e.target.checked })}
+                    className="rounded border-cyan-500 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                  />
+                  <span>🧑‍🔧 Responsable de Atención (citas)</span>
                 </label>
 
                 <label className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-indigo-200 text-xs font-bold cursor-pointer hover:bg-indigo-950/60 transition-colors">

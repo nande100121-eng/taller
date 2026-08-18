@@ -109,6 +109,7 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
         allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
         can_receive_payment: !!tech.can_receive_payment,
         is_debt_responsible: !!tech.is_debt_responsible,
+        is_attention_responsible: !!tech.is_attention_responsible,
         email: tech.email || "",
         username: tech.username || "",
         password: tech.password || "",
@@ -194,6 +195,7 @@ export async function saveSupabaseTechnician(
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
       is_debt_responsible: !!tech.is_debt_responsible,
+      is_attention_responsible: !!tech.is_attention_responsible,
       email: tech.email || "",
       username: tech.username || "",
       password: tech.password || "",
@@ -1168,8 +1170,8 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackTechs: any[] = [];
 
     if (contentRes.data) {
@@ -1184,6 +1186,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
+                is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1201,6 +1204,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
+                is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1246,6 +1250,9 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
               : (perm?.is_debt_responsible !== undefined
                 ? !!perm.is_debt_responsible
                 : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
+          is_attention_responsible: (perm?.is_attention_responsible !== undefined
+            ? !!perm.is_attention_responsible
+            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {
@@ -1472,8 +1479,8 @@ export async function fetchSupabaseErpData() {
     const vehicleData = (cappedData && cappedData.vehicles) || [];
 
     // Build permissions, certifications, and schedule records from site_content if any
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackApps: any[] = [];
@@ -1499,6 +1506,7 @@ export async function fetchSupabaseErpData() {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
+                is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1516,6 +1524,7 @@ export async function fetchSupabaseErpData() {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
+                is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1894,6 +1903,9 @@ export async function fetchSupabaseErpData() {
               : (perm?.is_debt_responsible !== undefined
                 ? !!perm.is_debt_responsible
                 : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
+          is_attention_responsible: (perm?.is_attention_responsible !== undefined
+            ? !!perm.is_attention_responsible
+            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {

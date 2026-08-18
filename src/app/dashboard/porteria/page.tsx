@@ -318,6 +318,27 @@ export default function PorteriaPage() {
       console.warn("Supabase vehicle search error:", e);
     }
 
+    // 4. Tabla Registro del Taller (histórico CSV): completa nombre y teléfono
+    try {
+      const { lookupPlateClientData } = await import("@/lib/utils/plate-autofill");
+      const csvData = await lookupPlateClientData(clean, vehicles);
+      if (csvData.found) {
+        return {
+          plate: plateToSearch.toUpperCase(),
+          brand: "",
+          model: "Importado",
+          year: 2023,
+          color: "Plata",
+          fuel_type: "GNV",
+          owner_name: csvData.client_name || "Cliente Registrado",
+          owner_phone: csvData.client_phone || "+51 900000000",
+          current_mileage: 0,
+        };
+      }
+    } catch (e) {
+      // Histórico no disponible: continuar sin autocompletar.
+    }
+
     return null;
   };
 

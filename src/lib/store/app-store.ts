@@ -288,6 +288,7 @@ export interface Technician {
   allowed_tabs?: string[]; // Allowed dashboard stations / routes for this user
   can_receive_payment?: boolean; // Habilitado como destino de pago (personal / empresa)
   is_debt_responsible?: boolean; // Habilitado como RESPONSABLE del saldo pendiente (aparece en selectores de deuda)
+  is_attention_responsible?: boolean; // Habilitado como RESPONSABLE DE LA ATENCIÓN (aparece en el selector de citas de Recepción)
 }
 
 export interface Vehicle {
@@ -1123,6 +1124,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               ...et,
               allowed_tabs: allowed,
               can_receive_payment: et.can_receive_payment !== undefined ? !!et.can_receive_payment : (existing?.can_receive_payment !== undefined ? !!existing.can_receive_payment : false),
+              is_debt_responsible: et.is_debt_responsible !== undefined ? !!et.is_debt_responsible : (existing?.is_debt_responsible !== undefined ? !!existing.is_debt_responsible : false),
+              is_attention_responsible: et.is_attention_responsible !== undefined ? !!et.is_attention_responsible : (existing?.is_attention_responsible !== undefined ? !!existing.is_attention_responsible : false),
               email: et.email || existing?.email || "",
               username: et.username || existing?.username || generateDefaultUsername(et.full_name),
               password: et.password || existing?.password || generateDefaultUsername(et.full_name),
