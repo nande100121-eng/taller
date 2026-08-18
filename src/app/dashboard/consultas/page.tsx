@@ -33,7 +33,7 @@ import {
 import { getPeruDateString, formatPeruDateTime, formatPeruDate } from "@/lib/utils/date-utils";
 
 export default function ConsultasPage() {
-  const { workOrders, invoices, vehicles, technicians, mergeWorkshopRecords, syncFromSupabase, isSyncing } = useAppStore();
+  const { workOrders, invoices, vehicles, technicians, mergeWorkshopRecords, syncFromSupabase, isSyncing, notify } = useAppStore();
 
   // Search Filters & Date Navigation State
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString()); // Default today YYYY-MM-DD
@@ -323,13 +323,6 @@ export default function ConsultasPage() {
     ? vehiclesByPlate.get(selectedPlateHistory.toUpperCase()) || null
     : null;
 
-  // State for alerts in Consultas page
-  const [alertMessage, setAlertMessage] = useState<{ type: "success" | "warning"; text: string } | null>(null);
-
-  const showAlert = (type: "success" | "warning", text: string) => {
-    setAlertMessage({ type, text });
-    setTimeout(() => setAlertMessage(null), 5000);
-  };
 
   // Importer for the 20 Specific Workshop Columns from Excel CSV (Batch Processing)
   const handleImportFullWorkshopExcelCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -453,16 +446,16 @@ export default function ConsultasPage() {
           invoices: batchInvoices,
         }).then((res) => {
           if (res?.success) {
-            showAlert("success", `¡Se importó con éxito el historial de ${batchWorkOrders.length} registros y guardados en Supabase!`);
+            notify("success", `¡Se importó con éxito el historial de ${batchWorkOrders.length} registros y guardados en Supabase!`);
           } else {
-            showAlert("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+            notify("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
         });
       } else {
         setIsImportingWorkshop(false);
-        showAlert("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
+        notify("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
       }
     };
     reader.readAsText(file);

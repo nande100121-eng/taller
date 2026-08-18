@@ -6,7 +6,7 @@ import { useAppStore } from "@/lib/store/app-store";
 import { Globe, Eye, ExternalLink, Save, RefreshCw, CheckCircle2 } from "lucide-react";
 
 export default function AdminCmsExactPage() {
-  const { saveAllToSupabase, syncFromSupabase } = useAppStore();
+  const { saveAllToSupabase, syncFromSupabase, notify } = useAppStore();
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -20,7 +20,7 @@ export default function AdminCmsExactPage() {
 
   const handleReload = async () => {
     await syncFromSupabase();
-    alert("¡Datos recargados exitosamente desde Supabase PostgreSQL!");
+    notify("success", "¡Datos recargados exitosamente desde Supabase PostgreSQL!");
   };
 
   return (

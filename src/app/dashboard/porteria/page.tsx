@@ -58,6 +58,7 @@ export default function PorteriaPage() {
     updateAppointment,
     deleteAppointment,
     aiSettings,
+    notify,
   } = useAppStore();
 
   const hasApiKey = Boolean(aiSettings?.apiKey && aiSettings.apiKey.trim().length > 0);
@@ -72,9 +73,6 @@ export default function PorteriaPage() {
 
   const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  // Status notification message
-  const [alertMessage, setAlertMessage] = useState<{ type: "success" | "info" | "warning"; text: string } | null>(null);
 
   const getCurrentPeruTime = () => {
     const now = new Date();
@@ -136,11 +134,6 @@ export default function PorteriaPage() {
     danger?: boolean;
   } | null>(null);
 
-  const showAlert = (type: "success" | "info" | "warning", text: string) => {
-    setAlertMessage({ type, text });
-    setTimeout(() => setAlertMessage(null), 5000);
-  };
-
   /**
    * Open Vehicle Info Modal showing full vehicle sheet & last workshop entry
    */
@@ -148,7 +141,7 @@ export default function PorteriaPage() {
     const rawPlate = targetPlate || entryForm.plate;
     const clean = (rawPlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!clean || clean.length < 3) {
-      showAlert("warning", "Por favor ingrese o escanee una placa válida primero para consultar su información.");
+      notify("warning", "Por favor ingrese o escanee una placa válida primero para consultar su información.");
       return;
     }
 
@@ -217,7 +210,7 @@ export default function PorteriaPage() {
         technicianName,
       });
     } catch (e: any) {
-      showAlert("warning", `Error al consultar información: ${e?.message || "Intente nuevamente"}`);
+      notify("warning", `Error al consultar información: ${e?.message || "Intente nuevamente"}`);
     } finally {
       setInfoLoading(false);
     }
@@ -347,7 +340,7 @@ export default function PorteriaPage() {
           owner_phone: found.owner_phone || prev.owner_phone,
           current_mileage: found.current_mileage || prev.current_mileage,
         }));
-        showAlert("info", `Vehículo ${found.plate} reconocido automáticamente en la base de datos.`);
+        notify("info", `Vehículo ${found.plate} reconocido automáticamente en la base de datos.`);
       }
     }
   };
@@ -357,7 +350,7 @@ export default function PorteriaPage() {
    */
   const processImageFile = async (file: File) => {
     if (!hasApiKey) {
-      showAlert("warning", "Se requiere configurar una API Key en Configuración de IA para utilizar el reconocimiento OCR.");
+      notify("warning", "Se requiere configurar una API Key en Configuración de IA para utilizar el reconocimiento OCR.");
       return;
     }
 
@@ -390,7 +383,7 @@ export default function PorteriaPage() {
           ? `${cleanChars.slice(0, 3)}-${cleanChars.slice(3)}`
           : cleanChars;
 
-        showAlert("success", `Placa detectada: ${detectedPlate} (Confianza: ${Math.round((data.confidence || 0.9) * 100)}%)`);
+        notify("success", `Placa detectada: ${detectedPlate} (Confianza: ${Math.round((data.confidence || 0.9) * 100)}%)`);
 
         // Check if vehicle exists
         const existingData = await lookupVehicleInDatabase(detectedPlate);
@@ -408,10 +401,10 @@ export default function PorteriaPage() {
           problem_description: "",
         });
       } else {
-        showAlert("warning", "No se detectó una placa clara en la imagen. Ingrese los datos manualmente.");
+        notify("warning", "No se detectó una placa clara en la imagen. Ingrese los datos manualmente.");
       }
     } catch (error: any) {
-      showAlert("warning", `Error al procesar la imagen: ${error?.message || "Intente nuevamente."}`);
+      notify("warning", `Error al procesar la imagen: ${error?.message || "Intente nuevamente."}`);
     } finally {
       setOcrLoading(false);
     }
@@ -436,7 +429,7 @@ export default function PorteriaPage() {
       const text = await file.text();
       const rawRows = parseCSVRows(text);
       if (rawRows.length <= 1) {
-        showAlert("warning", "El archivo CSV no contiene registros válidos.");
+        notify("warning", "El archivo CSV no contiene registros válidos.");
         return;
       }
 
@@ -474,9 +467,9 @@ export default function PorteriaPage() {
         count++;
       }
 
-      showAlert("success", `¡Se importaron y registraron ${count} ingresos de vehículos en Portería!`);
+      notify("success", `¡Se importaron y registraron ${count} ingresos de vehículos en Portería!`);
     } catch (err: any) {
-      showAlert("warning", `Error al importar CSV: ${err.message || "Formato no válido"}`);
+      notify("warning", `Error al importar CSV: ${err.message || "Formato no válido"}`);
     }
     e.target.value = "";
   };
@@ -488,12 +481,12 @@ export default function PorteriaPage() {
     e.preventDefault();
     const plate = isVentaDirecta ? "VENTA" : entryForm.plate.toUpperCase().trim();
     if (!isVentaDirecta && !plate) {
-      showAlert("warning", "Ingrese una placa válida.");
+      notify("warning", "Ingrese una placa válida.");
       return;
     }
 
     if (isVentaDirecta && !entryForm.problem_description.trim()) {
-      showAlert("warning", "Ingrese el motivo o detalle de los repuestos a vender.");
+      notify("warning", "Ingrese el motivo o detalle de los repuestos a vender.");
       return;
     }
 
@@ -524,9 +517,9 @@ export default function PorteriaPage() {
     });
 
     if (isVentaDirecta) {
-      showAlert("success", `¡Venta de repuesto registrada bajo código VENTA a las ${finalTime} y enviada a Taller/Caja con OT abierta!`);
+      notify("success", `¡Venta de repuesto registrada bajo código VENTA a las ${finalTime} y enviada a Taller/Caja con OT abierta!`);
     } else {
-      showAlert("success", `¡Ingreso del vehículo ${plate} registrado a las ${finalTime} para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
+      notify("success", `¡Ingreso del vehículo ${plate} registrado a las ${finalTime} para el ${formatPeruDate(entryDate || selectedDate)} y enviado a Taller!`);
     }
 
     // Reset form
@@ -580,7 +573,7 @@ export default function PorteriaPage() {
     // 3. Update appointment status
     updateAppointmentStatus(app.id, "confirmado");
 
-    showAlert(
+    notify(
       "success",
       `¡Asistencia Confirmada! El vehículo ${plate} ingresó a Taller para la fecha ${formatPeruDate(selectedDate)}.`
     );
@@ -597,7 +590,7 @@ export default function PorteriaPage() {
       scheduled_date: new Date(rescheduleDate).toISOString(),
     });
     const formattedDate = formatPeruDateTime(rescheduleDate, false);
-    showAlert("info", `Cita de ${rescheduleModal.plate} reprogramada para ${formattedDate}.`);
+    notify("info", `Cita de ${rescheduleModal.plate} reprogramada para ${formattedDate}.`);
     setRescheduleModal(null);
   };
 
@@ -612,7 +605,7 @@ export default function PorteriaPage() {
       danger: true,
       onConfirm: () => {
         updateAppointmentStatus(app.id, "cancelado");
-        showAlert("warning", `Cita de ${app.plate} ha sido anulada.`);
+        notify("warning", `Cita de ${app.plate} ha sido anulada.`);
       },
     });
   };
@@ -628,7 +621,7 @@ export default function PorteriaPage() {
       danger: false,
       onConfirm: () => {
         updateWorkOrderStatus(wo.id, "finalizado");
-        showAlert("success", `Salida del vehículo ${wo.vehicle_plate} registrada correctamente.`);
+        notify("success", `Salida del vehículo ${wo.vehicle_plate} registrada correctamente.`);
       },
     });
   };
@@ -665,7 +658,7 @@ export default function PorteriaPage() {
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-3xl border border-white/10 shadow-2xl">
         <div className="flex items-center gap-3">
@@ -719,11 +712,10 @@ export default function PorteriaPage() {
             <button
               type="button"
               onClick={() => setSelectedDate(getPeruDateString())}
-              className={`px-3 py-2 rounded-xl text-xs font-black transition-transform active:scale-95 ${
-                isToday
-                  ? "bg-white/10 text-gray-400 border border-white/10"
-                  : "bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 hover:scale-105"
-              }`}
+              className={`px-3 py-2 rounded-xl text-xs font-black transition-transform active:scale-95 ${isToday
+                ? "bg-white/10 text-gray-400 border border-white/10"
+                : "bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-500/20 hover:scale-105"
+                }`}
             >
               Hoy
             </button>
@@ -758,14 +750,13 @@ export default function PorteriaPage() {
             type="button"
             onClick={() => {
               if (hasApiKey) cameraInputRef.current?.click();
-              else showAlert("warning", "Configure una API Key en Configuración de IA para habilitar escaneo con cámara.");
+              else notify("warning", "Configure una API Key en Configuración de IA para habilitar escaneo con cámara.");
             }}
             disabled={ocrLoading}
-            className={`px-3.5 py-2.5 text-xs font-extrabold rounded-xl border flex items-center gap-2 transition-all shrink-0 active:scale-95 ${
-              !hasApiKey
-                ? "bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white"
-                : "bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white border-red-500/30 shadow-lg shadow-red-600/25"
-            }`}
+            className={`px-3.5 py-2.5 text-xs font-extrabold rounded-xl border flex items-center gap-2 transition-all shrink-0 active:scale-95 ${!hasApiKey
+              ? "bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white"
+              : "bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white border-red-500/30 shadow-lg shadow-red-600/25"
+              }`}
           >
             <Camera className={`w-4 h-4 shrink-0 ${ocrLoading ? "animate-spin" : ""}`} />
             <span>{ocrLoading ? "Escaneando con IA..." : "Tomar Foto / Escanear IA"}</span>
@@ -773,34 +764,9 @@ export default function PorteriaPage() {
         </div>
       </div>
 
-      {/* Alert Banner */}
-      {alertMessage && (
-        <div
-          className={`p-4 rounded-2xl border flex items-center justify-between gap-3 text-sm shadow-xl animate-fadeIn ${
-            alertMessage.type === "success"
-              ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
-              : alertMessage.type === "warning"
-              ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-              : "bg-blue-950/50 border-blue-500/40 text-blue-300"
-          }`}
-        >
-          <div className="flex items-center gap-2.5 font-medium">
-            <AlertCircle className="w-5 h-5 shrink-0" />
-            <span>{alertMessage.text}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAlertMessage(null)}
-            className="text-gray-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
       {/* Main Grid: Form + Appointments & Semaphore */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+
         {/* Entry Registration Form (5 cols) */}
         <div className="lg:col-span-5 glass-panel p-6 rounded-3xl border border-white/10 space-y-5 shadow-2xl">
           <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -817,9 +783,8 @@ export default function PorteriaPage() {
                 </p>
               </div>
             </div>
-            <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-bold border ${
-              isVentaDirecta ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-gray-300 border-white/10"
-            }`}>
+            <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-bold border ${isVentaDirecta ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-gray-300 border-white/10"
+              }`}>
               {isVentaDirecta ? "Venta Mostrador" : "Búsqueda Auto"}
             </span>
           </div>
@@ -832,11 +797,10 @@ export default function PorteriaPage() {
                 setIsVentaDirecta(false);
                 setEntryForm((prev) => ({ ...prev, plate: "" }));
               }}
-              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                !isVentaDirecta
-                  ? "bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-lg shadow-red-600/30"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${!isVentaDirecta
+                ? "bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-lg shadow-red-600/30"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <Car className="w-4 h-4 shrink-0" />
               <span>🚗 Ingreso Vehículo</span>
@@ -847,11 +811,10 @@ export default function PorteriaPage() {
                 setIsVentaDirecta(true);
                 setEntryForm((prev) => ({ ...prev, plate: "VENTA" }));
               }}
-              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${
-                isVentaDirecta
-                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-all ${isVentaDirecta
+                ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <ShoppingBag className="w-4 h-4 shrink-0" />
               <span>📦 Venta de Repuesto</span>
@@ -870,7 +833,7 @@ export default function PorteriaPage() {
           )}
 
           <form onSubmit={handleRegisterEntry} className="space-y-4">
-            
+
             {/* Entry Date & Time selection */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-black/40 border border-white/10">
               <div>
@@ -1068,20 +1031,18 @@ export default function PorteriaPage() {
                 }
                 value={entryForm.problem_description}
                 onChange={(e) => setEntryForm({ ...entryForm, problem_description: e.target.value })}
-                className={`w-full px-3.5 py-2.5 bg-reygas-surface border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none transition-colors leading-relaxed font-medium ${
-                  isVentaDirecta ? "border-emerald-500/40 focus:border-emerald-400" : "border-white/15 focus:border-red-400"
-                }`}
+                className={`w-full px-3.5 py-2.5 bg-reygas-surface border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none transition-colors leading-relaxed font-medium ${isVentaDirecta ? "border-emerald-500/40 focus:border-emerald-400" : "border-white/15 focus:border-red-400"
+                  }`}
               />
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              className={`w-full py-3.5 font-black rounded-2xl text-sm transition-transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-xl ${
-                isVentaDirecta
-                  ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-600/30"
-                  : "bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-red-600/30"
-              }`}
+              className={`w-full py-3.5 font-black rounded-2xl text-sm transition-transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 shadow-xl ${isVentaDirecta
+                ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white shadow-emerald-600/30"
+                : "bg-gradient-to-r from-red-600 via-orange-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white shadow-red-600/30"
+                }`}
             >
               {isVentaDirecta ? (
                 <>
@@ -1100,7 +1061,7 @@ export default function PorteriaPage() {
 
         {/* Scheduled Appointments & Exit Semaphore (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          
+
           {/* Citas & Reservas Programadas */}
           <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4 shadow-2xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
@@ -1119,22 +1080,20 @@ export default function PorteriaPage() {
                 <button
                   type="button"
                   onClick={() => setDateFilterMode("dia")}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    dateFilterMode === "dia"
-                      ? "bg-amber-500 text-black font-black"
-                      : "text-gray-400 hover:text-white"
-                  }`}
+                  className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "dia"
+                    ? "bg-amber-500 text-black font-black"
+                    : "text-gray-400 hover:text-white"
+                    }`}
                 >
                   Del Día ({filteredAppointments.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setDateFilterMode("todos")}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    dateFilterMode === "todos"
-                      ? "bg-amber-500 text-black font-black"
-                      : "text-gray-400 hover:text-white"
-                  }`}
+                  className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "todos"
+                    ? "bg-amber-500 text-black font-black"
+                    : "text-gray-400 hover:text-white"
+                    }`}
                 >
                   Todas las Pendientes
                 </button>
@@ -1241,11 +1200,10 @@ export default function PorteriaPage() {
                   return (
                     <div
                       key={wo.id}
-                      className={`p-4 rounded-2xl border transition-all ${
-                        isPaidAndAuthorized
-                          ? "bg-emerald-950/25 border-emerald-500/40 shadow-lg shadow-emerald-500/10"
-                          : "bg-black/40 border-white/10"
-                      }`}
+                      className={`p-4 rounded-2xl border transition-all ${isPaidAndAuthorized
+                        ? "bg-emerald-950/25 border-emerald-500/40 shadow-lg shadow-emerald-500/10"
+                        : "bg-black/40 border-white/10"
+                        }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="space-y-1">
@@ -1371,7 +1329,7 @@ export default function PorteriaPage() {
       {confirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
           <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-black/90 space-y-6">
-            
+
             <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
               <div className="flex items-center gap-3">
                 <div className={`p-3 rounded-2xl border ${confirmModal.danger ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-amber-500/20 text-amber-400 border-amber-500/30"}`}>
@@ -1409,11 +1367,10 @@ export default function PorteriaPage() {
                   confirmModal.onConfirm();
                   setConfirmModal(null);
                 }}
-                className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${
-                  confirmModal.danger
-                    ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
-                    : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
-                }`}
+                className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${confirmModal.danger
+                  ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
+                  : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
+                  }`}
               >
                 {confirmModal.confirmLabel || "Aceptar"}
               </button>
@@ -1429,7 +1386,7 @@ export default function PorteriaPage() {
       {infoModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
           <div className="glass-panel bg-reygas-dark/95 border border-cyan-500/30 rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl shadow-cyan-950/60 flex flex-col max-h-[90vh] overflow-hidden space-y-5">
-            
+
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/10 pb-4 shrink-0">
               <div className="flex items-center gap-3">

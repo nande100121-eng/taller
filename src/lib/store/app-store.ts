@@ -483,8 +483,8 @@ export interface AISettings {
 
 interface AppState {
   // Global Toast / Notification Feedback (visible save/error state)
-  notification: { id: number; type: "success" | "error" | "info"; message: string } | null;
-  notify: (type: "success" | "error" | "info", message: string) => void;
+  notification: { id: number; type: "success" | "error" | "info" | "warning"; message: string } | null;
+  notify: (type: "success" | "error" | "info" | "warning", message: string) => void;
   clearNotification: () => void;
 
   // Authentication State

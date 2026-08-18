@@ -46,6 +46,7 @@ export default function RecepcionPage() {
     assignTechnicianToOrder,
     scheduleRecords,
     addScheduleRecord,
+    notify,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<"citas" | "radar">("citas");
@@ -108,7 +109,7 @@ export default function RecepcionPage() {
   const handleSaveCartilla = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cartillaForm.vehicle_plate.trim()) {
-      alert("Por favor ingrese la placa del vehículo.");
+      notify("warning", "Por favor ingrese la placa del vehículo.");
       return;
     }
 
@@ -565,11 +566,10 @@ export default function RecepcionPage() {
           <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
             <button
               onClick={() => setActiveTab("citas")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "citas"
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "citas"
                   ? "bg-blue-600 text-white shadow-lg"
                   : "text-gray-400 hover:text-white"
-              }`}
+                }`}
             >
               Reservas & Citas Web ({appointments.length})
             </button>
@@ -583,11 +583,10 @@ export default function RecepcionPage() {
             </button>
             <button
               onClick={() => setActiveTab("radar")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "radar"
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "radar"
                   ? "bg-blue-600 text-white shadow-lg"
                   : "text-gray-400 hover:text-white"
-              }`}
+                }`}
             >
               Radar Vencimientos 90D ({radarItems.length})
             </button>
@@ -630,15 +629,14 @@ export default function RecepcionPage() {
                             {app.plate}
                           </span>
                           <span
-                            className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${
-                              app.status === "confirmado"
+                            className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${app.status === "confirmado"
                                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                                 : app.status === "completado"
-                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                                : app.status === "cancelado"
-                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                            }`}
+                                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                                  : app.status === "cancelado"
+                                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                    : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                              }`}
                           >
                             {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status}
                           </span>
@@ -751,11 +749,10 @@ export default function RecepcionPage() {
             <div className="flex items-center gap-2 bg-reygas-dark p-1.5 rounded-xl border border-white/10 flex-wrap">
               <button
                 onClick={() => setRadarFilter("semanal")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  radarFilter === "semanal"
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "semanal"
                     ? "bg-blue-600 text-white shadow-lg"
                     : "text-gray-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <span>📅 Semanal</span>
                 <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
@@ -765,11 +762,10 @@ export default function RecepcionPage() {
 
               <button
                 onClick={() => setRadarFilter("mensual")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  radarFilter === "mensual"
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "mensual"
                     ? "bg-blue-600 text-white shadow-lg"
                     : "text-gray-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <span>🗓️ Mensual</span>
                 <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
@@ -779,11 +775,10 @@ export default function RecepcionPage() {
 
               <button
                 onClick={() => setRadarFilter("10dias")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  radarFilter === "10dias"
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "10dias"
                     ? "bg-amber-600 text-white shadow-lg"
                     : "text-gray-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <span>⚠️ Faltando 10 días</span>
                 <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
@@ -793,11 +788,10 @@ export default function RecepcionPage() {
 
               <button
                 onClick={() => setRadarFilter("todos")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  radarFilter === "todos"
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "todos"
                     ? "bg-indigo-600 text-white shadow-lg"
                     : "text-gray-400 hover:text-white"
-                }`}
+                  }`}
               >
                 <span>🌐 Mostrar todos</span>
                 <span className="text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-mono">
@@ -855,13 +849,12 @@ export default function RecepcionPage() {
                 return (
                   <div
                     key={item.id + item.plate}
-                    className={`p-5 rounded-2xl glass-card border flex flex-col justify-between space-y-4 transition-all hover:border-amber-500/50 ${
-                      isOverdue
+                    className={`p-5 rounded-2xl glass-card border flex flex-col justify-between space-y-4 transition-all hover:border-amber-500/50 ${isOverdue
                         ? "border-red-500/40 bg-red-950/10"
                         : isUrgent
-                        ? "border-amber-500/40 bg-amber-950/10"
-                        : "border-white/10"
-                    }`}
+                          ? "border-amber-500/40 bg-amber-950/10"
+                          : "border-white/10"
+                      }`}
                   >
                     <div className="space-y-3">
                       {/* Plate and Due Badge */}
@@ -870,23 +863,22 @@ export default function RecepcionPage() {
                           {item.plate}
                         </span>
                         <span
-                          className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${
-                            isOverdue
+                          className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${isOverdue
                               ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
                               : isToday
-                              ? "bg-red-500 text-white font-black animate-bounce"
-                              : isUrgent
-                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                          }`}
+                                ? "bg-red-500 text-white font-black animate-bounce"
+                                : isUrgent
+                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                                  : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            }`}
                         >
                           {isOverdue
                             ? `🔴 Vencido hace ${Math.abs(item.diffDays)} días`
                             : isToday
-                            ? `🔴 ¡Vence HOY!`
-                            : isUrgent
-                            ? `🟡 ¡Urgente! Vence en ${item.diffDays} días`
-                            : `🟢 Próximo (${item.diffDays} días)`}
+                              ? `🔴 ¡Vence HOY!`
+                              : isUrgent
+                                ? `🟡 ¡Urgente! Vence en ${item.diffDays} días`
+                                : `🟢 Próximo (${item.diffDays} días)`}
                         </span>
                       </div>
 
@@ -1365,13 +1357,12 @@ export default function RecepcionPage() {
                 return (
                   <div
                     key={slot}
-                    className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-2 ${
-                      isFull
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-2 ${isFull
                         ? "bg-red-950/20 border-red-500/30 text-red-300"
                         : occupancy.totalOccupied > 0
-                        ? "bg-amber-950/20 border-amber-500/30 text-amber-300"
-                        : "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
-                    }`}
+                          ? "bg-amber-950/20 border-amber-500/30 text-amber-300"
+                          : "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
+                      }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono font-black text-sm text-white flex items-center gap-1.5">
@@ -1379,13 +1370,12 @@ export default function RecepcionPage() {
                         <span>{slot} hrs</span>
                       </span>
                       <span
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${
-                          isFull
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${isFull
                             ? "bg-red-500/20 text-red-400 border border-red-500/30"
                             : occupancy.totalOccupied > 0
-                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        }`}
+                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          }`}
                       >
                         {isFull ? "🔴 Ocupado (2/2)" : occupancy.totalOccupied > 0 ? "🟡 1 Turno Ocupado" : "🟢 Disponible"}
                       </span>
@@ -1415,11 +1405,10 @@ export default function RecepcionPage() {
                       <button
                         type="button"
                         onClick={() => handleSelectSlot(slot)}
-                        className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all shadow ${
-                          isFull
+                        className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all shadow ${isFull
                             ? "bg-gray-800 text-gray-400 hover:text-white"
                             : "bg-blue-600 hover:bg-blue-500 text-white"
-                        }`}
+                          }`}
                       >
                         {isFull ? "Asignar de todos modos" : "✓ Seleccionar este Horario"}
                       </button>
@@ -1695,11 +1684,10 @@ export default function RecepcionPage() {
                   confirmModal.onConfirm();
                   setConfirmModal(null);
                 }}
-                className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${
-                  confirmModal.danger
+                className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${confirmModal.danger
                     ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
                     : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
-                }`}
+                  }`}
               >
                 {confirmModal.confirmLabel || "Aceptar"}
               </button>

@@ -10,7 +10,6 @@ import {
   Plus,
   Printer,
   Search,
-  AlertCircle,
   User,
   Phone,
   X,
@@ -76,6 +75,7 @@ export default function CertificacionesPage() {
     vehicles,
     workOrders,
     syncFromSupabase,
+    notify,
   } = useAppStore();
 
   // Always refresh latest data from Supabase on mount
@@ -123,12 +123,6 @@ export default function CertificacionesPage() {
     quinquennial_date: "-",
   });
 
-  // Alert State
-  const [alertMsg, setAlertMsg] = useState<{ type: "success" | "warning"; text: string } | null>(null);
-  const showAlert = (type: "success" | "warning", text: string) => {
-    setAlertMsg({ type, text });
-    setTimeout(() => setAlertMsg(null), 4500);
-  };
 
   // Vehicles Map
   const vehiclesMap = useMemo(() => {
@@ -375,7 +369,7 @@ export default function CertificacionesPage() {
     if (val === undefined) return;
     const newPrice = parseFloat(val);
     if (isNaN(newPrice) || newPrice < 0) {
-      showAlert("warning", "Ingrese un precio numérico válido.");
+      notify("warning", "Ingrese un precio numérico válido.");
       return;
     }
 
@@ -396,7 +390,7 @@ export default function CertificacionesPage() {
       return next;
     });
 
-    showAlert("success", `¡Precio actualizado a S/ ${newPrice.toFixed(2)} para placa ${card.plate}!`);
+    notify("success", `¡Precio actualizado a S/ ${newPrice.toFixed(2)} para placa ${card.plate}!`);
   };
 
   // Open Official Emission Modal
@@ -468,7 +462,7 @@ export default function CertificacionesPage() {
       };
     });
 
-    showAlert(
+    notify(
       "success",
       `¡Certificado emitido para ${cert.vehicle_plate}! Sincronizado en tiempo real con Taller y Caja.`
     );
@@ -479,7 +473,7 @@ export default function CertificacionesPage() {
   const handleCreateManualCert = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualForm.vehicle_plate.trim()) {
-      showAlert("warning", "Ingrese una placa válida.");
+      notify("warning", "Ingrese una placa válida.");
       return;
     }
 
@@ -497,26 +491,12 @@ export default function CertificacionesPage() {
       is_ready: true,
     });
 
-    showAlert("success", `¡Certificado para ${manualForm.vehicle_plate.toUpperCase()} registrado correctamente!`);
+    notify("success", `¡Certificado para ${manualForm.vehicle_plate.toUpperCase()} registrado correctamente!`);
     setIsManualModalOpen(false);
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Alert Notification */}
-      {alertMsg && (
-        <div
-          className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 transition-all animate-fadeIn ${
-            alertMsg.type === "success"
-              ? "bg-emerald-950/90 text-emerald-300 border border-emerald-500/50"
-              : "bg-amber-950/90 text-amber-300 border border-amber-500/50"
-          }`}
-        >
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <span>{alertMsg.text}</span>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-2xl border border-white/10">
         <div className="flex items-center gap-3">
@@ -548,11 +528,10 @@ export default function CertificacionesPage() {
             {/* 1. Del Día / Hoy */}
             <button
               onClick={() => setActiveTab("hoy")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "hoy"
-                  ? "bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg shadow-cyan-600/30 font-black scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "hoy"
+                ? "bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-lg shadow-cyan-600/30 font-black scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <CalendarIcon className="w-3.5 h-3.5" />
               <span>Del Día / Hoy ({counts.hoy})</span>
@@ -561,11 +540,10 @@ export default function CertificacionesPage() {
             {/* 2. Pendientes */}
             <button
               onClick={() => setActiveTab("pendientes")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "pendientes"
-                  ? "bg-amber-500 text-black font-black shadow-lg shadow-amber-500/20 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "pendientes"
+                ? "bg-amber-500 text-black font-black shadow-lg shadow-amber-500/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <Clock className="w-3.5 h-3.5" />
               <span>Pendientes ({counts.pendientes})</span>
@@ -574,11 +552,10 @@ export default function CertificacionesPage() {
             {/* 3. Vencidos (NUEVO FILTRO) */}
             <button
               onClick={() => setActiveTab("vencidos")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "vencidos"
-                  ? "bg-red-600 text-white font-black shadow-lg shadow-red-600/30 scale-[1.02]"
-                  : "text-red-400 hover:text-white hover:bg-red-950/40"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "vencidos"
+                ? "bg-red-600 text-white font-black shadow-lg shadow-red-600/30 scale-[1.02]"
+                : "text-red-400 hover:text-white hover:bg-red-950/40"
+                }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
               <span>⚠️ Vencidos ({counts.vencidos})</span>
@@ -587,11 +564,10 @@ export default function CertificacionesPage() {
             {/* 4. Vencen Esta Semana */}
             <button
               onClick={() => setActiveTab("esta_semana")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "esta_semana"
-                  ? "bg-purple-600 text-white font-black shadow-lg shadow-purple-600/30 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "esta_semana"
+                ? "bg-purple-600 text-white font-black shadow-lg shadow-purple-600/30 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <CalendarDays className="w-3.5 h-3.5" />
               <span>Vencen Esta Semana ({counts.estaSemana})</span>
@@ -600,11 +576,10 @@ export default function CertificacionesPage() {
             {/* 5. Vencen Este Mes */}
             <button
               onClick={() => setActiveTab("este_mes")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "este_mes"
-                  ? "bg-pink-600 text-white font-black shadow-lg shadow-pink-600/30 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "este_mes"
+                ? "bg-pink-600 text-white font-black shadow-lg shadow-pink-600/30 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <CalendarRange className="w-3.5 h-3.5" />
               <span>Vencen en el Mes ({counts.esteMes})</span>
@@ -613,11 +588,10 @@ export default function CertificacionesPage() {
             {/* 6. Emitidos */}
             <button
               onClick={() => setActiveTab("emitidos")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "emitidos"
-                  ? "bg-emerald-600 text-white font-black shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "emitidos"
+                ? "bg-emerald-600 text-white font-black shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Emitidos ({counts.emitidos})</span>
@@ -626,11 +600,10 @@ export default function CertificacionesPage() {
             {/* 7. Todos / Histórico */}
             <button
               onClick={() => setActiveTab("todos")}
-              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === "todos"
-                  ? "bg-blue-600 text-white font-black shadow-lg shadow-blue-600/30 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === "todos"
+                ? "bg-blue-600 text-white font-black shadow-lg shadow-blue-600/30 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <span>Todos / Histórico ({counts.todos})</span>
             </button>
@@ -716,13 +689,12 @@ export default function CertificacionesPage() {
               return (
                 <div
                   key={card.id}
-                  className={`glass-panel p-5 rounded-2xl border transition-all space-y-4 shadow-xl ${
-                    isExpired
-                      ? "border-red-500/50 bg-red-950/20 hover:border-red-400"
-                      : isPending
+                  className={`glass-panel p-5 rounded-2xl border transition-all space-y-4 shadow-xl ${isExpired
+                    ? "border-red-500/50 bg-red-950/20 hover:border-red-400"
+                    : isPending
                       ? "border-cyan-500/50 bg-cyan-950/20 hover:border-cyan-400"
                       : "border-emerald-500/30 bg-emerald-950/10 hover:border-emerald-500/50"
-                  }`}
+                    }`}
                 >
                   {/* Card Header: Plate, Status, Type & Editable Price */}
                   <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
@@ -732,23 +704,22 @@ export default function CertificacionesPage() {
                           {card.plate}
                         </span>
                         <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                            isExpired
-                              ? "bg-red-500/20 text-red-300 border-red-500/40"
-                              : isPending
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${isExpired
+                            ? "bg-red-500/20 text-red-300 border-red-500/40"
+                            : isPending
                               ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse"
                               : card.status === "Por Vencer"
-                              ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
-                              : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                          }`}
+                                ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
+                                : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                            }`}
                         >
                           {isExpired
                             ? "⚠️ Vencido"
                             : isPending
-                            ? "⏳ Solicitado por Taller"
-                            : card.status === "Por Vencer"
-                            ? "⚡ Por Vencer"
-                            : "✅ Vigente"}
+                              ? "⏳ Solicitado por Taller"
+                              : card.status === "Por Vencer"
+                                ? "⚡ Por Vencer"
+                                : "✅ Vigente"}
                         </span>
                       </div>
 
@@ -865,8 +836,8 @@ export default function CertificacionesPage() {
                       {isPending
                         ? "⚠️ Requiere emisión oficial"
                         : isExpired
-                        ? "⚠️ Inspección reglamentaria vencida"
-                        : "📜 Certificado emitido y vigente"}
+                          ? "⚠️ Inspección reglamentaria vencida"
+                          : "📜 Certificado emitido y vigente"}
                     </span>
 
                     <div className="flex items-center gap-2">

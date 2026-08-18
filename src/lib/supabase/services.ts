@@ -224,40 +224,77 @@ export async function deleteSupabaseTechnician(id: string, allTechs?: Technician
 // ---------------------------------------------------------------------
 // INVENTORY SUPABASE SYNC
 // ---------------------------------------------------------------------
+// Mapeo entre la interfaz de la app (InventoryItem) y las columnas REALES de
+// inventory_items: stock, min_stock, cost_price, sale_price, location, notes, brand.
+// Los campos extra (counted_status, initial_stock, entries, exits, serial_number) se
+// serializan en `notes` bajo `__meta__:` y se recuperan en la lectura.
+function buildInventoryDbPayload(item: InventoryItem): Record<string, any> {
+  const meta: Record<string, any> = {};
+  if (item.serial_number) meta.serial_number = item.serial_number;
+  if (typeof item.initial_stock === "number") meta.initial_stock = item.initial_stock;
+  if (typeof item.entries === "number") meta.entries = item.entries;
+  if (typeof item.exits === "number") meta.exits = item.exits;
+  if (typeof item.counted_stock === "number") meta.counted_stock = item.counted_stock;
+  if (item.counted_status) meta.counted_status = item.counted_status;
+  const extra = Object.keys(meta).length > 0 ? `__meta__:${JSON.stringify(meta)}` : "";
+  const notes = [((item as any).notes || "").trim(), extra].filter(Boolean).join("\n") || null;
+  const anyItem = item as any;
+  return {
+    id: item.id,
+    sku_barcode: item.sku_barcode,
+    name: item.name,
+    brand: item.brand || null,
+    category: item.category || "Repuestos",
+    stock: typeof item.stock_quantity === "number" ? item.stock_quantity : (typeof anyItem.stock === "number" ? anyItem.stock : 0),
+    min_stock: typeof item.min_stock_alert === "number" ? item.min_stock_alert : (typeof anyItem.min_stock === "number" ? anyItem.min_stock : 2),
+    sale_price: typeof item.unit_price === "number" ? item.unit_price : (typeof anyItem.sale_price === "number" ? anyItem.sale_price : 0),
+    cost_price: typeof anyItem.cost_price === "number" ? anyItem.cost_price : null,
+    location: anyItem.location || null,
+    notes,
+  };
+}
+
+function normalizeDbInventoryItem(dbRow: any): InventoryItem {
+  let meta: Record<string, any> = {};
+  let notes: string = typeof dbRow.notes === "string" ? dbRow.notes : "";
+  const metaIdx = notes.indexOf("__meta__:");
+  if (metaIdx >= 0) {
+    try {
+      meta = JSON.parse(notes.slice(metaIdx + "__meta__:".length)) || {};
+      notes = notes.slice(0, metaIdx).trim();
+    } catch { }
+  }
+  const inv: InventoryItem = {
+    id: dbRow.id,
+    sku_barcode: dbRow.sku_barcode,
+    name: dbRow.name,
+    brand: dbRow.brand || undefined,
+    category: dbRow.category || "Repuestos",
+    unit_price: typeof dbRow.sale_price === "number" ? dbRow.sale_price : (typeof dbRow.unit_price === "number" ? dbRow.unit_price : 0),
+    stock_quantity: typeof dbRow.stock === "number" ? dbRow.stock : (typeof dbRow.stock_quantity === "number" ? dbRow.stock_quantity : 0),
+    min_stock_alert: typeof dbRow.min_stock === "number" ? dbRow.min_stock : (typeof dbRow.min_stock_alert === "number" ? dbRow.min_stock_alert : 2),
+  };
+  if (typeof dbRow.cost_price === "number") (inv as any).cost_price = dbRow.cost_price;
+  if (dbRow.location) (inv as any).location = dbRow.location;
+  if (notes) (inv as any).notes = notes;
+  if (dbRow.serial_number) inv.serial_number = dbRow.serial_number;
+  if (typeof meta.initial_stock === "number") inv.initial_stock = meta.initial_stock;
+  if (typeof meta.entries === "number") inv.entries = meta.entries;
+  if (typeof meta.exits === "number") inv.exits = meta.exits;
+  if (typeof meta.counted_stock === "number") inv.counted_stock = meta.counted_stock;
+  if (meta.counted_status) inv.counted_status = meta.counted_status;
+  return inv;
+}
+
 export async function saveSupabaseInventoryItem(item: InventoryItem) {
   try {
     markLocalMutation("inventory");
-    // 1. Try upserting with all columns
-    const { error } = await supabase.from("inventory_items").upsert({
-      id: item.id,
-      sku_barcode: item.sku_barcode,
-      name: item.name,
-      brand: item.brand || null,
-      serial_number: item.serial_number || null,
-      category: item.category || "Repuestos",
-      stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
-      initial_stock: typeof item.initial_stock === "number" ? item.initial_stock : null,
-      entries: typeof item.entries === "number" ? item.entries : 0,
-      exits: typeof item.exits === "number" ? item.exits : 0,
-      counted_stock: typeof item.counted_stock === "number" ? item.counted_stock : null,
-      counted_status: item.counted_status || null,
-      unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
-      min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
-    });
-
-    if (error) {
-      // 2. Fallback to base columns if extended columns (brand, serial_number, etc.) do not exist yet
-      console.warn("Retrying with base inventory columns due to schema error:", error.message);
-      await supabase.from("inventory_items").upsert({
-        id: item.id,
-        sku_barcode: item.sku_barcode,
-        name: item.name,
-        category: item.category || "Repuestos",
-        stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
-        unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
-        min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
-      });
-    }
+    // Backup en site_content (patrón roster): nunca se pierde el registro completo
+    await saveSupabaseSiteContent(`inv_full_${item.id}`, item, "inventory");
+    const { error } = await supabase
+      .from("inventory_items")
+      .upsert(buildInventoryDbPayload(item), { onConflict: "id" });
+    if (error) console.warn("Supabase inventory save warning:", error.message);
     broadcastRealtimeChange("inventory_item_updated");
   } catch (err) {
     console.warn("Supabase inventory save deferred:", err);
@@ -289,22 +326,7 @@ export async function saveSupabaseBulkInventory(items: InventoryItem[]): Promise
     await saveSupabaseSiteContent("all_inventory_records", sanitizedItems, "inventory");
 
     const CHUNK_SIZE = 100;
-    const fullPayload = sanitizedItems.map((item) => ({
-      id: item.id,
-      sku_barcode: item.sku_barcode,
-      name: item.name,
-      brand: item.brand || null,
-      serial_number: item.serial_number || null,
-      category: item.category || "Repuestos",
-      stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
-      initial_stock: typeof item.initial_stock === "number" ? item.initial_stock : null,
-      entries: typeof item.entries === "number" ? item.entries : 0,
-      exits: typeof item.exits === "number" ? item.exits : 0,
-      counted_stock: typeof item.counted_stock === "number" ? item.counted_stock : null,
-      counted_status: item.counted_status || null,
-      unit_price: typeof item.unit_price === "number" ? item.unit_price : 0,
-      min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : 2,
-    }));
+    const fullPayload = sanitizedItems.map((item) => buildInventoryDbPayload(item));
 
     for (let i = 0; i < fullPayload.length; i += CHUNK_SIZE) {
       const chunk = fullPayload.slice(i, i + CHUNK_SIZE);
@@ -506,14 +528,11 @@ async function fetchAllSupabaseTable(tableName: string) {
     if (!firstBatch || firstBatch.length === 0) return [];
     if (firstBatch.length < PAGE_SIZE) return firstBatch;
 
-    // 2. Fetch subsequent pages only if firstBatch was saturated
-    // MAX_FETCH_ROWS: cap defensivo para que la carga de la tablet no se arrastre
-    // indefinidamente en tablas de operación. Los históricos completos se cargan
-    // bajo demanda (filtros/paginación) según la skill de optimización de carga.
-    const MAX_FETCH_ROWS = 2000;
+    // 2. Fetch all remaining pages (sin tope). La nube es la fuente única de la verdad:
+    // el registro de taller puede superar los 2000 registros y ninguno debe perderse.
     let allRecords = [...firstBatch];
     let offset = PAGE_SIZE;
-    while (offset < MAX_FETCH_ROWS) {
+    for (; ;) {
       const { data: nextBatch, error: nextErr } = await supabase
         .from(tableName)
         .select("*")
@@ -934,6 +953,7 @@ export async function fetchSupabaseErpData() {
     const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
+    const fallbackApps: any[] = [];
     const fallbackInventory: InventoryItem[] = [];
     let fallbackServices: any[] = [];
     let fallbackRecentIngresos: any[] = [];
@@ -994,6 +1014,11 @@ export async function fetchSupabaseErpData() {
           try {
             const sList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(sList)) fallbackSched.push(...sList);
+          } catch { }
+        } else if (k && k.startsWith("appt_")) {
+          try {
+            const aObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+            if (aObj && aObj.id) fallbackApps.push(aObj);
           } catch { }
         } else if (k === "all_inventory_records") {
           try {
@@ -1246,13 +1271,23 @@ export async function fetchSupabaseErpData() {
     });
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;
 
+    // Normalizar columnas reales de la DB (stock/min_stock/sale_price) a la interfaz de la app
+    // y fusionar campos extra (counted/initial/entries/exits) que viven en site_content.
+    const invMap = new Map<string, InventoryItem>();
+    (Array.isArray(invData) ? invData : []).forEach((dbRow: any) => {
+      const normalized = normalizeDbInventoryItem(dbRow);
+      if (normalized.id) invMap.set(normalized.id, normalized);
+    });
+    fallbackInventory.forEach((fb) => {
+      if (fb && fb.id && invMap.has(fb.id)) {
+        invMap.set(fb.id, { ...invMap.get(fb.id)!, ...fb });
+      }
+    });
     let finalInventory: InventoryItem[] = [];
-    if (Array.isArray(invData) && invData.length >= fallbackInventory.length && invData.length > 0) {
-      finalInventory = invData;
+    if (invMap.size > 0) {
+      finalInventory = Array.from(invMap.values());
     } else if (fallbackInventory.length > 0) {
       finalInventory = fallbackInventory;
-    } else if (Array.isArray(invData) && invData.length > 0) {
-      finalInventory = invData;
     }
 
     const fallbackTechMap = new Map<string, any>();
@@ -1325,7 +1360,7 @@ export async function fetchSupabaseErpData() {
       technicians: finalTechnicians,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
-      appointments: appRes.data ? appRes.data : null,
+      appointments: (appRes.data && appRes.data.length > 0) ? appRes.data : (fallbackApps.length > 0 ? fallbackApps : null),
       invoices: finalInvoices.length > 0 ? finalInvoices : (invoiceData || []),
       vehicles: finalVehicles.length > 0 ? finalVehicles : (vehicleData || []),
       certifications: mergedCerts.length > 0 ? mergedCerts : null,
@@ -1344,6 +1379,8 @@ export async function fetchSupabaseErpData() {
 // ---------------------------------------------------------------------
 export async function saveSupabaseAppointment(app: Appointment) {
   try {
+    // La tabla appointments puede no existir aún en la base; siempre respaldar en site_content.
+    await saveSupabaseSiteContent(`appt_${app.id}`, app, "appointments");
     const { error } = await supabase.from("appointments").upsert({
       id: app.id,
       client_name: app.client_name,
@@ -1354,7 +1391,7 @@ export async function saveSupabaseAppointment(app: Appointment) {
       status: app.status,
       notes: app.notes,
     });
-    if (error) console.warn("Supabase appointment save warning:", error.message);
+    if (error) console.warn("Supabase appointment save warning (tabla aún no creada; backup en site_content):", error.message);
   } catch (err) {
     console.warn("Supabase appointment deferred:", err);
   }
@@ -1362,6 +1399,7 @@ export async function saveSupabaseAppointment(app: Appointment) {
 
 export async function deleteSupabaseAppointment(id: string) {
   try {
+    await supabase.from("site_content").delete().eq("section_key", `appt_${id}`);
     const { error } = await supabase.from("appointments").delete().eq("id", id);
     if (error) console.warn("Supabase appointment delete warning:", error.message);
   } catch (err) {

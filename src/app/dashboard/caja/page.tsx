@@ -57,6 +57,7 @@ const DailyWorkshopReportModal = dynamic(
 );
 
 export default function CajaPage() {
+  const { notify } = useAppStore();
   const {
     workOrders,
     invoices,
@@ -164,12 +165,6 @@ export default function CajaPage() {
     issuedAt?: string;
   } | null>(null);
 
-  // Alert State
-  const [alertMsg, setAlertMsg] = useState<{ type: "success" | "warning"; text: string } | null>(null);
-  const showAlert = (type: "success" | "warning", text: string) => {
-    setAlertMsg({ type, text });
-    setTimeout(() => setAlertMsg(null), 4000);
-  };
 
   // O(1) Invoices lookup map
   const invoicesByWorkOrderId = React.useMemo(() => {
@@ -711,7 +706,7 @@ export default function CajaPage() {
   // Query SUNAT RUC
   const handleLookupRuc = async () => {
     if (!paymentModal?.customerDoc || paymentModal.customerDoc.length !== 11) {
-      showAlert("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
+      notify("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
       return;
     }
     setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: true } : null));
@@ -729,14 +724,14 @@ export default function CajaPage() {
             }
             : null
         );
-        showAlert("success", `RUC verificado: ${data.razonSocial}`);
+        notify("success", `RUC verificado: ${data.razonSocial}`);
       } else {
         setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
-        showAlert("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
+        notify("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
       }
     } catch (err) {
       setPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
-      showAlert("warning", "Error de conexión al consultar RUC.");
+      notify("warning", "Error de conexión al consultar RUC.");
     }
   };
 
@@ -749,17 +744,17 @@ export default function CajaPage() {
     const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
 
     if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
-      showAlert("warning", "Debe seleccionar un Método de Pago.");
+      notify("warning", "Debe seleccionar un Método de Pago.");
       return;
     }
 
     if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentDestination && paymentModal.paymentDestination !== "Ninguno") {
-      showAlert("warning", "Debe seleccionar el Destino del Pago (Personal o Empresa).");
+      notify("warning", "Debe seleccionar el Destino del Pago (Personal o Empresa).");
       return;
     }
 
     if (paymentModal.receiptType === "Factura" && (!paymentModal.customerDoc || paymentModal.customerDoc.length !== 11)) {
-      showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
+      notify("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
       return;
     }
 
@@ -772,7 +767,7 @@ export default function CajaPage() {
       const totalSplits = paymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const diff = Math.abs(paymentModal.grandTotal - totalSplits);
       if (diff > 0.05) {
-        showAlert("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
+        notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
         return;
       }
       paymentBreakdown = paymentModal.paymentSplits;
@@ -817,7 +812,7 @@ export default function CajaPage() {
       paymentBreakdown: paymentBreakdown,
     });
 
-    showAlert("success", isZeroAmount
+    notify("success", isZeroAmount
       ? `¡Atención (S/ 0.00) de ${paymentModal.workOrder?.vehicle_plate} confirmada y registrada con éxito!`
       : `¡Cobro de S/ ${paymentModal.grandTotal.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}!`);
 
@@ -909,7 +904,7 @@ export default function CajaPage() {
   // Lookup RUC for Manual Payment Modal
   const handleLookupRucManual = async () => {
     if (!manualPaymentModal?.customerDoc || manualPaymentModal.customerDoc.length !== 11) {
-      showAlert("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
+      notify("warning", "Ingrese un RUC válido de 11 dígitos numéricos.");
       return;
     }
     setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: true } : null));
@@ -927,14 +922,14 @@ export default function CajaPage() {
             }
             : null
         );
-        showAlert("success", `RUC verificado: ${data.razonSocial}`);
+        notify("success", `RUC verificado: ${data.razonSocial}`);
       } else {
         setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
-        showAlert("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
+        notify("warning", data.error || "No se pudo consultar el RUC. Ingréselo manualmente.");
       }
     } catch (err) {
       setManualPaymentModal((prev) => (prev ? { ...prev, isSearchingRuc: false } : null));
-      showAlert("warning", "Error de conexión al consultar RUC.");
+      notify("warning", "Error de conexión al consultar RUC.");
     }
   };
 
@@ -945,7 +940,7 @@ export default function CajaPage() {
 
     const plate = manualPaymentModal.vehiclePlate.toUpperCase().trim();
     if (!plate) {
-      showAlert("warning", "Ingrese una placa de vehículo válida.");
+      notify("warning", "Ingrese una placa de vehículo válida.");
       return;
     }
 
@@ -954,17 +949,17 @@ export default function CajaPage() {
     const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
 
     if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
-      showAlert("warning", "Debe seleccionar un Método de Pago.");
+      notify("warning", "Debe seleccionar un Método de Pago.");
       return;
     }
 
     if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentDestination && manualPaymentModal.paymentDestination !== "Ninguno") {
-      showAlert("warning", "Debe seleccionar el Destino del Pago.");
+      notify("warning", "Debe seleccionar el Destino del Pago.");
       return;
     }
 
     if (manualPaymentModal.receiptType === "Factura" && (!manualPaymentModal.customerDoc || manualPaymentModal.customerDoc.length !== 11)) {
-      showAlert("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
+      notify("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
       return;
     }
 
@@ -978,7 +973,7 @@ export default function CajaPage() {
       const totalSplits = manualPaymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const diff = Math.abs(priceNum - totalSplits);
       if (diff > 0.05) {
-        showAlert("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir exactamente con el precio total (S/ ${priceNum.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
+        notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir exactamente con el precio total (S/ ${priceNum.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
         return;
       }
       paymentBreakdown = manualPaymentModal.paymentSplits;
@@ -1038,7 +1033,7 @@ export default function CajaPage() {
       payment_breakdown: paymentBreakdown,
     });
 
-    showAlert("success", `¡Cobro directo de ${plate} (S/ ${Number(manualPaymentModal.price).toFixed(2)}) registrado y sincronizado en la Tabla de Registro Taller!`);
+    notify("success", `¡Cobro directo de ${plate} (S/ ${Number(manualPaymentModal.price).toFixed(2)}) registrado y sincronizado en la Tabla de Registro Taller!`);
 
     const shouldPrint = !isSinComprobante && Number(manualPaymentModal.price) > 0;
     const modalData = { ...manualPaymentModal };
@@ -1117,19 +1112,6 @@ export default function CajaPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Alert Notifications */}
-      {alertMsg && (
-        <div
-          className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 transition-all animate-fadeIn ${alertMsg.type === "success"
-              ? "bg-emerald-950/90 text-emerald-300 border border-emerald-500/50"
-              : "bg-amber-950/90 text-amber-300 border border-amber-500/50"
-            }`}
-        >
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <span>{alertMsg.text}</span>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-2xl border border-white/10">
         <div className="flex items-center gap-3">
@@ -1262,8 +1244,8 @@ export default function CajaPage() {
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Ticket" ? "TODOS" : "Ticket")}
             className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Ticket"
-                ? "bg-amber-950/70 border-amber-400 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 scale-[1.01]"
-                : "glass-panel border-white/10 hover:border-amber-400/50 hover:bg-white/5"
+              ? "bg-amber-950/70 border-amber-400 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 scale-[1.01]"
+              : "glass-panel border-white/10 hover:border-amber-400/50 hover:bg-white/5"
               }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
@@ -1271,8 +1253,8 @@ export default function CajaPage() {
                 <span className="text-sm">🎫</span> Ticket
               </span>
               <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Ticket"
-                  ? "bg-amber-500 text-black border-amber-400 font-black shadow-sm"
-                  : "bg-amber-500/20 text-amber-300 border-amber-500/30 group-hover:border-amber-400/60"
+                ? "bg-amber-500 text-black border-amber-400 font-black shadow-sm"
+                : "bg-amber-500/20 text-amber-300 border-amber-500/30 group-hover:border-amber-400/60"
                 }`}>
                 {receiptTypeFilter === "Ticket" ? "✓ Filtro Activo" : `${latestCorrelatives.ticket.count} registrados`}
               </span>
@@ -1300,8 +1282,8 @@ export default function CajaPage() {
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Boleta" ? "TODOS" : "Boleta")}
             className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Boleta"
-                ? "bg-cyan-950/70 border-cyan-400 ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/30 scale-[1.01]"
-                : "glass-panel border-white/10 hover:border-cyan-400/50 hover:bg-white/5"
+              ? "bg-cyan-950/70 border-cyan-400 ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/30 scale-[1.01]"
+              : "glass-panel border-white/10 hover:border-cyan-400/50 hover:bg-white/5"
               }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
@@ -1309,8 +1291,8 @@ export default function CajaPage() {
                 <span className="text-sm">📄</span> Boleta
               </span>
               <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Boleta"
-                  ? "bg-cyan-500 text-black border-cyan-400 font-black shadow-sm"
-                  : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30 group-hover:border-cyan-400/60"
+                ? "bg-cyan-500 text-black border-cyan-400 font-black shadow-sm"
+                : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30 group-hover:border-cyan-400/60"
                 }`}>
                 {receiptTypeFilter === "Boleta" ? "✓ Filtro Activo" : `${latestCorrelatives.boleta.count} registradas`}
               </span>
@@ -1338,8 +1320,8 @@ export default function CajaPage() {
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Factura" ? "TODOS" : "Factura")}
             className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Factura"
-                ? "bg-purple-950/70 border-purple-400 ring-2 ring-purple-400/60 shadow-lg shadow-purple-500/30 scale-[1.01]"
-                : "glass-panel border-white/10 hover:border-purple-400/50 hover:bg-white/5"
+              ? "bg-purple-950/70 border-purple-400 ring-2 ring-purple-400/60 shadow-lg shadow-purple-500/30 scale-[1.01]"
+              : "glass-panel border-white/10 hover:border-purple-400/50 hover:bg-white/5"
               }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
@@ -1347,8 +1329,8 @@ export default function CajaPage() {
                 <span className="text-sm">📑</span> Factura
               </span>
               <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Factura"
-                  ? "bg-purple-500 text-black border-purple-400 font-black shadow-sm"
-                  : "bg-purple-500/20 text-purple-300 border-purple-500/30 group-hover:border-purple-400/60"
+                ? "bg-purple-500 text-black border-purple-400 font-black shadow-sm"
+                : "bg-purple-500/20 text-purple-300 border-purple-500/30 group-hover:border-purple-400/60"
                 }`}>
                 {receiptTypeFilter === "Factura" ? "✓ Filtro Activo" : `${latestCorrelatives.factura.count} registradas`}
               </span>
@@ -1388,8 +1370,8 @@ export default function CajaPage() {
             <button
               onClick={() => setActiveStatusFilter("hoy")}
               className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeStatusFilter === "hoy"
-                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 font-black scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 font-black scale-[1.02]"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               <span>📅 Del Día / Hoy ({todayCount})</span>
@@ -1399,8 +1381,8 @@ export default function CajaPage() {
             <button
               onClick={() => setActiveStatusFilter("pendientes")}
               className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientes"
-                  ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               <span>⏳ Pendientes ({pendingCount})</span>
@@ -1410,8 +1392,8 @@ export default function CajaPage() {
             <button
               onClick={() => setActiveStatusFilter("pagados")}
               className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pagados"
-                  ? "bg-emerald-600 text-white font-extrabold shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-emerald-600 text-white font-extrabold shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               <span>✅ Pagados ({paidCount})</span>
@@ -1421,8 +1403,8 @@ export default function CajaPage() {
             <button
               onClick={() => setActiveStatusFilter("todos")}
               className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "todos"
-                  ? "bg-gray-700 text-white font-bold shadow"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-gray-700 text-white font-bold shadow"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               <span>Todos ({allBillingWorkOrders.length})</span>
@@ -1509,8 +1491,8 @@ export default function CajaPage() {
                   <div
                     key={wo.id}
                     className={`p-5 rounded-2xl border transition-all glass-panel hover:border-purple-500/40 ${isPaid
-                        ? "bg-emerald-950/20 border-emerald-500/40"
-                        : "bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5"
+                      ? "bg-emerald-950/20 border-emerald-500/40"
+                      : "bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5"
                       }`}
                   >
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -1701,7 +1683,7 @@ export default function CajaPage() {
                               <button
                                 onClick={() => {
                                   toggleOrderPayment(wo.id, invoice?.id);
-                                  showAlert("warning", `Pago de ${wo.vehicle_plate} desmarcado (Estado: Pendiente de Cobro).`);
+                                  notify("warning", `Pago de ${wo.vehicle_plate} desmarcado (Estado: Pendiente de Cobro).`);
                                 }}
                                 className="px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-amber-500/20 hover:text-amber-400 border border-emerald-500/40 hover:border-amber-500/40 text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow"
                                 title="Haga clic para desmarcar pago y revertir a Pendiente"
@@ -1713,11 +1695,11 @@ export default function CajaPage() {
                               <button
                                 onClick={() => {
                                   toggleAllowModificationsInWorkshop(wo.id);
-                                  showAlert("success", !allowModInWorkshop ? `🔓 Modificaciones habilitadas en Taller para ${wo.vehicle_plate}.` : `🔒 Modificaciones bloqueadas en Taller para ${wo.vehicle_plate}.`);
+                                  notify("success", !allowModInWorkshop ? `🔓 Modificaciones habilitadas en Taller para ${wo.vehicle_plate}.` : `🔒 Modificaciones bloqueadas en Taller para ${wo.vehicle_plate}.`);
                                 }}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${allowModInWorkshop
-                                    ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
-                                    : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
+                                  ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
+                                  : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
                                   }`}
                               >
                                 {allowModInWorkshop ? (
@@ -1866,8 +1848,8 @@ export default function CajaPage() {
                           });
                         }}
                         className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
-                            ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
-                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                          ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                          : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                           }`}
                       >
                         <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
@@ -2018,8 +2000,8 @@ export default function CajaPage() {
                           });
                         }}
                         className={`px-3 py-1 rounded-lg font-bold transition-all ${!paymentModal.isSplitPayment
-                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
-                            : "text-gray-400 hover:text-white"
+                          ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                          : "text-gray-400 hover:text-white"
                           }`}
                       >
                         💵 Pago Único
@@ -2044,8 +2026,8 @@ export default function CajaPage() {
                           });
                         }}
                         className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${paymentModal.isSplitPayment
-                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
-                            : "text-gray-400 hover:text-white"
+                          ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                          : "text-gray-400 hover:text-white"
                           }`}
                       >
                         <Split className="w-3.5 h-3.5" />
@@ -2072,8 +2054,8 @@ export default function CajaPage() {
                               type="button"
                               onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
                               className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
-                                  ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
-                                  : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                                ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                                : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                                 }`}
                             >
                               <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
@@ -2236,10 +2218,10 @@ export default function CajaPage() {
                       return (
                         <div
                           className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${isBalanced
-                              ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
-                              : diff > 0
-                                ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-                                : "bg-red-950/50 border-red-500/40 text-red-300"
+                            ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
+                            : diff > 0
+                              ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                              : "bg-red-950/50 border-red-500/40 text-red-300"
                             }`}
                         >
                           <div className="flex items-center gap-2">
@@ -2603,8 +2585,8 @@ export default function CajaPage() {
                             });
                           }}
                           className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
-                              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
-                              : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                            ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                             }`}
                         >
                           <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
@@ -2683,8 +2665,8 @@ export default function CajaPage() {
                             });
                           }}
                           className={`px-3 py-1 rounded-lg font-bold transition-all ${!manualPaymentModal.isSplitPayment
-                              ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
-                              : "text-gray-400 hover:text-white"
+                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                            : "text-gray-400 hover:text-white"
                             }`}
                         >
                           💵 Pago Único
@@ -2709,8 +2691,8 @@ export default function CajaPage() {
                             });
                           }}
                           className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${manualPaymentModal.isSplitPayment
-                              ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
-                              : "text-gray-400 hover:text-white"
+                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                            : "text-gray-400 hover:text-white"
                             }`}
                         >
                           <Split className="w-3.5 h-3.5" />
@@ -2736,8 +2718,8 @@ export default function CajaPage() {
                                 type="button"
                                 onClick={() => setManualPaymentModal({ ...manualPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
                                 className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
-                                    ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
-                                    : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                                  ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                                  : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
                                   }`}
                               >
                                 <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
@@ -2899,10 +2881,10 @@ export default function CajaPage() {
                         return (
                           <div
                             className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${isBalanced
-                                ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
-                                : diff > 0
-                                  ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-                                  : "bg-red-950/50 border-red-500/40 text-red-300"
+                              ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
+                              : diff > 0
+                                ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                                : "bg-red-950/50 border-red-500/40 text-red-300"
                               }`}
                           >
                             <div className="flex items-center gap-2">

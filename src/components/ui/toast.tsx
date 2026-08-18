@@ -20,6 +20,7 @@ export function Toast() {
         success: "border-emerald-500/50 bg-emerald-950/90 text-emerald-100",
         error: "border-red-500/50 bg-red-950/90 text-red-100",
         info: "border-amber-500/50 bg-amber-950/90 text-amber-100",
+        warning: "border-amber-500/50 bg-amber-950/90 text-amber-100",
     } as const;
 
     const Icon = notification.type === "success" ? CheckCircle2 : notification.type === "error" ? AlertCircle : Info;

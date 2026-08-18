@@ -85,6 +85,7 @@ export default function AdminTablesPage() {
     isSyncing,
     hasSyncedOnce,
     syncFromSupabase,
+    notify,
   } = useAppStore();
 
   // Active Tab
@@ -160,13 +161,6 @@ export default function AdminTablesPage() {
     actionType: "single",
   });
 
-  // Alert notification
-  const [alertMsg, setAlertMsg] = useState<{ type: "success" | "warning"; text: string } | null>(null);
-
-  const showAlert = (type: "success" | "warning", text: string) => {
-    setAlertMsg({ type, text });
-    setTimeout(() => setAlertMsg(null), 4000);
-  };
 
   // Technician Form State
   const [techForm, setTechForm] = useState({
@@ -234,7 +228,7 @@ export default function AdminTablesPage() {
     e.preventDefault();
     if (!editingTech) return;
     if (!techEditForm.full_name.trim()) {
-      showAlert("warning", "El nombre completo es obligatorio.");
+      notify("warning", "El nombre completo es obligatorio.");
       return;
     }
     const defUser = generateDefaultUsername(techEditForm.full_name);
@@ -296,10 +290,10 @@ export default function AdminTablesPage() {
 
     if (email) {
       window.open(`mailto:${email}?subject=${subject}&body=${body}`, "_blank");
-      showAlert("success", `Abriendo cliente de correo para ${email}.`);
+      notify("success", `Abriendo cliente de correo para ${email}.`);
     } else {
       navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass} | Acceso: ${loginUrl} | Cambiar Clave: ${resetPassUrl}`);
-      showAlert("warning", `Personal sin correo. Se copiaron las credenciales y el enlace de cambio de clave al portapapeles.`);
+      notify("warning", `Personal sin correo. Se copiaron las credenciales y el enlace de cambio de clave al portapapeles.`);
       handleOpenEditTechModal(tech);
     }
   };
@@ -366,7 +360,7 @@ export default function AdminTablesPage() {
   const handleSaveScheduleRecord = (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduleForm.vehicle_plate.trim()) {
-      showAlert("warning", "Por favor ingresa la placa del vehículo.");
+      notify("warning", "Por favor ingresa la placa del vehículo.");
       return;
     }
 
@@ -385,7 +379,7 @@ export default function AdminTablesPage() {
         status: scheduleForm.status,
         notes: scheduleForm.notes,
       });
-      showAlert("success", `Programación para ${scheduleForm.vehicle_plate.toUpperCase()} actualizada.`);
+      notify("success", `Programación para ${scheduleForm.vehicle_plate.toUpperCase()} actualizada.`);
     } else {
       addScheduleRecord({
         vehicle_plate: scheduleForm.vehicle_plate.toUpperCase().trim(),
@@ -401,7 +395,7 @@ export default function AdminTablesPage() {
         status: scheduleForm.status,
         notes: scheduleForm.notes,
       });
-      showAlert("success", `Nueva programación para ${scheduleForm.vehicle_plate.toUpperCase()} guardada.`);
+      notify("success", `Nueva programación para ${scheduleForm.vehicle_plate.toUpperCase()} guardada.`);
     }
     setScheduleModalOpen(false);
   };
@@ -415,7 +409,7 @@ export default function AdminTablesPage() {
       const text = await file.text();
       const rows = parseCSVRows(text);
       if (rows.length < 2) {
-        showAlert("warning", "El archivo no contiene suficientes filas de datos.");
+        notify("warning", "El archivo no contiene suficientes filas de datos.");
         setIsImportingSchedule(false);
         return;
       }
@@ -475,15 +469,15 @@ export default function AdminTablesPage() {
       if (newRecords.length > 0) {
         const res = await importBulkScheduleRecords(newRecords);
         if (res?.success) {
-          showAlert("success", `¡Se importaron ${newRecords.length} registros a la Tabla de Programación con éxito y guardados en Supabase!`);
+          notify("success", `¡Se importaron ${newRecords.length} registros a la Tabla de Programación con éxito y guardados en Supabase!`);
         } else {
-          showAlert("warning", `Se importaron ${newRecords.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+          notify("warning", `Se importaron ${newRecords.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
         }
       } else {
-        showAlert("warning", "No se detectaron placas válidas en el archivo.");
+        notify("warning", "No se detectaron placas válidas en el archivo.");
       }
     } catch (err: any) {
-      showAlert("warning", `Error al procesar el archivo: ${err?.message || "Formato no compatible"}`);
+      notify("warning", `Error al procesar el archivo: ${err?.message || "Formato no compatible"}`);
     } finally {
       setIsImportingSchedule(false);
       e.target.value = "";
@@ -493,7 +487,7 @@ export default function AdminTablesPage() {
   const handleAddTech = (e: React.FormEvent) => {
     e.preventDefault();
     if (!techForm.full_name.trim()) {
-      showAlert("warning", "Por favor ingresa el nombre del personal.");
+      notify("warning", "Por favor ingresa el nombre del personal.");
       return;
     }
     const defUser = generateDefaultUsername(techForm.full_name);
@@ -640,16 +634,16 @@ export default function AdminTablesPage() {
           invoices: batchInvoices,
         }).then((res) => {
           if (res?.success) {
-            showAlert("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!`);
+            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!`);
           } else {
-            showAlert("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
         });
       } else {
         setIsImportingWorkshop(false);
-        showAlert("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
+        notify("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
       }
     };
     reader.readAsText(file);
@@ -838,7 +832,7 @@ export default function AdminTablesPage() {
       });
     }
 
-    showAlert("success", `¡Registro de ${editingWorkshopOrder.vehiclePlate} modificado exitosamente con hora ${editingWorkshopOrder.entryTime}!`);
+    notify("success", `¡Registro de ${editingWorkshopOrder.vehiclePlate} modificado exitosamente con hora ${editingWorkshopOrder.entryTime}!`);
     setEditingWorkshopOrder(null);
   };
 
@@ -876,14 +870,14 @@ export default function AdminTablesPage() {
   const handleConfirmAction = () => {
     if (modalConfig.actionType === "single" && modalConfig.targetId) {
       deleteWorkOrder(modalConfig.targetId);
-      showAlert("success", "Registro eliminado correctamente de la Tabla Maestra.");
+      notify("success", "Registro eliminado correctamente de la Tabla Maestra.");
     } else if (modalConfig.actionType === "bulk") {
       deleteMultipleWorkOrders(selectedIds);
-      showAlert("success", `Se eliminaron ${selectedIds.length} filas seleccionadas.`);
+      notify("success", `Se eliminaron ${selectedIds.length} filas seleccionadas.`);
       setSelectedIds([]);
     } else if (modalConfig.actionType === "clearAll") {
       clearAllWorkOrders();
-      showAlert("warning", "Base de datos de la Tabla Maestra vaciada por completo.");
+      notify("warning", "Base de datos de la Tabla Maestra vaciada por completo.");
       setSelectedIds([]);
     }
     setModalConfig({ ...modalConfig, isOpen: false });
@@ -953,17 +947,6 @@ export default function AdminTablesPage() {
         </div>
       </div>
 
-      {alertMsg && (
-        <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold animate-fadeIn ${alertMsg.type === "success"
-            ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-            : "bg-amber-950/40 border-amber-500/40 text-amber-300"
-            }`}
-        >
-          <span>{alertMsg.text}</span>
-          <button onClick={() => setAlertMsg(null)}>✕</button>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: WORKSHOP MASTER REGISTRATION TABLE (20 HEADERS + OBSERVACIONES) */}
@@ -1609,7 +1592,7 @@ export default function AdminTablesPage() {
                         type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(`Usuario: ${user} | Contraseña: ${pass}`);
-                          showAlert("success", `Credenciales de ${t.full_name} copiadas.`);
+                          notify("success", `Credenciales de ${t.full_name} copiadas.`);
                         }}
                         className="px-2 py-0.5 text-[11px] rounded bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white flex items-center gap-1 transition-colors"
                         title="Copiar usuario y clave"
@@ -1703,7 +1686,7 @@ export default function AdminTablesPage() {
                   description: desc,
                   is_active: true,
                 });
-                showAlert("success", `Servicio "${name}" registrado con precio S/ ${price.toFixed(2)}.`);
+                notify("success", `Servicio "${name}" registrado con precio S/ ${price.toFixed(2)}.`);
                 form.reset();
               }}
               className="space-y-4"
@@ -1747,7 +1730,7 @@ export default function AdminTablesPage() {
               <button
                 onClick={async () => {
                   await saveSupabaseSiteContent("workshopServices", workshopServices, "services");
-                  showAlert("success", "¡Catálogo de servicios sincronizado en tiempo real con Supabase y todos los dispositivos!");
+                  notify("success", "¡Catálogo de servicios sincronizado en tiempo real con Supabase y todos los dispositivos!");
                 }}
                 className="px-4 py-2 bg-emerald-600/90 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20 active:scale-95"
                 title="Sincronizar y forzar actualización en todos los dispositivos"
@@ -1794,7 +1777,7 @@ export default function AdminTablesPage() {
                           <input type="text" value={srv.description || ""} placeholder="Descripción breve..." onChange={(e) => updateWorkshopService(srv.id, { description: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-400 rounded" />
                         </td>
                         <td className="p-3 text-center">
-                          <button onClick={() => { deleteWorkshopService(srv.id); showAlert("warning", `Servicio "${srv.name}" eliminado del catálogo.`); }} className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors" title="Eliminar este servicio del catálogo">
+                          <button onClick={() => { deleteWorkshopService(srv.id); notify("warning", `Servicio "${srv.name}" eliminado del catálogo.`); }} className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors" title="Eliminar este servicio del catálogo">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </td>
@@ -1831,7 +1814,7 @@ export default function AdminTablesPage() {
                 <button
                   onClick={() => {
                     deleteMultipleScheduleRecords(selectedScheduleIds);
-                    showAlert("success", `Se eliminaron ${selectedScheduleIds.length} programaciones.`);
+                    notify("success", `Se eliminaron ${selectedScheduleIds.length} programaciones.`);
                     setSelectedScheduleIds([]);
                   }}
                   className="px-3 py-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
@@ -1875,7 +1858,7 @@ export default function AdminTablesPage() {
                   onClick={() => {
                     if (confirm("¿Estás seguro de vaciar toda la tabla de programación?")) {
                       clearAllScheduleRecords();
-                      showAlert("warning", "Tabla de programación vaciada.");
+                      notify("warning", "Tabla de programación vaciada.");
                     }
                   }}
                   className="px-3 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
@@ -2020,7 +2003,7 @@ export default function AdminTablesPage() {
                               <button
                                 onClick={() => {
                                   deleteScheduleRecord(rec.id);
-                                  showAlert("warning", `Programación de ${rec.vehicle_plate} eliminada.`);
+                                  notify("warning", `Programación de ${rec.vehicle_plate} eliminada.`);
                                 }}
                                 className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
                                 title="Eliminar fila"

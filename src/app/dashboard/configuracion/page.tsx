@@ -47,6 +47,7 @@ export default function ConfiguracionPage() {
     scheduleRecords,
     siteContent,
     updateSiteContent,
+    notify,
   } = useAppStore();
 
   // Correlative Settings State
@@ -223,7 +224,7 @@ export default function ConfiguracionPage() {
 
   const handleExportCSVTable = (tableName: string, rows: any[]) => {
     if (!rows || rows.length === 0) {
-      alert(`No hay registros en la tabla ${tableName} para exportar.`);
+      notify("warning", `No hay registros en la tabla ${tableName} para exportar.`);
       return;
     }
 
@@ -245,7 +246,7 @@ export default function ConfiguracionPage() {
 
   const handleSaveDriveConfig = (e: React.FormEvent) => {
     e.preventDefault();
-    alert("¡Conexión y configuración con Google Drive guardada programáticamente! Los respaldos automáticos se enviarán a la carpeta configurada.");
+    notify("success", "¡Conexión y configuración con Google Drive guardada programáticamente! Los respaldos automáticos se enviarán a la carpeta configurada.");
   };
 
   return (
@@ -274,13 +275,12 @@ export default function ConfiguracionPage() {
 
       {testMsg && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm ${
-            testStatus === "success"
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-sm ${testStatus === "success"
               ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
               : testStatus === "error"
-              ? "bg-red-950/40 border-red-500/40 text-red-300"
-              : "bg-blue-950/40 border-blue-500/40 text-blue-300"
-          }`}
+                ? "bg-red-950/40 border-red-500/40 text-red-300"
+                : "bg-blue-950/40 border-blue-500/40 text-blue-300"
+            }`}
         >
           <div className="flex items-center gap-2">
             {testStatus === "success" && <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />}
