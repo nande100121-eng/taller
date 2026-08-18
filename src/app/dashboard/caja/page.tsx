@@ -72,6 +72,7 @@ export default function CajaPage() {
     toggleOrderPayment,
     confirmInvoicePayment,
     registerDirectWorkshopPayment,
+    registerInvoicePayment,
     toggleAllowModificationsInWorkshop,
   } = useAppStore();
 
@@ -112,6 +113,25 @@ export default function CajaPage() {
     customerAddress: string;
     observations: string;
     isSearchingRuc?: boolean;
+  } | null>(null);
+
+  // Modal State for Partial / Installment Payment (Abonos sobre saldo pendiente por placa)
+  const [partialPaymentModal, setPartialPaymentModal] = useState<{
+    isOpen: boolean;
+    workOrder: any;
+    invoice: any;
+    totalDue: number;            // Saldo total pendiente de la factura
+    paidSoFar: number;           // Monto ya abonado (historial)
+    amount: number;              // Abono de este pago (total o parcial)
+    paymentMethod: string;
+    paymentDestination: string;
+    isSplitPayment?: boolean;
+    paymentSplits?: PaymentSplit[];
+    receiptNumber: string;
+    receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
+    customerDoc: string;
+    customerName: string;
+    customerAddress: string;
   } | null>(null);
 
   // Modal State for Manual / Direct Payment Confirmation (Registro Taller)
@@ -381,6 +401,38 @@ export default function CajaPage() {
       return orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
+
+  // Saldos pendientes por placa: monto total, ya abonado (historial) y saldo restante.
+  // Es la fuente para el cobro de saldo total / pago parcial buscando por placa.
+  const pendingBalances = React.useMemo(() => {
+    const list: Array<{
+      wo: any;
+      invoice: any;
+      totalDue: number;
+      paidSoFar: number;
+      balance: number;
+    }> = [];
+    allBillingWorkOrders.forEach((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      if (isOrderPaid(wo, inv)) return;
+      const totalDue = computeOrderNetTotal(wo, inv);
+      const history: Array<{ amount?: number }> = Array.isArray(inv?.payment_history)
+        ? inv.payment_history
+        : [];
+      const paidSoFar = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      // Si hay credit_amount explícito, es el saldo real; si no, el total menos abonado
+      const balance = (inv?.credit_amount && inv.credit_amount > 0)
+        ? Number(inv.credit_amount)
+        : Math.max(0, totalDue - paidSoFar);
+      if (balance <= 0.01) return;
+      list.push({ wo, invoice: inv, totalDue, paidSoFar, balance });
+    });
+    return list;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid, computeOrderNetTotal]);
+
+  const totalPendingBalances = React.useMemo(() => {
+    return pendingBalances.reduce((s, p) => s + p.balance, 0);
+  }, [pendingBalances]);
 
   // Helper to extract numeric correlative from a receipt string
   const parseReceiptNumber = (raw?: string) => {
@@ -883,6 +935,124 @@ export default function CajaPage() {
         issuedAt: new Date().toISOString(),
       });
     }
+  };
+
+  // Open Partial / Installment Payment Modal (Abono sobre saldo pendiente por placa)
+  const handleOpenPartialPaymentModal = (wo: any, inv?: any) => {
+    const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
+    const totalDue = computeOrderNetTotal(wo, inv);
+    const history: Array<{ amount?: number }> = Array.isArray(inv?.payment_history)
+      ? inv.payment_history
+      : [];
+    const paidSoFar = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const balance = (inv?.credit_amount && inv.credit_amount > 0)
+      ? Number(inv.credit_amount)
+      : Math.max(0, totalDue - paidSoFar);
+
+    const initialType = "Ticket" as "Ticket" | "Boleta" | "Factura";
+    const previewNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
+      ? inv.receipt_number
+      : getCorrelativePreview(initialType);
+
+    setPartialPaymentModal({
+      isOpen: true,
+      workOrder: wo,
+      invoice: inv,
+      totalDue,
+      paidSoFar,
+      amount: balance, // Por defecto: abonar el saldo total
+      paymentMethod: inv?.payment_method || "Efectivo",
+      paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+      isSplitPayment: false,
+      paymentSplits: [
+        {
+          id: `split-1`,
+          method: inv?.payment_method || "Efectivo",
+          destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+          amount: balance,
+        },
+      ],
+      receiptNumber: previewNum,
+      receiptType: initialType,
+      customerDoc: inv?.customer_doc || "",
+      customerName: inv?.client_name || vehicle?.owner_name || "CLIENTES VARIOS",
+      customerAddress: inv?.customer_address || "-",
+    });
+  };
+
+  // Submit partial / installment payment (abono)
+  const handleConfirmPartialPaymentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partialPaymentModal) return;
+
+    const amount = Number(partialPaymentModal.amount) || 0;
+    const balance = Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar);
+    if (amount <= 0) {
+      notify("warning", "Ingrese un monto de abono mayor a cero.");
+      return;
+    }
+    if (amount > balance + 0.01) {
+      notify("warning", `El abono (S/ ${amount.toFixed(2)}) supera el saldo pendiente (S/ ${balance.toFixed(2)}).`);
+      return;
+    }
+
+    let finalMethod = partialPaymentModal.paymentMethod === "Sin Método" ? "" : partialPaymentModal.paymentMethod || "";
+    let finalDest = partialPaymentModal.paymentDestination === "Ninguno" ? "" : partialPaymentModal.paymentDestination || "";
+    let paymentBreakdown: PaymentSplit[] | undefined = undefined;
+
+    if (partialPaymentModal.isSplitPayment && partialPaymentModal.paymentSplits && partialPaymentModal.paymentSplits.length > 0) {
+      const totalSplits = partialPaymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const diff = Math.abs(amount - totalSplits);
+      if (diff > 0.05) {
+        notify("warning", `La suma de los abonos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el monto a abonar (S/ ${amount.toFixed(2)}).`);
+        return;
+      }
+      paymentBreakdown = partialPaymentModal.paymentSplits;
+      const methodSummary = partialPaymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
+      finalMethod = `Mixto (${methodSummary})`;
+      finalDest = Array.from(new Set(partialPaymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
+    }
+
+    // Auto-advance correlative sequence
+    let assignedReceiptNum = "";
+    if (partialPaymentModal.receiptType !== "Sin Comprobante" && (partialPaymentModal.receiptType === "Ticket" || partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura")) {
+      if (partialPaymentModal.receiptNumber) {
+        assignedReceiptNum = partialPaymentModal.receiptNumber;
+        const parts = assignedReceiptNum.split("-");
+        const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
+        if (!isNaN(numPart)) {
+          const typeKey = partialPaymentModal.receiptType === "Factura" ? "facturaLastNumber" : (partialPaymentModal.receiptType === "Boleta" ? "boletaLastNumber" : "ticketLastNumber");
+          const seriesKey = partialPaymentModal.receiptType === "Factura" ? "facturaSeries" : (partialPaymentModal.receiptType === "Boleta" ? "boletaSeries" : "ticketSeries");
+          updateCorrelativeConfig({
+            [typeKey]: numPart,
+            ...(parts.length > 1 ? { [seriesKey]: parts[0] } : {}),
+            lastUpdateDate: queryDate || getPeruDateString(),
+          });
+        }
+      } else {
+        assignedReceiptNum = getAndIncrementReceiptNumber(partialPaymentModal.receiptType, queryDate || getPeruDateString());
+      }
+    }
+
+    const finalReceiptType = partialPaymentModal.receiptType === "Sin Comprobante" ? "" : partialPaymentModal.receiptType;
+    const isFullyPaid = Math.abs(balance - amount) <= 0.01;
+
+    registerInvoicePayment({
+      invoiceId: partialPaymentModal.invoice?.id,
+      workOrderId: partialPaymentModal.workOrder?.id,
+      amount,
+      paymentMethod: finalMethod,
+      paymentDestination: finalDest,
+      receiptNumber: assignedReceiptNum,
+      receiptType: finalReceiptType,
+      paymentBreakdown: paymentBreakdown,
+    });
+
+    notify("success", isFullyPaid
+      ? `¡Saldo de ${partialPaymentModal.workOrder?.vehicle_plate} cancelado! Abono de S/ ${amount.toFixed(2)} registrado.`
+      : `Abono parcial de S/ ${amount.toFixed(2)} registrado para ${partialPaymentModal.workOrder?.vehicle_plate}. Saldo restante: S/ ${(balance - amount).toFixed(2)}`);
+
+    setPartialPaymentModal(null);
   };
 
   // Open Manual / Direct Payment Modal for Workshop Registration
@@ -1748,13 +1918,23 @@ export default function CajaPage() {
                               </button>
                             </>
                           ) : (
-                            <button
-                              onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
-                              className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                            >
-                              <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                              <span>Confirmar Cobro (Método & Destino)</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
+                                className="px-4 py-2.5 bg-cyan-600/80 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-600/20 flex items-center gap-2 transition-transform hover:scale-105"
+                                title="Abonar el saldo pendiente total o hacer un pago parcial por placa"
+                              >
+                                <History className="w-4 h-4 stroke-[2.5]" />
+                                <span>Abonar Saldo (Total / Parcial)</span>
+                              </button>
+                              <button
+                                onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
+                                className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                              >
+                                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                                <span>Confirmar Cobro (Método & Destino)</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -2973,6 +3153,431 @@ export default function CajaPage() {
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Guardar y Confirmar en Registro Taller</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL DE ABONO DE SALDO (TOTAL / PARCIAL POR PLACA) */}
+      {/* ========================================================================= */}
+      {partialPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel w-full max-w-3xl max-h-[92vh] flex flex-col rounded-3xl border border-white/20 shadow-2xl bg-[#0d121f]/95 overflow-hidden my-auto animate-fadeIn">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-cyan-950/40 via-emerald-950/30 to-reygas-surface">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>Abonar Saldo Pendiente</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
+                      Total / Parcial
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    Registra un abono sobre el saldo pendiente de la placa. El abono figurará como ingreso del día actual y reducirá la deuda.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPartialPaymentModal(null)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleConfirmPartialPaymentSubmit} className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar text-xs">
+              {/* Sección 1: Resumen de Deuda del Vehículo */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Car className="w-3.5 h-3.5" />
+                  <span>1. Resumen de Deuda por Placa</span>
+                </h4>
+
+                <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/20">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Placa</span>
+                    <span className="text-lg font-black text-cyan-300 font-mono">
+                      {partialPaymentModal.workOrder?.vehicle_plate}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Cliente</span>
+                    <span className="text-sm font-bold text-white">
+                      {partialPaymentModal.customerName || "CLIENTES VARIOS"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Total Factura</span>
+                    <span className="text-sm font-black text-white font-mono">
+                      S/ {partialPaymentModal.totalDue.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Abonado</span>
+                    <span className="text-sm font-black text-emerald-400 font-mono">
+                      S/ {partialPaymentModal.paidSoFar.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col px-3 py-1.5 rounded-lg bg-rose-950/50 border border-rose-500/30">
+                    <span className="text-[10px] uppercase tracking-wider text-rose-300 font-bold">Saldo Pendiente</span>
+                    <span className="text-lg font-black text-rose-300 font-mono">
+                      S/ {Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-gray-300 block mb-1.5 font-bold">Monto a Abonar Ahora (S/) *</label>
+                  <div className="relative">
+                    <DollarSign className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar)}
+                      required
+                      value={partialPaymentModal.amount || ""}
+                      onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, amount: parseFloat(e.target.value) || 0 })}
+                      className="w-full pl-9 pr-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-base focus:border-cyan-400"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const bal = Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar);
+                        setPartialPaymentModal({
+                          ...partialPaymentModal,
+                          amount: Number(bal.toFixed(2)),
+                          isSplitPayment: false,
+                          paymentSplits: [{ id: "split-1", method: "Efectivo", destination: eligibleDestinations[0] || "EMPRESA", amount: Number(bal.toFixed(2)) }],
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-rose-600/80 hover:bg-rose-500 text-white text-[11px] font-black rounded-lg flex items-center gap-1.5 transition-all shadow"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Saldo Total (S/ {Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar).toFixed(2)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const quickVal = Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2)));
+                        setPartialPaymentModal({ ...partialPaymentModal, amount: quickVal });
+                      }}
+                      className="px-3 py-1.5 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[11px] font-bold rounded-lg transition-all shadow"
+                    >
+                      50% (S/ {Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2))).toFixed(2)})
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección 2: Comprobante del Abono */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>2. Comprobante del Abono</span>
+                </h4>
+                <div>
+                  <label className="text-gray-300 block mb-1.5 font-bold">Tipo de Comprobante a Emitir</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(["Ticket", "Boleta", "Factura", "Sin Comprobante"] as const).map((type) => {
+                      const isSelected = partialPaymentModal.receiptType === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => {
+                            const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
+                            setPartialPaymentModal({ ...partialPaymentModal, receiptType: type, receiptNumber: nextNum });
+                          }}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
+                            ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                            : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                            }`}
+                        >
+                          <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
+                          <span>{type}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1 font-bold">N° Comprobante del Abono</label>
+                    <input
+                      type="text"
+                      placeholder={partialPaymentModal.receiptType === "Sin Comprobante" ? "(Sin comprobante)" : "N° Comprobante"}
+                      value={partialPaymentModal.receiptNumber}
+                      onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, receiptNumber: e.target.value })}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-bold focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sección 3: Método y Destino del Abono */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>3. Método y Destino del Abono</span>
+                </h4>
+
+                <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: false })}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all ${!partialPaymentModal.isSplitPayment
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    💵 Pago Único
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentSplits = (partialPaymentModal.paymentSplits && partialPaymentModal.paymentSplits.length > 0)
+                        ? partialPaymentModal.paymentSplits
+                        : [
+                          {
+                            id: "split-1",
+                            method: partialPaymentModal.paymentMethod || "Efectivo",
+                            destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA",
+                            amount: partialPaymentModal.amount || 0,
+                          },
+                        ];
+                      setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: true, paymentSplits: currentSplits });
+                    }}
+                    className={`px-3 py-1 rounded-lg font-bold transition-all ${partialPaymentModal.isSplitPayment
+                      ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    💳 Pago Mixto / Parcial
+                  </button>
+                </div>
+
+                {!partialPaymentModal.isSplitPayment ? (
+                  <div className="space-y-3">
+                    <div>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
+                          const isSelected = method === "Sin Método" ? (!partialPaymentModal.paymentMethod || partialPaymentModal.paymentMethod === "Sin Método") : partialPaymentModal.paymentMethod === method;
+                          return (
+                            <button
+                              key={method}
+                              type="button"
+                              onClick={() => setPartialPaymentModal({ ...partialPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
+                              className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
+                                ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
+                                : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
+                                }`}
+                            >
+                              <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
+                              <span>{method}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-gray-300 block mb-1 font-bold text-xs">
+                        Destino del Abono / Responsable:
+                      </label>
+                      <div className="relative">
+                        <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <select
+                          value={partialPaymentModal.paymentDestination}
+                          onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, paymentDestination: e.target.value })}
+                          className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
+                        >
+                          <option value="">(Ninguno / Dejar Vacío)</option>
+                          {eligibleDestinations.map((dest) => (
+                            <option key={dest} value={dest}>
+                              {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
+                      <span className="font-bold text-purple-300 flex items-center gap-1.5">
+                        <Coins className="w-4 h-4 text-purple-400" />
+                        <span>Desglose de Métodos del Abono</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                          const remaining = Math.max(0, Number(((partialPaymentModal.amount || 0) - currentSum).toFixed(2)));
+                          const newSplits = [
+                            ...(partialPaymentModal.paymentSplits || []),
+                            {
+                              id: `split-${Date.now()}-${Math.random()}`,
+                              method: "Culqi",
+                              destination: eligibleDestinations[0] || "EMPRESA",
+                              amount: remaining,
+                            },
+                          ];
+                          setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: newSplits });
+                        }}
+                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 transition-all shadow"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ Añadir Método</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {(partialPaymentModal.paymentSplits || []).map((split, idx) => (
+                        <div
+                          key={split.id || idx}
+                          className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
+                        >
+                          <span className="text-[10px] font-mono font-bold text-purple-300 w-6 shrink-0 text-center py-1 bg-purple-950/60 rounded-md border border-purple-500/20">
+                            #{idx + 1}
+                          </span>
+
+                          <div className="flex-1 min-w-[130px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Método:</label>
+                            <select
+                              value={split.method}
+                              onChange={(e) => {
+                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, method: e.target.value } : p
+                                );
+                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                            >
+                              <option value="Efectivo">💵 Efectivo</option>
+                              <option value="Culqi">💳 Culqi (Tarjeta)</option>
+                              <option value="Yape">📱 Yape</option>
+                              <option value="Plin">📱 Plin</option>
+                              <option value="Transferencia">🏦 Transferencia BCP</option>
+                            </select>
+                          </div>
+
+                          <div className="flex-1 min-w-[140px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Destino:</label>
+                            <select
+                              value={split.destination}
+                              onChange={(e) => {
+                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, destination: e.target.value } : p
+                                );
+                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                            >
+                              {eligibleDestinations.map((dest) => (
+                                <option key={dest} value={dest}>
+                                  {dest === "EMPRESA" ? "🏢 EMPRESA" : `👤 ${dest}`}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex-1 min-w-[110px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto S/:</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={split.amount || ""}
+                              onChange={(e) => {
+                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                  i === idx ? { ...p, amount: parseFloat(e.target.value) || 0 } : p
+                                );
+                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                              }}
+                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold focus:border-purple-400"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={(partialPaymentModal.paymentSplits || []).length <= 1}
+                            onClick={() => {
+                              const updated = (partialPaymentModal.paymentSplits || []).filter((_, i) => i !== idx);
+                              setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                            }}
+                            className="px-2 py-1.5 bg-rose-600/70 hover:bg-rose-500 text-white text-[11px] font-bold rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {(() => {
+                      const sum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                      const amount = Number(partialPaymentModal.amount) || 0;
+                      const diff = Number((amount - sum).toFixed(2));
+                      const isBalanced = Math.abs(diff) <= 0.01;
+                      return (
+                        <div className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold ${isBalanced
+                          ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-300"
+                          : "bg-amber-950/50 border-amber-500/30 text-amber-300"
+                          }`}>
+                          <span>Total desglosado: S/ {sum.toFixed(2)}</span>
+                          {isBalanced ? (
+                            <span className="flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" /> Cuadrado
+                            </span>
+                          ) : diff > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const lastIdx = (partialPaymentModal.paymentSplits || []).length - 1;
+                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                  i === lastIdx ? { ...p, amount: Number((Number(p.amount) + diff).toFixed(2)) } : p
+                                );
+                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                              }}
+                              className="px-2.5 py-1 bg-amber-500 text-black rounded-lg text-[11px] font-black hover:bg-amber-400 transition-colors shadow"
+                            >
+                              Falta S/ {diff.toFixed(2)} (Ajustar)
+                            </button>
+                          ) : (
+                            <span>Excede por S/ {Math.abs(diff).toFixed(2)}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setPartialPaymentModal(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirmar Abono (Ingreso del Día)</span>
                 </button>
               </div>
             </form>

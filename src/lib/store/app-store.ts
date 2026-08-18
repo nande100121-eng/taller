@@ -400,6 +400,20 @@ export interface PaymentSplit {
   reference?: string;
 }
 
+// Historial de pagos por fecha: cada abono/cobro registrado sobre una factura.
+// Permite que un pago parcial hecho días después figure como ingreso ESE día
+// (no como saldo), y que el saldo pendiente se recalcule en tiempo real.
+export interface PaymentRecord {
+  id: string;
+  date: string;            // ISO timestamp del pago (fecha real del abono)
+  amount: number;          // Monto abonado en ese pago
+  method: string;          // Efectivo | Yape | Transferencia | Culqi | Mixto (...)
+  destination: string;     // EMPRESA | CAJA | PERSONAL
+  receipt_number?: string; // N° de Ticket/Boleta/Factura del abono
+  receipt_type?: string;   // Ticket | Boleta | Factura | Sin Comprobante
+  reference?: string;      // Nota / desglose del pago
+}
+
 export interface Invoice {
   id: string;
   work_order_id: string;
@@ -425,6 +439,7 @@ export interface Invoice {
   payment_destination?: string; // DESTINO DE PAGO (Empresa, Personal)
   observations?: string; // OBSERVACIONES DEL COMPROBANTE
   payment_breakdown?: PaymentSplit[]; // Desglose de pagos parciales / métodos mixtos
+  payment_history?: PaymentRecord[]; // Historial cronológico de pagos por fecha (abonos parciales)
   credit_note_number?: string; // N° de Nota de Crédito emitida si se anula Factura
 }
 
@@ -634,6 +649,17 @@ interface AppState {
     chip_expiry_date?: string;
     payment_breakdown?: PaymentSplit[];
   }) => { workOrder: WorkOrder; invoice: Invoice };
+  registerInvoicePayment: (params: {
+    invoiceId?: string;
+    workOrderId?: string;
+    amount: number;                    // Monto abonado en este pago (total o parcial)
+    paymentMethod: string;
+    paymentDestination: string;
+    receiptNumber?: string;
+    receiptType?: string;
+    paymentBreakdown?: PaymentSplit[];
+    paidAt?: string;                   // Fecha del abono (default: ahora)
+  }) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
   setBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => void;
@@ -2604,6 +2630,131 @@ export const useAppStore = create<AppState>()((set, get) => ({
     });
 
     return { workOrder: newWorkOrder, invoice: newInvoice };
+  },
+
+  // Registra un pago (total o parcial) sobre una factura existente, guardando
+  // el historial cronológico por fecha. Recalcula el saldo pendiente y el
+  // payment_status. El pago hecho hoy figura como ingreso de HOY en la
+  // liquidación de caja; el saldo restante solo en el sub-informe de pendientes.
+  registerInvoicePayment: ({
+    invoiceId,
+    workOrderId,
+    amount,
+    paymentMethod,
+    paymentDestination,
+    receiptNumber,
+    receiptType,
+    paymentBreakdown,
+    paidAt,
+  }) => {
+    const nowISO = paidAt || new Date().toISOString();
+    set((state) => {
+      let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!targetInvoice && workOrderId) {
+        targetInvoice = state.invoices.find((i) => i.work_order_id === workOrderId);
+      }
+
+      const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
+      const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
+      const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
+
+      const payAmount = Math.max(0, Number(amount) || 0);
+      const methodStr = paymentMethod || targetInvoice?.payment_method || "Efectivo";
+      const destStr = paymentDestination || targetInvoice?.payment_destination || "EMPRESA";
+      const recNum = receiptNumber !== undefined ? receiptNumber : (targetInvoice?.receipt_number || "");
+      const recType = receiptType !== undefined ? receiptType : (targetInvoice?.receipt_type || "");
+
+      const newRecord: PaymentRecord = {
+        id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        date: nowISO,
+        amount: payAmount,
+        method: methodStr,
+        destination: destStr,
+        receipt_number: recNum || undefined,
+        receipt_type: recType || undefined,
+      };
+
+      let updatedInvoices = [...state.invoices];
+
+      if (targetInvoice) {
+        const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+          ? [...targetInvoice.payment_history]
+          : [];
+        history.push(newRecord);
+
+        const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const totalDue = Number(targetInvoice.grand_total) || 0;
+        const balance = Math.max(0, totalDue - prevPaid);
+
+        const isFullyPaid = balance <= 0.01;
+        const updated: Invoice = {
+          ...targetInvoice,
+          payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
+          payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
+          credit_amount: isFullyPaid ? 0 : balance,
+          payment_method: methodStr,
+          payment_destination: destStr,
+          receipt_number: recNum || targetInvoice.receipt_number,
+          receipt_type: recType || targetInvoice.receipt_type,
+          payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
+          payment_history: history,
+          paid_at: nowISO,
+        };
+        saveSupabaseInvoice(updated);
+        updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice!.id ? updated : i));
+      } else if (targetOrder) {
+        const partsTotal = (targetOrder.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
+        const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
+        const discountVal = targetOrder.discount_amount || 0;
+        const totalDue = Math.max(0, partsTotal + certFee - discountVal);
+        const balance = Math.max(0, totalDue - payAmount);
+        const isFullyPaid = balance <= 0.01;
+
+        const newInvoice: Invoice = {
+          id: `inv-${Date.now()}`,
+          work_order_id: targetOrder.id,
+          vehicle_plate: targetOrder.vehicle_plate,
+          client_name: vehicle?.owner_name || "Cliente Taller",
+          customer_doc: "",
+          customer_address: "",
+          labor_fee: 0,
+          parts_total: partsTotal,
+          certification_fee: certFee,
+          discounts: discountVal,
+          grand_total: totalDue,
+          payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
+          payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
+          credit_amount: isFullyPaid ? 0 : balance,
+          payment_method: methodStr,
+          payment_destination: destStr,
+          receipt_number: recNum,
+          receipt_type: recType,
+          payment_breakdown: paymentBreakdown,
+          payment_history: [newRecord],
+          issued_at: targetOrder.entry_time || nowISO,
+          paid_at: nowISO,
+        };
+        saveSupabaseInvoice(newInvoice);
+        updatedInvoices = [newInvoice, ...state.invoices];
+      }
+
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === effectiveWorkOrderId) {
+          const updatedOrder = {
+            ...o,
+            status: ("pendiente_pago" as WorkOrderStatus),
+          };
+          saveSupabaseWorkOrder(updatedOrder);
+          return updatedOrder;
+        }
+        return o;
+      });
+
+      return {
+        invoices: updatedInvoices,
+        workOrders: updatedOrders,
+      };
+    });
   },
 
   appointments: [],

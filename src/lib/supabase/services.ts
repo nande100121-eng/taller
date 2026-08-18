@@ -627,9 +627,28 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
 // en Supabase (en vez de descargar las 41k+ filas del sync global),
 // logrando que la pestaña de reporte cargue en <1s en la tablet.
 // ---------------------------------------------------------------------
+export interface DayPaymentIncome {
+  id: string;
+  date: string;                    // Fecha del abono (debe coincidir con el día consultado)
+  amount: number;                  // Monto abonado ese día
+  method: string;                  // Efectivo | Yape | Transferencia | Culqi | Mixto (...)
+  destination: string;             // EMPRESA | CAJA | PERSONAL
+  receipt_number?: string;         // N° de comprobante del abono
+  receipt_type?: string;           // Ticket | Boleta | Factura | Sin Comprobante
+  reference?: string;              // Nota / desglose del pago
+  payment_breakdown?: any[];       // Desglose de métodos mixtos (si existe en la factura)
+  plate: string;                   // Placa del vehículo de la factura original
+  client_name: string;             // Cliente de la factura original
+  description: string;             // Descripción / referencia del abono
+  invoice_id: string;              // Id de la factura original
+  work_order_id: string;           // Id de la orden de trabajo original
+  issued_at: string;               // Fecha de emisión de la factura original
+}
+
 export interface DayReportData {
   workOrders: WorkOrder[];
   invoices: Invoice[];
+  payments: DayPaymentIncome[];    // Abonos parciales recibidos HOY sobre facturas de días anteriores
 }
 
 export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReportData | null> {
@@ -644,7 +663,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     next.setUTCDate(next.getUTCDate() + 1);
     const nextDayISO = next.toISOString().slice(0, 10);
 
-    const [ordersRes, invoicesRes] = await Promise.all([
+    const [ordersRes, invoicesRes, payhistRes] = await Promise.all([
       supabase
         .from("work_orders")
         .select("*")
@@ -655,6 +674,15 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
         .select("*")
         .gte("issued_at", `${cleanDate}T00:00:00`)
         .lt("issued_at", `${nextDayISO}T00:00:00`),
+      // Roster de abonos parciales (payment_history) persistido en site_content.
+      // Se consulta por prefijo de clave para hallar los abonos recibidos HOY
+      // sobre facturas emitidas en días anteriores (ingresos reales del día).
+      safeQuery<any[]>(
+        supabase
+          .from("site_content")
+          .select("key, section_key, value, content")
+          .like("key", "inv_payhistory_%")
+      ),
     ]);
 
     if (ordersRes.error) console.warn("Day report work_orders warning:", ordersRes.error.message);
@@ -671,7 +699,77 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       return { ...inv, payment_breakdown: paymentBreakdown } as Invoice;
     });
 
-    return { workOrders, invoices };
+    // --- Abonos parciales del día (payment_history) sobre facturas de días anteriores ---
+    // Cada factura con abonos guarda 2 claves: inv_payhistory_<id> e inv_payhistory_<work_order_id>.
+    // Se deduplica por el id único de cada PaymentRecord para no contar dos veces el mismo abono.
+    const paymentMap = new Map<string, { rec: any; invKey: string }>();
+    (payhistRes?.data || []).forEach((row: any) => {
+      const k = row.key || row.section_key;
+      if (!k || !k.startsWith("inv_payhistory_")) return;
+      const invKey = k.replace("inv_payhistory_", "");
+      let raw: any = row.value;
+      if (typeof raw === "string") {
+        try { raw = JSON.parse(raw); } catch { raw = null; }
+      }
+      if (Array.isArray(raw)) {
+        raw.forEach((rec: any) => {
+          if (rec && rec.id && !paymentMap.has(rec.id)) paymentMap.set(rec.id, { rec, invKey });
+        });
+      }
+    });
+
+    const dayRecs = Array.from(paymentMap.values()).filter(({ rec }) => (rec.date || "").slice(0, 10) === cleanDate);
+
+    // Enriquecer cada abono con datos de su factura original (placa, cliente, descripción).
+    const invKeys = dayRecs.map(({ invKey }) => invKey);
+    const invoiceLookup = new Map<string, any>();
+    if (invKeys.length > 0) {
+      try {
+        const uniqueKeys = Array.from(new Set(invKeys)).slice(0, 80);
+        const listParam = uniqueKeys.map((k) => `"${k}"`).join(",");
+        const invRes = await supabase
+          .from("invoices")
+          .select("*")
+          .or(`id.in.(${listParam}),work_order_id.in.(${listParam})`);
+        (invRes.data || []).forEach((i: any) => {
+          if (i.id) invoiceLookup.set(i.id, i);
+          if (i.work_order_id) invoiceLookup.set(i.work_order_id, i);
+        });
+      } catch (err) {
+        console.warn("Day report abonos lookup warning:", err);
+      }
+    }
+
+    const payments: DayPaymentIncome[] = dayRecs
+      .map(({ rec, invKey }): DayPaymentIncome | null => {
+        const inv = invoiceLookup.get(invKey) || {};
+        const issuedDay = (inv.issued_at || "").slice(0, 10);
+        // Si la factura fue emitida HOY, su cobro ya está contado en `invoices`
+        // del día: se excluye para evitar doble conteo en la liquidación.
+        if (issuedDay === cleanDate) return null;
+        return {
+          id: rec.id,
+          date: rec.date || "",
+          amount: Number(rec.amount) || 0,
+          method: rec.method || "Efectivo",
+          destination: rec.destination || "EMPRESA",
+          receipt_number: rec.receipt_number || "",
+          receipt_type: rec.receipt_type || "",
+          reference: rec.reference || "",
+          payment_breakdown: Array.isArray(inv.payment_breakdown) ? inv.payment_breakdown : undefined,
+          plate: (inv.vehicle_plate || "").toUpperCase(),
+          client_name: inv.client_name || "",
+          description:
+            (inv.observations || inv.notes || (inv.receipt_number ? `Abono a factura ${inv.receipt_number}` : "Abono a factura pendiente")) ||
+            "Abono a factura pendiente",
+          invoice_id: inv.id || invKey,
+          work_order_id: inv.work_order_id || "",
+          issued_at: inv.issued_at || "",
+        };
+      })
+      .filter((p): p is DayPaymentIncome => Boolean(p && p.amount > 0));
+
+    return { workOrders, invoices, payments };
   } catch (err) {
     console.warn("Day report fetch warning:", err);
     return null;
@@ -1887,6 +1985,14 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       await saveSupabaseSiteContent(`inv_breakdown_${inv.id}`, inv.payment_breakdown, "invoices", false);
       if (inv.work_order_id) {
         await saveSupabaseSiteContent(`inv_breakdown_${inv.work_order_id}`, inv.payment_breakdown, "invoices", false);
+      }
+    }
+
+    // Historial de pagos por fecha (abonos parciales) -> roster independiente en la nube
+    if (inv.payment_history && Array.isArray(inv.payment_history) && inv.payment_history.length > 0) {
+      await saveSupabaseSiteContent(`inv_payhistory_${inv.id}`, inv.payment_history, "invoices", false);
+      if (inv.work_order_id) {
+        await saveSupabaseSiteContent(`inv_payhistory_${inv.work_order_id}`, inv.payment_history, "invoices", false);
       }
     }
     broadcastRealtimeChange("invoice_updated");

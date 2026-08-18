@@ -32,6 +32,11 @@ import {
   ShieldAlert,
   Clock,
   Car,
+  ChevronDown,
+  ChevronUp,
+  Wallet,
+  TrendingDown,
+  Receipt,
 } from "lucide-react";
 
 // Universal Formatting Helpers
@@ -50,6 +55,7 @@ const formatQty = (qty: number | null | undefined): string => {
 
 export type ReportTabType =
   | "caja"
+  | "pendientes"
   | "taller"
   | "servicios"
   | "almacen"
@@ -64,6 +70,29 @@ export interface WorkshopDailyReportViewProps {
   initialTab?: ReportTabType;
 }
 
+// Detalle de factura con saldo pendiente para el sub-informe por placa
+export interface PendingPlateInvoiceDetail {
+  invoice_id: string;
+  work_order_id: string;
+  issued_at: string;
+  receipt_number?: string;
+  receipt_type?: string;
+  grand_total: number;
+  paid: number;
+  balance: number;
+  description: string;
+  payments: Array<{ date: string; amount: number; method: string; receipt_number?: string }>;
+}
+
+// Agrupación de cuentas por cobrar por placa
+export interface PendingPlateEntry {
+  plate: string;
+  client: string;
+  totalDebt: number;
+  invoiceCount: number;
+  invoices: PendingPlateInvoiceDetail[];
+}
+
 export function WorkshopDailyReportView({
   isModal = false,
   onClose,
@@ -73,12 +102,14 @@ export function WorkshopDailyReportView({
     technicians,
     inventoryItems,
     currentUser,
+    invoices,
   } = useAppStore();
 
   const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [activeTab, setActiveTab] = useState<ReportTabType>(initialTab);
-  const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[] } | null>(null);
+  const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[]; payments: any[] } | null>(null);
   const [reportLoading, setReportLoading] = useState<boolean>(true);
+  const [expandedPlate, setExpandedPlate] = useState<string | null>(null);
 
   // Sync activeTab when component mounts or initialTab changes
   useEffect(() => {
@@ -95,7 +126,7 @@ export function WorkshopDailyReportView({
       .then((data) => {
         if (!active) return;
         if (data) {
-          setDayData({ workOrders: data.workOrders, invoices: data.invoices });
+          setDayData({ workOrders: data.workOrders, invoices: data.invoices, payments: data.payments || [] });
         } else {
           setDayData(null);
         }
@@ -129,6 +160,7 @@ export function WorkshopDailyReportView({
   // montos/cobros de otra fecha a un WO del día consultado.
   const dayInvoices = dayData?.invoices || [];
   const dayOrders = dayData?.workOrders || [];
+  const dayPayments = dayData?.payments || [];
 
   const invoicesByWorkOrderId = useMemo(() => {
     const map = new Map<string, (typeof dayInvoices)[0]>();
@@ -224,6 +256,38 @@ export function WorkshopDailyReportView({
 
     return result;
   };
+
+  // Abonos del día: pagos parciales recibidos HOY sobre facturas de días anteriores.
+  // Son ingresos reales de la jornada aunque la factura se haya emitido antes.
+  const abonosDelDia = useMemo(() => {
+    let efectivo = 0;
+    let yape = 0;
+    let transferencia = 0;
+    let culqi = 0;
+    let count = 0;
+    (dayPayments || []).forEach((p: any) => {
+      count += 1;
+      const amt = Number(p.amount) || 0;
+      const bd = Array.isArray(p.payment_breakdown) ? p.payment_breakdown : [];
+      if (bd.length > 0) {
+        (bd as any[]).forEach((s: any) => {
+          const sm = (s.method || "").toUpperCase();
+          const a = Number(s.amount) || 0;
+          if (sm.includes("YAPE") || sm.includes("PLIN")) yape += a;
+          else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) transferencia += a;
+          else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS")) culqi += a;
+          else efectivo += a;
+        });
+      } else {
+        const m = (p.method || "EFECTIVO").toUpperCase();
+        if (m.includes("YAPE") || m.includes("PLIN")) yape += amt;
+        else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) transferencia += amt;
+        else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS")) culqi += amt;
+        else efectivo += amt;
+      }
+    });
+    return { efectivo, yape, transferencia, culqi, count, total: efectivo + yape + transferencia + culqi };
+  }, [dayPayments]);
 
   // Consolidated Rows for the Day's Table
   const consolidatedRows = useMemo(() => {
@@ -517,6 +581,161 @@ export function WorkshopDailyReportView({
     return rows;
   }, [selectedDate, dayOrders, dayInvoices, invoicesByWorkOrderId, authorizedStaff, technicians]);
 
+  // Liquidación del día: SOLO ingresos reales (facturas cobradas + abonos recibidos hoy).
+  // Excluye pendientes/crédito y montos truncos (esos van a la pestaña Saldos Pendientes).
+  const liquidacionRows = useMemo(() => {
+    const rows = consolidatedRows
+      .filter((r) => !r.isPending && !r.isTrunco)
+      .map((r) => ({ ...r }));
+
+    (dayPayments || []).forEach((p: any) => {
+      const amt = Number(p.amount) || 0;
+      const bd = Array.isArray(p.payment_breakdown) ? p.payment_breakdown : [];
+      let ef = 0;
+      let ya = 0;
+      let tr = 0;
+      let cu = 0;
+      if (bd.length > 0) {
+        (bd as any[]).forEach((s: any) => {
+          const sm = (s.method || "").toUpperCase();
+          const a = Number(s.amount) || 0;
+          if (sm.includes("YAPE") || sm.includes("PLIN")) ya += a;
+          else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) tr += a;
+          else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS")) cu += a;
+          else ef += a;
+        });
+      } else {
+        const m = (p.method || "EFECTIVO").toUpperCase();
+        if (m.includes("YAPE") || m.includes("PLIN")) ya = amt;
+        else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) tr = amt;
+        else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS")) cu = amt;
+        else ef = amt;
+      }
+      const dest = (p.destination || "EMPRESA").toUpperCase();
+      rows.push({
+        id: "abono_" + p.id,
+        itemNumber: rows.length + 1,
+        plate: (p.plate || "ABONO").toUpperCase(),
+        description:
+          (p.description || "Abono a factura pendiente") +
+          (p.receipt_number ? ` — ${(p.receipt_type || "TICKET").toUpperCase()} ${p.receipt_number}` : ""),
+        total: amt,
+        isPending: false,
+        payState: "pagado",
+        pendingAmount: 0,
+        isTrunco: false,
+        efectivo: ef,
+        yape: ya,
+        transferencia: tr,
+        culqi: cu,
+        responsable: "ABONO",
+        yapeDestino: dest,
+        transfDestino: dest,
+        isInvoice: true,
+        orderStatus: "finalizado",
+      });
+    });
+
+    rows.forEach((r, i) => {
+      r.itemNumber = i + 1;
+    });
+    return rows;
+  }, [consolidatedRows, dayPayments]);
+
+  // Saldos pendientes por placa: agrupa facturas con saldo > 0 y su historial de
+  // pagos (abonos) para el sub-informe gerencial de cuentas por cobrar.
+  const pendingByPlate = useMemo(() => {
+    const byPlate = new Map<string, PendingPlateEntry>();
+
+    (invoices || []).forEach((inv: any) => {
+      const grand = Number(inv.grand_total) || Number(inv.total_amount) || 0;
+      if (grand <= 0) return;
+      const status = inv.payment_status;
+      const credit = Number(inv.credit_amount) || 0;
+      const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+      const paidHistory = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+      const paidBreakdown = Array.isArray(inv.payment_breakdown)
+        ? (inv.payment_breakdown as any[]).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+        : 0;
+      const paid = Math.max(paidHistory, paidBreakdown, status === "pagado" ? grand : 0, credit > 0 ? grand - credit : 0);
+      const balance = Math.max(0, grand - paid);
+      if (balance <= 0.01) return;
+
+      const plate = (inv.vehicle_plate || "S/P").toUpperCase().trim();
+      const entry: PendingPlateEntry = byPlate.get(plate) || {
+        plate,
+        client: inv.client_name || "",
+        totalDebt: 0,
+        invoiceCount: 0,
+        invoices: [],
+      };
+      entry.totalDebt += balance;
+      entry.invoiceCount += 1;
+      if (!entry.client && inv.client_name) entry.client = inv.client_name;
+      entry.invoices.push({
+        invoice_id: inv.id,
+        work_order_id: inv.work_order_id,
+        issued_at: inv.issued_at || "",
+        receipt_number: inv.receipt_number,
+        receipt_type: inv.receipt_type,
+        grand_total: grand,
+        paid: Math.min(grand, paid),
+        balance,
+        description: inv.observations || inv.notes || (inv.receipt_number ? `Factura ${inv.receipt_number}` : "Factura pendiente"),
+        payments: history.map((p: any) => ({
+          date: p.date || "",
+          amount: Number(p.amount) || 0,
+          method: p.method || "Efectivo",
+          receipt_number: p.receipt_number,
+        })),
+      });
+      byPlate.set(plate, entry);
+    });
+
+    return Array.from(byPlate.values()).sort((a, b) => b.totalDebt - a.totalDebt);
+  }, [invoices]);
+
+  const totalGlobalPendiente = useMemo(
+    () => pendingByPlate.reduce((s, p) => s + p.totalDebt, 0),
+    [pendingByPlate]
+  );
+
+  // Serie diaria (últimos 30 días) de la deuda pendiente total, para el gráfico de
+  // línea que muestra cómo el saldo por cobrar sube o baja cada día.
+  const debtSeries = useMemo(() => {
+    const days: string[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(selectedDate + "T12:00:00");
+      d.setDate(d.getDate() - i);
+      days.push(getPeruDateString(d));
+    }
+    const relevant = (invoices || []).filter((inv: any) => {
+      const grand = Number(inv.grand_total) || 0;
+      if (grand <= 0) return false;
+      const credit = Number(inv.credit_amount) || 0;
+      const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+      const paid = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+      const balance = Math.max(0, grand - Math.max(paid, credit > 0 ? grand - credit : 0));
+      return balance > 0.01;
+    });
+
+    return days.map((day) => {
+      let debt = 0;
+      relevant.forEach((inv: any) => {
+        const grand = Number(inv.grand_total) || 0;
+        const issuedDay = (inv.issued_at || "").slice(0, 10);
+        if (issuedDay > day) return;
+        const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+        const paidUpTo = history.reduce((s: number, p: any) => {
+          const pDay = (p.date || "").slice(0, 10);
+          return s + (pDay <= day ? Number(p.amount) || 0 : 0);
+        }, 0);
+        debt += Math.max(0, grand - paidUpTo);
+      });
+      return { day, debt };
+    });
+  }, [selectedDate, invoices]);
+
   // Financial Totals
   const totals = useMemo(() => {
     let cobradoEfectivo = 0;
@@ -547,7 +766,9 @@ export function WorkshopDailyReportView({
       }
     });
 
-    const totalLiquidacion = cobradoEfectivo + cobradoYapes + cobradoTransferencias + cobradoCulqi;
+    const totalAbonos = abonosDelDia.total;
+    const totalLiquidacion =
+      cobradoEfectivo + cobradoYapes + cobradoTransferencias + cobradoCulqi + totalAbonos;
 
     return {
       cobradoEfectivo,
@@ -558,8 +779,9 @@ export function WorkshopDailyReportView({
       totalTrunco,
       totalFacturado,
       totalLiquidacion,
+      totalAbonos,
     };
-  }, [consolidatedRows]);
+  }, [consolidatedRows, abonosDelDia]);
 
   // Category Breakdown: Servicios vs Repuestos vs Certificaciones
   const categoryBreakdown = useMemo(() => {
@@ -746,535 +968,547 @@ export function WorkshopDailyReportView({
     return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} atenciones (${completed} pagadas/completadas, ${inProgress} pendientes/crédito, ${truncoCount} aún en taller sin culminar servicio). El valor total de atenciones del día fue S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o crédito y S/ ${formatPEN(truncoTotal)} como monto trunco por no culminación del servicio (vehículos aún en taller).`;
   }, [consolidatedRows, totals, selectedDate]);
 
-  // Helper component to render Main Report Table + Side Electronic Matrix
-  const renderMainReportAndMatrix = (showConceptBreakdown: boolean) => (
-    <div className="space-y-4">
-      {/* Category Breakdown 3-Card Summary Banner (Only when showConceptBreakdown is true) */}
-      {showConceptBreakdown && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* 1. Servicios */}
-          <div className="p-3 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex items-center justify-between shadow">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
-                <Wrench className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] font-black uppercase text-teal-300 tracking-wider block">
-                  Venta en Servicios
-                </span>
-                <span className="text-xs text-gray-400 font-medium">
-                  Mano de obra, calibraciones ({categoryBreakdown.servCount})
-                </span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-base font-mono font-black text-white block">
-                S/ {formatPEN(categoryBreakdown.servTotal)}
-              </span>
-              <span className="text-[10px] font-bold text-teal-400">
-                {categoryBreakdown.servPercent.toFixed(1)}% del total
-              </span>
-            </div>
-          </div>
+  // Helper component to render Main Report Table + Side Electronic Matrix.
+  // En modo liquidación (pestaña Caja) solo se listan ingresos REALES del día
+  // (facturas cobradas + abonos recibidos hoy); pendientes y truncos se omiten.
+  const renderMainReportAndMatrix = (showConceptBreakdown: boolean, liquidacionOnly: boolean = false) => {
+    const tableRows = liquidacionOnly ? liquidacionRows : consolidatedRows;
+    const displayedTotalFacturado = liquidacionOnly ? totals.totalLiquidacion : totals.totalFacturado;
+    const displayedCount = tableRows.length;
 
-          {/* 2. Repuestos */}
-          <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                <Package className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
-                  Venta en Repuestos
-                </span>
-                <span className="text-xs text-gray-400 font-medium">
-                  Bujías, bobinas, filtros, cables ({categoryBreakdown.repCount})
-                </span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-base font-mono font-black text-white block">
-                S/ {formatPEN(categoryBreakdown.repTotal)}
-              </span>
-              <span className="text-[10px] font-bold text-emerald-400">
-                {categoryBreakdown.repPercent.toFixed(1)}% del total
-              </span>
-            </div>
-          </div>
-
-          {/* 3. Certificaciones */}
-          <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between shadow">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                <FileText className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider block">
-                  Venta en Certificaciones
-                </span>
-                <span className="text-xs text-gray-400 font-medium">
-                  Anual GNV/GLP, Quinquenal, Chip ({categoryBreakdown.certCount})
-                </span>
-              </div>
-            </div>
-            <div className="text-right">
-              <span className="text-base font-mono font-black text-white block">
-                S/ {formatPEN(categoryBreakdown.certTotal)}
-              </span>
-              <span className="text-[10px] font-bold text-purple-400">
-                {categoryBreakdown.certPercent.toFixed(1)}% del total
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-        {/* Main Cash & Workshop Table (8 cols on lg) */}
-        <div className="lg:col-span-8 space-y-2">
-          <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-
-            {/* Table Title Header Bar in Vibrant Gold */}
-            <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
-              <span className="tracking-wide">REYGAS TALLER</span>
-              <span className="text-base font-black">REPORTE DEL DÍA {formatPeruDate(selectedDate)}</span>
-              <span className="text-xs bg-black/20 px-2.5 py-0.5 rounded-full font-mono">
-                {consolidatedRows.length} ATENCIONES
-              </span>
-            </div>
-
-            <table className="w-full text-xs text-left border-collapse">
-              <thead>
-                <tr className="bg-[#ffd269] text-black font-extrabold uppercase text-[11px] border-b border-amber-600/30 print:bg-gray-100">
-                  <th className="py-2 px-2 text-center w-10 border-r border-amber-600/20">ITEM</th>
-                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
-                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
-                  <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
-                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
-                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#fb923c] text-black">EN TALLER (TRUNCO)</th>
-                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
-                  <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
-                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
-                  <th className="py-2 px-2 text-center w-16 border-r border-amber-600/20 bg-[#eab308] text-black">CULQI</th>
-                  <th className="py-2 px-2 text-center w-24 bg-[#e2e8f0] text-black">RESPONSABLE</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                {reportLoading ? (
-                  <tr>
-                    <td colSpan={11} className="py-12 text-center text-gray-400">
-                      <span className="inline-flex items-center gap-2.5">
-                        <span className="w-4 h-4 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
-                        Consultando el día {formatPeruDate(selectedDate)} en la nube...
-                      </span>
-                    </td>
-                  </tr>
-                ) : consolidatedRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="py-12 text-center text-gray-400 italic">
-                      No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
-                    </td>
-                  </tr>
-                ) : (
-                  consolidatedRows.map((r, idx) => (
-                    <tr
-                      key={r.id + idx}
-                      className="hover:bg-white/5 transition-colors text-white"
-                    >
-                      <td className="py-2 px-2 text-center text-gray-400 font-bold border-r border-white/5">
-                        {r.itemNumber}
-                      </td>
-                      <td className="py-2 px-2 text-right font-black text-amber-300 border-r border-white/5">
-                        {formatPEN(r.total)}
-                      </td>
-                      <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
-                        {r.plate}
-                      </td>
-                      <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
-                        {r.description}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
-                        {r.payState === "pendiente" || r.payState === "parcial" ? formatPEN(r.pendingAmount) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-orange-400 bg-orange-950/10 border-r border-white/5">
-                        {r.isTrunco ? formatPEN(r.total) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
-                        {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-purple-400 bg-purple-950/10 border-r border-white/5">
-                        {r.yape > 0 ? formatPEN(r.yape) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-blue-400 bg-blue-950/10 border-r border-white/5">
-                        {r.transferencia > 0 ? formatPEN(r.transferencia) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-right font-bold text-amber-400 bg-amber-950/10 border-r border-white/5">
-                        {r.culqi > 0 ? formatPEN(r.culqi) : "-"}
-                      </td>
-                      <td className="py-2 px-2 text-center font-bold text-gray-300 bg-white/[0.02] text-[10px]">
-                        {r.responsable}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-              <tfoot>
-                {/* Summary Bar 1: COBRADO */}
-                <tr className="bg-black text-xs font-black border-t-2 border-amber-500/40">
-                  <td className="py-2 px-2 text-emerald-400 font-extrabold uppercase border-r border-white/10" colSpan={3}>
-                    COBRADO
-                  </td>
-                  <td className="py-2 px-3 text-right font-mono font-black text-emerald-400 border-r border-white/10">
-                    S/ {formatPEN(totals.totalLiquidacion)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.totalPendiente)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-orange-400 bg-orange-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.totalTrunco)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.cobradoEfectivo)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-purple-400 bg-purple-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.cobradoYapes)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-blue-400 bg-blue-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.cobradoTransferencias)}
-                  </td>
-                  <td className="py-2 px-2 text-right font-mono font-black text-amber-400 bg-amber-950/40 border-r border-white/10">
-                    S/ {formatPEN(totals.cobradoCulqi)}
-                  </td>
-                  <td className="py-2 px-2 bg-black"></td>
-                </tr>
-
-                {/* Summary Bar 2: TOTAL GENERAL (4,325.00) */}
-                <tr className="bg-[#f59e0b] text-black font-black text-sm">
-                  <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
-                    TOTAL
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={8}>
-                    S/ {formatPEN(totals.totalFacturado)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
-        <div className="lg:col-span-4 space-y-4">
-          <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-
-            {/* Header with dual tabs Yape / Transferencia */}
-            <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
-              <div className="flex items-center gap-1.5">
-                <Coins className="w-4 h-4" />
-                <span>YAPES</span>
-              </div>
-              <span className="bg-[#2563eb] text-white px-2 py-0.5 rounded text-[10px] font-bold">
-                TRANSFERENCIA
-              </span>
-            </div>
-
-            <table className="w-full text-xs text-left border-collapse">
-              <thead>
-                {/* Master Group Headers */}
-                <tr className="border-b border-purple-300 font-black text-[10px] text-center">
-                  <th className="bg-[#e9d5ff] text-black py-1 px-1 border-r border-purple-300 w-8">N°</th>
-                  <th
-                    colSpan={electronicMatrix.yapeStaff.length}
-                    className="bg-[#c026d3] text-white py-1 uppercase tracking-wider border-r border-purple-300"
-                  >
-                    YAPES
-                  </th>
-                  <th
-                    colSpan={electronicMatrix.transfStaff.length}
-                    className="bg-[#2563eb] text-white py-1 uppercase tracking-wider"
-                  >
-                    TRANSFERENCIA
-                  </th>
-                </tr>
-
-                {/* Sub-column Staff Headers */}
-                <tr className="bg-[#e9d5ff] text-black font-extrabold uppercase text-[10px] border-b border-purple-300">
-                  <th className="py-1 px-1 text-center border-r border-purple-300"></th>
-                  {electronicMatrix.yapeStaff.map((col) => (
-                    <th
-                      key={"y_" + col}
-                      className={`py-1.5 px-1 text-center font-black border-r border-purple-300 ${col === "EMPRESA" ? "bg-[#dcfce7] text-emerald-950" : ""
-                        }`}
-                    >
-                      {col}
-                    </th>
-                  ))}
-                  {electronicMatrix.transfStaff.map((col) => (
-                    <th
-                      key={"t_" + col}
-                      className="py-1.5 px-1 text-center font-black border-r border-purple-300 bg-[#dbeafe] text-blue-950"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                {electronicMatrix.matrixRows.map((row) => (
-                  <tr key={row.rowIdx} className="hover:bg-white/5 text-white">
-                    <td className="py-1 px-1 text-center text-gray-500 font-bold border-r border-white/5 text-[10px]">
-                      {row.rowIdx}
-                    </td>
-                    {/* Yape Columns */}
-                    {electronicMatrix.yapeStaff.map((col) => {
-                      const val = row.yapeValues[col] || 0;
-                      return (
-                        <td
-                          key={"y_val_" + col}
-                          className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
-                            }`}
-                        >
-                          {val > 0 ? formatPEN(val) : "-"}
-                        </td>
-                      );
-                    })}
-                    {/* Transfer Columns */}
-                    {electronicMatrix.transfStaff.map((col) => {
-                      const val = row.transfValues[col] || 0;
-                      return (
-                        <td
-                          key={"t_val_" + col}
-                          className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
-                            }`}
-                        >
-                          {val > 0 ? formatPEN(val) : "-"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                {/* Row Sums per individual column */}
-                <tr className="bg-black text-[11px] font-black border-t-2 border-purple-500/40">
-                  <td className="py-2 px-1 text-center text-purple-400 font-black border-r border-white/10">
-                    Σ
-                  </td>
-                  {electronicMatrix.yapeStaff.map((col) => {
-                    const sum = electronicMatrix.sumYapesByCol[col] || 0;
-                    return (
-                      <td
-                        key={"y_sum_" + col}
-                        className="py-2 px-1 text-right font-mono font-black text-purple-300 border-r border-white/10"
-                      >
-                        S/ {formatPEN(sum)}
-                      </td>
-                    );
-                  })}
-                  {electronicMatrix.transfStaff.map((col) => {
-                    const sum = electronicMatrix.sumTransfByCol[col] || 0;
-                    return (
-                      <td
-                        key={"t_sum_" + col}
-                        className="py-2 px-1 text-right font-mono font-black text-blue-300 border-r border-white/10"
-                      >
-                        S/ {formatPEN(sum)}
-                      </td>
-                    );
-                  })}
-                </tr>
-
-                {/* 1. Row Total Combined (1,565.00) */}
-                <tr className="bg-[#f59e0b] text-black font-black text-xs border-t border-amber-600">
-                  <td className="py-1.5 px-2 font-black uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                    TOTAL YAPES + TRANSF.
-                  </td>
-                  <td
-                    className="py-1.5 px-2 text-right font-mono font-black text-xs"
-                    colSpan={electronicMatrix.transfStaff.length}
-                  >
-                    S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
-                  </td>
-                </tr>
-
-                {/* 2. Row Total Efectivo */}
-                <tr className="bg-emerald-950/70 text-emerald-300 font-extrabold text-xs border-t border-emerald-500/20">
-                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                    💵 TOTAL EFECTIVO
-                  </td>
-                  <td
-                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-emerald-300"
-                    colSpan={electronicMatrix.transfStaff.length}
-                  >
-                    S/ {formatPEN(totals.cobradoEfectivo)}
-                  </td>
-                </tr>
-
-                {/* 3. Row Total Pendiente */}
-                <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
-                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                    ⏳ TOTAL PENDIENTE
-                  </td>
-                  <td
-                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
-                    colSpan={electronicMatrix.transfStaff.length}
-                  >
-                    S/ {formatPEN(totals.totalPendiente)}
-                  </td>
-                </tr>
-
-                {/* 4. Row Total Culqi / Tarjeta */}
-                <tr className="bg-amber-950/70 text-amber-300 font-extrabold text-xs border-t border-amber-500/20">
-                  <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                    💳 TOTAL CULQI / TARJETA
-                  </td>
-                  <td
-                    className="py-1.5 px-2 text-right font-mono font-black text-xs text-amber-300"
-                    colSpan={electronicMatrix.transfStaff.length}
-                  >
-                    S/ {formatPEN(totals.cobradoCulqi)}
-                  </td>
-                </tr>
-
-                {/* 5. Row Total Validación Cuadre General del Día */}
-                {(() => {
-                  const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
-                  const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
-
-                  return (
-                    <tr
-                      className={`text-xs font-black border-t-2 ${isCuadrado
-                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
-                        : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
-                        }`}
-                    >
-                      <td
-                        className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
-                        colSpan={electronicMatrix.yapeStaff.length + 1}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <span>TOTAL GENERAL DEL DÍA</span>
-                          {isCuadrado ? (
-                            <span className="px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300 text-[10px] font-black flex items-center gap-1 shadow">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                              <span>CUADRADO ✔</span>
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded bg-black/40 text-rose-200 border border-rose-300 text-[10px] font-black flex items-center gap-1 shadow">
-                              <AlertTriangle className="w-3 h-3 text-rose-300" />
-                              <span>VERIFICAR ⚠</span>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td
-                        className="py-2 px-2 text-right font-mono font-black text-sm text-white"
-                        colSpan={electronicMatrix.transfStaff.length}
-                      >
-                        S/ {formatPEN(grandCuadre)}
-                      </td>
-                    </tr>
-                  );
-                })()}
-              </tfoot>
-            </table>
-          </div>
-
-          {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES (Only in Caja tab) */}
-          {showConceptBreakdown && (
-            <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-              <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
-                <div className="flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-cyan-300" />
-                  <span>VENTAS POR CONCEPTO</span>
+    return (
+      <div className="space-y-4">
+        {/* Category Breakdown 3-Card Summary Banner (Only when showConceptBreakdown is true) */}
+        {showConceptBreakdown && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 1. Servicios */}
+            <div className="p-3 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex items-center justify-between shadow">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                  <Wrench className="w-5 h-5" />
                 </div>
-                <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
-                  S/ {formatPEN(categoryBreakdown.grandTotal)}
+                <div>
+                  <span className="text-[10px] font-black uppercase text-teal-300 tracking-wider block">
+                    Venta en Servicios
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    Mano de obra, calibraciones ({categoryBreakdown.servCount})
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-base font-mono font-black text-white block">
+                  S/ {formatPEN(categoryBreakdown.servTotal)}
+                </span>
+                <span className="text-[10px] font-bold text-teal-400">
+                  {categoryBreakdown.servPercent.toFixed(1)}% del total
+                </span>
+              </div>
+            </div>
+
+            {/* 2. Repuestos */}
+            <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between shadow">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase text-emerald-300 tracking-wider block">
+                    Venta en Repuestos
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    Bujías, bobinas, filtros, cables ({categoryBreakdown.repCount})
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-base font-mono font-black text-white block">
+                  S/ {formatPEN(categoryBreakdown.repTotal)}
+                </span>
+                <span className="text-[10px] font-bold text-emerald-400">
+                  {categoryBreakdown.repPercent.toFixed(1)}% del total
+                </span>
+              </div>
+            </div>
+
+            {/* 3. Certificaciones */}
+            <div className="p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between shadow">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase text-purple-300 tracking-wider block">
+                    Venta en Certificaciones
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    Anual GNV/GLP, Quinquenal, Chip ({categoryBreakdown.certCount})
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-base font-mono font-black text-white block">
+                  S/ {formatPEN(categoryBreakdown.certTotal)}
+                </span>
+                <span className="text-[10px] font-bold text-purple-400">
+                  {categoryBreakdown.certPercent.toFixed(1)}% del total
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+          {/* Main Cash & Workshop Table (8 cols on lg) */}
+          <div className="lg:col-span-8 space-y-2">
+            <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+
+              {/* Table Title Header Bar in Vibrant Gold */}
+              <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
+                <span className="tracking-wide">REYGAS TALLER</span>
+                <span className="text-base font-black">REPORTE DEL DÍA {formatPeruDate(selectedDate)}</span>
+                <span className="text-xs bg-black/20 px-2.5 py-0.5 rounded-full font-mono">
+                  {displayedCount} {liquidacionOnly ? "INGRESOS" : "ATENCIONES"}
                 </span>
               </div>
 
-              <table className="w-full text-xs text-left border-collapse font-mono">
+              <table className="w-full text-xs text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#ccfbf1] text-teal-950 font-extrabold uppercase text-[10px] border-b border-teal-300">
-                    <th className="py-1.5 px-2.5">CONCEPTO</th>
-                    <th className="py-1.5 px-2 text-center">ATENCIONES</th>
-                    <th className="py-1.5 px-2 text-right">TOTAL (S/)</th>
-                    <th className="py-1.5 px-2 text-right">% DEL TOTAL</th>
+                  <tr className="bg-[#ffd269] text-black font-extrabold uppercase text-[11px] border-b border-amber-600/30 print:bg-gray-100">
+                    <th className="py-2 px-2 text-center w-10 border-r border-amber-600/20">ITEM</th>
+                    <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
+                    <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
+                    <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
+                    {!liquidacionOnly && (
+                      <>
+                        <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
+                        <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#fb923c] text-black">EN TALLER (TRUNCO)</th>
+                      </>
+                    )}
+                    <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
+                    <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
+                    <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
+                    <th className="py-2 px-2 text-center w-16 border-r border-amber-600/20 bg-[#eab308] text-black">CULQI</th>
+                    <th className="py-2 px-2 text-center w-24 bg-[#e2e8f0] text-black">RESPONSABLE</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 text-[11px]">
-                  {/* 1. Servicios */}
-                  <tr className="hover:bg-white/5 text-white">
-                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
-                      <span>🔧</span>
-                      <span>Servicios & Mano de Obra</span>
-                    </td>
-                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                      {categoryBreakdown.servCount}
-                    </td>
-                    <td className="py-2 px-2 text-right font-black text-teal-300">
-                      S/ {formatPEN(categoryBreakdown.servTotal)}
-                    </td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                      {categoryBreakdown.servPercent.toFixed(1)}%
-                    </td>
-                  </tr>
-
-                  {/* 2. Repuestos */}
-                  <tr className="hover:bg-white/5 text-white">
-                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
-                      <span>📦</span>
-                      <span>Repuestos & Autopartes</span>
-                    </td>
-                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                      {categoryBreakdown.repCount}
-                    </td>
-                    <td className="py-2 px-2 text-right font-black text-emerald-300">
-                      S/ {formatPEN(categoryBreakdown.repTotal)}
-                    </td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                      {categoryBreakdown.repPercent.toFixed(1)}%
-                    </td>
-                  </tr>
-
-                  {/* 3. Certificaciones */}
-                  <tr className="hover:bg-white/5 text-white">
-                    <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
-                      <span>📜</span>
-                      <span>Certificaciones GNV / GLP</span>
-                    </td>
-                    <td className="py-2 px-2 text-center text-gray-300 font-bold">
-                      {categoryBreakdown.certCount}
-                    </td>
-                    <td className="py-2 px-2 text-right font-black text-purple-300">
-                      S/ {formatPEN(categoryBreakdown.certTotal)}
-                    </td>
-                    <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
-                      {categoryBreakdown.certPercent.toFixed(1)}%
-                    </td>
-                  </tr>
+                <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                  {reportLoading ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-gray-400">
+                        <span className="inline-flex items-center gap-2.5">
+                          <span className="w-4 h-4 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+                          Consultando el día {formatPeruDate(selectedDate)} en la nube...
+                        </span>
+                      </td>
+                    </tr>
+                  ) : consolidatedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-gray-400 italic">
+                        No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
+                      </td>
+                    </tr>
+                  ) : (
+                    consolidatedRows.map((r, idx) => (
+                      <tr
+                        key={r.id + idx}
+                        className="hover:bg-white/5 transition-colors text-white"
+                      >
+                        <td className="py-2 px-2 text-center text-gray-400 font-bold border-r border-white/5">
+                          {r.itemNumber}
+                        </td>
+                        <td className="py-2 px-2 text-right font-black text-amber-300 border-r border-white/5">
+                          {formatPEN(r.total)}
+                        </td>
+                        <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
+                          {r.plate}
+                        </td>
+                        <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
+                          {r.description}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
+                          {r.payState === "pendiente" || r.payState === "parcial" ? formatPEN(r.pendingAmount) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-orange-400 bg-orange-950/10 border-r border-white/5">
+                          {r.isTrunco ? formatPEN(r.total) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
+                          {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-purple-400 bg-purple-950/10 border-r border-white/5">
+                          {r.yape > 0 ? formatPEN(r.yape) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-blue-400 bg-blue-950/10 border-r border-white/5">
+                          {r.transferencia > 0 ? formatPEN(r.transferencia) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-right font-bold text-amber-400 bg-amber-950/10 border-r border-white/5">
+                          {r.culqi > 0 ? formatPEN(r.culqi) : "-"}
+                        </td>
+                        <td className="py-2 px-2 text-center font-bold text-gray-300 bg-white/[0.02] text-[10px]">
+                          {r.responsable}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-[#f59e0b] text-black font-black text-xs">
-                    <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={2}>
-                      TOTAL GENERAL
+                  {/* Summary Bar 1: COBRADO */}
+                  <tr className="bg-black text-xs font-black border-t-2 border-amber-500/40">
+                    <td className="py-2 px-2 text-emerald-400 font-extrabold uppercase border-r border-white/10" colSpan={3}>
+                      COBRADO
                     </td>
-                    <td className="py-2 px-2 text-right font-mono font-black text-sm">
-                      S/ {formatPEN(categoryBreakdown.grandTotal)}
+                    <td className="py-2 px-3 text-right font-mono font-black text-emerald-400 border-r border-white/10">
+                      S/ {formatPEN(totals.totalLiquidacion)}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono font-bold text-[10px]">
-                      100.0%
+                    <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.totalPendiente)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-orange-400 bg-orange-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.totalTrunco)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.cobradoEfectivo)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-purple-400 bg-purple-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.cobradoYapes)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-blue-400 bg-blue-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.cobradoTransferencias)}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono font-black text-amber-400 bg-amber-950/40 border-r border-white/10">
+                      S/ {formatPEN(totals.cobradoCulqi)}
+                    </td>
+                    <td className="py-2 px-2 bg-black"></td>
+                  </tr>
+
+                  {/* Summary Bar 2: TOTAL GENERAL (4,325.00) */}
+                  <tr className="bg-[#f59e0b] text-black font-black text-sm">
+                    <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
+                      TOTAL
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={8}>
+                      S/ {formatPEN(totals.totalFacturado)}
                     </td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-          )}
-        </div>
+          </div>
 
+          {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+
+              {/* Header with dual tabs Yape / Transferencia */}
+              <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-1.5">
+                  <Coins className="w-4 h-4" />
+                  <span>YAPES</span>
+                </div>
+                <span className="bg-[#2563eb] text-white px-2 py-0.5 rounded text-[10px] font-bold">
+                  TRANSFERENCIA
+                </span>
+              </div>
+
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  {/* Master Group Headers */}
+                  <tr className="border-b border-purple-300 font-black text-[10px] text-center">
+                    <th className="bg-[#e9d5ff] text-black py-1 px-1 border-r border-purple-300 w-8">N°</th>
+                    <th
+                      colSpan={electronicMatrix.yapeStaff.length}
+                      className="bg-[#c026d3] text-white py-1 uppercase tracking-wider border-r border-purple-300"
+                    >
+                      YAPES
+                    </th>
+                    <th
+                      colSpan={electronicMatrix.transfStaff.length}
+                      className="bg-[#2563eb] text-white py-1 uppercase tracking-wider"
+                    >
+                      TRANSFERENCIA
+                    </th>
+                  </tr>
+
+                  {/* Sub-column Staff Headers */}
+                  <tr className="bg-[#e9d5ff] text-black font-extrabold uppercase text-[10px] border-b border-purple-300">
+                    <th className="py-1 px-1 text-center border-r border-purple-300"></th>
+                    {electronicMatrix.yapeStaff.map((col) => (
+                      <th
+                        key={"y_" + col}
+                        className={`py-1.5 px-1 text-center font-black border-r border-purple-300 ${col === "EMPRESA" ? "bg-[#dcfce7] text-emerald-950" : ""
+                          }`}
+                      >
+                        {col}
+                      </th>
+                    ))}
+                    {electronicMatrix.transfStaff.map((col) => (
+                      <th
+                        key={"t_" + col}
+                        className="py-1.5 px-1 text-center font-black border-r border-purple-300 bg-[#dbeafe] text-blue-950"
+                      >
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                  {electronicMatrix.matrixRows.map((row) => (
+                    <tr key={row.rowIdx} className="hover:bg-white/5 text-white">
+                      <td className="py-1 px-1 text-center text-gray-500 font-bold border-r border-white/5 text-[10px]">
+                        {row.rowIdx}
+                      </td>
+                      {/* Yape Columns */}
+                      {electronicMatrix.yapeStaff.map((col) => {
+                        const val = row.yapeValues[col] || 0;
+                        return (
+                          <td
+                            key={"y_val_" + col}
+                            className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
+                              }`}
+                          >
+                            {val > 0 ? formatPEN(val) : "-"}
+                          </td>
+                        );
+                      })}
+                      {/* Transfer Columns */}
+                      {electronicMatrix.transfStaff.map((col) => {
+                        const val = row.transfValues[col] || 0;
+                        return (
+                          <td
+                            key={"t_val_" + col}
+                            className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
+                              }`}
+                          >
+                            {val > 0 ? formatPEN(val) : "-"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  {/* Row Sums per individual column */}
+                  <tr className="bg-black text-[11px] font-black border-t-2 border-purple-500/40">
+                    <td className="py-2 px-1 text-center text-purple-400 font-black border-r border-white/10">
+                      Σ
+                    </td>
+                    {electronicMatrix.yapeStaff.map((col) => {
+                      const sum = electronicMatrix.sumYapesByCol[col] || 0;
+                      return (
+                        <td
+                          key={"y_sum_" + col}
+                          className="py-2 px-1 text-right font-mono font-black text-purple-300 border-r border-white/10"
+                        >
+                          S/ {formatPEN(sum)}
+                        </td>
+                      );
+                    })}
+                    {electronicMatrix.transfStaff.map((col) => {
+                      const sum = electronicMatrix.sumTransfByCol[col] || 0;
+                      return (
+                        <td
+                          key={"t_sum_" + col}
+                          className="py-2 px-1 text-right font-mono font-black text-blue-300 border-r border-white/10"
+                        >
+                          S/ {formatPEN(sum)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+
+                  {/* 1. Row Total Combined (1,565.00) */}
+                  <tr className="bg-[#f59e0b] text-black font-black text-xs border-t border-amber-600">
+                    <td className="py-1.5 px-2 font-black uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      TOTAL YAPES + TRANSF.
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
+                    </td>
+                  </tr>
+
+                  {/* 2. Row Total Efectivo */}
+                  <tr className="bg-emerald-950/70 text-emerald-300 font-extrabold text-xs border-t border-emerald-500/20">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      💵 TOTAL EFECTIVO
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-emerald-300"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(totals.cobradoEfectivo)}
+                    </td>
+                  </tr>
+
+                  {/* 3. Row Total Pendiente */}
+                  <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      ⏳ TOTAL PENDIENTE
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(totals.totalPendiente)}
+                    </td>
+                  </tr>
+
+                  {/* 4. Row Total Culqi / Tarjeta */}
+                  <tr className="bg-amber-950/70 text-amber-300 font-extrabold text-xs border-t border-amber-500/20">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      💳 TOTAL CULQI / TARJETA
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-amber-300"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(totals.cobradoCulqi)}
+                    </td>
+                  </tr>
+
+                  {/* 5. Row Total Validación Cuadre General del Día */}
+                  {(() => {
+                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
+
+                    return (
+                      <tr
+                        className={`text-xs font-black border-t-2 ${isCuadrado
+                          ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
+                          : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
+                          }`}
+                      >
+                        <td
+                          className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
+                          colSpan={electronicMatrix.yapeStaff.length + 1}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span>TOTAL GENERAL DEL DÍA</span>
+                            {isCuadrado ? (
+                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300 text-[10px] font-black flex items-center gap-1 shadow">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                                <span>CUADRADO ✔</span>
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-rose-200 border border-rose-300 text-[10px] font-black flex items-center gap-1 shadow">
+                                <AlertTriangle className="w-3 h-3 text-rose-300" />
+                                <span>VERIFICAR ⚠</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td
+                          className="py-2 px-2 text-right font-mono font-black text-sm text-white"
+                          colSpan={electronicMatrix.transfStaff.length}
+                        >
+                          S/ {formatPEN(grandCuadre)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES (Only in Caja tab) */}
+            {showConceptBreakdown && (
+              <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-cyan-300" />
+                    <span>VENTAS POR CONCEPTO</span>
+                  </div>
+                  <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                    S/ {formatPEN(categoryBreakdown.grandTotal)}
+                  </span>
+                </div>
+
+                <table className="w-full text-xs text-left border-collapse font-mono">
+                  <thead>
+                    <tr className="bg-[#ccfbf1] text-teal-950 font-extrabold uppercase text-[10px] border-b border-teal-300">
+                      <th className="py-1.5 px-2.5">CONCEPTO</th>
+                      <th className="py-1.5 px-2 text-center">ATENCIONES</th>
+                      <th className="py-1.5 px-2 text-right">TOTAL (S/)</th>
+                      <th className="py-1.5 px-2 text-right">% DEL TOTAL</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-[11px]">
+                    {/* 1. Servicios */}
+                    <tr className="hover:bg-white/5 text-white">
+                      <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
+                        <span>🔧</span>
+                        <span>Servicios & Mano de Obra</span>
+                      </td>
+                      <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                        {categoryBreakdown.servCount}
+                      </td>
+                      <td className="py-2 px-2 text-right font-black text-teal-300">
+                        S/ {formatPEN(categoryBreakdown.servTotal)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                        {categoryBreakdown.servPercent.toFixed(1)}%
+                      </td>
+                    </tr>
+
+                    {/* 2. Repuestos */}
+                    <tr className="hover:bg-white/5 text-white">
+                      <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
+                        <span>📦</span>
+                        <span>Repuestos & Autopartes</span>
+                      </td>
+                      <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                        {categoryBreakdown.repCount}
+                      </td>
+                      <td className="py-2 px-2 text-right font-black text-emerald-300">
+                        S/ {formatPEN(categoryBreakdown.repTotal)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                        {categoryBreakdown.repPercent.toFixed(1)}%
+                      </td>
+                    </tr>
+
+                    {/* 3. Certificaciones */}
+                    <tr className="hover:bg-white/5 text-white">
+                      <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
+                        <span>📜</span>
+                        <span>Certificaciones GNV / GLP</span>
+                      </td>
+                      <td className="py-2 px-2 text-center text-gray-300 font-bold">
+                        {categoryBreakdown.certCount}
+                      </td>
+                      <td className="py-2 px-2 text-right font-black text-purple-300">
+                        S/ {formatPEN(categoryBreakdown.certTotal)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-400 font-bold text-[10px]">
+                        {categoryBreakdown.certPercent.toFixed(1)}%
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-[#f59e0b] text-black font-black text-xs">
+                      <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={2}>
+                        TOTAL GENERAL
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono font-black text-sm">
+                        S/ {formatPEN(categoryBreakdown.grandTotal)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono font-bold text-[10px]">
+                        100.0%
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // Print Report Handler
   const handlePrint = () => {
@@ -1306,13 +1540,14 @@ export function WorkshopDailyReportView({
   // Report Navigation Config
   const reportTabs = [
     { id: "caja", label: "1. Arqueo & Liquidación de Caja", icon: Coins, color: "text-amber-400" },
-    { id: "taller", label: "2. Productividad & Órdenes de Taller", icon: Wrench, color: "text-indigo-400" },
-    { id: "servicios", label: "3. Servicios & Repuestos Despachados", icon: Layers, color: "text-emerald-400" },
-    { id: "almacen", label: "4. Almacén & Valorización", icon: Package, color: "text-cyan-400" },
-    { id: "certificaciones", label: "5. Certificaciones GNV/GLP", icon: Award, color: "text-purple-400" },
-    { id: "porteria", label: "6. Portería & Patio", icon: ShieldAlert, color: "text-rose-400" },
-    { id: "asistencia", label: "7. Asistencia de Personal", icon: Clock, color: "text-teal-400" },
-    { id: "resumen", label: "8. Resumen Ejecutivo & Firmas", icon: Sparkles, color: "text-amber-300" },
+    { id: "pendientes", label: "2. Saldos Pendientes por Placa", icon: TrendingDown, color: "text-rose-400" },
+    { id: "taller", label: "3. Productividad & Órdenes de Taller", icon: Wrench, color: "text-indigo-400" },
+    { id: "servicios", label: "4. Servicios & Repuestos Despachados", icon: Layers, color: "text-emerald-400" },
+    { id: "almacen", label: "5. Almacén & Valorización", icon: Package, color: "text-cyan-400" },
+    { id: "certificaciones", label: "6. Certificaciones GNV/GLP", icon: Award, color: "text-purple-400" },
+    { id: "porteria", label: "7. Portería & Patio", icon: ShieldAlert, color: "text-rose-400" },
+    { id: "asistencia", label: "8. Asistencia de Personal", icon: Clock, color: "text-teal-400" },
+    { id: "resumen", label: "9. Resumen Ejecutivo & Firmas", icon: Sparkles, color: "text-amber-300" },
   ];
 
   return (
@@ -1464,7 +1699,7 @@ export function WorkshopDailyReportView({
         {/* TOP KPI CARDS MATRIX: ONLY SHOWN FOR CAJA (AS REQUESTED) */}
         {/* ========================================================================= */}
         {activeTab === "caja" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* Card 1: Efectivo */}
             <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
               <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1">
@@ -1509,33 +1744,22 @@ export function WorkshopDailyReportView({
               </span>
             </div>
 
-            {/* Card 5: Monto Trunco (En Taller / Servicio Sin Culminar) */}
-            <div className="p-3.5 rounded-2xl bg-orange-950/30 border border-orange-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-orange-400 tracking-wider flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                <span>Monto Trunco (En Taller)</span>
+            {/* Card 5: Abonos del Día (ingresos sobre facturas de días anteriores) */}
+            <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
+                <Wallet className="w-3 h-3" />
+                <span>Abonos del Día ({abonosDelDia.count})</span>
               </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-orange-300 mt-1">
-                S/ {formatPEN(totals.totalTrunco)}
-              </span>
-            </div>
-
-            {/* Card 6: Pendiente / Crédito */}
-            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                <span>Total Pendiente / Crédito</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
-                S/ {formatPEN(totals.totalPendiente)}
+              <span className="text-lg sm:text-xl font-mono font-black text-cyan-300 mt-1">
+                S/ {formatPEN(abonosDelDia.total)}
               </span>
             </div>
 
-            {/* Card 7: Total Liquidación */}
+            {/* Card 6: Total Liquidación (solo ingresos reales del día) */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
               <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" />
-                <span>Total Liquidación</span>
+                <span>Total Liquidación (Ingresos)</span>
               </span>
               <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
                 S/ {formatPEN(totals.totalLiquidacion)}
@@ -1547,7 +1771,246 @@ export function WorkshopDailyReportView({
         {/* ========================================================================= */}
         {/* TAB 1: CAJA & LIQUIDACIÓN DIARIA (CON DESGLOSE DE CONCEPTOS) */}
         {/* ========================================================================= */}
-        {activeTab === "caja" && renderMainReportAndMatrix(true)}
+        {activeTab === "caja" && renderMainReportAndMatrix(true, true)}
+
+        {/* ========================================================================= */}
+        {/* TAB PENDIENTES: SALDOS PENDIENTES POR PLACA + GRÁFICO DE DEUDA DIARIA */}
+        {/* ========================================================================= */}
+        {activeTab === "pendientes" && (
+          <div className="space-y-6">
+            {/* KPI row del sub-informe de cuentas por cobrar */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  <span>Total Deuda Pendiente</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
+                  S/ {formatPEN(totalGlobalPendiente)}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
+                  <Car className="w-3 h-3" />
+                  <span>Placas con Saldo</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-cyan-300 mt-1">
+                  {pendingByPlate.length}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+                  <Wallet className="w-3 h-3" />
+                  <span>Abonos Registrados Hoy</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
+                  {abonosDelDia.count} ({formatPEN(abonosDelDia.total)})
+                </span>
+              </div>
+            </div>
+
+            {/* Narrativa ejecutiva del sub-informe */}
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-rose-500/10 via-black/40 to-amber-500/10 border border-rose-500/30 space-y-2">
+              <div className="flex items-center gap-2 text-rose-400 font-black text-sm uppercase">
+                <Sparkles className="w-5 h-5" />
+                <span>Sub-Informe Gerencial: Cuentas por Cobrar</span>
+              </div>
+              <p className="text-xs sm:text-sm text-gray-200 leading-relaxed font-medium">
+                Al corte del día <strong>{formatPeruDate(selectedDate)}</strong> existen <strong>{pendingByPlate.length} placas</strong> con
+                un saldo pendiente total de <strong>S/ {formatPEN(totalGlobalPendiente)}</strong>. Esta información NO forma parte
+                de la liquidación de caja del día (ahí solo se reportan los ingresos reales recibidos); sirve para el seguimiento
+                y cobranza de deudas. Expandir cada placa muestra el detalle de sus facturas y el historial de abonos.
+              </p>
+            </div>
+
+            {/* Gráfico de línea diario de la deuda pendiente (SVG, sin librería) */}
+            <div className="glass-panel p-4 sm:p-5 rounded-3xl border border-rose-500/30 space-y-3 print:border-black print:rounded-none">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <TrendingDown className="w-4 h-4 text-rose-400" />
+                  <span>Evolución Diaria de la Deuda Pendiente (Últimos 30 días)</span>
+                </h3>
+                <span className="text-[10px] font-mono text-gray-400 font-bold">
+                  S/ {formatPEN(totalGlobalPendiente)} ACTUAL
+                </span>
+              </div>
+
+              {(() => {
+                const points = debtSeries;
+                const W = 860;
+                const H = 220;
+                const padL = 64;
+                const padR = 16;
+                const padT = 16;
+                const padB = 34;
+                const plotW = W - padL - padR;
+                const plotH = H - padT - padB;
+                const maxDebt = Math.max(1, ...points.map((p) => p.debt));
+                const maxVal = Math.ceil(maxDebt * 1.1 / 100) * 100;
+                const stepX = points.length > 1 ? plotW / (points.length - 1) : plotW;
+                const coords = points.map((p, i) => ({
+                  x: padL + i * stepX,
+                  y: padT + plotH - (p.debt / maxVal) * plotH,
+                  ...p,
+                }));
+                const linePath = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+                const areaPath = coords.length
+                  ? `${linePath} L${coords[coords.length - 1].x.toFixed(1)},${(padT + plotH).toFixed(1)} L${coords[0].x.toFixed(1)},${(padT + plotH).toFixed(1)} Z`
+                  : "";
+                const last = coords[coords.length - 1];
+                const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({
+                  y: padT + plotH - f * plotH,
+                  val: maxVal * f,
+                }));
+
+                return (
+                  <div className="overflow-x-auto">
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[640px] h-auto">
+                      {/* Grid horizontal */}
+                      {yTicks.map((t) => (
+                        <g key={t.val}>
+                          <line x1={padL} y1={t.y} x2={W - padR} y2={t.y} stroke="rgba(255,255,255,0.08)" strokeDasharray="4 4" />
+                          <text x={padL - 8} y={t.y + 3} textAnchor="end" fontSize="10" fill="#9ca3af" fontFamily="monospace">
+                            S/ {formatPEN(t.val)}
+                          </text>
+                        </g>
+                      ))}
+                      {/* Eje X labels (cada 5 días) */}
+                      {coords.map((c, i) =>
+                        i % 5 === 0 ? (
+                          <text key={i} x={c.x} y={H - padB + 16} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="monospace">
+                            {c.day.slice(5)}
+                          </text>
+                        ) : null
+                      )}
+                      {/* Área de relleno */}
+                      {areaPath && <path d={areaPath} fill="rgba(244,63,94,0.12)" />}
+                      {/* Línea principal */}
+                      <path d={linePath} fill="none" stroke="#fb7185" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                      {/* Puntos */}
+                      {coords.map((c, i) => (
+                        <circle key={i} cx={c.x} cy={c.y} r={i === coords.length - 1 ? 4 : 2.5} fill={i === coords.length - 1 ? "#f43f5e" : "#fb7185"} />
+                      ))}
+                      {/* Etiqueta del último valor */}
+                      {last && (
+                        <text x={Math.min(last.x, W - padR - 50)} y={Math.max(last.y - 8, padT + 10)} fontSize="10" fill="#fda4af" fontFamily="monospace" fontWeight="bold">
+                          S/ {formatPEN(last.debt)}
+                        </text>
+                      )}
+                    </svg>
+                  </div>
+                );
+              })()}
+              <p className="text-[10px] text-gray-500 font-mono text-right">
+                Incluye facturas con saldo mayor a cero y sus abonos; si la línea sube, la deuda aumentó; si baja, se está cobrando.
+              </p>
+            </div>
+
+            {/* Detalle colapsable por placa */}
+            <div className="space-y-3">
+              {pendingByPlate.length === 0 ? (
+                <div className="glass-panel p-6 rounded-2xl border border-white/10 text-center text-gray-400 text-sm italic">
+                  🎉 No existen facturas con saldo pendiente. Todas las cuentas están al día.
+                </div>
+              ) : (
+                pendingByPlate.map((entry) => {
+                  const isOpen = expandedPlate === entry.plate;
+                  return (
+                    <div key={entry.plate} className="overflow-hidden rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedPlate(isOpen ? null : entry.plate)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-gradient-to-r from-rose-950/50 to-black/60 hover:bg-rose-950/70 transition-colors print:bg-gray-100 print:text-black"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 font-black text-sm font-mono">
+                            {entry.plate}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate print:text-black">
+                              {entry.client || "Cliente no registrado"}
+                            </div>
+                            <div className="text-[10px] text-gray-400 font-mono">
+                              {entry.invoiceCount} factura(s) con saldo
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm font-mono font-black text-rose-300 print:text-black">
+                            S/ {formatPEN(entry.totalDebt)}
+                          </span>
+                          {isOpen ? (
+                            <ChevronUp className="w-4 h-4 text-rose-300" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-rose-300" />
+                          )}
+                        </div>
+                      </button>
+
+                      {isOpen && (
+                        <div className="border-t border-rose-500/20 p-4 space-y-3">
+                          {entry.invoices.map((inv) => {
+                            const totalPaid = entry.invoices.reduce((s, x) => s + x.paid, 0);
+                            void totalPaid;
+                            return (
+                              <div key={inv.invoice_id} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                                    <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>{inv.receipt_type || "COMPROBANTE"}</span>
+                                    {inv.receipt_number && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">
+                                        {inv.receipt_number}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-gray-400 font-mono">
+                                    Emitido: {inv.issued_at ? formatPeruDate(inv.issued_at.slice(0, 10)) : "—"}
+                                  </span>
+                                </div>
+                                <div className="mt-2 text-[11px] font-sans text-gray-300">{inv.description}</div>
+                                <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-mono">
+                                  <div className="rounded-lg bg-white/5 px-2 py-1.5">
+                                    <span className="block text-[9px] uppercase text-gray-400">Total</span>
+                                    <span className="font-black text-white">S/ {formatPEN(inv.grand_total)}</span>
+                                  </div>
+                                  <div className="rounded-lg bg-emerald-950/30 px-2 py-1.5">
+                                    <span className="block text-[9px] uppercase text-emerald-400">Pagado</span>
+                                    <span className="font-black text-emerald-300">S/ {formatPEN(inv.paid)}</span>
+                                  </div>
+                                  <div className="rounded-lg bg-rose-950/30 px-2 py-1.5">
+                                    <span className="block text-[9px] uppercase text-rose-400">Saldo</span>
+                                    <span className="font-black text-rose-300">S/ {formatPEN(inv.balance)}</span>
+                                  </div>
+                                </div>
+                                {inv.payments.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-white/5">
+                                    <div className="text-[9px] uppercase text-gray-400 font-bold mb-1">Historial de Abonos</div>
+                                    <div className="space-y-0.5">
+                                      {inv.payments.map((p, pi) => (
+                                        <div key={pi} className="flex items-center justify-between text-[11px] font-mono">
+                                          <span className="text-gray-300">
+                                            {p.date ? formatPeruDate(p.date.slice(0, 10)) : "—"} • {p.method}
+                                            {p.receipt_number ? ` (${p.receipt_number})` : ""}
+                                          </span>
+                                          <span className="font-black text-emerald-300">S/ {formatPEN(p.amount)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* TAB 2: PRODUCTIVIDAD & ÓRDENES DE TRABAJO EN TALLER (SIN DESGLOSE DE CONCEPTOS) */}

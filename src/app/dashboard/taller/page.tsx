@@ -30,6 +30,7 @@ import {
   Filter,
   Fuel,
   ChevronDown,
+  ChevronUp,
   Minus,
   ShoppingCart,
   ListPlus,
@@ -78,6 +79,7 @@ export default function WorkshopOperationsPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
+  const [collapsedOrders, setCollapsedOrders] = useState<Set<string>>(new Set());
 
   // Discount modal state
   const [discountModalOrder, setDiscountModalOrder] = useState<string | null>(null);
@@ -616,6 +618,24 @@ export default function WorkshopOperationsPage() {
 
   const displayedOrders = filteredOrders.slice(0, visibleLimit);
 
+  const toggleCollapse = (id: string) => {
+    setCollapsedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+  const collapseAll = () => {
+    setCollapsedOrders(new Set(filteredOrders.map((o) => o.id)));
+  };
+  const expandAll = () => {
+    setCollapsedOrders(new Set());
+  };
+
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
@@ -783,6 +803,30 @@ export default function WorkshopOperationsPage() {
         </button>
       </div>
 
+      {/* Collapse / Expand All Controls */}
+      <div className="flex items-center justify-between gap-3 bg-reygas-dark/70 p-2.5 rounded-2xl border border-white/5">
+        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-extrabold flex items-center gap-1.5 px-2">
+          <Filter className="w-3.5 h-3.5 text-amber-400" />
+          <span>Vista de Tarjetas:</span>
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={expandAll}
+            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-[11px] font-bold border border-white/10 transition-colors flex items-center gap-1.5"
+          >
+            <ChevronUp className="w-3.5 h-3.5 text-emerald-400" />
+            Expandir todas
+          </button>
+          <button
+            onClick={collapseAll}
+            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-[11px] font-bold border border-white/10 transition-colors flex items-center gap-1.5"
+          >
+            <ChevronDown className="w-3.5 h-3.5 text-amber-400" />
+            Colapsar todas
+          </button>
+        </div>
+      </div>
+
       {/* Horizontal Cards List */}
       <div className="space-y-4">
         {filteredOrders.length === 0 ? (
@@ -809,6 +853,14 @@ export default function WorkshopOperationsPage() {
 
             // Current step index in pipeline
             const currentStepIdx = statusSteps.findIndex((s) => s.status === wo.status);
+            const currentStep = statusSteps[currentStepIdx];
+            const isCollapsed = collapsedOrders.has(wo.id);
+            const cardTotal = Math.max(
+              0,
+              wo.items.reduce((acc, i) => acc + i.subtotal, 0) +
+              (wo.requires_certification ? wo.certification_price || 0 : 0) -
+              (wo.discount_amount || 0)
+            );
 
             return (
               <div
@@ -820,366 +872,451 @@ export default function WorkshopOperationsPage() {
                     : "border-white/10 hover:border-amber-500/30"
                   }`}
               >
-                {/* Locked Banner if Paid */}
-                {isLocked && (
-                  <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>
-                        🔒 ORDEN PAGADA EN CAJA - MODIFICACIONES BLOQUEADAS EN TALLER
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-emerald-200 font-normal">
-                      (Para modificar, desmarcar pago o pulsar "Permitir Modificación" en la pestaña Caja & Facturación)
+                {/* Card Collapsible Header */}
+                <div
+                  className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 cursor-pointer select-none transition-all ${isCollapsed
+                    ? "border-white/15 bg-reygas-dark/60"
+                    : "border-amber-500/30 bg-reygas-dark/40 hover:border-amber-400/50"
+                    }`}
+                  onClick={() => toggleCollapse(wo.id)}
+                  title={isCollapsed ? "Expandir tarjeta" : "Colapsar tarjeta"}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono font-black text-xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow shrink-0">
+                      {wo.vehicle_plate}
                     </span>
-                  </div>
-                )}
-
-                {/* Unlocked Notice if Paid with Modification Enabled */}
-                {!isLocked && isPaid && wo.allow_modifications && (
-                  <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Unlock className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>
-                        🔓 MODIFICACIÓN HABILITADA DESDE CAJA (ORDEN EDITABLE)
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-amber-200 font-normal">
-                      Puede modificar repuestos, servicios y diagnóstico libremente.
-                    </span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Left Column: Vehicle Info */}
-                  <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-white/10 pb-4 lg:pb-0 lg:pr-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
-                          {wo.vehicle_plate}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase text-black ${currentStep?.color || "bg-white/20"}`}>
+                          {currentStep?.label || wo.status}
                         </span>
-                        {!isPaid && (
-                          <button
-                            type="button"
-                            onClick={() => setDeleteModalOrder({ id: wo.id, plate: wo.vehicle_plate, entryTime: wo.entry_time })}
-                            className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all cursor-pointer shadow"
-                            title="Borrar registro de ingreso erróneo (Placa / Fecha equivocada)"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
-                        OT #{wo.id}
-                      </span>
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm font-bold text-white">
-                        {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
-                      </h3>
-                      <div className="flex items-center gap-2 pt-1 flex-wrap">
-                        <span className="text-xs text-gray-400 font-semibold">
-                          {vehicle?.color || "Color no especificado"}
+                        <span className="text-xs text-gray-400 font-semibold truncate">
+                          {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
                         </span>
-                        <span className="text-gray-600">•</span>
-                        {/* Selector interactivo de tipo de combustible */}
-                        <div className="relative inline-flex items-center">
-                          <select
-                            value={vehicle?.fuel_type || "GNV"}
-                            disabled={isLocked}
-                            onChange={(e) => {
-                              updateVehicle(wo.vehicle_plate, { fuel_type: e.target.value as any });
-                            }}
-                            className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${isLocked
-                              ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
-                              : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
-                              }`}
-                            title="Cambiar tipo de combustible / sistema"
-                          >
-                            <option value="GNV" className="bg-gray-900 text-white font-bold">⛽ GNV</option>
-                            <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
-                            <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
-                            <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
-                          </select>
-                          <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
-                        </div>
                       </div>
-                    </div>
-
-                    <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
-                      <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 pt-0.5">
-                        <User className="w-3.5 h-3.5 text-gray-400" />
-                        <span className="text-gray-200 font-medium">{vehicle?.owner_name || "Cliente Garita"}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                        <Phone className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{vehicle?.owner_phone || "Sin teléfono"}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Center Column: Interactive Progress Stepper, Description, DIAGNOSTICO & MECANICO ASIGNADO */}
-                  <div className="lg:col-span-5 space-y-4 px-0 lg:px-2">
-                    <div className="space-y-1">
-                      <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
-                        Estado Actual y Flujo de Servicio:
-                      </span>
-                      {/* Stepper Pipeline */}
-                      <div className="grid grid-cols-5 gap-1.5 pt-1">
-                        {statusSteps.map((step, idx) => {
-                          const isCurrent = wo.status === step.status;
-                          const isPassed = idx <= currentStepIdx;
-
-                          return (
-                            <button
-                              key={step.status}
-                              disabled={isLocked}
-                              onClick={() => updateWorkOrderStatus(wo.id, step.status)}
-                              className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${isCurrent
-                                ? `${step.color} text-black border-white shadow-lg`
-                                : isPassed
-                                  ? "bg-reygas-surface text-gray-200 border-white/20 hover:border-amber-400"
-                                  : "bg-reygas-dark/60 text-gray-500 border-white/5 hover:border-white/20"
-                                } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
-                            >
-                              <span>{step.label}</span>
-                              {isCurrent && <Check className="w-3 h-3 text-black stroke-[3]" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-reygas-dark/80 border border-white/5 text-xs text-gray-300">
-                      <span className="font-bold text-amber-400 block text-[11px] uppercase">
-                        Reporte / Motivo de Ingreso:
-                      </span>
-                      <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
-                    </div>
-
-                    {/* Diagnostic Notes & Observations */}
-                    <div className="space-y-2">
-                      <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
-                        <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Cpu className="w-3.5 h-3.5 text-purple-400" />
-                            <span>Diagnóstico Técnico ECU:</span>
-                          </span>
-                          {!isLocked && (
-                            <button
-                              onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                              className="text-[10px] text-purple-300 hover:text-white underline font-normal"
-                            >
-                              {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
-                            </button>
-                          )}
-                        </span>
-                        <p className="mt-0.5 text-xs italic">
-                          {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
-                        </p>
-                      </div>
-
-                      {wo.observations && (
-                        <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 space-y-1">
-                          <span className="font-bold text-amber-400 block text-[11px] uppercase flex items-center justify-between">
-                            <span>Observaciones Adicionales:</span>
-                            {!isLocked && (
-                              <button
-                                onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                                className="text-[10px] text-amber-300 hover:text-white underline font-normal"
-                              >
-                                Editar Observaciones
-                              </button>
-                            )}
-                          </span>
-                          <p className="mt-0.5 text-xs">
-                            {wo.observations}
-                          </p>
+                      {isCollapsed && (
+                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                          OT #{wo.id} • {wo.items.length} ítem(s) • {vehicle?.owner_name || "Cliente Garita"}
                         </div>
                       )}
                     </div>
-
-                    {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
-                    <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-1.5">
-                      <label className="block text-[10px] font-bold uppercase text-amber-400">
-                        👨‍🔧 Mecánico Asignado Responsable:
-                      </label>
-                      <div className="relative">
-                        <select
-                          disabled={isLocked}
-                          value={wo.assigned_technician_id || ""}
-                          onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
-                          className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${isLocked ? "opacity-60 cursor-not-allowed" : ""
-                            }`}
-                        >
-                          <option value="">-- Sin Técnico Asignado --</option>
-                          {assignableTechnicians.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.full_name} ({t.specialty || "Técnico Especialista"})
-                            </option>
-                          ))}
-                        </select>
-                        <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
-                      </div>
-                    </div>
-
-                    {/* FECHAS DE INSPECCIÓN: QUINQUENAL & CHIP ANUAL */}
-                    <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase text-purple-400 flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                          <span>Fechas de Inspección (Quinquenal / Chip)</span>
-                        </span>
-                        {!isLocked && (
-                          <button
-                            onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
-                            className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>Registrar / Editar</span>
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="p-2 rounded-lg bg-black/40 border border-purple-500/20">
-                          <span className="text-[10px] text-gray-400 block font-semibold">Fecha Quinquenal:</span>
-                          <span className="font-mono font-bold text-purple-300">
-                            {wo.quinquennial_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
-                          </span>
-                        </div>
-                        <div className="p-2 rounded-lg bg-black/40 border border-cyan-500/20">
-                          <span className="text-[10px] text-gray-400 block font-semibold">Fecha Chip Anual:</span>
-                          <span className="font-mono font-bold text-cyan-300">
-                            {wo.chip_expiry_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="hidden sm:inline text-[11px] font-bold uppercase text-gray-400">
+                      {isCollapsed ? "Ver detalle" : "Ocultar detalle"}
+                    </span>
+                    <span className="text-xs font-mono font-bold text-amber-300 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30">
+                      S/ {cardTotal.toFixed(2)}
+                    </span>
+                    {isCollapsed ? (
+                      <ChevronDown className="w-5 h-5 text-amber-400" />
+                    ) : (
+                      <ChevronUp className="w-5 h-5 text-amber-400" />
+                    )}
+                  </div>
+                </div>
 
-                  {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS, DESCUENTOS & CERTIFICACION */}
-                  <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                    {/* Action buttons toolbar: 6 distinct, separate actions */}
-                    {!isLocked && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        <button
-                          onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations, wo.quinquennial_date, wo.chip_expiry_date)}
-                          className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors shadow"
-                        >
-                          <Cpu className="w-3.5 h-3.5" />
-                          <span>Diagnóstico</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
-                          className="py-2 px-2 bg-purple-950/70 hover:bg-purple-900/80 text-purple-300 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-400/40 transition-colors shadow"
-                        >
-                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                          <span>Fechas Chip/5ta</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenParts(wo.id)}
-                          className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors shadow"
-                        >
-                          <Package className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Pedir Repuesto</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenServices(wo.id)}
-                          className="py-2 px-2 bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-indigo-500/30 transition-colors shadow"
-                        >
-                          <Wrench className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Agregar Servicio</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenDiscountModal(wo.id, wo.discount_amount)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${(wo.discount_amount && wo.discount_amount > 0)
-                            ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
-                            : "bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border-emerald-500/30"
-                            }`}
-                        >
-                          <Tag className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
-                        </button>
-
-                        <button
-                          onClick={() => handleOpenCertModal(wo.id)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${wo.requires_certification
-                            ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
-                            : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
-                            }`}
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{wo.requires_certification ? "Certificado" : "+ Certificación"}</span>
-                        </button>
+                {!isCollapsed && (
+                  <>
+                    {/* Locked Banner if Paid */}
+                    {isLocked && (
+                      <div className="p-3 bg-emerald-950/40 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <span>
+                            🔒 ORDEN PAGADA EN CAJA - MODIFICACIONES BLOQUEADAS EN TALLER
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-emerald-200 font-normal">
+                          (Para modificar, desmarcar pago o pulsar "Permitir Modificación" en la pestaña Caja & Facturación)
+                        </span>
                       </div>
                     )}
 
-                    {/* REQUERIMIENTO: SECCION DE REPUESTOS Y SERVICIOS SOLICITADOS */}
-                    <div className="space-y-2 p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase font-bold text-amber-400">
-                          Repuestos & Servicios Solicitados ({wo.items.length}):
-                        </span>
-                        <span className="text-xs font-mono font-bold text-white">
-                          Subtotal: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2)}
+                    {/* Unlocked Notice if Paid with Modification Enabled */}
+                    {!isLocked && isPaid && wo.allow_modifications && (
+                      <div className="p-3 bg-amber-950/40 border border-amber-500/40 rounded-xl text-amber-300 text-xs font-bold flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Unlock className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>
+                            🔓 MODIFICACIÓN HABILITADA DESDE CAJA (ORDEN EDITABLE)
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-amber-200 font-normal">
+                          Puede modificar repuestos, servicios y diagnóstico libremente.
                         </span>
                       </div>
+                    )}
 
-                      {wo.items.length === 0 ? (
-                        <p className="text-[11px] text-gray-500 italic">No hay repuestos o servicios solicitados aún.</p>
-                      ) : (
-                        <div className="space-y-1 max-h-[150px] overflow-y-auto pr-1">
-                          {wo.items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 flex items-center justify-between text-xs gap-2"
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* Left Column: Vehicle Info */}
+                      <div className="lg:col-span-3 space-y-2 border-b lg:border-b-0 lg:border-r border-white/10 pb-4 lg:pb-0 lg:pr-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
+                              {wo.vehicle_plate}
+                            </span>
+                            {!isPaid && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteModalOrder({ id: wo.id, plate: wo.vehicle_plate, entryTime: wo.entry_time })}
+                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all cursor-pointer shadow"
+                                title="Borrar registro de ingreso erróneo (Placa / Fecha equivocada)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
+                            OT #{wo.id}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h3 className="text-sm font-bold text-white">
+                            {vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.year})` : "Vehículo"}
+                          </h3>
+                          <div className="flex items-center gap-2 pt-1 flex-wrap">
+                            <span className="text-xs text-gray-400 font-semibold">
+                              {vehicle?.color || "Color no especificado"}
+                            </span>
+                            <span className="text-gray-600">•</span>
+                            {/* Selector interactivo de tipo de combustible */}
+                            <div className="relative inline-flex items-center">
+                              <select
+                                value={vehicle?.fuel_type || "GNV"}
+                                disabled={isLocked}
+                                onChange={(e) => {
+                                  updateVehicle(wo.vehicle_plate, { fuel_type: e.target.value as any });
+                                }}
+                                className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${isLocked
+                                  ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
+                                  : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
+                                  }`}
+                                title="Cambiar tipo de combustible / sistema"
+                              >
+                                <option value="GNV" className="bg-gray-900 text-white font-bold">⛽ GNV</option>
+                                <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
+                                <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
+                                <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
+                              </select>
+                              <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
+                          <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <User className="w-3.5 h-3.5 text-gray-400" />
+                            <span className="text-gray-200 font-medium">{vehicle?.owner_name || "Cliente Garita"}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                            <Phone className="w-3.5 h-3.5 text-gray-500" />
+                            <span>{vehicle?.owner_phone || "Sin teléfono"}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Center Column: Interactive Progress Stepper, Description, DIAGNOSTICO & MECANICO ASIGNADO */}
+                      <div className="lg:col-span-5 space-y-4 px-0 lg:px-2">
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                            Estado Actual y Flujo de Servicio:
+                          </span>
+                          {/* Stepper Pipeline */}
+                          <div className="grid grid-cols-5 gap-1.5 pt-1">
+                            {statusSteps.map((step, idx) => {
+                              const isCurrent = wo.status === step.status;
+                              const isPassed = idx <= currentStepIdx;
+
+                              return (
+                                <button
+                                  key={step.status}
+                                  disabled={isLocked}
+                                  onClick={() => updateWorkOrderStatus(wo.id, step.status)}
+                                  className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${isCurrent
+                                    ? `${step.color} text-black border-white shadow-lg`
+                                    : isPassed
+                                      ? "bg-reygas-surface text-gray-200 border-white/20 hover:border-amber-400"
+                                      : "bg-reygas-dark/60 text-gray-500 border-white/5 hover:border-white/20"
+                                    } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
+                                >
+                                  <span>{step.label}</span>
+                                  {isCurrent && <Check className="w-3 h-3 text-black stroke-[3]" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-reygas-dark/80 border border-white/5 text-xs text-gray-300">
+                          <span className="font-bold text-amber-400 block text-[11px] uppercase">
+                            Reporte / Motivo de Ingreso:
+                          </span>
+                          <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
+                        </div>
+
+                        {/* Diagnostic Notes & Observations */}
+                        <div className="space-y-2">
+                          <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
+                            <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                                <span>Diagnóstico Técnico ECU:</span>
+                              </span>
+                              {!isLocked && (
+                                <button
+                                  onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                                  className="text-[10px] text-purple-300 hover:text-white underline font-normal"
+                                >
+                                  {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
+                                </button>
+                              )}
+                            </span>
+                            <p className="mt-0.5 text-xs italic">
+                              {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
+                            </p>
+                          </div>
+
+                          {wo.observations && (
+                            <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 space-y-1">
+                              <span className="font-bold text-amber-400 block text-[11px] uppercase flex items-center justify-between">
+                                <span>Observaciones Adicionales:</span>
+                                {!isLocked && (
+                                  <button
+                                    onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
+                                    className="text-[10px] text-amber-300 hover:text-white underline font-normal"
+                                  >
+                                    Editar Observaciones
+                                  </button>
+                                )}
+                              </span>
+                              <p className="mt-0.5 text-xs">
+                                {wo.observations}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
+                        <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-1.5">
+                          <label className="block text-[10px] font-bold uppercase text-amber-400">
+                            👨‍🔧 Mecánico Asignado Responsable:
+                          </label>
+                          <div className="relative">
+                            <select
+                              disabled={isLocked}
+                              value={wo.assigned_technician_id || ""}
+                              onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
+                              className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${isLocked ? "opacity-60 cursor-not-allowed" : ""
+                                }`}
                             >
-                              <div className="flex items-center gap-2 overflow-hidden">
-                                {item.item_type === "servicio" ? (
-                                  <Wrench className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                                ) : (
-                                  <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                )}
-                                <span className="text-white font-semibold truncate">{item.description}</span>
-                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                                  x{item.quantity}
+                              <option value="">-- Sin Técnico Asignado --</option>
+                              {assignableTechnicians.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.full_name} ({t.specialty || "Técnico Especialista"})
+                                </option>
+                              ))}
+                            </select>
+                            <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
+                          </div>
+                        </div>
+
+                        {/* FECHAS DE INSPECCIÓN: QUINQUENAL & CHIP ANUAL */}
+                        <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase text-purple-400 flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                              <span>Fechas de Inspección (Quinquenal / Chip)</span>
+                            </span>
+                            {!isLocked && (
+                              <button
+                                onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
+                                className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>Registrar / Editar</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="p-2 rounded-lg bg-black/40 border border-purple-500/20">
+                              <span className="text-[10px] text-gray-400 block font-semibold">Fecha Quinquenal:</span>
+                              <span className="font-mono font-bold text-purple-300">
+                                {wo.quinquennial_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
+                              </span>
+                            </div>
+                            <div className="p-2 rounded-lg bg-black/40 border border-cyan-500/20">
+                              <span className="text-[10px] text-gray-400 block font-semibold">Fecha Chip Anual:</span>
+                              <span className="font-mono font-bold text-cyan-300">
+                                {wo.chip_expiry_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS, DESCUENTOS & CERTIFICACION */}
+                      <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
+                        {/* Action buttons toolbar: 6 distinct, separate actions */}
+                        {!isLocked && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <button
+                              onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations, wo.quinquennial_date, wo.chip_expiry_date)}
+                              className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors shadow"
+                            >
+                              <Cpu className="w-3.5 h-3.5" />
+                              <span>Diagnóstico</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
+                              className="py-2 px-2 bg-purple-950/70 hover:bg-purple-900/80 text-purple-300 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-400/40 transition-colors shadow"
+                            >
+                              <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                              <span>Fechas Chip/5ta</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenParts(wo.id)}
+                              className="py-2 px-2 bg-amber-900/40 hover:bg-amber-800/60 text-amber-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-amber-500/30 transition-colors shadow"
+                            >
+                              <Package className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Pedir Repuesto</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenServices(wo.id)}
+                              className="py-2 px-2 bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-indigo-500/30 transition-colors shadow"
+                            >
+                              <Wrench className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Agregar Servicio</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenDiscountModal(wo.id, wo.discount_amount)}
+                              className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${(wo.discount_amount && wo.discount_amount > 0)
+                                ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
+                                : "bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border-emerald-500/30"
+                                }`}
+                            >
+                              <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenCertModal(wo.id)}
+                              className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${wo.requires_certification
+                                ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
+                                : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
+                                }`}
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>{wo.requires_certification ? "Certificado" : "+ Certificación"}</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* REQUERIMIENTO: SECCION DE REPUESTOS Y SERVICIOS SOLICITADOS */}
+                        <div className="space-y-2 p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-amber-400">
+                              Repuestos & Servicios Solicitados ({wo.items.length}):
+                            </span>
+                            <span className="text-xs font-mono font-bold text-white">
+                              Subtotal: S/ {wo.items.reduce((acc, i) => acc + i.subtotal, 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          {wo.items.length === 0 ? (
+                            <p className="text-[11px] text-gray-500 italic">No hay repuestos o servicios solicitados aún.</p>
+                          ) : (
+                            <div className="space-y-1 max-h-[150px] overflow-y-auto pr-1">
+                              {wo.items.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 flex items-center justify-between text-xs gap-2"
+                                >
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                    {item.item_type === "servicio" ? (
+                                      <Wrench className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                    ) : (
+                                      <Package className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                    )}
+                                    <span className="text-white font-semibold truncate">{item.description}</span>
+                                    <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                                      x{item.quantity}
+                                    </span>
+                                    {item.dispatched ? (
+                                      <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase">
+                                        ✓ Entregado
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold uppercase">
+                                        ⏳ Pendiente
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal.toFixed(2)}</span>
+                                    {!isLocked && (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenEditItem(wo.id, item)}
+                                          className="text-gray-400 hover:text-amber-400 p-1 hover:bg-white/10 rounded transition-colors"
+                                          title="Editar cantidad o precio de este ítem"
+                                        >
+                                          <Edit3 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeWorkOrderItem(wo.id, item.id)}
+                                          className="text-gray-400 hover:text-red-400 p-1 hover:bg-white/10 rounded transition-colors"
+                                          title="Eliminar este ítem de la orden"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* SERVICIO DE CERTIFICADO DEBAJO DE REPUESTOS SOLICITADOS */}
+                        {wo.requires_certification ? (
+                          <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/40 space-y-1 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                                <span>Servicio de Certificación</span>
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
+                                  S/ {(wo.certification_price || 0).toFixed(2)}
                                 </span>
-                                {item.dispatched ? (
-                                  <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase">
-                                    ✓ Entregado
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold uppercase">
-                                    ⏳ Pendiente
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="font-mono text-gray-300 text-xs">S/ {item.subtotal.toFixed(2)}</span>
                                 {!isLocked && (
                                   <div className="flex items-center gap-1">
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenEditItem(wo.id, item)}
-                                      className="text-gray-400 hover:text-amber-400 p-1 hover:bg-white/10 rounded transition-colors"
-                                      title="Editar cantidad o precio de este ítem"
+                                      onClick={() => handleOpenCertModal(wo.id)}
+                                      className="text-gray-400 hover:text-cyan-300 p-1 hover:bg-cyan-900/40 rounded transition-colors"
+                                      title="Editar tipo o precio de certificación"
                                     >
                                       <Edit3 className="w-3.5 h-3.5" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => removeWorkOrderItem(wo.id, item.id)}
-                                      className="text-gray-400 hover:text-red-400 p-1 hover:bg-white/10 rounded transition-colors"
-                                      title="Eliminar este ítem de la orden"
+                                      onClick={() => handleRemoveCertification(wo.id)}
+                                      className="text-gray-400 hover:text-red-400 p-1 hover:bg-red-900/40 rounded transition-colors"
+                                      title="Eliminar / Quitar certificación"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -1187,127 +1324,90 @@ export default function WorkshopOperationsPage() {
                                 )}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                            <p className="text-[11px] text-cyan-200">
+                              Tipo: <strong>{wo.certification_type}</strong> • Estado:{" "}
+                              {wo.certification_issued ? "✅ Emitido en Certificaciones" : "⏳ Notificado y Pendiente"}
+                            </p>
+                          </div>
+                        ) : (
+                          !isLocked && (
+                            <button
+                              onClick={() => handleOpenCertModal(wo.id)}
+                              className="w-full py-2 bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 font-bold text-xs rounded-xl border border-cyan-500/30 flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>+ Solicitar Certificación desde Catálogo de Servicios</span>
+                            </button>
+                          )
+                        )}
 
-                    {/* SERVICIO DE CERTIFICADO DEBAJO DE REPUESTOS SOLICITADOS */}
-                    {wo.requires_certification ? (
-                      <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/40 space-y-1 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="text-cyan-300 font-bold flex items-center gap-1.5">
-                            <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                            <span>Servicio de Certificación</span>
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-cyan-200 font-bold bg-cyan-900/60 px-2 py-0.5 rounded border border-cyan-500/30">
-                              S/ {(wo.certification_price || 0).toFixed(2)}
-                            </span>
-                            {!isLocked && (
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenCertModal(wo.id)}
-                                  className="text-gray-400 hover:text-cyan-300 p-1 hover:bg-cyan-900/40 rounded transition-colors"
-                                  title="Editar tipo o precio de certificación"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveCertification(wo.id)}
-                                  className="text-gray-400 hover:text-red-400 p-1 hover:bg-red-900/40 rounded transition-colors"
-                                  title="Eliminar / Quitar certificación"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                        {/* RESUMEN FINANCIERO Y TOTAL CON DESCUENTO */}
+                        {(() => {
+                          const itemsTotal = wo.items.reduce((acc, i) => acc + i.subtotal, 0);
+                          const certFee = wo.requires_certification ? (wo.certification_price || 0) : 0;
+                          const discountVal = wo.discount_amount || 0;
+                          const grandTotal = Math.max(0, itemsTotal + certFee - discountVal);
+
+                          return (
+                            <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2 text-xs">
+                              <div className="flex items-center justify-between text-gray-400">
+                                <span>Subtotal Repuestos & Servicios:</span>
+                                <span className="font-mono font-bold text-gray-200">S/ {itemsTotal.toFixed(2)}</span>
                               </div>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-[11px] text-cyan-200">
-                          Tipo: <strong>{wo.certification_type}</strong> • Estado:{" "}
-                          {wo.certification_issued ? "✅ Emitido en Certificaciones" : "⏳ Notificado y Pendiente"}
-                        </p>
-                      </div>
-                    ) : (
-                      !isLocked && (
-                        <button
-                          onClick={() => handleOpenCertModal(wo.id)}
-                          className="w-full py-2 bg-cyan-950/30 hover:bg-cyan-900/50 text-cyan-300 font-bold text-xs rounded-xl border border-cyan-500/30 flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>+ Solicitar Certificación desde Catálogo de Servicios</span>
-                        </button>
-                      )
-                    )}
 
-                    {/* RESUMEN FINANCIERO Y TOTAL CON DESCUENTO */}
-                    {(() => {
-                      const itemsTotal = wo.items.reduce((acc, i) => acc + i.subtotal, 0);
-                      const certFee = wo.requires_certification ? (wo.certification_price || 0) : 0;
-                      const discountVal = wo.discount_amount || 0;
-                      const grandTotal = Math.max(0, itemsTotal + certFee - discountVal);
+                              {wo.requires_certification && (
+                                <div className="flex items-center justify-between text-cyan-300">
+                                  <span>+ Certificación ({wo.certification_type || "Anual"}):</span>
+                                  <span className="font-mono font-bold">S/ {certFee.toFixed(2)}</span>
+                                </div>
+                              )}
 
-                      return (
-                        <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-2 text-xs">
-                          <div className="flex items-center justify-between text-gray-400">
-                            <span>Subtotal Repuestos & Servicios:</span>
-                            <span className="font-mono font-bold text-gray-200">S/ {itemsTotal.toFixed(2)}</span>
-                          </div>
-
-                          {wo.requires_certification && (
-                            <div className="flex items-center justify-between text-cyan-300">
-                              <span>+ Certificación ({wo.certification_type || "Anual"}):</span>
-                              <span className="font-mono font-bold">S/ {certFee.toFixed(2)}</span>
-                            </div>
-                          )}
-
-                          {discountVal > 0 ? (
-                            <div className="flex items-center justify-between text-emerald-400 bg-emerald-950/30 p-2 rounded-lg border border-emerald-500/30">
-                              <span className="flex items-center gap-1.5 font-bold">
-                                <Tag className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>Descuento Aplicado:</span>
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono font-bold text-emerald-300">- S/ {discountVal.toFixed(2)}</span>
-                                {!isLocked && (
+                              {discountVal > 0 ? (
+                                <div className="flex items-center justify-between text-emerald-400 bg-emerald-950/30 p-2 rounded-lg border border-emerald-500/30">
+                                  <span className="flex items-center gap-1.5 font-bold">
+                                    <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Descuento Aplicado:</span>
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-bold text-emerald-300">- S/ {discountVal.toFixed(2)}</span>
+                                    {!isLocked && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenDiscountModal(wo.id, discountVal)}
+                                        className="p-1 hover:bg-emerald-900/60 rounded text-emerald-300 transition-colors"
+                                        title="Editar Monto de Descuento"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                !isLocked && (
                                   <button
                                     type="button"
-                                    onClick={() => handleOpenDiscountModal(wo.id, discountVal)}
-                                    className="p-1 hover:bg-emerald-900/60 rounded text-emerald-300 transition-colors"
-                                    title="Editar Monto de Descuento"
+                                    onClick={() => handleOpenDiscountModal(wo.id, 0)}
+                                    className="w-full py-1.5 text-center text-xs font-bold text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/40 rounded-lg border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors"
                                   >
-                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <Tag className="w-3.5 h-3.5" />
+                                    <span>+ Poner Descuento como Monto (S/)</span>
                                   </button>
-                                )}
+                                )
+                              )}
+
+                              <div className="flex items-center justify-between border-t border-white/10 pt-2 text-sm font-black text-white">
+                                <span className="uppercase text-xs tracking-wider text-amber-400">Total a Liquidar:</span>
+                                <span className="font-mono text-base text-amber-300">
+                                  S/ {grandTotal.toFixed(2)}
+                                </span>
                               </div>
                             </div>
-                          ) : (
-                            !isLocked && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenDiscountModal(wo.id, 0)}
-                                className="w-full py-1.5 text-center text-xs font-bold text-emerald-400 bg-emerald-950/20 hover:bg-emerald-900/40 rounded-lg border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors"
-                              >
-                                <Tag className="w-3.5 h-3.5" />
-                                <span>+ Poner Descuento como Monto (S/)</span>
-                              </button>
-                            )
-                          )}
-
-                          <div className="flex items-center justify-between border-t border-white/10 pt-2 text-sm font-black text-white">
-                            <span className="uppercase text-xs tracking-wider text-amber-400">Total a Liquidar:</span>
-                            <span className="font-mono text-base text-amber-300">
-                              S/ {grandTotal.toFixed(2)}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             );
           })
