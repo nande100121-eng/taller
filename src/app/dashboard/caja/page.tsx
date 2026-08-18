@@ -3861,7 +3861,24 @@ export default function CajaPage() {
                       required
                       onWheel={(e) => (e.target as HTMLInputElement).blur()}
                       value={partialPaymentModal.amount || ""}
-                      onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, amount: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        const balNow = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
+                        const fullNow = balNow <= 0 || val >= balNow - 0.01;
+                        setPartialPaymentModal((prev) => {
+                          if (!prev) return prev;
+                          const splits = Array.isArray(prev.paymentSplits) ? [...prev.paymentSplits] : [];
+                          // Pago único: si hay un solo método, su Monto se completa con el monto a abonar (el usuario puede modificarlo)
+                          const synced = splits.length === 1 ? splits.map((s, i) => (i === 0 ? { ...s, amount: val } : s)) : splits;
+                          return {
+                            ...prev,
+                            amount: val,
+                            // Abono menor al 100% -> solo Pago Mixto / Parcial
+                            isSplitPayment: !fullNow ? true : prev.isSplitPayment,
+                            paymentSplits: synced,
+                          };
+                        });
+                      }}
                       className="w-full pl-9 pr-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-base focus:border-cyan-400"
                     />
                   </div>
@@ -3886,7 +3903,14 @@ export default function CajaPage() {
                       type="button"
                       onClick={() => {
                         const quickVal = Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2)));
-                        setPartialPaymentModal({ ...partialPaymentModal, amount: quickVal });
+                        // 50% siempre es un abono parcial -> se fuerza Pago Mixto / Parcial
+                        setPartialPaymentModal((prev) => {
+                          if (!prev) return prev;
+                          const splits = Array.isArray(prev.paymentSplits) && prev.paymentSplits.length > 0
+                            ? prev.paymentSplits.map((s, i) => (i === 0 ? { ...s, amount: quickVal } : s))
+                            : [{ id: "split-1", method: prev.paymentMethod || "Efectivo", destination: eligibleDestinations[0] || "EMPRESA", amount: quickVal }];
+                          return { ...prev, amount: quickVal, isSplitPayment: true, paymentSplits: splits };
+                        });
                       }}
                       className="px-3 py-1.5 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[11px] font-bold rounded-lg transition-all shadow"
                     >
@@ -3955,30 +3979,48 @@ export default function CajaPage() {
                   <span>3. Método y Destino del Abono</span>
                 </h4>
 
-                <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: false })}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all ${!partialPaymentModal.isSplitPayment
-                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
-                      : "text-gray-400 hover:text-white"
-                      }`}
-                  >
-                    💵 Pago Único
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const currentSplits = (partialPaymentModal.paymentSplits && partialPaymentModal.paymentSplits.length > 0)
-                        ? partialPaymentModal.paymentSplits
-                        : [
-                          {
-                            id: "split-1",
-                            method: partialPaymentModal.paymentMethod || "Efectivo",
-                            destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA",
-                            amount: partialPaymentModal.amount || 0,
-                          },
-                        ];
+                {(() => {
+                  const saldoActualAbono = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
+                  const montoAbono = Number(partialPaymentModal.amount) || 0;
+                  // 100% del saldo -> ambas opciones; menor al 100% -> solo Pago Mixto / Parcial
+                  const isFullAbono = saldoActualAbono <= 0 || montoAbono >= saldoActualAbono - 0.01;
+                  return (
+                  <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
+                    <button
+                      type="button"
+                      disabled={!isFullAbono}
+                      onClick={() => {
+                        const val = Number(partialPaymentModal.amount) || 0;
+                        setPartialPaymentModal({
+                          ...partialPaymentModal,
+                          isSplitPayment: false,
+                          paymentSplits: [{ id: "split-1", method: partialPaymentModal.paymentMethod || "Efectivo", destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA", amount: val }],
+                        });
+                      }}
+                      className={`px-3 py-1 rounded-lg font-bold transition-all ${!isFullAbono
+                        ? "opacity-40 cursor-not-allowed"
+                        : !partialPaymentModal.isSplitPayment
+                          ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                          : "text-gray-400 hover:text-white"
+                        }`}
+                      title={!isFullAbono ? "Abono parcial: use Pago Mixto / Parcial" : "Pago único del monto indicado"}
+                    >
+                      💵 Pago Único
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const splitsNow = Array.isArray(partialPaymentModal.paymentSplits) ? [...partialPaymentModal.paymentSplits] : [];
+                        const currentSplits = splitsNow.length > 0
+                          ? (splitsNow.length === 1 ? splitsNow.map((s, i) => (i === 0 ? { ...s, amount: montoAbono } : s)) : splitsNow)
+                          : [
+                            {
+                              id: "split-1",
+                              method: partialPaymentModal.paymentMethod || "Efectivo",
+                              destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA",
+                              amount: montoAbono,
+                            },
+                          ];
                       setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: true, paymentSplits: currentSplits });
                     }}
                     className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${partialPaymentModal.isSplitPayment
@@ -3991,7 +4033,9 @@ export default function CajaPage() {
                       {(partialPaymentModal.paymentSplits || []).length}
                     </span>
                   </button>
-                </div>
+                  </div>
+                  );
+                })()}
 
                 {!partialPaymentModal.isSplitPayment ? (
                   <div className="space-y-3">
