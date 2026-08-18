@@ -200,8 +200,8 @@ export default function CajaPage() {
 
   // List of eligible payment destinations: EMPRESA + ONLY staff with can_receive_payment enabled
   const eligibleDestinations = React.useMemo(() => {
-    const list = ["EMPRESA"];
-    const seen = new Set<string>(["EMPRESA"]);
+    const list = ["EMPRESA", "CAJA"];
+    const seen = new Set<string>(["EMPRESA", "CAJA"]);
 
     (technicians || [])
       .filter((t) => {

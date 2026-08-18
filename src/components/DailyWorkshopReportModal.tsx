@@ -234,6 +234,9 @@ export function WorkshopDailyReportView({
       description: string;
       total: number;
       isPending: boolean;
+      payState: "pagado" | "pendiente" | "parcial" | "trunco";
+      pendingAmount: number;
+      isTrunco: boolean;
       efectivo: number;
       yape: number;
       transferencia: number;
@@ -259,15 +262,30 @@ export function WorkshopDailyReportView({
 
         const totalAmount = rec.price > 0 ? rec.price : (rec.credit > 0 ? rec.credit : 0);
         const condUpper = (rec.condition || "").toUpperCase().trim();
-        const isPending = condUpper === "PENDIENTE" || (rec.credit > 0 && rec.price === 0);
+        let payState: "pagado" | "pendiente" | "parcial" | "trunco";
+        let pendingAmount = 0;
+        let paidAmount = totalAmount;
+        if (condUpper === "PENDIENTE" || (rec.credit > 0 && rec.price === 0)) {
+          payState = "pendiente";
+          pendingAmount = totalAmount;
+          paidAmount = 0;
+        } else if (rec.credit > 0) {
+          payState = "parcial";
+          pendingAmount = Number(rec.credit) || 0;
+          paidAmount = Math.max(0, totalAmount - pendingAmount);
+        } else {
+          payState = "pagado";
+        }
+        const isPending = payState === "pendiente" || payState === "parcial";
+        const isTrunco = false;
         const paymentMethod = rec.method || (isPending ? "PENDIENTE" : "EFECTIVO");
 
         const breakdown = parsePaymentBreakdown(
           paymentMethod,
           rec.discounts || "",
           (rec.service || "") + " " + (rec.parts || ""),
-          totalAmount,
-          isPending
+          paidAmount,
+          paidAmount <= 0
         );
 
         const yDest = rec.destination ? rec.destination.toUpperCase() : "EMPRESA";
@@ -283,6 +301,9 @@ export function WorkshopDailyReportView({
           description: desc,
           total: totalAmount,
           isPending,
+          payState,
+          pendingAmount,
+          isTrunco,
           efectivo: breakdown.efectivo,
           yape: breakdown.yape,
           transferencia: breakdown.transferencia,
@@ -307,13 +328,46 @@ export function WorkshopDailyReportView({
       const inv = invoicesByWorkOrderId.get(wo.id);
       const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
 
-      const isDone = wo.status === "finalizado" || wo.status === "pagado_autorizado" || (wo.status as string) === "completado";
-      const isPending = !inv || inv.payment_status === "pendiente" || !isDone;
+      const statusRaw = (wo.status || "") as string;
+      const isDone = ["finalizado", "pagado_autorizado", "completado", "por_cobrar", "pendiente_pago"].includes(statusRaw);
+      const markedPaid = inv?.payment_status === "pagado" || statusRaw === "pagado_autorizado" || statusRaw === "finalizado";
       const orderCost = (wo.items || []).reduce((acc, it) => acc + (it.subtotal || it.quantity * it.unit_price || 0), 0) + (wo.requires_certification ? (wo.certification_price || 0) : 0) || Number((wo as any).total_cost) || 0;
       let totalAmount = inv ? (Number(inv.grand_total) || Number((inv as any).total_amount) || 0) : orderCost;
       if (totalAmount === 0 && csvRec) {
         totalAmount = csvRec.price || csvRec.credit || 0;
       }
+
+      let payState: "pagado" | "pendiente" | "parcial" | "trunco";
+      let pendingAmount = 0;
+      let paidAmount = totalAmount;
+      if (markedPaid) {
+        const creditAmt = Number((inv as any)?.credit_amount) || 0;
+        let paidPortion = 0;
+        if (inv?.payment_breakdown && Array.isArray(inv.payment_breakdown)) {
+          paidPortion = (inv.payment_breakdown as Array<{ amount?: number }>).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        }
+        if (creditAmt > 0) {
+          payState = "parcial";
+          paidAmount = Math.max(0, totalAmount - creditAmt);
+          pendingAmount = creditAmt;
+        } else if (paidPortion > 0 && paidPortion < totalAmount - 0.01) {
+          payState = "parcial";
+          paidAmount = paidPortion;
+          pendingAmount = Math.max(0, totalAmount - paidPortion);
+        } else {
+          payState = "pagado";
+          paidAmount = totalAmount;
+        }
+      } else if (!isDone) {
+        payState = "trunco";
+        paidAmount = 0;
+      } else {
+        payState = "pendiente";
+        paidAmount = 0;
+        pendingAmount = totalAmount;
+      }
+      const isPending = payState === "pendiente" || payState === "parcial";
+      const isTrunco = payState === "trunco";
 
       const paymentMethod = inv?.payment_method || (csvRec?.method) || (isPending ? "PENDIENTE" : "EFECTIVO");
 
@@ -321,8 +375,8 @@ export function WorkshopDailyReportView({
         paymentMethod,
         (inv as any)?.discounts || csvRec?.discounts || "",
         (wo as any)?.diagnostic_notes || (inv as any)?.notes || (csvRec?.parts) || "",
-        totalAmount,
-        isPending
+        paidAmount,
+        paidAmount <= 0
       );
 
       // Determine payment destination
@@ -354,6 +408,9 @@ export function WorkshopDailyReportView({
         description: desc,
         total: totalAmount,
         isPending,
+        payState,
+        pendingAmount,
+        isTrunco,
         efectivo: breakdown.efectivo,
         yape: breakdown.yape,
         transferencia: breakdown.transferencia,
@@ -386,14 +443,41 @@ export function WorkshopDailyReportView({
       if (processedInvoiceKeys.has(dupKey)) return;
       processedInvoiceKeys.add(dupKey);
 
-      const isPending = inv.payment_status === "pendiente";
       const totalAmount = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
+      let payState: "pagado" | "pendiente" | "parcial" | "trunco";
+      let pendingAmount = 0;
+      let paidAmount = totalAmount;
+      if (inv.payment_status === "pendiente") {
+        payState = "pendiente";
+        paidAmount = 0;
+        pendingAmount = totalAmount;
+      } else {
+        const creditAmt = Number((inv as any).credit_amount) || 0;
+        let paidPortion = 0;
+        if (inv.payment_breakdown && Array.isArray(inv.payment_breakdown)) {
+          paidPortion = (inv.payment_breakdown as Array<{ amount?: number }>).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        }
+        if (creditAmt > 0) {
+          payState = "parcial";
+          paidAmount = Math.max(0, totalAmount - creditAmt);
+          pendingAmount = creditAmt;
+        } else if (paidPortion > 0 && paidPortion < totalAmount - 0.01) {
+          payState = "parcial";
+          paidAmount = paidPortion;
+          pendingAmount = Math.max(0, totalAmount - paidPortion);
+        } else {
+          payState = "pagado";
+          paidAmount = totalAmount;
+        }
+      }
+      const isPending = payState === "pendiente" || payState === "parcial";
+      const isTrunco = false;
       const breakdown = parsePaymentBreakdown(
         inv.payment_method || "EFECTIVO",
         (inv as any).discounts || "",
         (inv as any).notes || "",
-        totalAmount,
-        isPending
+        paidAmount,
+        paidAmount <= 0
       );
 
       const notesLower = ((inv as any).notes || "").toLowerCase();
@@ -415,6 +499,9 @@ export function WorkshopDailyReportView({
         description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
         total: totalAmount,
         isPending,
+        payState,
+        pendingAmount,
+        isTrunco,
         efectivo: breakdown.efectivo,
         yape: breakdown.yape,
         transferencia: breakdown.transferencia,
@@ -437,12 +524,21 @@ export function WorkshopDailyReportView({
     let cobradoTransferencias = 0;
     let cobradoCulqi = 0;
     let totalPendiente = 0;
+    let totalTrunco = 0;
     let totalFacturado = 0;
 
     consolidatedRows.forEach((r) => {
       totalFacturado += r.total;
-      if (r.isPending) {
+      if (r.payState === "trunco") {
+        totalTrunco += r.total;
+      } else if (r.payState === "pendiente") {
         totalPendiente += r.total;
+      } else if (r.payState === "parcial") {
+        totalPendiente += r.pendingAmount;
+        cobradoEfectivo += r.efectivo;
+        cobradoYapes += r.yape;
+        cobradoTransferencias += r.transferencia;
+        cobradoCulqi += r.culqi;
       } else {
         cobradoEfectivo += r.efectivo;
         cobradoYapes += r.yape;
@@ -459,6 +555,7 @@ export function WorkshopDailyReportView({
       cobradoTransferencias,
       cobradoCulqi,
       totalPendiente,
+      totalTrunco,
       totalFacturado,
       totalLiquidacion,
     };
@@ -581,7 +678,7 @@ export function WorkshopDailyReportView({
       const techName = r.responsable || "TALLER";
       const existing = map.get(techName) || { name: techName, count: 0, completed: 0, totalSales: 0 };
       existing.count += 1;
-      if (!r.isPending) existing.completed += 1;
+      if (r.payState === "pagado" || r.payState === "parcial") existing.completed += 1;
       existing.totalSales += r.total;
       map.set(techName, existing);
     });
@@ -640,11 +737,13 @@ export function WorkshopDailyReportView({
   // Executive narrative summary
   const executiveSummary = useMemo(() => {
     const totalVehicles = consolidatedRows.length;
-    const completed = consolidatedRows.filter((r) => !r.isPending).length;
-    const inProgress = consolidatedRows.filter((r) => r.isPending).length;
+    const completed = consolidatedRows.filter((r) => r.payState === "pagado" || r.payState === "parcial").length;
+    const inProgress = consolidatedRows.filter((r) => r.payState === "pendiente").length;
+    const truncoCount = consolidatedRows.filter((r) => r.payState === "trunco").length;
     const pendingPay = totals.totalPendiente;
+    const truncoTotal = totals.totalTrunco;
 
-    return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} atenciones (${completed} pagadas/completadas, ${inProgress} pendientes/crédito). La facturación total ascendió a S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o crédito.`;
+    return `Durante la jornada del ${formatPeruDate(selectedDate)}, el Taller ReyGas registró un movimiento total de ${totalVehicles} atenciones (${completed} pagadas/completadas, ${inProgress} pendientes/crédito, ${truncoCount} aún en taller sin culminar servicio). El valor total de atenciones del día fue S/ ${formatPEN(totals.totalFacturado)}, lográndose una recaudación efectiva en caja de S/ ${formatPEN(totals.totalLiquidacion)} (Efectivo: S/ ${formatPEN(totals.cobradoEfectivo)}, Yapes: S/ ${formatPEN(totals.cobradoYapes)}, Transferencias: S/ ${formatPEN(totals.cobradoTransferencias)}, Tarjeta: S/ ${formatPEN(totals.cobradoCulqi)}). Se mantienen S/ ${formatPEN(pendingPay)} en cuentas pendientes de cobro o crédito y S/ ${formatPEN(truncoTotal)} como monto trunco por no culminación del servicio (vehículos aún en taller).`;
   }, [consolidatedRows, totals, selectedDate]);
 
   // Helper component to render Main Report Table + Side Electronic Matrix
@@ -753,6 +852,7 @@ export function WorkshopDailyReportView({
                   <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
                   <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
                   <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
+                  <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#fb923c] text-black">EN TALLER (TRUNCO)</th>
                   <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
                   <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
                   <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
@@ -763,7 +863,7 @@ export function WorkshopDailyReportView({
               <tbody className="divide-y divide-white/5 font-mono text-[11px]">
                 {reportLoading ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-gray-400">
+                    <td colSpan={11} className="py-12 text-center text-gray-400">
                       <span className="inline-flex items-center gap-2.5">
                         <span className="w-4 h-4 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
                         Consultando el día {formatPeruDate(selectedDate)} en la nube...
@@ -772,7 +872,7 @@ export function WorkshopDailyReportView({
                   </tr>
                 ) : consolidatedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-gray-400 italic">
+                    <td colSpan={11} className="py-12 text-center text-gray-400 italic">
                       No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
                     </td>
                   </tr>
@@ -795,7 +895,10 @@ export function WorkshopDailyReportView({
                         {r.description}
                       </td>
                       <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
-                        {r.isPending ? formatPEN(r.total) : "-"}
+                        {r.payState === "pendiente" || r.payState === "parcial" ? formatPEN(r.pendingAmount) : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right font-bold text-orange-400 bg-orange-950/10 border-r border-white/5">
+                        {r.isTrunco ? formatPEN(r.total) : "-"}
                       </td>
                       <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
                         {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
@@ -828,6 +931,9 @@ export function WorkshopDailyReportView({
                   <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
                     S/ {formatPEN(totals.totalPendiente)}
                   </td>
+                  <td className="py-2 px-2 text-right font-mono font-black text-orange-400 bg-orange-950/40 border-r border-white/10">
+                    S/ {formatPEN(totals.totalTrunco)}
+                  </td>
                   <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
                     S/ {formatPEN(totals.cobradoEfectivo)}
                   </td>
@@ -848,7 +954,7 @@ export function WorkshopDailyReportView({
                   <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
                     TOTAL
                   </td>
-                  <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={7}>
+                  <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={8}>
                     S/ {formatPEN(totals.totalFacturado)}
                   </td>
                 </tr>
@@ -1032,7 +1138,7 @@ export function WorkshopDailyReportView({
 
                 {/* 5. Row Total Validación Cuadre General del Día */}
                 {(() => {
-                  const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.cobradoCulqi;
+                  const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
                   const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
 
                   return (
@@ -1179,13 +1285,13 @@ export function WorkshopDailyReportView({
   const handleExportCSV = () => {
     let csv = `REPORTE DE TALLER & CAJA - REYGAS AUTOGAS EQUIPMENT\n`;
     csv += `Fecha: ${selectedDate}\n\n`;
-    csv += `ITEM,PLACA,SERVICIO / REPUESTO,TOTAL,PENDIENTE,EFECTIVO,YAPE,TRANSFERENCIA,CULQI,RESPONSABLE\n`;
+    csv += `ITEM,PLACA,SERVICIO / REPUESTO,TOTAL,PENDIENTE,EN TALLER (TRUNCO),EFECTIVO,YAPE,TRANSFERENCIA,CULQI,RESPONSABLE\n`;
 
     consolidatedRows.forEach((r) => {
-      csv += `"${r.itemNumber}","${r.plate}","${r.description.replace(/"/g, '""')}","${r.total.toFixed(2)}","${r.isPending ? r.total.toFixed(2) : "0.00"}","${r.efectivo.toFixed(2)}","${r.yape.toFixed(2)}","${r.transferencia.toFixed(2)}","${r.culqi.toFixed(2)}","${r.responsable}"\n`;
+      csv += `"${r.itemNumber}","${r.plate}","${r.description.replace(/"/g, '""')}","${r.total.toFixed(2)}","${r.payState === "pendiente" || r.payState === "parcial" ? r.pendingAmount.toFixed(2) : "0.00"}","${r.isTrunco ? r.total.toFixed(2) : "0.00"}","${r.efectivo.toFixed(2)}","${r.yape.toFixed(2)}","${r.transferencia.toFixed(2)}","${r.culqi.toFixed(2)}","${r.responsable}"\n`;
     });
 
-    csv += `\nTOTALES,,,${totals.totalFacturado.toFixed(2)},${totals.totalPendiente.toFixed(2)},${totals.cobradoEfectivo.toFixed(2)},${totals.cobradoYapes.toFixed(2)},${totals.cobradoTransferencias.toFixed(2)},${totals.cobradoCulqi.toFixed(2)}\n`;
+    csv += `\nTOTALES,,,${totals.totalFacturado.toFixed(2)},${totals.totalPendiente.toFixed(2)},${totals.totalTrunco.toFixed(2)},${totals.cobradoEfectivo.toFixed(2)},${totals.cobradoYapes.toFixed(2)},${totals.cobradoTransferencias.toFixed(2)},${totals.cobradoCulqi.toFixed(2)}\n`;
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1358,7 +1464,7 @@ export function WorkshopDailyReportView({
         {/* TOP KPI CARDS MATRIX: ONLY SHOWN FOR CAJA (AS REQUESTED) */}
         {/* ========================================================================= */}
         {activeTab === "caja" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
             {/* Card 1: Efectivo */}
             <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col justify-between">
               <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1">
@@ -1403,7 +1509,18 @@ export function WorkshopDailyReportView({
               </span>
             </div>
 
-            {/* Card 5: Pendiente / Crédito */}
+            {/* Card 5: Monto Trunco (En Taller / Servicio Sin Culminar) */}
+            <div className="p-3.5 rounded-2xl bg-orange-950/30 border border-orange-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-orange-400 tracking-wider flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Monto Trunco (En Taller)</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-orange-300 mt-1">
+                S/ {formatPEN(totals.totalTrunco)}
+              </span>
+            </div>
+
+            {/* Card 6: Pendiente / Crédito */}
             <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
               <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
@@ -1414,7 +1531,7 @@ export function WorkshopDailyReportView({
               </span>
             </div>
 
-            {/* Card 6: Total Liquidación */}
+            {/* Card 7: Total Liquidación */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
               <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" />
