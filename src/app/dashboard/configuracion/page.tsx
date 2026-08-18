@@ -62,6 +62,7 @@ export default function ConfiguracionPage() {
     notaCreditoLastNumber: correlativeConfig?.notaCreditoLastNumber || 0,
     lastUpdateDate: correlativeConfig?.lastUpdateDate || getPeruDateString(),
     allowEditReceiptNumber: correlativeConfig?.allowEditReceiptNumber !== false,
+    maxVehiclesPerSlot: Number(correlativeConfig?.maxVehiclesPerSlot) || 3,
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
@@ -99,6 +100,7 @@ export default function ConfiguracionPage() {
         notaCreditoLastNumber: correlativeConfig.notaCreditoLastNumber || 0,
         lastUpdateDate: correlativeConfig.lastUpdateDate || getPeruDateString(),
         allowEditReceiptNumber: correlativeConfig.allowEditReceiptNumber !== false,
+        maxVehiclesPerSlot: Number(correlativeConfig.maxVehiclesPerSlot) || 3,
       });
     }
   }, [correlativeConfig]);
@@ -113,6 +115,7 @@ export default function ConfiguracionPage() {
       notaCreditoLastNumber: Number(correlativeForm.notaCreditoLastNumber) || 0,
       lastUpdateDate: correlativeForm.lastUpdateDate || getPeruDateString(),
       allowEditReceiptNumber: correlativeForm.allowEditReceiptNumber,
+      maxVehiclesPerSlot: Math.max(1, Math.min(10, Number(correlativeForm.maxVehiclesPerSlot) || 3)),
     };
     updateCorrelativeConfig(payload);
     setCorrelativeSaveMsg(true);
@@ -526,6 +529,33 @@ export default function ConfiguracionPage() {
                   className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow transition-all ${correlativeForm.allowEditReceiptNumber ? "left-9" : "left-1"}`}
                 />
               </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-white/10">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 shrink-0">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-white block">
+                    Vehículos por Horario en Reservas / Citas
+                  </label>
+                  <p className="text-[11px] text-gray-400 leading-relaxed mt-0.5">
+                    Cupos máximos de vehículos que se pueden asignar a un mismo bloque horario en el modal de Reserva y Cita (Disponibilidad de Horarios).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={correlativeForm.maxVehiclesPerSlot}
+                  onChange={(e) => setCorrelativeForm({ ...correlativeForm, maxVehiclesPerSlot: Number(e.target.value) || 3 }) }
+                  className="w-20 px-3 py-2 bg-reygas-dark border border-blue-500/40 rounded-xl text-white font-mono font-bold text-sm text-center focus:outline-none focus:border-blue-400"
+                />
+                <span className="text-xs text-gray-400 font-semibold">veh./hora</span>
+              </div>
             </div>
           </div>
         </form>

@@ -409,6 +409,9 @@ export interface CorrelativeConfig {
   // Si es true (o undefined), el cajero puede editar el N° de ticket/boleta/factura
   // al confirmar el pago en Caja. Si es false, el correlativo queda bloqueado (automático).
   allowEditReceiptNumber?: boolean;
+  // Máximo de VEHÍCULOS por horario en Reservas/Citas (por defecto 3). Configurable en
+  // Configuración → Correlativos/Reservas. Controla la ocupación de cada bloque horario.
+  maxVehiclesPerSlot?: number;
 }
 
 export interface PaymentSplit {
@@ -1103,6 +1106,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               allowEditReceiptNumber: rawCorrel.allowEditReceiptNumber !== undefined
                 ? rawCorrel.allowEditReceiptNumber
                 : state.correlativeConfig?.allowEditReceiptNumber,
+              maxVehiclesPerSlot: Number(rawCorrel.maxVehiclesPerSlot !== undefined
+                ? rawCorrel.maxVehiclesPerSlot
+                : (state.correlativeConfig?.maxVehiclesPerSlot ?? 3)) || 3,
             };
           }
           // Sync Workshop Services Catalog from Supabase if present (protect recent local mutations)
