@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/store/app-store";
 
 export function Toast() {
     const notification = useAppStore((s) => s.notification);
+    const notify = useAppStore((s) => s.notify);
     const clearNotification = useAppStore((s) => s.clearNotification);
 
     useEffect(() => {
@@ -13,6 +14,19 @@ export function Toast() {
         const timer = setTimeout(() => clearNotification(), 4000);
         return () => clearTimeout(timer);
     }, [notification, clearNotification]);
+
+    // Escucha el evento central de "guardado en la nube" emitido por las
+    // funciones saveSupabase* (skill de congruencia Supabase). Muestra el toast
+    // de confirmación SIN modificar el flujo de las páginas.
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent)?.detail;
+            const message = detail?.message || "Guardado en la nube ✓";
+            notify("success", message);
+        };
+        window.addEventListener("reygas:cloud-saved", handler);
+        return () => window.removeEventListener("reygas:cloud-saved", handler);
+    }, [notify]);
 
     if (!notification) return null;
 

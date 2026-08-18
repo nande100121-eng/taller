@@ -201,6 +201,7 @@ export async function saveSupabaseTechnician(
       await saveSupabaseSiteContent("all_technicians", allTechs, "technicians", false);
     }
     broadcastRealtimeChange("technician_saved");
+    emitCloudSavedToast("Técnico guardado en la nube ✓");
     return { success: true };
   } catch (err: any) {
     console.warn("Supabase technician deferred:", err);
@@ -296,6 +297,7 @@ export async function saveSupabaseInventoryItem(item: InventoryItem) {
       .upsert(buildInventoryDbPayload(item), { onConflict: "id" });
     if (error) console.warn("Supabase inventory save warning:", error.message);
     broadcastRealtimeChange("inventory_item_updated");
+    emitCloudSavedToast("Inventario guardado en la nube ✓");
   } catch (err) {
     console.warn("Supabase inventory save deferred:", err);
   }
@@ -441,6 +443,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     }, "work_orders", false);
 
     broadcastRealtimeChange("work_order_updated");
+    emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
     console.warn("Supabase work order deferred:", err);
   }
@@ -482,6 +485,7 @@ export async function clearSupabaseWorkOrders() {
 // ---------------------------------------------------------------------
 export async function saveSupabaseVehicle(v: Vehicle) {
   try {
+    markLocalMutation("vehicles");
     const { error } = await supabase.from("vehicles").upsert({
       plate: v.plate,
       brand: v.brand,
@@ -495,6 +499,8 @@ export async function saveSupabaseVehicle(v: Vehicle) {
       last_visit_date: v.last_visit_date,
     });
     if (error) console.warn("Supabase vehicle save warning:", error.message);
+    broadcastRealtimeChange("vehicle_updated");
+    emitCloudSavedToast("Vehículo guardado en la nube ✓");
   } catch (err) {
     console.warn("Supabase vehicle deferred:", err);
   }
@@ -949,6 +955,22 @@ export async function broadcastRealtimeChange(eventType: string = "db_update") {
   }
 }
 
+// Central cloud-saved toast signal (CustomEvent) so EVERY web action can confirm
+// the write to the cloud WITHOUT changing the page flow (skill de congruencia Supabase).
+// El componente <Toast/> lo escucha y lo muestra como toast de confirmación.
+export function emitCloudSavedToast(message?: string) {
+  try {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("reygas:cloud-saved", {
+        detail: { message: message || "Guardado en la nube ✓" },
+      })
+    );
+  } catch {
+    // noop
+  }
+}
+
 // Ultra-fast granular fetch for Services Catalog (~15ms)
 export async function fetchSupabaseServices(): Promise<WorkshopService[] | null> {
   try {
@@ -1124,6 +1146,7 @@ export async function saveSupabaseCertification(cert: Certification) {
     // 2. Also save to site_content fallback
     await saveSupabaseSiteContent(`cert_${cert.id}`, cert, "certifications");
     broadcastRealtimeChange("certification_updated");
+    emitCloudSavedToast("Certificación guardada en la nube ✓");
   } catch (err) {
     console.warn("Supabase certification deferred:", err);
   }
@@ -1154,6 +1177,7 @@ export async function saveSupabaseScheduleRecord(record: ScheduleRecord) {
     // 2. Also save to site_content fallback
     await saveSupabaseSiteContent(`sched_${record.id}`, record, "schedule");
     broadcastRealtimeChange("schedule_updated");
+    emitCloudSavedToast("Programación guardada en la nube ✓");
   } catch (err) {
     console.warn("Supabase schedule record deferred:", err);
   }
@@ -1695,6 +1719,7 @@ export async function saveSupabaseAppointment(app: Appointment) {
       notes: app.notes,
     });
     if (error) console.warn("Supabase appointment save warning (tabla aún no creada; backup en site_content):", error.message);
+    emitCloudSavedToast("Cita guardada en la nube ✓");
   } catch (err) {
     console.warn("Supabase appointment deferred:", err);
   }
@@ -1775,6 +1800,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       }
     }
     broadcastRealtimeChange("invoice_updated");
+    emitCloudSavedToast("Comprobante guardado en la nube ✓");
   } catch (err) {
     console.warn("Supabase invoice deferred:", err);
   }

@@ -1060,17 +1060,66 @@ export const useAppStore = create<AppState>()((set, get) => ({
         if (Array.isArray((erpData as any)?.recentIngresos) && (erpData as any).recentIngresos.length > 0) {
           updates.recentIngresos = (erpData as any).recentIngresos;
         }
+        // MERGE POR ID (no sobrescritura): conserva las OT/vehículos/facturas/citas creadas
+        // localmente aunque su upsert aún no haya confirmado en la nube (consistencia eventual).
+        // Esto evita que una sync en segundo plano "borre" una card recién creada en Portería->Taller.
         if (Array.isArray(erpData?.workOrders)) {
-          updates.workOrders = erpData.workOrders;
+          const remoteOrders = erpData.workOrders;
+          const localOrders = state.workOrders;
+          const mergedOrders = new Map<string, any>();
+          localOrders.forEach((wo) => mergedOrders.set(wo.id, wo));
+          remoteOrders.forEach((wo) => {
+            if (wo && wo.id) {
+              const local = mergedOrders.get(wo.id);
+              // El dato remoto (confirmado en nube) es la fuente de verdad; se sobreescribe local.
+              mergedOrders.set(wo.id, local ? { ...local, ...wo } : wo);
+            }
+          });
+          updates.workOrders = Array.from(mergedOrders.values());
         }
         if (Array.isArray(erpData?.invoices)) {
-          updates.invoices = erpData.invoices;
+          const remoteInvoices = erpData.invoices;
+          const localInvoices = state.invoices;
+          const mergedInvoices = new Map<string, any>();
+          localInvoices.forEach((inv) => {
+            const k = inv.work_order_id || inv.id;
+            if (k) mergedInvoices.set(k, inv);
+          });
+          remoteInvoices.forEach((inv) => {
+            const k = inv.work_order_id || inv.id;
+            if (k) {
+              const local = mergedInvoices.get(k);
+              mergedInvoices.set(k, local ? { ...local, ...inv } : inv);
+            }
+          });
+          updates.invoices = Array.from(mergedInvoices.values());
         }
         if (Array.isArray(erpData?.appointments)) {
-          updates.appointments = erpData.appointments;
+          const remoteApps = erpData.appointments;
+          const localApps = state.appointments;
+          const mergedApps = new Map<string, any>();
+          localApps.forEach((app) => mergedApps.set(app.id, app));
+          remoteApps.forEach((app) => {
+            if (app && app.id) {
+              const local = mergedApps.get(app.id);
+              mergedApps.set(app.id, local ? { ...local, ...app } : app);
+            }
+          });
+          updates.appointments = Array.from(mergedApps.values());
         }
         if (Array.isArray(erpData?.vehicles)) {
-          updates.vehicles = erpData.vehicles;
+          const remoteVehicles = erpData.vehicles;
+          const localVehicles = state.vehicles;
+          const mergedVehicles = new Map<string, any>();
+          localVehicles.forEach((v) => mergedVehicles.set(String(v.plate).toUpperCase(), v));
+          remoteVehicles.forEach((v) => {
+            if (v && v.plate) {
+              const key = String(v.plate).toUpperCase();
+              const local = mergedVehicles.get(key);
+              mergedVehicles.set(key, local ? { ...local, ...v } : v);
+            }
+          });
+          updates.vehicles = Array.from(mergedVehicles.values());
         }
         if (Array.isArray(erpData?.certifications) && erpData.certifications.length > 0 && !hasRecentLocalMutation("certifications")) {
           updates.certifications = erpData.certifications;
