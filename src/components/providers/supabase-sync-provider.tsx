@@ -152,11 +152,14 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       })
       .subscribe();
 
-    // 6. Background safety heartbeat sync (every 90s) for resilient tablet networking without draining CPU/battery
+    // 6. Background safety heartbeat sync (every 5 min) for resilient tablet networking.
+    // El ERP tiene 41k+ órdenes y 118k+ facturas: re-descargar todo cada 90s satura la
+    // red de la tablet. Los cambios en tiempo real llegan por broadcast/postgres_changes
+    // (throttled a 30s en el store) y este heartbeat solo es la red de seguridad.
     const interval = setInterval(() => {
       if (Date.now() - getLastLocalMutationTime() < 5000) return;
       syncFromSupabase();
-    }, 90000);
+    }, 300000);
 
     return () => {
       window.removeEventListener("focus", handleFocus);

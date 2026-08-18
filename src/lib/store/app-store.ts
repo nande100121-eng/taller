@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist, type StorageValue } from "zustand/middleware";
 import {
   fetchSupabaseSiteContent,
   hasRecentLocalMutation,
@@ -42,6 +43,13 @@ import {
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
+
+// Throttle global de syncs completos: el ERP tiene 41k+ órdenes de trabajo y
+// 118k+ facturas en Supabase. Re-descargar todo en ráfagas (focus, broadcasts,
+// heartbeats, montaje de páginas) satura la red de la tablet. Se permite un sync
+// completo como máximo cada 30 segundos.
+let lastFullSyncAt = 0;
+const FULL_SYNC_MIN_INTERVAL = 30000;
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -391,6 +399,9 @@ export interface CorrelativeConfig {
   notaCreditoSeries?: string;
   notaCreditoLastNumber?: number;
   lastUpdateDate: string;
+  // Si es true (o undefined), el cajero puede editar el N° de ticket/boleta/factura
+  // al confirmar el pago en Caja. Si es false, el correlativo queda bloqueado (automático).
+  allowEditReceiptNumber?: boolean;
 }
 
 export interface PaymentSplit {
@@ -399,6 +410,8 @@ export interface PaymentSplit {
   destination: string;
   amount: number;
   reference?: string;
+  receipt_number?: string; // N° de ticket/comprobante propio de este método (pago mixto multi-ticket)
+  receipt_type?: string;   // Tipo de comprobante propio de este método (Ticket | Boleta | Factura)
 }
 
 // Historial de pagos por fecha: cada abono/cobro registrado sobre una factura.
@@ -697,7 +710,7 @@ interface AppState {
   addAttendanceLogs: (logs: Omit<AttendanceLog, "id">[]) => void;
 }
 
-export const useAppStore = create<AppState>()((set, get) => ({
+export const useAppStore = create<AppState>()(persist((set, get) => ({
   notification: null,
   notify: (type, message) => {
     set({ notification: { id: Date.now(), type, message } });
@@ -1011,6 +1024,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   // Full Supabase Sync (On-Demand / Background Real-time Trigger)
   syncFromSupabase: async () => {
     if (get().isSyncing) return;
+    const now = Date.now();
+    if (now - lastFullSyncAt < FULL_SYNC_MIN_INTERVAL) return;
+    lastFullSyncAt = now;
     set({ isSyncing: true });
 
     try {
@@ -1041,8 +1057,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
             };
           }
           // Non-nested sections (services, gallery, booking_modal, location_map, etc.)
+          // OPTIMIZACIÓN: se omiten las claves pesadas (snapshots inv_full_*/wo_mod_*/tech_perms_*/etc.)
+          // que nadie lee desde siteContent del store: sus datos llegan ya reconstruidos en las
+          // listas workOrders/invoices/vehicles. Evita duplicar ~100MB en memoria por dispositivo.
+          const CMS_HEAVY_PREFIXES = ["inv_full_", "inv_payhistory_", "inv_breakdown_", "wo_mod_", "tech_perms_", "tech_perms_name_", "sched_", "cert_", "appt_", "tool_loan_"];
+          const CMS_SKIP_KEYS = ["all_technicians", "all_inventory_records", "all_schedule_records", "master_workshop_backup", "attendance_logs_all", "tool_loans_all"];
           Object.keys(sanitizedCms as any).forEach((section) => {
             if (CMS_SECTIONS.includes(section)) return;
+            if (CMS_SKIP_KEYS.includes(section)) return;
+            if (CMS_HEAVY_PREFIXES.some((p) => section.startsWith(p))) return;
             if (hasRecentLocalMutation(section)) return;
             (mergedCms as any)[section] = (sanitizedCms as any)[section];
           });
@@ -1064,6 +1087,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
               notaCreditoSeries: rawCorrel.notaCreditoSeries || state.correlativeConfig?.notaCreditoSeries || "FC01",
               notaCreditoLastNumber: Number(rawCorrel.notaCreditoLastNumber !== undefined ? rawCorrel.notaCreditoLastNumber : (state.correlativeConfig?.notaCreditoLastNumber || 0)),
               lastUpdateDate: rawCorrel.lastUpdateDate || state.correlativeConfig?.lastUpdateDate || getPeruDateString(),
+              allowEditReceiptNumber: rawCorrel.allowEditReceiptNumber !== undefined
+                ? rawCorrel.allowEditReceiptNumber
+                : state.correlativeConfig?.allowEditReceiptNumber,
             };
           }
           // Sync Workshop Services Catalog from Supabase if present (protect recent local mutations)
@@ -2967,4 +2993,90 @@ export const useAppStore = create<AppState>()((set, get) => ({
     saveSupabaseAttendanceLogs(merged);
     set({ attendanceLogs: merged });
   },
-}));
+}),
+{
+  name: "reygas-store-cache-v1",
+  // Storage con escritura diferida (máximo 1 write cada 3s): serializar ~1-2MB de caché
+  // en cada set() bloquearía el hilo principal de la tablet. El último estado pendiente
+  // se persiste al siguiente tick; el sync completo de arranque es la red de seguridad.
+  storage: (() => {
+    let pendingValue: { name: string; value: StorageValue<AppState> } | null = null;
+    let writeTimer: ReturnType<typeof setTimeout> | null = null;
+    return {
+      getItem: (name: string): StorageValue<AppState> | null => {
+        try {
+          const raw = localStorage.getItem(name);
+          return raw ? (JSON.parse(raw) as StorageValue<AppState>) : null;
+        } catch {
+          return null;
+        }
+      },
+      setItem: (name: string, value: StorageValue<AppState>) => {
+        pendingValue = { name, value };
+        if (writeTimer) return;
+        writeTimer = setTimeout(() => {
+          writeTimer = null;
+          if (pendingValue) {
+            try {
+              localStorage.setItem(pendingValue.name, JSON.stringify(pendingValue.value));
+            } catch {
+              // Cuota llena o modo privado: se ignora el caché (el sync de arranque es la red de seguridad)
+            }
+            pendingValue = null;
+          }
+        }, 3000);
+      },
+      removeItem: (name: string) => {
+        try { localStorage.removeItem(name); } catch { /* ignore */ }
+      },
+    };
+  })(),
+  // Caché de hidratación ultrarrápida: catálogos ligeros completos + ventana reciente
+  // de datos operativos (órdenes/facturas/vehículos). El sync completo en segundo
+  // plano completa el historial sin bloquear la UI.
+  partialize: (state) => {
+    // Ventana reciente sin ordenar (O(1)): es caché de hidratación, no fuente de verdad.
+    const orders = Array.isArray(state.workOrders) ? state.workOrders.slice(-600) : [];
+    // Un solo recorrido O(n) con tope: se cachean TODAS las facturas pendientes/credito
+    // (deuda correcta al reabrir) + las 400 pagadas más recientes en orden de aparición.
+    let pendingInvoices: any[] = [];
+    let paidInvoices: any[] = [];
+    if (Array.isArray(state.invoices)) {
+      const invs = state.invoices;
+      for (let i = 0; i < invs.length; i++) {
+        const inv: any = invs[i];
+        const isPaid = (inv.payment_status || "") === "pagado" && !(Number(inv.credit_amount) > 0);
+        if (isPaid) {
+          if (paidInvoices.length < 400) paidInvoices.push(inv);
+        } else if (pendingInvoices.length < 500) {
+          pendingInvoices.push(inv);
+        }
+      }
+    }
+    // Solo se cachean las claves ligeras del siteContent (secciones CMS públicas + configs).
+    // Las claves pesadas (inv_full_*/wo_mod_* etc.) ya se excluyen del store en el merge.
+    const slimSiteContent: any = {};
+    const CMS_CACHE_KEYS = ["theme", "hero", "navbar", "contact", "metrics", "calculator", "about", "services_header", "footer", "services", "gallery", "booking_modal", "location_map", "aiSettings", "correlativeConfig"];
+    for (const k of CMS_CACHE_KEYS) {
+      const v = (state.siteContent as any)?.[k];
+      if (v !== undefined) slimSiteContent[k] = v;
+    }
+    return {
+      siteContent: slimSiteContent,
+      technicians: state.technicians,
+      inventoryItems: state.inventoryItems,
+      certifications: state.certifications,
+      scheduleRecords: state.scheduleRecords,
+      workshopServices: state.workshopServices,
+      toolLoans: state.toolLoans,
+      attendanceLogs: state.attendanceLogs,
+      appointments: state.appointments,
+      correlativeConfig: state.correlativeConfig,
+      aiSettings: state.aiSettings,
+      workOrders: orders,
+      invoices: [...pendingInvoices, ...paidInvoices],
+      vehicles: Array.isArray(state.vehicles) ? state.vehicles.slice(-300) : [],
+    } as AppState;
+  },
+}
+));

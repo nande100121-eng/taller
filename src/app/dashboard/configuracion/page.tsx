@@ -61,6 +61,7 @@ export default function ConfiguracionPage() {
     notaCreditoSeries: correlativeConfig?.notaCreditoSeries || "FC01",
     notaCreditoLastNumber: correlativeConfig?.notaCreditoLastNumber || 0,
     lastUpdateDate: correlativeConfig?.lastUpdateDate || getPeruDateString(),
+    allowEditReceiptNumber: correlativeConfig?.allowEditReceiptNumber !== false,
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
@@ -97,6 +98,7 @@ export default function ConfiguracionPage() {
         notaCreditoSeries: correlativeConfig.notaCreditoSeries || "FC01",
         notaCreditoLastNumber: correlativeConfig.notaCreditoLastNumber || 0,
         lastUpdateDate: correlativeConfig.lastUpdateDate || getPeruDateString(),
+        allowEditReceiptNumber: correlativeConfig.allowEditReceiptNumber !== false,
       });
     }
   }, [correlativeConfig]);
@@ -110,6 +112,7 @@ export default function ConfiguracionPage() {
       facturaLastNumber: Number(correlativeForm.facturaLastNumber) || 0,
       notaCreditoLastNumber: Number(correlativeForm.notaCreditoLastNumber) || 0,
       lastUpdateDate: correlativeForm.lastUpdateDate || getPeruDateString(),
+      allowEditReceiptNumber: correlativeForm.allowEditReceiptNumber,
     };
     updateCorrelativeConfig(payload);
     setCorrelativeSaveMsg(true);
@@ -489,6 +492,40 @@ export default function ConfiguracionPage() {
                   Siguiente: <strong>{correlativeForm.notaCreditoSeries}-{(correlativeForm.notaCreditoLastNumber + 1).toString().padStart(8, "0")}</strong>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Opción: Permitir editar el correlativo del comprobante al confirmar pago en Caja */}
+          <div className="p-4 rounded-2xl bg-reygas-surface/60 border border-amber-500/30 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                  <Hash className="w-4 h-4" />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-white block">
+                    Permitir editar el N° de Ticket / Boleta / Factura al confirmar el pago
+                  </label>
+                  <p className="text-[11px] text-gray-400 leading-relaxed mt-0.5">
+                    Si está <strong className="text-amber-300">ACTIVADO</strong>, el cajero podrá modificar el correlativo del comprobante en la ventana de confirmación de pago de Caja (útil para corregir anulaciones o empalmar series).
+                    Si está <strong className="text-gray-300">DESACTIVADO</strong>, el sistema asigna el correlativo automáticamente y el campo queda bloqueado.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCorrelativeForm({ ...correlativeForm, allowEditReceiptNumber: !correlativeForm.allowEditReceiptNumber })}
+                className={`relative w-16 h-8 rounded-full transition-colors shrink-0 ${correlativeForm.allowEditReceiptNumber
+                  ? "bg-amber-500 shadow-lg shadow-amber-500/30"
+                  : "bg-gray-700"
+                  }`}
+                title={correlativeForm.allowEditReceiptNumber ? "Edición permitida (clic para bloquear)" : "Edición bloqueada (clic para permitir)"}
+              >
+                <span
+                  className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow transition-all ${correlativeForm.allowEditReceiptNumber ? "left-9" : "left-1"}`}
+                />
+              </button>
             </div>
           </div>
         </form>

@@ -76,6 +76,9 @@ export default function CajaPage() {
     toggleAllowModificationsInWorkshop,
   } = useAppStore();
 
+  // Configuración: si está permitido editar el N° de ticket/boleta/factura al confirmar el pago
+  const allowEditReceiptNumber = correlativeConfig?.allowEditReceiptNumber !== false;
+
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
   const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientes" | "pagados" | "todos">("hoy");
   const [receiptTypeFilter, setReceiptTypeFilter] = useState<"TODOS" | "Ticket" | "Boleta" | "Factura">("TODOS");
@@ -106,6 +109,7 @@ export default function CajaPage() {
     paymentDestination: string;
     isSplitPayment?: boolean;
     paymentSplits?: PaymentSplit[];
+    splitTicketMode?: "single" | "perMethod";
     receiptNumber: string;
     receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
     customerDoc: string;
@@ -127,6 +131,7 @@ export default function CajaPage() {
     paymentDestination: string;
     isSplitPayment?: boolean;
     paymentSplits?: PaymentSplit[];
+    splitTicketMode?: "single" | "perMethod";
     receiptNumber: string;
     receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
     customerDoc: string;
@@ -165,6 +170,7 @@ export default function CajaPage() {
     paymentDestination: string;
     isSplitPayment?: boolean;
     paymentSplits?: PaymentSplit[];
+    splitTicketMode?: "single" | "perMethod";
     isSearchingRuc?: boolean;
     debtObservation?: string;  // Observación del saldo pendiente (si condición CREDITO/PENDIENTE)
     debtResponsible?: string;  // Responsable del saldo pendiente (si condición CREDITO/PENDIENTE)
@@ -723,6 +729,56 @@ export default function CajaPage() {
     }
   };
 
+  // Increment a correlative string like "TK01-00000455" -> "TK01-00000456"
+  const incrementReceiptNumber = (num: string): string => {
+    const parts = String(num || "").split("-");
+    const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
+    const next = isNaN(numPart) ? 1 : numPart + 1;
+    if (parts.length > 1) {
+      const digits = parts[1] || "";
+      const pad = digits.length >= 8 ? digits.length : 8;
+      return parts[0] + "-" + String(next).padStart(pad, "0");
+    }
+    return String(next).padStart(8, "0");
+  };
+
+  // Advance the correlative config to the MAX number actually used (mixed multi-ticket)
+  const advanceCorrelativeToMax = (type: "Ticket" | "Boleta" | "Factura", numbers: Array<string | undefined>) => {
+    let maxNum = -1;
+    let series = "";
+    for (const n of numbers) {
+      const parts = String(n || "").split("-");
+      const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
+      if (!isNaN(numPart) && numPart > maxNum) {
+        maxNum = numPart;
+        if (parts.length > 1) series = parts[0];
+      }
+    }
+    if (maxNum < 0) return;
+    const typeKey = type === "Factura" ? "facturaLastNumber" : (type === "Boleta" ? "boletaLastNumber" : "ticketLastNumber");
+    const seriesKey = type === "Factura" ? "facturaSeries" : (type === "Boleta" ? "boletaSeries" : "ticketSeries");
+    updateCorrelativeConfig({
+      [typeKey]: maxNum,
+      ...(series ? { [seriesKey]: series } : {}),
+      lastUpdateDate: queryDate || getPeruDateString(),
+    });
+  };
+
+  // Stamp every split with a sequential ticket number starting from `base`
+  const stampSplitTicketNumbers = (
+    splits: PaymentSplit[],
+    base: string,
+    type: "Ticket" | "Boleta" | "Factura"
+  ): PaymentSplit[] => {
+    let cursor = base || getCorrelativePreview(type);
+    return splits.map((s, i) => {
+      const existing = s.receipt_number && String(s.receipt_number).trim();
+      const num = i === 0 ? (existing || cursor) : (existing || incrementReceiptNumber(cursor));
+      cursor = num;
+      return { ...s, receipt_number: num, receipt_type: type };
+    });
+  };
+
   // Handle open payment confirmation modal
   const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
@@ -890,7 +946,26 @@ export default function CajaPage() {
         notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el total a cobrar (S/ ${paymentModal.grandTotal.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
         return;
       }
-      paymentBreakdown = paymentModal.paymentSplits;
+      let splits = paymentModal.paymentSplits;
+      if (paymentModal.splitTicketMode === "perMethod" && !isSinComprobante) {
+        // Pago mixto multi-ticket: cada método lleva su propio TIPO (Ticket/Boleta/Factura) y N° de comprobante
+        splits = splits.map((s) => {
+          const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura"
+            ? s.receipt_type
+            : (paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura" ? paymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+          const num = (s.receipt_number && String(s.receipt_number).trim()) || getCorrelativePreview(st);
+          return { ...s, receipt_type: st, receipt_number: num };
+        });
+        // Avanzar el correlativo al máximo usado, por cada tipo de comprobante emitido
+        const typesUsed = Array.from(new Set(splits.map((s) => s.receipt_type))) as Array<"Ticket" | "Boleta" | "Factura">;
+        for (const t of typesUsed) {
+          advanceCorrelativeToMax(t, splits.filter((s) => s.receipt_type === t).map((s) => s.receipt_number));
+        }
+      } else {
+        // Ticket único: el desglose queda como referencia, sin N° propio por método
+        splits = splits.map((s) => ({ ...s, receipt_number: undefined, receipt_type: undefined }));
+      }
+      paymentBreakdown = splits;
       const methodSummary = paymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
       finalMethod = `Mixto (${methodSummary})`;
       finalDest = Array.from(new Set(paymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
@@ -899,7 +974,10 @@ export default function CajaPage() {
     // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
     let assignedReceiptNum = "";
     if (!isSinComprobante && (paymentModal.receiptType === "Ticket" || paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura")) {
-      if (paymentModal.receiptNumber) {
+      if (paymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0) {
+        // Pago mixto multi-ticket: el N° principal del comprobante es el primer ticket del desglose
+        assignedReceiptNum = paymentBreakdown[0].receipt_number || paymentModal.receiptNumber || "";
+      } else if (paymentModal.receiptNumber) {
         assignedReceiptNum = paymentModal.receiptNumber;
         const parts = assignedReceiptNum.split("-");
         const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
@@ -917,7 +995,11 @@ export default function CajaPage() {
       }
     }
 
-    const finalReceiptType = isSinComprobante ? "" : paymentModal.receiptType;
+    const finalReceiptType = isSinComprobante
+      ? ""
+      : (paymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0
+          ? (paymentBreakdown[0].receipt_type || paymentModal.receiptType)
+          : paymentModal.receiptType);
 
     confirmInvoicePayment({
       invoiceId: paymentModal.invoice?.id,
@@ -1045,7 +1127,17 @@ export default function CajaPage() {
         notify("warning", `La suma de los abonos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el monto a abonar (S/ ${amount.toFixed(2)}).`);
         return;
       }
-      paymentBreakdown = partialPaymentModal.paymentSplits;
+      let splits = partialPaymentModal.paymentSplits;
+      if (partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante") {
+        // Pago mixto multi-ticket: 1 N° de ticket por método, correlativo avanzado al máximo usado
+        const baseType = (partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
+        splits = stampSplitTicketNumbers(splits, partialPaymentModal.receiptNumber || getCorrelativePreview(baseType), baseType);
+        advanceCorrelativeToMax(baseType, splits.map((s) => s.receipt_number));
+      } else {
+        // Ticket único: el desglose queda como referencia, sin N° propio por método
+        splits = splits.map((s) => ({ ...s, receipt_number: undefined, receipt_type: undefined }));
+      }
+      paymentBreakdown = splits;
       const methodSummary = partialPaymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
       finalMethod = `Mixto (${methodSummary})`;
       finalDest = Array.from(new Set(partialPaymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
@@ -1054,7 +1146,10 @@ export default function CajaPage() {
     // Auto-advance correlative sequence
     let assignedReceiptNum = "";
     if (partialPaymentModal.receiptType !== "Sin Comprobante" && (partialPaymentModal.receiptType === "Ticket" || partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura")) {
-      if (partialPaymentModal.receiptNumber) {
+      if (partialPaymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0) {
+        // Pago mixto multi-ticket: el N° principal del comprobante es el primer ticket del desglose
+        assignedReceiptNum = paymentBreakdown[0].receipt_number || partialPaymentModal.receiptNumber || "";
+      } else if (partialPaymentModal.receiptNumber) {
         assignedReceiptNum = partialPaymentModal.receiptNumber;
         const parts = assignedReceiptNum.split("-");
         const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
@@ -1220,7 +1315,17 @@ export default function CajaPage() {
         notify("warning", `La suma de los pagos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir exactamente con el precio total (S/ ${priceNum.toFixed(2)}). Diferencia: S/ ${diff.toFixed(2)}`);
         return;
       }
-      paymentBreakdown = manualPaymentModal.paymentSplits;
+      let splits = manualPaymentModal.paymentSplits;
+      if (manualPaymentModal.splitTicketMode === "perMethod" && !isSinComprobante) {
+        // Pago mixto multi-ticket: 1 N° de ticket por método, correlativo avanzado al máximo usado
+        const baseType = (manualPaymentModal.receiptType === "Factura" || manualPaymentModal.receiptType === "Boleta" ? manualPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
+        splits = stampSplitTicketNumbers(splits, manualPaymentModal.receiptNumber || getCorrelativePreview(baseType), baseType);
+        advanceCorrelativeToMax(baseType, splits.map((s) => s.receipt_number));
+      } else {
+        // Ticket único: el desglose queda como referencia, sin N° propio por método
+        splits = splits.map((s) => ({ ...s, receipt_number: undefined, receipt_type: undefined }));
+      }
+      paymentBreakdown = splits;
       const methodSummary = manualPaymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
       finalMethod = `Mixto (${methodSummary})`;
       finalDest = Array.from(new Set(manualPaymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
@@ -1229,7 +1334,10 @@ export default function CajaPage() {
     // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
     let assignedReceiptNum = "";
     if (!isSinComprobante && (manualPaymentModal.receiptType === "Ticket" || manualPaymentModal.receiptType === "Boleta" || manualPaymentModal.receiptType === "Factura")) {
-      if (manualPaymentModal.receiptNumber) {
+      if (manualPaymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0) {
+        // Pago mixto multi-ticket: el N° principal del comprobante es el primer ticket del desglose
+        assignedReceiptNum = paymentBreakdown[0].receipt_number || manualPaymentModal.receiptNumber || "";
+      } else if (manualPaymentModal.receiptNumber) {
         assignedReceiptNum = manualPaymentModal.receiptNumber;
         const parts = assignedReceiptNum.split("-");
         const numPart = parseInt(parts.length > 1 ? parts[1] : parts[0], 10);
@@ -2091,10 +2199,18 @@ export default function CajaPage() {
                         type="button"
                         onClick={() => {
                           const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
+                          const stampedSplits = paymentModal.splitTicketMode === "perMethod" && type !== "Sin Comprobante"
+                            ? stampSplitTicketNumbers(
+                              paymentModal.paymentSplits || [],
+                              nextNum,
+                              (type === "Factura" || type === "Boleta" ? type : "Ticket") as "Ticket" | "Boleta" | "Factura"
+                            )
+                            : paymentModal.paymentSplits;
                           setPaymentModal({
                             ...paymentModal,
                             receiptType: type,
                             receiptNumber: nextNum,
+                            paymentSplits: stampedSplits,
                             customerName:
                               type === "Ticket" && !paymentModal.customerName
                                 ? "CLIENTES VARIOS"
@@ -2119,13 +2235,24 @@ export default function CajaPage() {
               {/* Dynamic Inputs according to Receipt Type */}
               <div className="p-3.5 bg-reygas-surface/60 rounded-2xl border border-white/10 space-y-3 text-xs">
                 {paymentModal.receiptType !== "Sin Comprobante" ? (
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400 font-bold uppercase text-[11px]">
-                      Correlativo Asignado:
-                    </span>
-                    <span className="font-mono font-bold text-amber-300 text-sm">
-                      {paymentModal.receiptNumber}
-                    </span>
+                  <div>
+                    <label className="text-gray-400 block mb-1 font-bold uppercase text-[11px]">
+                      N° de Ticket / Comprobante{allowEditReceiptNumber ? " (editable):" : ":"}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej: TK01-00000456"
+                      value={paymentModal.receiptNumber}
+                      readOnly={!allowEditReceiptNumber}
+                      onChange={(e) => setPaymentModal({ ...paymentModal, receiptNumber: e.target.value })}
+                      className={`w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-bold focus:border-amber-400 ${!allowEditReceiptNumber ? "opacity-60 cursor-not-allowed" : ""}`}
+                    />
+                    {!allowEditReceiptNumber && (
+                      <p className="text-[10px] text-gray-500 italic mt-1 flex items-center gap-1">
+                        <Lock className="w-3 h-3" />
+                        Correlativo automático (edición bloqueada en Configuración)
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="text-[11px] text-gray-400 italic">
@@ -2357,13 +2484,24 @@ export default function CajaPage() {
                         onClick={() => {
                           const currentSum = (paymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                           const remaining = Math.max(0, Number((paymentModal.grandTotal - currentSum).toFixed(2)));
+                          const splitsNow = paymentModal.paymentSplits || [];
+                          const lastSplit = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1] : undefined;
+                          const lastSplitType = (lastSplit?.receipt_type === "Boleta" || lastSplit?.receipt_type === "Factura"
+                            ? lastSplit.receipt_type
+                            : (paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura" ? paymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+                          const nextTicketNum = paymentModal.splitTicketMode === "perMethod" && paymentModal.receiptType !== "Sin Comprobante"
+                            ? (lastSplit?.receipt_number ? incrementReceiptNumber(lastSplit.receipt_number) : (paymentModal.receiptNumber || getCorrelativePreview(lastSplitType)))
+                            : undefined;
                           const newSplits = [
-                            ...(paymentModal.paymentSplits || []),
+                            ...splitsNow,
                             {
-                              id: `split-${Date.now()}-${Math.random()}`,
+                              id: "split-" + Date.now() + "-" + Math.random(),
                               method: "Culqi",
                               destination: eligibleDestinations[0] || "EMPRESA",
                               amount: remaining,
+                              ...(nextTicketNum
+                                ? { receipt_number: nextTicketNum, receipt_type: lastSplitType }
+                                : {}),
                             },
                           ];
                           setPaymentModal({ ...paymentModal, paymentSplits: newSplits });
@@ -2375,9 +2513,66 @@ export default function CajaPage() {
                       </button>
                     </div>
 
+                    {/* Modo de asignación de N° de Comprobante en pago mixto */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/40 rounded-xl border border-white/10 p-2">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Asignación de N° de Comprobante:</span>
+                      </span>
+                      <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-[11px] self-start sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const clearedSplits = (paymentModal.paymentSplits || []).map((p) => ({
+                              ...p,
+                              receipt_number: undefined,
+                              receipt_type: undefined,
+                            }));
+                            setPaymentModal({ ...paymentModal, splitTicketMode: "single", paymentSplits: clearedSplits });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all ${paymentModal.splitTicketMode !== "perMethod"
+                            ? "bg-amber-500 text-black shadow-md shadow-amber-500/30"
+                            : "text-gray-400 hover:text-white"
+                            }`}
+                        >
+                          🎫 Un solo Comprobante
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentSplits = (paymentModal.paymentSplits && paymentModal.paymentSplits.length > 0)
+                              ? paymentModal.paymentSplits
+                              : [
+                                {
+                                  id: "split-1",
+                                  method: paymentModal.paymentMethod || "Efectivo",
+                                  destination: paymentModal.paymentDestination || "EMPRESA",
+                                  amount: paymentModal.grandTotal,
+                                },
+                              ];
+                            const baseType = (paymentModal.receiptType === "Factura" || paymentModal.receiptType === "Boleta" ? paymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
+                            const base = paymentModal.receiptNumber || getCorrelativePreview(baseType);
+                            const stamped = stampSplitTicketNumbers(currentSplits, base, baseType);
+                            setPaymentModal({ ...paymentModal, splitTicketMode: "perMethod", paymentSplits: stamped });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${paymentModal.splitTicketMode === "perMethod"
+                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                            : "text-gray-400 hover:text-white"
+                            }`}
+                        >
+                          <Split className="w-3.5 h-3.5" />
+                          <span>Comprobante por Método</span>
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Split Rows */}
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {(paymentModal.paymentSplits || []).map((split, idx) => (
+                      {(paymentModal.paymentSplits || []).map((split, idx) => {
+                        const splitType = (split.receipt_type === "Boleta" || split.receipt_type === "Factura"
+                          ? split.receipt_type
+                          : (paymentModal.receiptType === "Boleta" || paymentModal.receiptType === "Factura" ? paymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+                        return (
                         <div
                           key={split.id || idx}
                           className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
@@ -2428,6 +2623,48 @@ export default function CajaPage() {
                             </select>
                           </div>
 
+                          {/* Tipo + N° de comprobante propio del método (multi-ticket) */}
+                          {paymentModal.splitTicketMode === "perMethod" && (
+                            <>
+                              <div className="w-full sm:w-28 shrink-0">
+                                <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Tipo:</label>
+                                <select
+                                  value={splitType}
+                                  onChange={(e) => {
+                                    const newType = e.target.value as "Ticket" | "Boleta" | "Factura";
+                                    const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx
+                                        ? { ...p, receipt_type: newType, receipt_number: getCorrelativePreview(newType) }
+                                        : p
+                                    );
+                                    setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                                  }}
+                                  className="w-full px-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                                >
+                                  <option value="Ticket">🎟️ Ticket</option>
+                                  <option value="Boleta">🧾 Boleta</option>
+                                  <option value="Factura">📑 Factura</option>
+                                </select>
+                              </div>
+                              <div className="w-full sm:w-36 shrink-0">
+                                <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">N° Comprobante:</label>
+                                <input
+                                  type="text"
+                                  placeholder={splitType === "Factura" ? "F001-..." : splitType === "Boleta" ? "B001-..." : "TK01-..."}
+                                  value={split.receipt_number || ""}
+                                  readOnly={!allowEditReceiptNumber}
+                                  onChange={(e) => {
+                                    const updated = (paymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx ? { ...p, receipt_number: e.target.value } : p
+                                    );
+                                    setPaymentModal({ ...paymentModal, paymentSplits: updated });
+                                  }}
+                                  className={`w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-amber-300 font-mono font-bold focus:border-purple-400 ${!allowEditReceiptNumber ? "opacity-60 cursor-not-allowed" : ""}`}
+                                />
+                              </div>
+                            </>
+                          )}
+
                           {/* Amount Input */}
                           <div className="w-full sm:w-28 shrink-0">
                             <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto (S/):</label>
@@ -2462,7 +2699,8 @@ export default function CajaPage() {
                             </button>
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Balance / Difference Checker */}
@@ -2830,10 +3068,18 @@ export default function CajaPage() {
                           type="button"
                           onClick={() => {
                             const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
+                            const stampedSplits = manualPaymentModal.splitTicketMode === "perMethod" && type !== "Sin Comprobante"
+                              ? stampSplitTicketNumbers(
+                                manualPaymentModal.paymentSplits || [],
+                                nextNum,
+                                (type === "Factura" || type === "Boleta" ? type : "Ticket") as "Ticket" | "Boleta" | "Factura"
+                              )
+                              : manualPaymentModal.paymentSplits;
                             setManualPaymentModal({
                               ...manualPaymentModal,
                               receiptType: type,
                               receiptNumber: nextNum,
+                              paymentSplits: stampedSplits,
                               clientName:
                                 type === "Ticket" && (!manualPaymentModal.clientName || manualPaymentModal.clientName === "Cliente Taller")
                                   ? "CLIENTES VARIOS"
@@ -3067,13 +3313,21 @@ export default function CajaPage() {
                           onClick={() => {
                             const currentSum = (manualPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                             const remaining = Math.max(0, Number((manualPaymentModal.price - currentSum).toFixed(2)));
+                            const splitsNow = manualPaymentModal.paymentSplits || [];
+                            const lastNum = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1].receipt_number : undefined;
+                            const nextTicketNum = manualPaymentModal.splitTicketMode === "perMethod" && manualPaymentModal.receiptType !== "Sin Comprobante"
+                              ? (lastNum ? incrementReceiptNumber(lastNum) : (manualPaymentModal.receiptNumber || getCorrelativePreview((manualPaymentModal.receiptType === "Factura" || manualPaymentModal.receiptType === "Boleta" ? manualPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura")))
+                              : undefined;
                             const newSplits = [
-                              ...(manualPaymentModal.paymentSplits || []),
+                              ...splitsNow,
                               {
-                                id: `split-${Date.now()}-${Math.random()}`,
+                                id: "split-" + Date.now() + "-" + Math.random(),
                                 method: "Culqi",
                                 destination: eligibleDestinations[0] || "EMPRESA",
                                 amount: remaining,
+                                ...(nextTicketNum
+                                  ? { receipt_number: nextTicketNum, receipt_type: (manualPaymentModal.receiptType === "Factura" || manualPaymentModal.receiptType === "Boleta" ? manualPaymentModal.receiptType : "Ticket") }
+                                  : {}),
                               },
                             ];
                             setManualPaymentModal({ ...manualPaymentModal, paymentSplits: newSplits });
@@ -3083,6 +3337,59 @@ export default function CajaPage() {
                           <Plus className="w-3.5 h-3.5" />
                           <span>+ Añadir Método</span>
                         </button>
+                      </div>
+
+                      {/* Modo de asignación de N° de Ticket en pago mixto */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/40 rounded-xl border border-white/10 p-2">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Asignación de N° de Ticket:</span>
+                        </span>
+                        <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-[11px] self-start sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const clearedSplits = (manualPaymentModal.paymentSplits || []).map((p) => ({
+                                ...p,
+                                receipt_number: undefined,
+                                receipt_type: undefined,
+                              }));
+                              setManualPaymentModal({ ...manualPaymentModal, splitTicketMode: "single", paymentSplits: clearedSplits });
+                            }}
+                            className={`px-3 py-1 rounded-lg font-bold transition-all ${manualPaymentModal.splitTicketMode !== "perMethod"
+                              ? "bg-amber-500 text-black shadow-md shadow-amber-500/30"
+                              : "text-gray-400 hover:text-white"
+                              }`}
+                          >
+                            🎫 Un solo Ticket
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentSplits = (manualPaymentModal.paymentSplits && manualPaymentModal.paymentSplits.length > 0)
+                                ? manualPaymentModal.paymentSplits
+                                : [
+                                  {
+                                    id: "split-1",
+                                    method: manualPaymentModal.paymentMethod || "Efectivo",
+                                    destination: manualPaymentModal.paymentDestination || "EMPRESA",
+                                    amount: manualPaymentModal.price,
+                                  },
+                                ];
+                              const baseType = (manualPaymentModal.receiptType === "Factura" || manualPaymentModal.receiptType === "Boleta" ? manualPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
+                              const base = manualPaymentModal.receiptNumber || getCorrelativePreview(baseType);
+                              const stamped = stampSplitTicketNumbers(currentSplits, base, baseType);
+                              setManualPaymentModal({ ...manualPaymentModal, splitTicketMode: "perMethod", paymentSplits: stamped });
+                            }}
+                            className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${manualPaymentModal.splitTicketMode === "perMethod"
+                              ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                              : "text-gray-400 hover:text-white"
+                              }`}
+                          >
+                            <Split className="w-3.5 h-3.5" />
+                            <span>Ticket por Método</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Split Rows */}
@@ -3137,6 +3444,25 @@ export default function CajaPage() {
                                 ))}
                               </select>
                             </div>
+
+                            {/* N° Ticket propio del método (multi-ticket) */}
+                            {manualPaymentModal.splitTicketMode === "perMethod" && (
+                              <div className="w-full sm:w-32 shrink-0">
+                                <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">N° Ticket:</label>
+                                <input
+                                  type="text"
+                                  placeholder="TK01-..."
+                                  value={split.receipt_number || ""}
+                                  onChange={(e) => {
+                                    const updated = (manualPaymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx ? { ...p, receipt_number: e.target.value } : p
+                                    );
+                                    setManualPaymentModal({ ...manualPaymentModal, paymentSplits: updated });
+                                  }}
+                                  className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-amber-300 font-mono font-bold focus:border-purple-400"
+                                />
+                              </div>
+                            )}
 
                             {/* Amount Input */}
                             <div className="w-full sm:w-28 shrink-0">
@@ -3389,7 +3715,14 @@ export default function CajaPage() {
                           type="button"
                           onClick={() => {
                             const nextNum = type === "Sin Comprobante" ? "" : getCorrelativePreview(type);
-                            setPartialPaymentModal({ ...partialPaymentModal, receiptType: type, receiptNumber: nextNum });
+                            const stampedSplits = partialPaymentModal.splitTicketMode === "perMethod" && type !== "Sin Comprobante"
+                              ? stampSplitTicketNumbers(
+                                partialPaymentModal.paymentSplits || [],
+                                nextNum,
+                                (type === "Factura" || type === "Boleta" ? type : "Ticket") as "Ticket" | "Boleta" | "Factura"
+                              )
+                              : partialPaymentModal.paymentSplits;
+                            setPartialPaymentModal({ ...partialPaymentModal, receiptType: type, receiptNumber: nextNum, paymentSplits: stampedSplits });
                           }}
                           className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
                             ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
@@ -3515,13 +3848,21 @@ export default function CajaPage() {
                         onClick={() => {
                           const currentSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                           const remaining = Math.max(0, Number(((partialPaymentModal.amount || 0) - currentSum).toFixed(2)));
+                          const splitsNow = partialPaymentModal.paymentSplits || [];
+                          const lastNum = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1].receipt_number : undefined;
+                          const nextTicketNum = partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante"
+                            ? (lastNum ? incrementReceiptNumber(lastNum) : (partialPaymentModal.receiptNumber || getCorrelativePreview((partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura")))
+                            : undefined;
                           const newSplits = [
-                            ...(partialPaymentModal.paymentSplits || []),
+                            ...splitsNow,
                             {
-                              id: `split-${Date.now()}-${Math.random()}`,
+                              id: "split-" + Date.now() + "-" + Math.random(),
                               method: "Culqi",
                               destination: eligibleDestinations[0] || "EMPRESA",
                               amount: remaining,
+                              ...(nextTicketNum
+                                ? { receipt_number: nextTicketNum, receipt_type: (partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") }
+                                : {}),
                             },
                           ];
                           setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: newSplits });
@@ -3531,6 +3872,59 @@ export default function CajaPage() {
                         <Plus className="w-3.5 h-3.5" />
                         <span>+ Añadir Método</span>
                       </button>
+                    </div>
+
+                    {/* Modo de asignación de N° de Ticket en pago mixto */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/40 rounded-xl border border-white/10 p-2">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Asignación de N° de Ticket:</span>
+                      </span>
+                      <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-[11px] self-start sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const clearedSplits = (partialPaymentModal.paymentSplits || []).map((p) => ({
+                              ...p,
+                              receipt_number: undefined,
+                              receipt_type: undefined,
+                            }));
+                            setPartialPaymentModal({ ...partialPaymentModal, splitTicketMode: "single", paymentSplits: clearedSplits });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all ${partialPaymentModal.splitTicketMode !== "perMethod"
+                            ? "bg-amber-500 text-black shadow-md shadow-amber-500/30"
+                            : "text-gray-400 hover:text-white"
+                            }`}
+                        >
+                          🎫 Un solo Ticket
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentSplits = (partialPaymentModal.paymentSplits && partialPaymentModal.paymentSplits.length > 0)
+                              ? partialPaymentModal.paymentSplits
+                              : [
+                                {
+                                  id: "split-1",
+                                  method: partialPaymentModal.paymentMethod || "Efectivo",
+                                  destination: partialPaymentModal.paymentDestination || "EMPRESA",
+                                  amount: partialPaymentModal.amount || 0,
+                                },
+                              ];
+                            const baseType = (partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
+                            const base = partialPaymentModal.receiptNumber || getCorrelativePreview(baseType);
+                            const stamped = stampSplitTicketNumbers(currentSplits, base, baseType);
+                            setPartialPaymentModal({ ...partialPaymentModal, splitTicketMode: "perMethod", paymentSplits: stamped });
+                          }}
+                          className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${partialPaymentModal.splitTicketMode === "perMethod"
+                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
+                            : "text-gray-400 hover:text-white"
+                            }`}
+                        >
+                          <Split className="w-3.5 h-3.5" />
+                          <span>Ticket por Método</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -3582,6 +3976,25 @@ export default function CajaPage() {
                               ))}
                             </select>
                           </div>
+
+                          {/* N° Ticket propio del método (multi-ticket) */}
+                          {partialPaymentModal.splitTicketMode === "perMethod" && (
+                            <div className="w-full sm:w-32 shrink-0">
+                              <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">N° Ticket:</label>
+                              <input
+                                type="text"
+                                placeholder="TK01-..."
+                                value={split.receipt_number || ""}
+                                onChange={(e) => {
+                                  const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                    i === idx ? { ...p, receipt_number: e.target.value } : p
+                                  );
+                                  setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                }}
+                                className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-amber-300 font-mono font-bold focus:border-purple-400"
+                              />
+                            </div>
+                          )}
 
                           <div className="flex-1 min-w-[110px]">
                             <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto S/:</label>

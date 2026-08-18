@@ -24,6 +24,7 @@ interface ThermalReceiptModalProps {
   discountAmount?: number;
   paymentMethod?: string;
   paymentBreakdown?: PaymentSplit[];
+  multiTicket?: boolean;
   issuedAt?: string;
 }
 
@@ -44,6 +45,7 @@ export default function ThermalReceiptModal({
   discountAmount = 0,
   paymentMethod = "CONTADO",
   paymentBreakdown,
+  multiTicket,
   issuedAt,
 }: ThermalReceiptModalProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -133,6 +135,14 @@ export default function ThermalReceiptModal({
       : (invoice?.payment_breakdown || [])
   );
 
+  // Pago mixto multi-ticket: cada método tiene su propio N° de ticket/comprobante
+  const useMultiTickets =
+    (multiTicket === true) ||
+    (multiTicket !== false &&
+      effectiveSplits.length > 1 &&
+      effectiveSplits.every((s) => s.receipt_number) &&
+      new Set(effectiveSplits.map((s) => s.receipt_number)).size > 1);
+
   // Items
   const effectiveItems =
     items ||
@@ -217,189 +227,207 @@ export default function ThermalReceiptModal({
     }
 
     // Build items rows HTML
-    const itemsHtml = effectiveItems.map((item) => `
-      <tr>
-        <td colspan="3" style="padding:2px 0 0 0;font-weight:bold;font-size:10.5px;text-transform:uppercase;word-break:break-word;">${item.description}</td>
-      </tr>
-      <tr>
-        <td style="width:20%;text-align:left;padding:1px 0;font-size:10.5px;">${Number(item.quantity).toFixed(2)}</td>
-        <td style="width:40%;text-align:right;padding:1px 6px 1px 0;font-size:10.5px;">${Number(item.unit_price).toFixed(2)}</td>
-        <td style="width:40%;text-align:right;padding:1px 4px 1px 0;font-size:10.5px;font-weight:bold;">${Number(item.subtotal).toFixed(2)}</td>
-      </tr>
-    `).join("");
+    const itemsHtml = effectiveItems.map((item) =>
+      "<tr>" +
+      '<td colspan="3" style="padding:2px 0 0 0;font-weight:bold;font-size:10.5px;text-transform:uppercase;word-break:break-word;">' + item.description + "</td>" +
+      "</tr>" +
+      "<tr>" +
+      '<td style="width:20%;text-align:left;padding:1px 0;font-size:10.5px;">' + Number(item.quantity).toFixed(2) + "</td>" +
+      '<td style="width:40%;text-align:right;padding:1px 6px 1px 0;font-size:10.5px;">' + Number(item.unit_price).toFixed(2) + "</td>" +
+      '<td style="width:40%;text-align:right;padding:1px 4px 1px 0;font-size:10.5px;font-weight:bold;">' + Number(item.subtotal).toFixed(2) + "</td>" +
+      "</tr>"
+    ).join("");
 
-    // Build totals rows
-    const totalsData = [
-      { label: "OP. GRAVADAS:", value: `S/ ${opGravadas.toFixed(2)}`, bold: true },
-      { label: "OP. EXONERADAS:", value: "S/ 0.00", bold: false },
-      { label: "OP. INAFECTAS:", value: "S/ 0.00", bold: false },
-      { label: "OP. GRATUITAS:", value: "S/ 0.00", bold: false },
-      { label: "SUBTOTAL:", value: `S/ ${(opGravadas + effectiveDiscount).toFixed(2)}`, bold: true },
-      { label: "DESCUENTOS:", value: `S/ ${effectiveDiscount.toFixed(2)}`, bold: false },
-      { label: "IGV 18.0%:", value: `S/ ${igvAmount.toFixed(2)}`, bold: true },
-      { label: "ICBPER:", value: "S/ 0.00", bold: false },
-      { label: "ADELANTOS:", value: "S/ 0.00", bold: false },
-    ];
+    // Build tax & totals rows for a given ticket total
+    const buildTotalsHtml = (total: number) => {
+      const opG = total > 0 ? total / 1.18 : 0;
+      const igv = total - opG;
+      const rows = [
+        { label: "OP. GRAVADAS:", value: "S/ " + opG.toFixed(2), bold: true },
+        { label: "OP. EXONERADAS:", value: "S/ 0.00", bold: false },
+        { label: "OP. INAFECTAS:", value: "S/ 0.00", bold: false },
+        { label: "OP. GRATUITAS:", value: "S/ 0.00", bold: false },
+        { label: "SUBTOTAL:", value: "S/ " + (opG + effectiveDiscount).toFixed(2), bold: true },
+        { label: "DESCUENTOS:", value: "S/ " + effectiveDiscount.toFixed(2), bold: false },
+        { label: "IGV 18.0%:", value: "S/ " + igv.toFixed(2), bold: true },
+        { label: "ICBPER:", value: "S/ 0.00", bold: false },
+        { label: "ADELANTOS:", value: "S/ 0.00", bold: false },
+      ];
+      return rows.map((row) =>
+        "<tr>" +
+        '<td style="padding:1px 0;font-size:10.5px;">' + row.label + "</td>" +
+        '<td style="text-align:right;padding:1px 4px 1px 0;font-size:10.5px;' + (row.bold ? "font-weight:bold;" : "") + '">' + row.value + "</td>" +
+        "</tr>"
+      ).join("");
+    };
 
-    const totalsHtml = totalsData.map((row) => `
-      <tr>
-        <td style="padding:1px 0;font-size:10.5px;">${row.label}</td>
-        <td style="text-align:right;padding:1px 4px 1px 0;font-size:10.5px;${row.bold ? "font-weight:bold;" : ""}">${row.value}</td>
-      </tr>
-    `).join("");
+    // Document type label (per ticket type)
+    const buildDocTypeLabel = (type: "Ticket" | "Boleta" | "Factura") =>
+      type === "Factura"
+        ? "FACTURA ELECTRÓNICA"
+        : type === "Boleta"
+        ? "BOLETA DE VENTA ELECTRÓNICA"
+        : "TICKET DE VENTA";
 
-    // Document type label
-    const docTypeLabel = effectiveType === "Factura"
-      ? "FACTURA ELECTRÓNICA"
-      : effectiveType === "Boleta"
-      ? "BOLETA DE VENTA ELECTRÓNICA"
-      : "TICKET DE VENTA";
+    // QR section per ticket (only for Boleta / Factura)
+    const buildQrSection = (num: string, total: number, type: "Ticket" | "Boleta" | "Factura") => {
+      if (type === "Ticket") return "";
+      const igv = total > 0 ? total - total / 1.18 : 0;
+      const qr = buildSunatFiscalQrString({
+        rucEmisor: "20600982860",
+        receiptType: type,
+        receiptNumber: num,
+        igvAmount: igv,
+        grandTotal: total,
+        dateStr: dateFormatted,
+        customerDoc: effectiveDoc,
+      });
+      const qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=" + encodeURIComponent(qr);
+      return '<div style="text-align:center;padding:6px 0;border-bottom:1px dashed #000;">' +
+        '<img src="' + qrUrl + '" alt="QR" style="width:115px;height:115px;display:block;margin:0 auto;" />' +
+        '<div style="font-size:8.5px;font-weight:bold;margin-top:2px;">Código QR Fiscal SUNAT</div>' +
+        "</div>";
+    };
 
-    // QR section (only for Boleta / Factura)
-    const qrSection = effectiveType !== "Ticket" ? `
-      <div style="text-align:center;padding:6px 0;border-bottom:1px dashed #000;">
-        <img src="${qrImageUrl}" alt="QR" style="width:115px;height:115px;display:block;margin:0 auto;" />
-        <div style="font-size:8.5px;font-weight:bold;margin-top:2px;">Código QR Fiscal SUNAT</div>
-      </div>
-    ` : "";
-
-    // Footer
-    const footerHtml = effectiveType === "Ticket"
-      ? `<div style="text-align:center;font-size:9px;padding-top:4px;font-weight:bold;">Gracias por su preferencia</div>`
-      : `<div style="text-align:center;font-size:8.5px;padding-top:4px;line-height:1.15;">
-          <div style="font-weight:bold;">Representación impresa de la ${effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica</div>
-          <div>Autorizado mediante Resolución de Superintendencia</div>
-          <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
-        </div>`;
+    // Footer (per ticket type)
+    const buildFooterHtml = (type: "Ticket" | "Boleta" | "Factura") =>
+      type === "Ticket"
+        ? '<div style="text-align:center;font-size:9px;padding-top:4px;font-weight:bold;">Gracias por su preferencia</div>'
+        : '<div style="text-align:center;font-size:8.5px;padding-top:4px;line-height:1.15;">' +
+          '<div style="font-weight:bold;">Representación impresa de la ' + (type === "Factura" ? "Factura" : "Boleta de Venta") + " Electrónica</div>" +
+          "<div>Autorizado mediante Resolución de Superintendencia</div>" +
+          "<div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>" +
+          "</div>";
 
     // Print/Save timestamp in Peru timezone (captured at the moment of printing)
     const printTimestamp = formatPeruDateTime(new Date(), true);
-    const printTimestampHtml = `<div style="text-align:center;font-size:8px;color:#555;padding-top:6px;border-top:1px dashed #aaa;margin-top:4px;">Fecha y hora de impresión: ${printTimestamp}</div>`;
+    const printTimestampHtml = '<div style="text-align:center;font-size:8px;color:#555;padding-top:6px;border-top:1px dashed #aaa;margin-top:4px;">Fecha y hora de impresión: ' + printTimestamp + "</div>";
 
     // Address section (only if address is present)
     const addressHtml = effectiveAddress && effectiveAddress !== "-"
-      ? `<div><b>DIRECCION:</b> ${effectiveAddress}</div>` : "";
+      ? "<div><b>DIRECCION:</b> " + effectiveAddress + "</div>" : "";
 
-    const docRowHtml = effectiveType === "Factura"
-      ? `<div><b>RUC:</b> ${effectiveDoc || "-"}</div>`
-      : effectiveType === "Boleta"
-      ? `<div><b>DNI:</b> ${effectiveDoc || "-"}</div>`
-      : "";
+    const buildDocRowHtml = (type: "Ticket" | "Boleta" | "Factura") =>
+      type === "Factura"
+        ? "<div><b>RUC:</b> " + (effectiveDoc || "-") + "</div>"
+        : type === "Boleta"
+        ? "<div><b>DNI:</b> " + (effectiveDoc || "-") + "</div>"
+        : "";
 
     // Observation section
     const observationHtml = effectiveObservations
-      ? `<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;"><b>OBSERVACION:</b> ${effectiveObservations}</div>` : "";
+      ? '<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;"><b>OBSERVACION:</b> ' + effectiveObservations + "</div>" : "";
 
     // Payment method breakdown HTML
-    const paymentMethodHtml = effectiveSplits.length > 1
-      ? `<div><b>FORMA DE PAGO:</b> MIXTO</div>
-         ${effectiveSplits.map((p) => `<div style="padding-left:6px;font-size:9px;">• ${p.method}: S/ ${Number(p.amount).toFixed(2)} (${p.destination})</div>`).join("")}`
-      : `<div><b>FORMA DE PAGO:</b> ${paymentMethod || "Efectivo"}</div>`;
+    const buildPaymentMethodHtml = (splits: PaymentSplit[], methodLabel: string) => {
+      if (splits.length > 1) {
+        return "<div><b>FORMA DE PAGO:</b> MIXTO</div>" +
+          splits.map((p) => '<div style="padding-left:6px;font-size:9px;">• ' + p.method + ": S/ " + Number(p.amount).toFixed(2) + " (" + p.destination + ")</div>").join("");
+      }
+      return "<div><b>FORMA DE PAGO:</b> " + (methodLabel || "Efectivo") + "</div>";
+    };
+
+    // Single 80mm paper builder (one ticket / one method)
+    const buildPaper = (num: string, methodLabel: string, total: number, splits: PaymentSplit[], note?: string, type: "Ticket" | "Boleta" | "Factura" = effectiveType) => {
+      const noteHtml = note
+        ? '<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;font-weight:bold;"><b>NOTA:</b> ' + note + "</div>"
+        : "";
+      const words = numberToSpanishWords(total);
+      return (
+        '<div class="paper">' +
+        '<div style="text-align:center;">' +
+        '<img src="/logo.jpg" alt="REYGAS" style="max-height:52px;max-width:170px;display:block;margin:0 auto;object-fit:contain;" onerror="this.style.display=\'none\'" />' +
+        "</div>" +
+        '<div style="height:14px;"></div>' +
+        '<div style="text-align:center;font-weight:bold;">' +
+        '<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">REYGAS S.A.C.</div>' +
+        '<div style="font-size:9.5px;line-height:1.15;">AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA</div>' +
+        '<div style="font-size:10px;padding-top:1px;">RUC: 20600982860</div>' +
+        "</div>" +
+        '<div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;text-align:center;font-weight:bold;">' +
+        '<div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:900;">' + buildDocTypeLabel(type) + "</div>" +
+        '<div style="font-size:11.5px;font-family:Courier New,monospace;letter-spacing:1px;font-weight:bold;">' + num + "</div>" +
+        "</div>" +
+        '<div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;font-size:10px;line-height:1.35;">' +
+        "<div><b>CLIENTE:</b> " + effectiveClient + "</div>" +
+        buildDocRowHtml(type) +
+        addressHtml +
+        "<div><b>FECHA DE EMISIÓN:</b> " + dateFormatted + "</div>" +
+        buildPaymentMethodHtml(splits, methodLabel) +
+        "<div><b>MONEDA:</b> SOLES</div>" +
+        "<div><b>PLACA:</b> " + (effectivePlate || "S/P") + "</div>" +
+        noteHtml +
+        observationHtml +
+        "</div>" +
+        '<div style="border-top:1px dashed #000;margin-top:3px;padding-top:3px;">' +
+        '<table style="width:100%;border-collapse:collapse;">' +
+        "<thead>" +
+        '<tr style="border-bottom:1px dashed #000;">' +
+        '<th style="width:20%;text-align:left;padding:3px 0;font-size:10.5px;font-weight:900;">CANT.</th>' +
+        '<th style="width:40%;text-align:right;padding:3px 6px 3px 0;font-size:10.5px;font-weight:900;">P.UNIT.</th>' +
+        '<th style="width:40%;text-align:right;padding:3px 4px 3px 0;font-size:10.5px;font-weight:900;">IMPORTE</th>' +
+        "</tr>" +
+        "</thead>" +
+        "<tbody>" + itemsHtml + "</tbody>" +
+        "</table>" +
+        "</div>" +
+        '<div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;">' +
+        '<table style="width:100%;border-collapse:collapse;">' +
+        buildTotalsHtml(total) +
+        '<tr><td colspan="2" style="padding:0;"><div style="border-top:1px solid #000;margin-top:3px;"></div></td></tr>' +
+        '<tr style="font-weight:900;font-size:13px;">' +
+        '<td style="padding:4px 0;border-bottom:1px solid #000;">TOTAL:</td>' +
+        '<td style="text-align:right;padding:4px 4px 4px 0;border-bottom:1px solid #000;">S/ ' + total.toFixed(2) + "</td>" +
+        "</tr>" +
+        "</table>" +
+        "</div>" +
+        buildQrSection(num, total, type) +
+        '<div style="border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 1px;margin:4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;text-align:center;">' + words + "</div>" +
+        buildFooterHtml(type) +
+        printTimestampHtml +
+        "</div>"
+      );
+    };
+
+    // Decide papers: one ticket per method (multi-ticket) or a single combined ticket
+    let papersHtml = "";
+    if (useMultiTickets) {
+      papersHtml = effectiveSplits.map((s, i) => {
+        const total = Number(s.amount) || 0;
+        const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura" ? s.receipt_type : "Ticket") as "Ticket" | "Boleta" | "Factura";
+        const paper = buildPaper(s.receipt_number || effectiveNumber, s.method, total, [s], "PAGO PARCIAL CON " + s.method.toUpperCase(), st);
+        return paper + (i < effectiveSplits.length - 1 ? '<div style="page-break-after:always;"></div>' : "");
+      }).join("");
+    } else {
+      papersHtml = buildPaper(effectiveNumber, paymentMethod || "Efectivo", effectiveTotal, effectiveSplits);
+    }
 
     doc.open();
-    doc.write(`<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>${effectiveType} - ${effectiveNumber}</title>
-<style>
-  @page { size: 80mm auto; margin: 0; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  html, body {
-    width: 76mm; max-width: 76mm; margin: 0; padding: 0;
-    height: auto !important; min-height: 0 !important;
-    background: #fff; color: #000;
-    font-family: 'Arial Narrow', Arial, 'Helvetica Neue', Helvetica, sans-serif;
-    font-size: 11px; line-height: 1.25;
-    -webkit-font-smoothing: antialiased;
-  }
-  .paper { width: 72mm; max-width: 72mm; margin: 0 auto; padding: 2mm 2mm 3mm 2mm; }
-</style>
-</head>
-<body>
-<div class="paper">
-
-  <!-- LOGO -->
-  <div style="text-align:center;">
-    <img src="/logo.jpg" alt="REYGAS" style="max-height:52px;max-width:170px;display:block;margin:0 auto;object-fit:contain;"
-         onerror="this.style.display='none'" />
-  </div>
-
-  <!-- 2-LINE SPACER between logo and razón social -->
-  <div style="height:14px;"></div>
-
-  <!-- HEADER: Razón Social, Dirección, RUC (CENTERED + BOLD) -->
-  <div style="text-align:center;font-weight:bold;">
-    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">REYGAS S.A.C.</div>
-    <div style="font-size:9.5px;line-height:1.15;">AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA</div>
-    <div style="font-size:10px;padding-top:1px;">RUC: 20600982860</div>
-  </div>
-
-  <!-- DOCUMENT TYPE & CORRELATIVE (CENTERED + BOLD) -->
-  <div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;text-align:center;font-weight:bold;">
-    <div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:900;">${docTypeLabel}</div>
-    <div style="font-size:11.5px;font-family:'Courier New',monospace;letter-spacing:1px;font-weight:bold;">${effectiveNumber}</div>
-  </div>
-
-  <!-- CLIENT & DOCUMENT INFO -->
-  <div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;font-size:10px;line-height:1.35;">
-    <div><b>CLIENTE:</b> ${effectiveClient}</div>
-    ${docRowHtml}
-    ${addressHtml}
-    <div><b>FECHA DE EMISIÓN:</b> ${dateFormatted}</div>
-    ${paymentMethodHtml}
-    <div><b>MONEDA:</b> SOLES</div>
-    <div><b>PLACA:</b> ${effectivePlate || "S/P"}</div>
-    ${observationHtml}
-  </div>
-
-  <!-- ITEMS TABLE HEADER (CENTERED + BOLD) -->
-  <div style="border-top:1px dashed #000;margin-top:3px;padding-top:3px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr style="border-bottom:1px dashed #000;">
-          <th style="width:20%;text-align:left;padding:3px 0;font-size:10.5px;font-weight:900;">CANT.</th>
-          <th style="width:40%;text-align:right;padding:3px 6px 3px 0;font-size:10.5px;font-weight:900;">P.UNIT.</th>
-          <th style="width:40%;text-align:right;padding:3px 4px 3px 0;font-size:10.5px;font-weight:900;">IMPORTE</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${itemsHtml}
-      </tbody>
-    </table>
-  </div>
-
-  <!-- TAX BREAKDOWN & TOTALS (amounts aligned to right margin) -->
-  <div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;">
-    <table style="width:100%;border-collapse:collapse;">
-      ${totalsHtml}
-      <tr>
-        <td colspan="2" style="padding:0;"><div style="border-top:1px solid #000;margin-top:3px;"></div></td>
-      </tr>
-      <tr style="font-weight:900;font-size:13px;">
-        <td style="padding:4px 0;border-bottom:1px solid #000;">TOTAL:</td>
-        <td style="text-align:right;padding:4px 4px 4px 0;border-bottom:1px solid #000;">S/ ${effectiveTotal.toFixed(2)}</td>
-      </tr>
-    </table>
-  </div>
-
-  <!-- QR CODE (only Boleta / Factura) -->
-  ${qrSection}
-
-  <!-- AMOUNT IN WORDS -->
-  <div style="border-top:1px solid #000;border-bottom:1px solid #000;padding:3px 1px;margin:4px 0;font-size:10px;font-weight:bold;text-transform:uppercase;text-align:center;">
-    ${amountInWords}
-  </div>
-
-  <!-- FOOTER -->
-  ${footerHtml}
-
-  <!-- PRINT TIMESTAMP -->
-  ${printTimestampHtml}
-
-</div>
-</body>
-</html>`);
+    doc.write(
+      "<!DOCTYPE html>" +
+      "<html>" +
+      "<head>" +
+      '<meta charset="utf-8" />' +
+      "<title>" + effectiveType + " - " + effectiveNumber + "</title>" +
+      "<style>" +
+      "  @page { size: 80mm auto; margin: 0; }" +
+      "  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }" +
+      "  html, body {" +
+      "    width: 76mm; max-width: 76mm; margin: 0; padding: 0;" +
+      "    height: auto !important; min-height: 0 !important;" +
+      "    background: #fff; color: #000;" +
+      '    font-family: "Arial Narrow", Arial, "Helvetica Neue", Helvetica, sans-serif;' +
+      "    font-size: 11px; line-height: 1.25;" +
+      "    -webkit-font-smoothing: antialiased;" +
+      "  }" +
+      "  .paper { width: 72mm; max-width: 72mm; margin: 0 auto; padding: 2mm 2mm 3mm 2mm; }" +
+      "</style>" +
+      "</head>" +
+      "<body>" +
+      papersHtml +
+      "</body>" +
+      "</html>"
+    );
     doc.close();
 
     setTimeout(() => {
@@ -407,7 +435,6 @@ export default function ThermalReceiptModal({
       printFrame.contentWindow?.print();
     }, 350);
   };
-
   const handleCopyEscPos = () => {
     const bytes = generateEscPosQrBytes(sunatQrString);
     const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
@@ -437,6 +464,25 @@ export default function ThermalReceiptModal({
 
         {/* Scrollable Printable Receipt Canvas */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-black/70 flex flex-col items-center">
+          {/* Multi-ticket notice: pago mixto con 1 ticket por método */}
+          {useMultiTickets && (
+            <div className="w-full max-w-[310px] mb-2 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-[10px] text-amber-200 font-bold">
+              <div className="flex items-center gap-1.5">
+                <Printer className="w-3.5 h-3.5 text-amber-400" />
+                <span>
+                  Pago mixto multi-ticket: se imprimirá 1 ticket por método ({effectiveSplits.length} tickets)
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {effectiveSplits.map((s, i) => (
+                  <span key={i} className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[9px] text-white">
+                    {s.method}: {s.receipt_type || effectiveType} {s.receipt_number || "-"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Exact Thermal 80mm / POS Ticket Container with Arial Narrow Typography */}
           <div
             ref={receiptRef}

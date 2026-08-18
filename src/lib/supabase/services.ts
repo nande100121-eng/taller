@@ -523,7 +523,9 @@ async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; er
 }
 
 // Generic high-speed batch fetcher for tables with > 1000 records (Zero slow COUNT(*) locks)
-async function fetchAllSupabaseTable(tableName: string) {
+// Descarga las páginas restantes en LOTES CONCURRENTES (5 a la vez) para reducir el
+// tiempo de arranque ~5x en la tablet, sin saturar la conexión del dispositivo.
+async function fetchAllSupabaseTable(tableName: string, concurrency = 5) {
   try {
     const PAGE_SIZE = 1000;
 
@@ -541,20 +543,30 @@ async function fetchAllSupabaseTable(tableName: string) {
     if (!firstBatch || firstBatch.length === 0) return [];
     if (firstBatch.length < PAGE_SIZE) return firstBatch;
 
-    // 2. Fetch all remaining pages (sin tope). La nube es la fuente única de la verdad:
-    // el registro de taller puede superar los 2000 registros y ninguno debe perderse.
+    // 2. Fetch all remaining pages concurrently (sin tope). La nube es la fuente única
+    // de la verdad: el registro de taller puede superar los 2000 registros y ninguno
+    // debe perderse. Las páginas son deterministas (range) y Promise.all preserva orden.
     let allRecords = [...firstBatch];
     let offset = PAGE_SIZE;
-    for (; ;) {
-      const { data: nextBatch, error: nextErr } = await supabase
-        .from(tableName)
-        .select("*")
-        .range(offset, offset + PAGE_SIZE - 1);
-
-      if (nextErr || !nextBatch || nextBatch.length === 0) break;
-      allRecords = allRecords.concat(nextBatch);
-      if (nextBatch.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
+    outer: while (true) {
+      const tasks: Array<PromiseLike<any>> = [];
+      for (let i = 0; i < concurrency; i++) {
+        tasks.push(
+          supabase
+            .from(tableName)
+            .select("*")
+            .range(offset + i * PAGE_SIZE, offset + i * PAGE_SIZE + PAGE_SIZE - 1)
+        );
+      }
+      const results = await Promise.all(tasks);
+      let lastCount = 0;
+      for (const res of results) {
+        if (res.error || !res.data || res.data.length === 0) break outer;
+        allRecords = allRecords.concat(res.data);
+        lastCount = res.data.length;
+      }
+      if (lastCount < PAGE_SIZE) break;
+      offset += concurrency * PAGE_SIZE;
     }
 
     return allRecords;
