@@ -616,6 +616,63 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
 }
 
 // ---------------------------------------------------------------------
+// REPORTE DIARIO DIRIGIDO POR FECHA (Informe de Taller & Caja)
+// Consulta SOLO las órdenes de trabajo y facturas del día seleccionado
+// en Supabase (en vez de descargar las 41k+ filas del sync global),
+// logrando que la pestaña de reporte cargue en <1s en la tablet.
+// ---------------------------------------------------------------------
+export interface DayReportData {
+  workOrders: WorkOrder[];
+  invoices: Invoice[];
+}
+
+export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReportData | null> {
+  try {
+    const cleanDate = (dateISO || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) return null;
+
+    // Límite exclusivo al día siguiente: paridad exacta con el filtro en
+    // memoria .slice(0,10) === selectedDate (evita perder/repetir registros
+    // en los bordes de medianoche).
+    const next = new Date(cleanDate + "T00:00:00Z");
+    next.setUTCDate(next.getUTCDate() + 1);
+    const nextDayISO = next.toISOString().slice(0, 10);
+
+    const [ordersRes, invoicesRes] = await Promise.all([
+      supabase
+        .from("work_orders")
+        .select("*")
+        .gte("entry_time", `${cleanDate}T00:00:00`)
+        .lt("entry_time", `${nextDayISO}T00:00:00`),
+      supabase
+        .from("invoices")
+        .select("*")
+        .gte("issued_at", `${cleanDate}T00:00:00`)
+        .lt("issued_at", `${nextDayISO}T00:00:00`),
+    ]);
+
+    if (ordersRes.error) console.warn("Day report work_orders warning:", ordersRes.error.message);
+    if (invoicesRes.error) console.warn("Day report invoices warning:", invoicesRes.error.message);
+
+    // Reutiliza el mismo formateo del sync global (parseo de items,
+    // ERP_META, ALLOW_MOD, etc.) para que el reporte muestre datos idénticos.
+    const workOrders = (ordersRes.data || []).map((o: any) => formatWorkOrderTableRow(o));
+    const invoices = (invoicesRes.data || []).map((inv: any) => {
+      let paymentBreakdown: any = inv.payment_breakdown;
+      if (typeof paymentBreakdown === "string") {
+        try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = undefined; }
+      }
+      return { ...inv, payment_breakdown: paymentBreakdown } as Invoice;
+    });
+
+    return { workOrders, invoices };
+  } catch (err) {
+    console.warn("Day report fetch warning:", err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------
 // MASTER TABLE SERVER-SIDE PAGINATION (Registros del Taller)
 // Carga solo la página activa (250 filas) + conteo + vehículos/facturas
 // relacionadas. Evita descargar las 41k+ work_orders e invoices en cada

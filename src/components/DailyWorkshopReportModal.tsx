@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
+import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
@@ -68,22 +69,43 @@ export function WorkshopDailyReportView({
   initialTab = "caja",
 }: WorkshopDailyReportViewProps) {
   const {
-    workOrders,
-    invoices,
-    vehicles,
     technicians,
-    workshopServices,
     inventoryItems,
     currentUser,
   } = useAppStore();
 
   const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [activeTab, setActiveTab] = useState<ReportTabType>(initialTab);
+  const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[] } | null>(null);
+  const [reportLoading, setReportLoading] = useState<boolean>(true);
 
   // Sync activeTab when component mounts or initialTab changes
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  // Carga dirigida por fecha: consulta SOLO las órdenes y facturas del día
+  // seleccionado en Supabase (en vez de esperar el sync global de 41k+ filas),
+  // para que el reporte pinte en <1s en la tablet.
+  useEffect(() => {
+    let active = true;
+    setReportLoading(true);
+    fetchSupabaseDayReport(selectedDate)
+      .then((data) => {
+        if (!active) return;
+        if (data) {
+          setDayData({ workOrders: data.workOrders, invoices: data.invoices });
+        } else {
+          setDayData(null);
+        }
+      })
+      .finally(() => {
+        if (active) setReportLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
 
   const [responsibleName, setResponsibleName] = useState<string>(
     currentUser?.name || "Jefe de Taller / Caja"
@@ -104,10 +126,13 @@ export function WorkshopDailyReportView({
 
   // Fast lookups: solo invoices emitidas en el día seleccionado, para no cruzar
   // montos/cobros de otra fecha a un WO del día consultado.
+  const dayInvoices = dayData?.invoices || [];
+  const dayOrders = dayData?.workOrders || [];
+
   const invoicesByWorkOrderId = useMemo(() => {
-    const map = new Map<string, (typeof invoices)[0]>();
-    for (let i = 0; i < invoices.length; i++) {
-      const inv = invoices[i];
+    const map = new Map<string, (typeof dayInvoices)[0]>();
+    for (let i = 0; i < dayInvoices.length; i++) {
+      const inv = dayInvoices[i];
       if (inv && inv.work_order_id) {
         const invDate = (inv.issued_at || "").slice(0, 10);
         if (invDate !== selectedDate) continue;
@@ -121,7 +146,7 @@ export function WorkshopDailyReportView({
       }
     }
     return map;
-  }, [invoices, selectedDate]);
+  }, [dayInvoices, selectedDate]);
 
   // Authorized staff for payment destination columns
   const authorizedStaff = useMemo(() => {
@@ -198,22 +223,6 @@ export function WorkshopDailyReportView({
 
     return result;
   };
-
-  // Day's work orders in Supabase
-  const dayOrders = useMemo(() => {
-    return workOrders.filter((wo) => {
-      const dateStr = (wo.entry_time || (wo as any).created_at || "").slice(0, 10);
-      return dateStr === selectedDate;
-    });
-  }, [workOrders, selectedDate]);
-
-  // Day's standalone invoices in Supabase
-  const dayInvoices = useMemo(() => {
-    return invoices.filter((inv) => {
-      const dateStr = (inv.issued_at || "").slice(0, 10);
-      return dateStr === selectedDate;
-    });
-  }, [invoices, selectedDate]);
 
   // Consolidated Rows for the Day's Table
   const consolidatedRows = useMemo(() => {
@@ -751,7 +760,16 @@ export function WorkshopDailyReportView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 font-mono text-[11px]">
-                {consolidatedRows.length === 0 ? (
+                {reportLoading ? (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-gray-400">
+                      <span className="inline-flex items-center gap-2.5">
+                        <span className="w-4 h-4 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
+                        Consultando el día {formatPeruDate(selectedDate)} en la nube...
+                      </span>
+                    </td>
+                  </tr>
+                ) : consolidatedRows.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="py-12 text-center text-gray-400 italic">
                       No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
