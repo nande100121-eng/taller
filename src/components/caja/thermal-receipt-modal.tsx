@@ -171,8 +171,10 @@ export default function ThermalReceiptModal({
           },
         ]);
 
-  // If certification is required, add line
-  if (workOrder?.requires_certification && workOrder.certification_price && workOrder.certification_price > 0) {
+  // If certification is required, add line (SOLO si no existe ya un ítem de certificación,
+  // para no duplicar lo que la card del taller ya tiene asignado).
+  const hasCertItem = effectiveItems.some((it) => /certificaci/i.test(it.description || ""));
+  if (workOrder?.requires_certification && workOrder.certification_price && workOrder.certification_price > 0 && !hasCertItem) {
     effectiveItems.push({
       description: `CERTIFICACIÓN (${workOrder.certification_type || "GNV/GLP"})`,
       quantity: 1,
@@ -180,6 +182,7 @@ export default function ThermalReceiptModal({
       subtotal: workOrder.certification_price,
     });
   }
+
 
   const effectiveDiscount = discountAmount > 0
     ? discountAmount
@@ -208,6 +211,17 @@ export default function ThermalReceiptModal({
   const viewMethod = previewSplit ? previewSplit.method : (paymentMethod || "CONTADO");
   const viewTotal = previewSplit ? (Number(previewSplit.amount) || 0) : effectiveTotal;
   const viewSplits = previewSplit ? [previewSplit] : effectiveSplits;
+
+  // Items a mostrar en el comprobante ACTUAL: en pago mixto multi-ticket cada comprobante
+  // lista SOLO su parte del pago (sin repetir la orden completa ni la certificación).
+  const viewItems = useMultiTickets && previewSplit
+    ? [{
+        description: `PAGO ${(previewSplit.method || "MIXTO").toUpperCase()}`,
+        quantity: 1,
+        unit_price: Number(previewSplit.amount) || 0,
+        subtotal: Number(previewSplit.amount) || 0,
+      }]
+    : effectiveItems;
   const viewOpGravadas = viewTotal > 0 ? viewTotal / 1.18 : 0;
   const viewIgv = viewTotal - viewOpGravadas;
   const viewAmountInWords = previewSplit ? numberToSpanishWords(viewTotal) : amountInWords;
@@ -372,8 +386,21 @@ export default function ThermalReceiptModal({
       return "<div><b>FORMA DE PAGO:</b> " + (methodLabel || "Efectivo") + "</div>";
     };
 
+    // Ítems de un comprobante de pago mixto: solo su parte (cantidad 1 x monto del método).
+    const buildSplitItemsHtml = (split: PaymentSplit) => {
+      const amt = Number(split.amount) || 0;
+      return "<tr>" +
+        '<td colspan="3" style="padding:2px 0 0 0;font-weight:bold;font-size:10.5px;text-transform:uppercase;word-break:break-word;">PAGO ' + (split.method || "MIXTO").toUpperCase() + "</td>" +
+        "</tr>" +
+        "<tr>" +
+        '<td style="width:20%;text-align:left;padding:1px 0;font-size:10.5px;">1.00</td>' +
+        '<td style="width:40%;text-align:right;padding:1px 6px 1px 0;font-size:10.5px;">' + amt.toFixed(2) + "</td>" +
+        '<td style="width:40%;text-align:right;padding:1px 4px 1px 0;font-size:10.5px;font-weight:bold;">' + amt.toFixed(2) + "</td>" +
+        "</tr>";
+    };
+
     // Single 80mm paper builder (one ticket / one method)
-    const buildPaper = (num: string, methodLabel: string, total: number, splits: PaymentSplit[], note?: string, type: "Ticket" | "Boleta" | "Factura" = effectiveType, resumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number }) => {
+    const buildPaper = (num: string, methodLabel: string, total: number, splits: PaymentSplit[], note?: string, type: "Ticket" | "Boleta" | "Factura" = effectiveType, resumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number }, itemsHtmlOverride?: string) => {
       const noteHtml = note
         ? '<div style="border-top:1px dashed #888;padding-top:2px;margin-top:2px;font-size:9.5px;font-weight:bold;"><b>NOTA:</b> ' + note + "</div>"
         : "";
@@ -413,7 +440,7 @@ export default function ThermalReceiptModal({
         '<th style="width:40%;text-align:right;padding:3px 4px 3px 0;font-size:10.5px;font-weight:900;">IMPORTE</th>' +
         "</tr>" +
         "</thead>" +
-        "<tbody>" + itemsHtml + "</tbody>" +
+        "<tbody>" + (itemsHtmlOverride || itemsHtml) + "</tbody>" +
         "</table>" +
         "</div>" +
         '<div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;">' +
@@ -453,7 +480,7 @@ export default function ThermalReceiptModal({
       papersHtml = effectiveSplits.map((s, i) => {
         const total = Number(s.amount) || 0;
         const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura" ? s.receipt_type : "Ticket") as "Ticket" | "Boleta" | "Factura";
-        const paper = buildPaper(s.receipt_number || effectiveNumber, s.method, total, [s], "PAGO PARCIAL CON " + s.method.toUpperCase(), st, i === 0 ? (pagoResumen || undefined) : undefined);
+        const paper = buildPaper(s.receipt_number || effectiveNumber, s.method, total, [s], "PAGO PARCIAL CON " + s.method.toUpperCase(), st, i === 0 ? (pagoResumen || undefined) : undefined, buildSplitItemsHtml(s));
         return paper + (i < effectiveSplits.length - 1 ? '<div style="page-break-after:always;"></div>' : "");
       }).join("");
     } else {
@@ -688,7 +715,7 @@ export default function ThermalReceiptModal({
               </div>
 
               <div className="py-1 space-y-1">
-                {effectiveItems.map((item, idx) => (
+                {viewItems.map((item, idx) => (
                   <div key={idx} className="space-y-0.5">
                     <div className="font-bold text-[10px] uppercase break-words leading-tight">
                       {item.description}
