@@ -1157,10 +1157,19 @@ export default function CajaPage() {
       }
       let splits = partialPaymentModal.paymentSplits;
       if (partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante") {
-        // Pago mixto multi-ticket: 1 N° de ticket por método, correlativo avanzado al máximo usado
-        const baseType = (partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura";
-        splits = stampSplitTicketNumbers(splits, partialPaymentModal.receiptNumber || getCorrelativePreview(baseType), baseType);
-        advanceCorrelativeToMax(baseType, splits.map((s) => s.receipt_number));
+        // Pago mixto multi-ticket: cada método lleva su propio TIPO (Ticket/Boleta/Factura) y N° de comprobante
+        splits = splits.map((s) => {
+          const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura"
+            ? s.receipt_type
+            : (partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura" ? partialPaymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+          const num = (s.receipt_number && String(s.receipt_number).trim()) || getCorrelativePreview(st);
+          return { ...s, receipt_type: st, receipt_number: num };
+        });
+        // Avanzar el correlativo al máximo usado, por cada tipo de comprobante emitido
+        const typesUsed = Array.from(new Set(splits.map((s) => s.receipt_type))) as Array<"Ticket" | "Boleta" | "Factura">;
+        for (const t of typesUsed) {
+          advanceCorrelativeToMax(t, splits.filter((s) => s.receipt_type === t).map((s) => s.receipt_number));
+        }
       } else {
         // Ticket único: el desglose queda como referencia, sin N° propio por método
         splits = splits.map((s) => ({ ...s, receipt_number: undefined, receipt_type: undefined }));
@@ -1195,7 +1204,11 @@ export default function CajaPage() {
       }
     }
 
-    const finalReceiptType = partialPaymentModal.receiptType === "Sin Comprobante" ? "" : partialPaymentModal.receiptType;
+    const finalReceiptType = partialPaymentModal.receiptType === "Sin Comprobante"
+      ? ""
+      : (partialPaymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0
+          ? (paymentBreakdown[0].receipt_type || partialPaymentModal.receiptType)
+          : partialPaymentModal.receiptType);
     const isFullyPaid = Math.abs(balance - amount) <= 0.01;
 
     registerInvoicePayment({
@@ -3824,12 +3837,15 @@ export default function CajaPage() {
                         ];
                       setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: true, paymentSplits: currentSplits });
                     }}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all ${partialPaymentModal.isSplitPayment
+                    className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${partialPaymentModal.isSplitPayment
                       ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
                       : "text-gray-400 hover:text-white"
                       }`}
                   >
                     💳 Pago Mixto / Parcial
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20">
+                      {(partialPaymentModal.paymentSplits || []).length}
+                    </span>
                   </button>
                 </div>
 
@@ -3890,9 +3906,12 @@ export default function CajaPage() {
                           const currentSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                           const remaining = Math.max(0, Number(((partialPaymentModal.amount || 0) - currentSum).toFixed(2)));
                           const splitsNow = partialPaymentModal.paymentSplits || [];
-                          const lastNum = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1].receipt_number : undefined;
+                          const lastSplit = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1] : undefined;
+                          const lastSplitType = (lastSplit?.receipt_type === "Boleta" || lastSplit?.receipt_type === "Factura"
+                            ? lastSplit.receipt_type
+                            : (partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura" ? partialPaymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
                           const nextTicketNum = partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante"
-                            ? (lastNum ? incrementReceiptNumber(lastNum) : (partialPaymentModal.receiptNumber || getCorrelativePreview((partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") as "Ticket" | "Boleta" | "Factura")))
+                            ? (lastSplit?.receipt_number ? incrementReceiptNumber(lastSplit.receipt_number) : (partialPaymentModal.receiptNumber || getCorrelativePreview(lastSplitType)))
                             : undefined;
                           const newSplits = [
                             ...splitsNow,
@@ -3902,7 +3921,7 @@ export default function CajaPage() {
                               destination: eligibleDestinations[0] || "EMPRESA",
                               amount: remaining,
                               ...(nextTicketNum
-                                ? { receipt_number: nextTicketNum, receipt_type: (partialPaymentModal.receiptType === "Factura" || partialPaymentModal.receiptType === "Boleta" ? partialPaymentModal.receiptType : "Ticket") }
+                                ? { receipt_number: nextTicketNum, receipt_type: lastSplitType }
                                 : {}),
                             },
                           ];
@@ -3915,11 +3934,11 @@ export default function CajaPage() {
                       </button>
                     </div>
 
-                    {/* Modo de asignación de N° de Ticket en pago mixto */}
+                    {/* Modo de asignación de N° de Comprobante en pago mixto */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/40 rounded-xl border border-white/10 p-2">
                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                         <Tag className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Asignación de N° de Ticket:</span>
+                        <span>Asignación de N° de Comprobante:</span>
                       </span>
                       <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-[11px] self-start sm:self-auto">
                         <button
@@ -3937,7 +3956,7 @@ export default function CajaPage() {
                             : "text-gray-400 hover:text-white"
                             }`}
                         >
-                          🎫 Un solo Ticket
+                          🎫 Un solo Comprobante
                         </button>
                         <button
                           type="button"
@@ -3963,13 +3982,17 @@ export default function CajaPage() {
                             }`}
                         >
                           <Split className="w-3.5 h-3.5" />
-                          <span>Ticket por Método</span>
+                          <span>Comprobante por Método</span>
                         </button>
                       </div>
                     </div>
 
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {(partialPaymentModal.paymentSplits || []).map((split, idx) => (
+                      {(partialPaymentModal.paymentSplits || []).map((split, idx) => {
+                        const splitType = (split.receipt_type === "Boleta" || split.receipt_type === "Factura"
+                          ? split.receipt_type
+                          : (partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura" ? partialPaymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+                        return (
                         <div
                           key={split.id || idx}
                           className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
@@ -4018,23 +4041,46 @@ export default function CajaPage() {
                             </select>
                           </div>
 
-                          {/* N° Ticket propio del método (multi-ticket) */}
+                          {/* Tipo + N° de comprobante propio del método (multi-ticket) */}
                           {partialPaymentModal.splitTicketMode === "perMethod" && (
-                            <div className="w-full sm:w-32 shrink-0">
-                              <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">N° Ticket:</label>
-                              <input
-                                type="text"
-                                placeholder="TK01-..."
-                                value={split.receipt_number || ""}
-                                onChange={(e) => {
-                                  const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
-                                    i === idx ? { ...p, receipt_number: e.target.value } : p
-                                  );
-                                  setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
-                                }}
-                                className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-amber-300 font-mono font-bold focus:border-purple-400"
-                              />
-                            </div>
+                            <>
+                              <div className="w-full sm:w-28 shrink-0">
+                                <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Tipo:</label>
+                                <select
+                                  value={splitType}
+                                  onChange={(e) => {
+                                    const newType = e.target.value as "Ticket" | "Boleta" | "Factura";
+                                    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx
+                                        ? { ...p, receipt_type: newType, receipt_number: getCorrelativePreview(newType) }
+                                        : p
+                                    );
+                                    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                  }}
+                                  className="w-full px-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-purple-400"
+                                >
+                                  <option value="Ticket">🎟️ Ticket</option>
+                                  <option value="Boleta">🧾 Boleta</option>
+                                  <option value="Factura">📑 Factura</option>
+                                </select>
+                              </div>
+                              <div className="w-full sm:w-36 shrink-0">
+                                <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">N° Comprobante:</label>
+                                <input
+                                  type="text"
+                                  placeholder={splitType === "Factura" ? "F001-..." : splitType === "Boleta" ? "B001-..." : "TK01-..."}
+                                  value={split.receipt_number || ""}
+                                  readOnly={!allowEditReceiptNumber}
+                                  onChange={(e) => {
+                                    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx ? { ...p, receipt_number: e.target.value } : p
+                                    );
+                                    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                  }}
+                                  className={`w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-amber-300 font-mono font-bold focus:border-purple-400 ${!allowEditReceiptNumber ? "opacity-60 cursor-not-allowed" : ""}`}
+                                />
+                              </div>
+                            </>
                           )}
 
                           <div className="flex-1 min-w-[110px]">
@@ -4066,7 +4112,8 @@ export default function CajaPage() {
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {(() => {
