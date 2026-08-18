@@ -3,8 +3,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
-const SUPABASE_URL = 'zpbwgodtjxhdecgsosxv.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpwYndnb2R0anhoZGVjZ3Nvc3h2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMzE5NjIsImV4cCI6MjEwMTgwNzk2Mn0.c81Bo6tmArG0Voq2EPmaQEoWk2jB6a6VuDVzHVv4H1M';
+const SUPABASE_URL = 'zkqlegxjynwurxzfhyzt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprcWxlZ3hqeW53dXJ4emZoeXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5OTgwMDYsImV4cCI6MjEwMjU3NDAwNn0.V9s6gsi6lcl4qpZpXBUFg-QPzOn9sGTsTTKZaxxZcWw';
 
 function parseISODate(dateStr) {
   if (!dateStr || !dateStr.trim() || dateStr.trim() === '-') {

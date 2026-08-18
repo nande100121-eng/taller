@@ -5,8 +5,8 @@ import { createClient } from "@supabase/supabase-js";
 // =====================================================================
 
 // 1. Configuración de Credenciales
-const SOURCE_SUPABASE_URL = process.env.SOURCE_SUPABASE_URL || "https://zpbwgodtjxhdecgsosxv.supabase.co";
-const SOURCE_SUPABASE_KEY = process.env.SOURCE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpwYndnb2R0anhoZGVjZ3Nvc3h2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMzE5NjIsImV4cCI6MjEwMTgwNzk2Mn0.c81Bo6tmArG0Voq2EPmaQEoWk2jB6a6VuDVzHVv4H1M";
+const SOURCE_SUPABASE_URL = process.env.SOURCE_SUPABASE_URL || "https://zkqlegxjynwurxzfhyzt.supabase.co";
+const SOURCE_SUPABASE_KEY = process.env.SOURCE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprcWxlZ3hqeW53dXJ4emZoeXp0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5OTgwMDYsImV4cCI6MjEwMjU3NDAwNn0.V9s6gsi6lcl4qpZpXBUFg-QPzOn9sGTsTTKZaxxZcWw";
 
 const TARGET_SUPABASE_URL = process.env.TARGET_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const TARGET_SUPABASE_KEY = process.env.TARGET_SUPABASE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
