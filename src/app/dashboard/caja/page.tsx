@@ -12,7 +12,7 @@ import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
-import { lookupPlateClientData, isCompletePlate } from "@/lib/utils/plate-autofill";
+import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import {
   CreditCard,
   TrendingUp,
@@ -3132,11 +3132,11 @@ export default function CajaPage() {
                         const plate = formatPlate(e.target.value);
                         setManualPaymentModal((prev) => (prev ? { ...prev, vehiclePlate: plate } : prev));
                         // Autocompleta Nombre/Teléfono del cliente desde la Tabla Registro del Taller
-                        if (isCompletePlate(plate)) {
+                        if (plate.replace(/[^A-Z0-9-]/g, "").length >= 4) {
                           void lookupPlateClientData(plate, vehicles).then((data) => {
                             if (!data.found) return;
                             setManualPaymentModal((prev) =>
-                              prev
+                              prev && prev.vehiclePlate === plate
                                 ? {
                                   ...prev,
                                   clientName: data.client_name || prev.clientName,

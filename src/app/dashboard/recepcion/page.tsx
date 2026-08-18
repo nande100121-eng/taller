@@ -36,7 +36,7 @@ import {
 import { getPeruDateTimeLocal, formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
-import { lookupPlateClientData, isCompletePlate } from "@/lib/utils/plate-autofill";
+import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import ReactDOM from "react-dom";
 
 const MONTH_NAMES = [
@@ -345,7 +345,10 @@ export default function RecepcionPage() {
     plate: string,
     apply: (name: string, phone: string) => void
   ) => {
-    if (!isCompletePlate(plate)) return;
+    // Dispara con placas parciales: la búsqueda es por coincidencia EXACTA, así que
+    // solo llena cuando la placa ya está completa y existe en el registro del taller.
+    const clean = (plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, "");
+    if (clean.length < 4) return;
     const data = await lookupPlateClientData(plate, vehicles);
     if (data.found) {
       apply(data.client_name, data.client_phone);
@@ -1389,7 +1392,9 @@ export default function RecepcionPage() {
                       setEditForm((prev) => (prev ? { ...prev, plate } : prev));
                       void autofillPlateClient(plate, (name, phone) => {
                         setEditForm((prev) =>
-                          prev ? { ...prev, client_name: name || prev.client_name, client_phone: phone || prev.client_phone } : prev
+                          prev && prev.plate === plate
+                            ? { ...prev, client_name: name || prev.client_name, client_phone: phone || prev.client_phone }
+                            : prev
                         );
                       });
                     }}
@@ -1701,11 +1706,14 @@ export default function RecepcionPage() {
                       setNewForm((prev) => ({ ...prev, plate }));
                       // Busca en la Tabla Registro del Taller y completa nombre + teléfono
                       void autofillPlateClient(plate, (name, phone) => {
-                        setNewForm((prev) => ({
-                          ...prev,
-                          client_name: name || prev.client_name,
-                          client_phone: phone || prev.client_phone,
-                        }));
+                        setNewForm((prev) => {
+                          if (prev.plate !== plate) return prev; // la placa cambió durante la búsqueda
+                          return {
+                            ...prev,
+                            client_name: name || prev.client_name,
+                            client_phone: phone || prev.client_phone,
+                          };
+                        });
                       });
                     }}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white uppercase focus:outline-none focus:border-reygas-red font-mono font-bold"
@@ -2278,11 +2286,14 @@ export default function RecepcionPage() {
                       const plate = formatPlate(e.target.value);
                       setCartillaForm((prev) => ({ ...prev, vehicle_plate: plate }));
                       void autofillPlateClient(plate, (name, phone) => {
-                        setCartillaForm((prev) => ({
-                          ...prev,
-                          client_name: name || prev.client_name,
-                          client_phone: phone || prev.client_phone,
-                        }));
+                        setCartillaForm((prev) => {
+                          if (prev.vehicle_plate !== plate) return prev; // la placa cambió durante la búsqueda
+                          return {
+                            ...prev,
+                            client_name: name || prev.client_name,
+                            client_phone: phone || prev.client_phone,
+                          };
+                        });
                       });
                     }}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white uppercase font-mono font-bold focus:border-emerald-400"
