@@ -1565,6 +1565,23 @@ export default function CajaPage() {
       ? Number(wo.discount_amount)
       : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
 
+    // TODOS los comprobantes emitidos en esta factura (uno por abono/pago con su método):
+    // cada pago del historial con su N° de Ticket/Boleta/Factura se muestra en una hoja y
+    // al imprimir se envían todos a la impresora.
+    const historySplits = (Array.isArray(inv?.payment_history) ? inv.payment_history : [])
+      .filter((r: any) => r && (r.receipt_number || r.receipt_type || r.method))
+      .map((r: any) => ({
+        id: r.id || undefined,
+        method: cleanMethodDisplay(r.method, Number(r.amount) || 0) || r.method || "Efectivo",
+        destination: r.destination || "EMPRESA",
+        amount: Number(r.amount) || 0,
+        receipt_number: r.receipt_number || undefined,
+        receipt_type: r.receipt_type || undefined,
+      }));
+    const breakdownForView = historySplits.length > 0
+      ? historySplits
+      : (Array.isArray(inv?.payment_breakdown) ? inv.payment_breakdown : undefined);
+
     setActiveReceiptModal({
       isOpen: true,
       workOrder: wo,
@@ -1580,6 +1597,7 @@ export default function CajaPage() {
       items: wo.items && wo.items.length > 0 ? wo.items : undefined,
       discountAmount: effectiveDiscount,
       paymentMethod: effectiveMethod,
+      paymentBreakdown: breakdownForView,
       // Resumen de pago al ver el comprobante: total, pagado acumulado y último monto
       pagoResumen: (() => {
         const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
