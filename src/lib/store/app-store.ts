@@ -630,6 +630,8 @@ interface AppState {
   togglePayInvoice: (invoiceId: string) => void;
   toggleOrderPayment: (orderId: string, invoiceId?: string) => void;
   undoLastPayment: (invoiceId: string) => void;
+  deletePaymentRecord: (invoiceId: string, recordId: string) => void;
+  clearInvoicePayments: (invoiceId: string) => void;
   confirmInvoicePayment: (params: {
     invoiceId?: string;
     workOrderId?: string;
@@ -2457,6 +2459,90 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         paid_at: undefined,
         debt_observation: fullyUnpaid ? undefined : targetInvoice.debt_observation,
         debt_responsible: fullyUnpaid ? undefined : targetInvoice.debt_responsible,
+      };
+      saveSupabaseInvoice(updated);
+      const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === targetInvoice.work_order_id) {
+          const u = { ...o, status: "por_cobrar" as WorkOrderStatus };
+          saveSupabaseWorkOrder(u);
+          return u;
+        }
+        return o;
+      });
+      return { invoices: updatedInvoices, workOrders: updatedOrders };
+    });
+  },
+
+  // Elimina UN registro específico del historial de pagos (abono) y recalcula el estado
+  // de la factura: si quedan abonos -> pendiente con saldo; si quedó al 100% -> pagado;
+  // si no queda ninguno -> pendiente de cobro completo (botón Confirmar Cobro).
+  deletePaymentRecord: (invoiceId, recordId) => {
+    set((state) => {
+      const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!targetInvoice || !recordId) return state;
+      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+        ? [...targetInvoice.payment_history]
+        : [];
+      const remaining = history.filter((p) => p.id !== recordId);
+      if (remaining.length === history.length) return state;
+      const prevPaid = remaining.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const totalDue = Number(targetInvoice.grand_total) || 0;
+      const balance = Math.max(0, totalDue - prevPaid);
+      const isFullyPaid = remaining.length > 0 && balance <= 0.01;
+      const lastRec = remaining.length > 0 ? remaining[remaining.length - 1] : undefined;
+      const updated: Invoice = {
+        ...targetInvoice,
+        payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
+        payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
+        credit_amount: isFullyPaid ? 0 : balance,
+        payment_history: remaining,
+        payment_breakdown: remaining.length > 0 ? targetInvoice.payment_breakdown : undefined,
+        receipt_number: remaining.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
+        receipt_type: remaining.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
+        paid_at: remaining.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,
+        debt_observation: remaining.length > 0 ? targetInvoice.debt_observation : undefined,
+        debt_responsible: remaining.length > 0 ? targetInvoice.debt_responsible : undefined,
+      };
+      saveSupabaseInvoice(updated);
+      const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === targetInvoice.work_order_id) {
+          const u = {
+            ...o,
+            status: (isFullyPaid ? ("pagado_autorizado" as WorkOrderStatus) : (remaining.length > 0 ? ("pendiente_pago" as WorkOrderStatus) : ("por_cobrar" as WorkOrderStatus))),
+          };
+          saveSupabaseWorkOrder(u);
+          return u;
+        }
+        return o;
+      });
+      return { invoices: updatedInvoices, workOrders: updatedOrders };
+    });
+  },
+
+  // Elimina TODOS los pagos/abonos de la factura: vuelve a pendiente de cobro completo
+  // (sin abonos, sin comprobante) y la card muestra de nuevo "Confirmar Cobro".
+  clearInvoicePayments: (invoiceId) => {
+    set((state) => {
+      const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!targetInvoice) return state;
+      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+        ? [...targetInvoice.payment_history]
+        : [];
+      if (history.length === 0) return state;
+      const updated: Invoice = {
+        ...targetInvoice,
+        payment_status: "pendiente" as const,
+        payment_condition: "PENDIENTE",
+        credit_amount: 0,
+        payment_history: [],
+        payment_breakdown: undefined,
+        receipt_number: "",
+        receipt_type: "",
+        paid_at: undefined,
+        debt_observation: undefined,
+        debt_responsible: undefined,
       };
       saveSupabaseInvoice(updated);
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));

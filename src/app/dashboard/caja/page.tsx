@@ -73,6 +73,8 @@ export default function CajaPage() {
     togglePayInvoice,
     toggleOrderPayment,
     undoLastPayment,
+    deletePaymentRecord,
+    clearInvoicePayments,
     confirmInvoicePayment,
     registerDirectWorkshopPayment,
     registerInvoicePayment,
@@ -94,6 +96,8 @@ export default function CajaPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   // Cards de placas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  // Confirmación en dos pasos para "Borrar todos los pagos" de una card
+  const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
       const next = new Set(prev);
@@ -2084,9 +2088,31 @@ export default function CajaPage() {
                           {/* Historial de pagos: fecha/hora, método, comprobante (ticket/boleta/factura) y monto */}
                           {partialHistory.length > 0 && (
                             <div className="pt-2 border-t border-white/5 space-y-1">
-                              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
-                                🧾 Historial de Pagos ({partialHistory.length}):
-                              </span>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-[10px] uppercase font-bold text-gray-400">
+                                  🧾 Historial de Pagos ({partialHistory.length}):
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirmClearCard === wo.id) {
+                                      if (invoice?.id) clearInvoicePayments(invoice.id);
+                                      setConfirmClearCard(null);
+                                      notify("warning", "Todos los pagos de " + wo.vehicle_plate + " fueron borrados. La factura vuelve a estar pendiente de cobro completo.");
+                                    } else {
+                                      setConfirmClearCard(wo.id);
+                                    }
+                                  }}
+                                  className={`px-2 py-0.5 rounded-lg border text-[9px] font-black flex items-center gap-1 transition-all ${confirmClearCard === wo.id
+                                    ? "bg-red-600 text-white border-red-500"
+                                    : "bg-red-500/10 text-red-400 hover:bg-red-500/25 border-red-500/30"
+                                    }`}
+                                  title="Borrar todos los pagos/abonos de esta factura (vuelve a Confirmar Cobro)"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>{confirmClearCard === wo.id ? "¿Confirmar borrado?" : "Borrar todos"}</span>
+                                </button>
+                              </div>
                               {partialHistory.map((rec, i) => (
                                 <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-gray-300">
                                   <span>
@@ -2095,7 +2121,22 @@ export default function CajaPage() {
                                     <strong>{rec.method}</strong>
                                     {rec.receipt_number ? " (" + (rec.receipt_type || "") + " " + rec.receipt_number + ")" : ""}
                                   </span>
-                                  <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
+                                  <span className="flex items-center gap-1.5">
+                                    <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (invoice?.id && rec.id) {
+                                          deletePaymentRecord(invoice.id, rec.id);
+                                          notify("warning", "Pago de S/ " + Number(rec.amount).toFixed(2) + " (" + rec.method + ") eliminado del historial. Saldo recalculado.");
+                                        }
+                                      }}
+                                      className="p-0.5 rounded bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors"
+                                      title="Eliminar este pago del historial"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </span>
                                 </div>
                               ))}
                             </div>
