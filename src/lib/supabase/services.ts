@@ -1,5 +1,6 @@
 import { supabase } from "./client";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
+import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 
 // Unique browser session ID to prevent self-broadcast reload loops
 export const CLIENT_SESSION_ID =
@@ -715,7 +716,13 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       if (typeof paymentBreakdown === "string") {
         try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = undefined; }
       }
-      return { ...inv, payment_breakdown: paymentBreakdown } as Invoice;
+      return {
+        ...inv,
+        payment_method: cleanMethodDisplay(inv.payment_method),
+        payment_breakdown: Array.isArray(paymentBreakdown)
+          ? paymentBreakdown.map((s: any) => ({ ...s, method: cleanMethodDisplay(s.method, Number(s.amount) || 0) }))
+          : paymentBreakdown,
+      } as Invoice;
     });
 
     // --- Abonos parciales del día (payment_history) sobre facturas de días anteriores ---
@@ -770,7 +777,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
           id: rec.id,
           date: rec.date || "",
           amount: Number(rec.amount) || 0,
-          method: rec.method || "Efectivo",
+          method: cleanMethodDisplay(rec.method, Number(rec.amount) || 0) || "Efectivo",
           destination: rec.destination || "EMPRESA",
           receipt_number: rec.receipt_number || "",
           receipt_type: rec.receipt_type || "",
@@ -1790,6 +1797,17 @@ export async function fetchSupabaseErpData() {
     const finalInvoices = Array.from(reconstructedInvoicesMap.values()).map((inv: any) => {
       const invFull = invFullMap.get(inv.id) || (inv.work_order_id ? invFullMap.get(inv.work_order_id) : undefined) || {};
       const bd = inv.payment_breakdown || invFull.payment_breakdown || invBreakdownsMap.get(inv.id) || (inv.work_order_id ? invBreakdownsMap.get(inv.work_order_id) : undefined);
+      let bdArr: any = bd;
+      if (typeof bdArr === "string") {
+        try { bdArr = JSON.parse(bdArr); } catch { bdArr = undefined; }
+      }
+      const rawHistory = Array.isArray(inv.payment_history)
+        ? inv.payment_history
+        : (Array.isArray(invFull.payment_history) ? invFull.payment_history : []);
+      const historyAmount = rawHistory.reduce((s: number, rr: any) => s + (Number(rr.amount) || 0), 0);
+      // Limpia el método de pago: desanida "Mixto (Mixto (...))" obsoleto para que los
+      // abonos borrados NO aparezcan en el método mostrado en caja/tablas/reportes.
+      const methodClean = cleanMethodDisplay(inv.payment_method || invFull.payment_method, historyAmount > 0 ? historyAmount : undefined);
       return {
         ...invFull,
         ...inv,
@@ -1800,7 +1818,11 @@ export async function fetchSupabaseErpData() {
         payment_destination: inv.payment_destination || invFull.payment_destination || "",
         payment_condition: inv.payment_condition || invFull.payment_condition || "",
         observations: inv.observations || invFull.observations || "",
-        payment_breakdown: typeof bd === "string" ? JSON.parse(bd) : bd,
+        payment_method: methodClean,
+        payment_history: rawHistory.map((rr: any) => ({ ...rr, method: cleanMethodDisplay(rr.method, Number(rr.amount) || 0) })),
+        payment_breakdown: Array.isArray(bdArr)
+          ? bdArr.map((s: any) => ({ ...s, method: cleanMethodDisplay(s.method, Number(s.amount) || 0) }))
+          : bdArr,
       };
     });
     const mergedCerts = certData.data && certData.data.length > 0 ? certData.data : fallbackCerts;

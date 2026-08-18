@@ -11,6 +11,7 @@ import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lo
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
+import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
 import {
   CreditCard,
   TrendingUp,
@@ -858,14 +859,14 @@ export default function CajaPage() {
     const initialSplits: PaymentSplit[] = (Array.isArray(inv?.payment_breakdown) && inv.payment_breakdown.length > 0)
       ? inv.payment_breakdown.map((s: any, idx: number) => ({
         id: s.id || `split-${Date.now()}-${idx}`,
-        method: s.method || "Efectivo",
+        method: defaultMethodFrom(s.method || "Efectivo"),
         destination: s.destination || eligibleDestinations[0] || "EMPRESA",
         amount: typeof s.amount === "number" ? s.amount : Number(s.amount) || 0,
       }))
       : [
         {
           id: `split-1`,
-          method: (inv?.payment_method as any) || "Efectivo",
+          method: defaultMethodFrom(inv?.payment_method),
           destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
           amount: total,
         },
@@ -882,7 +883,7 @@ export default function CajaPage() {
       grandTotal: total,
       breakdownItems: breakdown,
       discountAmount: effectiveDiscount,
-      paymentMethod: isZero ? "" : (inv?.payment_method as any) || "Efectivo",
+      paymentMethod: isZero ? "" : defaultMethodFrom(inv?.payment_method),
       paymentDestination: isZero ? "" : inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
       isSplitPayment: hasExistingSplits,
       paymentSplits: initialSplits,
@@ -1143,13 +1144,14 @@ export default function CajaPage() {
       totalDue,
       paidSoFar,
       amount: balance, // Por defecto: abonar el saldo total
-      paymentMethod: inv?.payment_method || "Efectivo",
+      // Método limpio (nunca "Mixto (Mixto (...))" anidado) para no re-guardar basura
+      paymentMethod: defaultMethodFrom(inv?.payment_method),
       paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
       isSplitPayment: false,
       paymentSplits: [
         {
           id: `split-1`,
-          method: inv?.payment_method || "Efectivo",
+          method: defaultMethodFrom(inv?.payment_method),
           destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
           amount: balance,
         },
@@ -1387,6 +1389,19 @@ export default function CajaPage() {
       return;
     }
 
+    // Anti-duplicado: si la placa ya tiene una orden con el MISMO servicio el MISMO día,
+    // no crear una card nueva: se trabaja sobre la misma card con Abonar Saldo / Confirmar Pago.
+    const manualSameService = workOrders.find((o) =>
+      o.vehicle_plate && o.vehicle_plate.toUpperCase() === plate &&
+      o.entry_time && o.entry_time.slice(0, 10) === manualPaymentModal.entryDate &&
+      ((o.general_maintenance_service || o.problem_description || "").toLowerCase().includes((manualPaymentModal.maintenanceService || "").trim().toLowerCase()) ||
+        (manualPaymentModal.maintenanceService || "").trim().toLowerCase().includes((o.general_maintenance_service || o.problem_description || "").toLowerCase()))
+    );
+    if (manualSameService) {
+      notify("warning", "La placa " + plate + " ya tiene una orden registrada hoy con el mismo servicio (OT #" + manualSameService.id + "). Use Abonar Saldo o Confirmar Pago en la card existente de Caja/Taller para no duplicar el registro.");
+      return;
+    }
+
     const newDateTimeISO = buildPeruISOString(manualPaymentModal.entryDate, manualPaymentModal.entryTime || "08:30");
     const isZeroAmount = (manualPaymentModal.price || 0) === 0;
     const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
@@ -1541,7 +1556,7 @@ export default function CajaPage() {
         ? vehicle.owner_name
         : (csvRec?.clientName || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")));
 
-    const effectiveMethod = inv?.payment_method || csvRec?.method || "Efectivo";
+    const effectiveMethod = cleanMethodDisplay(inv?.payment_method) || csvRec?.method || "Efectivo";
 
     const effectiveDoc = inv?.customer_doc || csvRec?.rucFactura || "";
 
@@ -1949,7 +1964,7 @@ export default function CajaPage() {
                       ? "Boleta"
                       : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket");
 
-                const effectiveMethod = invoice?.payment_method || csvRec?.method || "Efectivo";
+                const effectiveMethod = cleanMethodDisplay(invoice?.payment_method) || csvRec?.method || "Efectivo";
                 const effectiveDestination = invoice?.payment_destination || csvRec?.destination || "EMPRESA";
 
                 const buttonReceiptLabel = isSinComp
@@ -2173,7 +2188,7 @@ export default function CajaPage() {
                                   <span>
                                     <span className="text-gray-400 font-mono">{formatPeruDateTime(rec.date)}</span>
                                     {" — "}
-                                    <strong>{rec.method}</strong>
+                                    <strong>{cleanMethodDisplay(rec.method, Number(rec.amount) || 0) || rec.method}</strong>
                                     {rec.receipt_number ? " (" + (rec.receipt_type || "") + " " + rec.receipt_number + ")" : ""}
                                   </span>
                                   <span className="flex items-center gap-1.5">

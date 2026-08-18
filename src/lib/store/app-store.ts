@@ -42,6 +42,12 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
+import {
+  sanitizeMethod,
+  rebuildMethodFromHistory,
+  rebuildBreakdownFromHistory,
+  rebuildDestFromHistory,
+} from "@/lib/utils/payment-method";
 import { WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 
 // Throttle global de syncs completos: el ERP tiene 41k+ órdenes de trabajo y
@@ -2461,7 +2467,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_condition: "PENDIENTE",
         credit_amount: fullyUnpaid ? 0 : balance,
         payment_history: history,
-        payment_breakdown: fullyUnpaid ? undefined : targetInvoice.payment_breakdown,
+        // Recalcula método/destino/desglose SOLO con los pagos vigentes:
+        // un abono borrado no debe dejar rastro en el método mostrado.
+        payment_method: rebuildMethodFromHistory(history),
+        payment_destination: rebuildDestFromHistory(history),
+        payment_breakdown: fullyUnpaid ? undefined : rebuildBreakdownFromHistory(history),
         receipt_number: fullyUnpaid ? "" : targetInvoice.receipt_number,
         receipt_type: fullyUnpaid ? "" : targetInvoice.receipt_type,
         paid_at: undefined,
@@ -2505,7 +2515,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
         credit_amount: isFullyPaid ? 0 : balance,
         payment_history: remaining,
-        payment_breakdown: remaining.length > 0 ? targetInvoice.payment_breakdown : undefined,
+        // Recalcula método/destino/desglose SOLO con los pagos vigentes.
+        payment_method: rebuildMethodFromHistory(remaining),
+        payment_destination: rebuildDestFromHistory(remaining),
+        payment_breakdown: remaining.length > 0 ? rebuildBreakdownFromHistory(remaining) : undefined,
         receipt_number: remaining.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
         receipt_type: remaining.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
         paid_at: remaining.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,
@@ -2545,6 +2558,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_condition: "PENDIENTE",
         credit_amount: 0,
         payment_history: [],
+        payment_method: "",
+        payment_destination: "",
         payment_breakdown: undefined,
         receipt_number: "",
         receipt_type: "",
@@ -2656,7 +2671,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           discounts: discountVal,
           grand_total: computedGrandTotal,
           payment_status: "pagado" as const,
-          payment_method: paymentMethod || targetInvoice.payment_method || "Efectivo",
+          payment_method: sanitizeMethod(paymentMethod || targetInvoice.payment_method || "Efectivo"),
           payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
           receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || ""),
           receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || ""),
@@ -2684,7 +2699,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           discounts: discountVal,
           grand_total: Math.max(0, partsTotal + certFee - discountVal),
           payment_status: "pagado",
-          payment_method: paymentMethod || "Efectivo",
+          payment_method: sanitizeMethod(paymentMethod || "Efectivo"),
           payment_destination: paymentDestination || "EMPRESA",
           receipt_number: receiptNumber !== undefined ? receiptNumber : "",
           receipt_type: receiptType !== undefined ? receiptType : "",
@@ -2827,16 +2842,32 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     const nowISO = paidAt || new Date().toISOString();
     set((state) => {
       let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      // NUNCA duplicar: si el id no coincide (p. ej. tras sync), buscar por work_order_id
       if (!targetInvoice && workOrderId) {
         targetInvoice = state.invoices.find((i) => i.work_order_id === workOrderId);
       }
 
       const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
       const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
+
+      // Último recurso antes de crear: factura pendiente/crédito de la misma placa.
+      // Evita que un abono genere una factura duplicada en la tabla de registro taller.
+      if (!targetInvoice && targetOrder) {
+        targetInvoice = state.invoices.find(
+          (i) =>
+            i.vehicle_plate &&
+            targetOrder.vehicle_plate &&
+            i.vehicle_plate.toUpperCase() === targetOrder.vehicle_plate.toUpperCase() &&
+            (i.payment_status !== "pagado" || Number(i.credit_amount) > 0)
+        );
+      }
+
       const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
 
       const payAmount = Math.max(0, Number(amount) || 0);
-      const methodStr = paymentMethod || targetInvoice?.payment_method || "Efectivo";
+      // Sanitiza el método: si viene "Mixto (Mixto (...))" anidado (dato obsoleto),
+      // lo colapsa al método real del pago para no volver a guardar basura anidada.
+      const methodStr = sanitizeMethod(paymentMethod || targetInvoice?.payment_method || "Efectivo", payAmount);
       const destStr = paymentDestination || targetInvoice?.payment_destination || "EMPRESA";
       const recNum = receiptNumber !== undefined ? receiptNumber : (targetInvoice?.receipt_number || "");
       const recType = receiptType !== undefined ? receiptType : (targetInvoice?.receipt_type || "");
@@ -2877,7 +2908,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           payment_destination: destStr,
           receipt_number: recNum || targetInvoice.receipt_number,
           receipt_type: recType || targetInvoice.receipt_type,
-          payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
+          payment_breakdown: paymentBreakdown !== undefined
+            ? paymentBreakdown
+            : (history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined),
           payment_history: history,
           debt_observation: isFullyPaid ? undefined : (observation !== undefined ? observation : targetInvoice.debt_observation),
           debt_responsible: isFullyPaid ? undefined : (responsible !== undefined ? responsible : targetInvoice.debt_responsible),

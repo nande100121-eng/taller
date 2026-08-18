@@ -6,6 +6,15 @@ import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate, getPeruDateString, buildPeruISOString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { formatPlate, titleCase } from "@/lib/utils/text-format";
+import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
+
+// Convierte "S/ 410", "410", "S/ 50.00" o 410 a número. Devuelve 0 si no es válido.
+function parseAmt(raw: any): number {
+  if (raw === null || raw === undefined || raw === "") return 0;
+  if (typeof raw === "number") return isNaN(raw) ? 0 : raw;
+  const n = parseFloat(String(raw).replace(/[^0-9.\-]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
 import {
   Table,
   UserCheck,
@@ -721,6 +730,31 @@ export default function AdminTablesPage() {
     return map;
   }, [masterVehicles, vehicles]);
 
+  // Saldo por placa: SOLO el registro MÁS RECIENTE con saldo pendiente (crédito > 0)
+  // muestra su saldo. Los registros anteriores de la misma placa quedan en blanco para
+  // no duplicar el saldo de la placa (Monto + Saldo del último = total real por placa).
+  const saldoPlateMap = React.useMemo(() => {
+    const map = new Map<string, string>();
+    const creditOf = (wo: WorkOrder) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      if (!inv) return 0;
+      return inv.raw_credit_str != null && inv.raw_credit_str !== ""
+        ? parseAmt(inv.raw_credit_str)
+        : (Number(inv.credit_amount) || 0);
+    };
+    for (const wo of masterRows) {
+      const credit = creditOf(wo);
+      if (credit <= 0) continue;
+      const key = (wo.vehicle_plate || "").toUpperCase();
+      const curId = map.get(key);
+      const cur = curId ? masterRows.find((o) => o.id === curId) : undefined;
+      if (!cur || (wo.entry_time || "") > (cur.entry_time || "")) {
+        map.set(key, wo.id);
+      }
+    }
+    return map;
+  }, [masterRows, invoicesByWorkOrderId]);
+
   // Rows shown in the table = the server-paginated active page
   const filteredOrders = React.useMemo(() => {
     return masterRows;
@@ -783,7 +817,7 @@ export default function AdminTablesPage() {
       discounts: String(inv?.discounts || ""),
       creditAmount: inv?.credit_amount || 0,
       paymentCondition: inv?.payment_condition || "PAGADO",
-      paymentMethod: inv?.payment_method || "Efectivo",
+      paymentMethod: defaultMethodFrom(inv?.payment_method),
       paymentDestination: inv?.payment_destination || "EMPRESA",
       receiptType: inv?.receipt_type || "Ticket",
       receiptNumber: inv?.receipt_number || "",
@@ -1169,9 +1203,9 @@ export default function AdminTablesPage() {
                   <th className="p-3">Técnico</th>
                   <th className="p-3 max-w-[200px]">MANT. GENERAL / SERVICIO</th>
                   <th className="p-3 max-w-[200px]">REPUESTOS Y SERVICIOS</th>
-                  <th className="p-3">Precio</th>
+                  <th className="p-3">Monto</th>
                   <th className="p-3">DESCUENTOS</th>
-                  <th className="p-3">Credito</th>
+                  <th className="p-3">Saldo</th>
                   <th className="p-3">Condicion</th>
                   <th className="p-3">METODO DE PAGO</th>
                   <th className="p-3">DESTINO DE PAGO</th>
@@ -1203,23 +1237,33 @@ export default function AdminTablesPage() {
                     const inv = invoicesByWorkOrderId.get(wo.id);
                     const isSelected = selectedIds.includes(wo.id);
 
-                    const priceVal = inv?.raw_price_str != null && inv.raw_price_str !== ""
-                      ? (inv.raw_price_str.startsWith("$") || inv.raw_price_str.startsWith("S/")
-                        ? inv.raw_price_str
-                        : `S/ ${parseFloat(inv.raw_price_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
-                      : (inv?.grand_total !== undefined && inv.grand_total > 0
-                        ? `S/ ${inv.grand_total.toFixed(2)}`
-                        : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
+                    // MONTO = lo realmente PAGADO en ese registro (Total - Saldo): sirve para
+                    // reportes y suma con el Saldo al total. SALDO = crédito vigente, mostrado
+                    // SOLO en el registro más reciente de la placa (evita duplicar saldos).
+                    const totalNum = inv
+                      ? (inv.raw_price_str != null && inv.raw_price_str !== "" ? parseAmt(inv.raw_price_str) : (Number(inv.grand_total) || 0))
+                      : 0;
+                    const creditNum = inv
+                      ? (inv.raw_credit_str != null && inv.raw_credit_str !== "" ? parseAmt(inv.raw_credit_str) : (Number(inv.credit_amount) || 0))
+                      : 0;
+                    const isPaidRow = inv
+                      ? (inv.payment_status === "pagado" || String(inv.payment_condition || "").toUpperCase() === "PAGADO")
+                      : false;
+                    const montoNum = inv
+                      ? (creditNum > 0 ? Math.max(0, totalNum - creditNum) : (isPaidRow ? totalNum : 0))
+                      : 0;
+                    const montoVal = montoNum > 0
+                      ? `S/ ${montoNum.toFixed(2)}`
+                      : (inv ? "" : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
 
                     const discountVal = inv?.discounts !== undefined && inv.discounts !== ""
                       ? String(inv.discounts)
                       : "";
 
-                    const creditVal = inv?.raw_credit_str != null && inv.raw_credit_str !== ""
-                      ? (inv.raw_credit_str.startsWith("$") || inv.raw_credit_str.startsWith("S/")
-                        ? inv.raw_credit_str
-                        : `S/ ${parseFloat(inv.raw_credit_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
-                      : (inv?.credit_amount && inv.credit_amount > 0 ? `S/ ${inv.credit_amount.toFixed(2)}` : "");
+                    const showSaldo = inv ? saldoPlateMap.get((wo.vehicle_plate || "").toUpperCase()) === wo.id : false;
+                    const saldoVal = showSaldo && creditNum > 0 ? `S/ ${creditNum.toFixed(2)}` : "";
+                    // Método limpio: nunca "Mixto (Mixto (...))" ni rastros de abonos borrados
+                    const methodClean = inv ? (cleanMethodDisplay(inv.payment_method, montoNum > 0 ? montoNum : undefined) || inv.payment_method || "") : "";
 
                     return (
                       <tr
@@ -1255,11 +1299,11 @@ export default function AdminTablesPage() {
                         <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
                         <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || ""}</td>
                         <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
-                        <td className="p-3 font-mono font-bold text-white">{priceVal}</td>
+                        <td className="p-3 font-mono font-bold text-white">{montoVal}</td>
                         <td className="p-3 font-mono text-gray-400">{discountVal}</td>
-                        <td className="p-3 font-mono text-amber-400 font-bold">{creditVal}</td>
+                        <td className="p-3 font-mono text-amber-400 font-bold">{saldoVal}</td>
                         <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || ""}</td>
-                        <td className="p-3 text-emerald-300 font-bold">{inv?.payment_method || ""}</td>
+                        <td className="p-3 text-emerald-300 font-bold">{methodClean}</td>
                         <td className="p-3 text-purple-300">{inv?.payment_destination || ""}</td>
                         <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || ""}</td>
                         <td className="p-3 text-center">
