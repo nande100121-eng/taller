@@ -589,6 +589,7 @@ export default function AdminTablesPage() {
       // Anti-duplicado: placa+fecha ya importadas en ESTE lote (evita cards duplicadas en Taller)
       const importedPlateDates = new Set<string>();
       let skippedDuplicates = 0;
+      let skippedFuture = 0;
 
       const timestamp = Date.now();
 
@@ -616,6 +617,14 @@ export default function AdminTablesPage() {
           return;
         }
         importedPlateDates.add(plateDateKey);
+
+        // Anti-fechas futuras: una atención registrada NO puede tener fecha posterior a hoy.
+        // Los CSV con fechas erróneas (p. ej. setiembre 2026) dañan la información de la
+        // Tabla Maestra; esas filas se omiten y se informan al final del import.
+        if (importEntryDate > getPeruDateString()) {
+          skippedFuture++;
+          return;
+        }
 
         const is_explicit_paid = record.paymentCondition.toUpperCase().includes("PAGADO");
         const is_credit_order = !is_explicit_paid && (
@@ -712,18 +721,19 @@ export default function AdminTablesPage() {
           invoices: batchInvoices,
         }).then((res) => {
           const dupNote = skippedDuplicates > 0 ? ` (${skippedDuplicates} filas omitidas por ser duplicadas de órdenes existentes de la misma placa y fecha)` : "";
+          const futureNote = skippedFuture > 0 ? ` (${skippedFuture} filas omitidas por tener fecha futura, posterior a hoy: corríjalas en el Excel y vuelva a importar)` : "";
           if (res?.success) {
-            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!${dupNote}`);
+            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!${dupNote}${futureNote}`);
           } else {
-            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}${dupNote}`);
+            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}${dupNote}${futureNote}`);
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
           setRefreshNonce((n) => n + 1);
         });
-      } else if (skippedDuplicates > 0) {
+      } else if (skippedDuplicates > 0 || skippedFuture > 0) {
         setIsImportingWorkshop(false);
-        notify("warning", `No se importó nada: las ${skippedDuplicates} filas del archivo ya existen como órdenes de la misma placa y fecha (se omiten para no duplicar cards en Taller).`);
+        notify("warning", `No se importó nada: ${skippedDuplicates} filas duplicadas de la misma placa y fecha, y ${skippedFuture} filas con fecha futura (posterior a hoy). Corrija el Excel y vuelva a importar.`);
       } else {
         setIsImportingWorkshop(false);
         notify("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
