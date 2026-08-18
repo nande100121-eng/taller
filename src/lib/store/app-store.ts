@@ -37,6 +37,7 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
+import { WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -784,6 +785,26 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }
       }
     });
+
+    // Scan the workshop register (tabla "registro taller" / CSV lookup) for the maximum
+    // existing correlative of this receipt type. If a register row has a higher number
+    // than the manually configured one, it becomes the last valid correlative to continue the sequence.
+    for (const key in WORKSHOP_CSV_LOOKUP) {
+      if (key.startsWith("REC_")) continue;
+      const rec = WORKSHOP_CSV_LOOKUP[key];
+      const numStr = String(rec.receiptNumber || "").trim();
+      if (!numStr || numStr === "0") continue;
+      const recTypeUpper = String(rec.receiptType || "").toUpperCase();
+      const matchesType =
+        (type === "Factura" && recTypeUpper.includes("FACTURA")) ||
+        (type === "Boleta" && recTypeUpper.includes("BOLETA")) ||
+        (type === "Ticket" && (recTypeUpper.includes("TICKET") || (!recTypeUpper.includes("FACTURA") && !recTypeUpper.includes("BOLETA"))));
+      if (!matchesType) continue;
+      const clean = parseInt(numStr.replace(/\D/g, ""), 10);
+      if (!isNaN(clean) && clean > maxExistingInDb && clean < 99999999) {
+        maxExistingInDb = clean;
+      }
+    }
 
     let nextNum = 1;
     let series = "TK01";

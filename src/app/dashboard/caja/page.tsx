@@ -7,7 +7,7 @@ import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
 } from "@/lib/utils/credit-tracker";
-import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
+import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import {
@@ -388,6 +388,28 @@ export default function CajaPage() {
     return parseInt(clean, 10) || 0;
   };
 
+  // Maximum correlative present in the workshop register (tabla "registro taller" / CSV) per receipt type
+  const workshopMaxCorrelative = React.useMemo(() => {
+    const max = { Ticket: 0, Boleta: 0, Factura: 0 };
+    for (const key in WORKSHOP_CSV_LOOKUP) {
+      if (key.startsWith("REC_")) continue;
+      const rec = WORKSHOP_CSV_LOOKUP[key];
+      const numStr = String(rec.receiptNumber || "").trim();
+      if (!numStr || numStr === "0") continue;
+      const clean = parseInt(numStr.replace(/\D/g, ""), 10);
+      if (isNaN(clean) || clean >= 99999999) continue;
+      const rt = String(rec.receiptType || "").toUpperCase();
+      if (rt.includes("FACTURA")) {
+        if (clean > max.Factura) max.Factura = clean;
+      } else if (rt.includes("BOLETA")) {
+        if (clean > max.Boleta) max.Boleta = clean;
+      } else if (rt.includes("TICKET")) {
+        if (clean > max.Ticket) max.Ticket = clean;
+      }
+    }
+    return max;
+  }, []);
+
   // Calculate latest registered correlatives from invoices and fallback config
   const latestCorrelatives = React.useMemo(() => {
     const config = correlativeConfig || {
@@ -448,9 +470,15 @@ export default function CajaPage() {
     });
     const lastFactura = sortedFacturas[0];
 
+    // If no invoice exists in Supabase yet, the last effective correlative is the maximum
+    // between the manually configured number and the highest found in the workshop register (CSV).
+    const effectiveTicketBase = Math.max(Number(config.ticketLastNumber) || 0, workshopMaxCorrelative.Ticket);
+    const effectiveBoletaBase = Math.max(Number(config.boletaLastNumber) || 0, workshopMaxCorrelative.Boleta);
+    const effectiveFacturaBase = Math.max(Number(config.facturaLastNumber) || 0, workshopMaxCorrelative.Factura);
+
     return {
       ticket: {
-        number: lastTicket?.receipt_number || `${config.ticketSeries || "TK01"}-${(config.ticketLastNumber || 4545).toString().padStart(8, "0")}`,
+        number: lastTicket?.receipt_number || `${config.ticketSeries || "TK01"}-${effectiveTicketBase.toString().padStart(8, "0")}`,
         plate: lastTicket?.vehicle_plate || "",
         client: lastTicket?.client_name || "",
         total: lastTicket?.grand_total,
@@ -458,7 +486,7 @@ export default function CajaPage() {
         count: ticketInvoices.length,
       },
       boleta: {
-        number: lastBoleta?.receipt_number || `${config.boletaSeries || "B001"}-${(config.boletaLastNumber || 259).toString().padStart(8, "0")}`,
+        number: lastBoleta?.receipt_number || `${config.boletaSeries || "B001"}-${effectiveBoletaBase.toString().padStart(8, "0")}`,
         plate: lastBoleta?.vehicle_plate || "",
         client: lastBoleta?.client_name || "",
         total: lastBoleta?.grand_total,
@@ -466,7 +494,7 @@ export default function CajaPage() {
         count: boletaInvoices.length,
       },
       factura: {
-        number: lastFactura?.receipt_number || `${config.facturaSeries || "F001"}-${(config.facturaLastNumber || 282).toString().padStart(8, "0")}`,
+        number: lastFactura?.receipt_number || `${config.facturaSeries || "F001"}-${effectiveFacturaBase.toString().padStart(8, "0")}`,
         plate: lastFactura?.vehicle_plate || "",
         client: lastFactura?.client_name || "",
         total: lastFactura?.grand_total,
@@ -474,7 +502,7 @@ export default function CajaPage() {
         count: facturaInvoices.length,
       },
     };
-  }, [invoices, correlativeConfig]);
+  }, [invoices, correlativeConfig, workshopMaxCorrelative]);
 
   // Filtered orders for Caja Tab (Pending payments first, then newest entry_time)
   const filteredCajaOrders = React.useMemo(() => {
@@ -595,11 +623,14 @@ export default function CajaPage() {
       facturaLastNumber: 282,
     };
     if (type === "Factura") {
-      return `${config.facturaSeries || "F001"}-${((config.facturaLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+      const base = Math.max(Number(config.facturaLastNumber) || 0, workshopMaxCorrelative.Factura);
+      return `${config.facturaSeries || "F001"}-${(base + 1).toString().padStart(8, "0")}`;
     } else if (type === "Boleta") {
-      return `${config.boletaSeries || "B001"}-${((config.boletaLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+      const base = Math.max(Number(config.boletaLastNumber) || 0, workshopMaxCorrelative.Boleta);
+      return `${config.boletaSeries || "B001"}-${(base + 1).toString().padStart(8, "0")}`;
     } else {
-      return `${config.ticketSeries || "TK01"}-${((config.ticketLastNumber || 0) + 1).toString().padStart(8, "0")}`;
+      const base = Math.max(Number(config.ticketLastNumber) || 0, workshopMaxCorrelative.Ticket);
+      return `${config.ticketSeries || "TK01"}-${(base + 1).toString().padStart(8, "0")}`;
     }
   };
 
