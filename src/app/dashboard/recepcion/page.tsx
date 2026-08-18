@@ -365,6 +365,16 @@ export default function RecepcionPage() {
 
   const handleCreateNewAppointment = (e: React.FormEvent) => {
     e.preventDefault();
+    // Validación de disponibilidad: no permitir duplicar en un horario lleno
+    const nDate = newForm.scheduled_date?.slice(0, 10);
+    const nTime = newForm.scheduled_date?.slice(11, 16);
+    if (nDate && nTime) {
+      const occ = getOccupancyForDate(nDate, nTime);
+      if (occ.isFull) {
+        notify("warning", "El horario " + nTime + " del " + formatPeruDate(nDate) + " ya está lleno (2 vehículos). Elija otro horario disponible.");
+        return;
+      }
+    }
     addAppointment({
       client_name: newForm.client_name,
       client_phone: newForm.client_phone,
@@ -386,6 +396,17 @@ export default function RecepcionPage() {
   const handleSaveEditAppointment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingApp || !editForm) return;
+
+    // Validación de disponibilidad (excluye la cita en edición para no contarse a sí misma)
+    const eDate = editForm.scheduled_date?.slice(0, 10);
+    const eTime = editForm.scheduled_date?.slice(11, 16);
+    if (eDate && eTime) {
+      const occ = getOccupancyForDate(eDate, eTime, editingApp.id);
+      if (occ.isFull) {
+        notify("warning", "El horario " + eTime + " del " + formatPeruDate(eDate) + " ya está lleno (2 vehículos). Elija otro horario disponible.");
+        return;
+      }
+    }
 
     updateAppointment(editingApp.id, {
       client_name: editForm.client_name,
@@ -698,10 +719,12 @@ export default function RecepcionPage() {
     "17:00",
   ];
 
-  const getSlotOccupancy = (slotTime: string) => {
-    const slotPrefix = `${availabilityDate}T${slotTime}`;
+  // Ocupación genérica por fecha/hora (reutilizada en Nueva Cita, Editar Cita y Disponibilidad General).
+  // excludeAppId permite que, al editar, la cita en edición no se cuente a sí misma como ocupada.
+  const getOccupancyForDate = (dateStr: string, slotTime: string, excludeAppId?: string) => {
+    const slotPrefix = `${dateStr}T${slotTime}`;
     const matchedAppointments = appointments.filter(
-      (a) => a.status !== "cancelado" && a.scheduled_date && a.scheduled_date.startsWith(slotPrefix.slice(0, 13))
+      (a) => a.status !== "cancelado" && a.scheduled_date && a.scheduled_date.startsWith(slotPrefix.slice(0, 13)) && a.id !== excludeAppId
     );
     const matchedSchedule = (scheduleRecords || []).filter(
       (s) => (s.scheduled_date && s.scheduled_date.startsWith(slotPrefix.slice(0, 13)))
@@ -714,6 +737,8 @@ export default function RecepcionPage() {
       isFull: totalOccupied >= 2, // 2 capacity per slot
     };
   };
+
+  const getSlotOccupancy = (slotTime: string) => getOccupancyForDate(availabilityDate, slotTime);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -1320,16 +1345,60 @@ export default function RecepcionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Fecha y Hora Agendada
+                  Fecha de la Cita *
                 </label>
                 <input
-                  type="datetime-local"
+                  type="date"
                   required
-                  value={editForm.scheduled_date ? editForm.scheduled_date.slice(0, 16) : ""}
-                  onChange={(e) => setEditForm({ ...editForm, scheduled_date: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  value={editForm.scheduled_date ? editForm.scheduled_date.slice(0, 10) : ""}
+                  onChange={(e) => {
+                    const d = e.target.value;
+                    const curTime = editForm.scheduled_date?.includes("T") ? editForm.scheduled_date.slice(11, 16) : "08:00";
+                    setEditForm({ ...editForm, scheduled_date: d ? `${d}T${curTime}` : "" });
+                  }}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red font-mono"
                 />
               </div>
+
+              {editForm.scheduled_date?.slice(0, 10) && (
+                <div className="p-3 rounded-xl bg-reygas-dark/70 border border-blue-500/20 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Disponibilidad de Horarios — {formatPeruDate(editForm.scheduled_date.slice(0, 10))}</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400 shrink-0">Capacidad 2 veh./hora</span>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {WORKSHOP_HOURLY_SLOTS.map((slot) => {
+                      const occ = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), slot, editingApp.id);
+                      const selected = editForm.scheduled_date.slice(11, 16) === slot;
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          disabled={occ.isFull}
+                          onClick={() => setEditForm({ ...editForm, scheduled_date: `${editForm.scheduled_date.slice(0, 10)}T${slot}` })}
+                          className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${selected
+                            ? "bg-blue-600 text-white border-blue-400 shadow-md"
+                            : occ.isFull
+                              ? "bg-red-950/50 text-red-400 border-red-500/30 opacity-60 cursor-not-allowed line-through"
+                              : occ.totalOccupied === 1
+                                ? "bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
+                                : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                            }`}
+                          title={occ.isFull ? "Horario ocupado (2 vehículos)" : occ.totalOccupied === 1 ? "1 cupo ocupado — queda 1 libre" : "Horario disponible"}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    🟢 Libre · 🟡 1 cupo ocupado · 🔴 Ocupado — Hora seleccionada: <strong className="text-blue-300 font-mono">{editForm.scheduled_date.slice(11, 16) || "-"}</strong>
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
@@ -1565,16 +1634,60 @@ export default function RecepcionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Fecha y Hora Agendada
+                  Fecha de la Cita *
                 </label>
                 <input
-                  type="datetime-local"
+                  type="date"
                   required
-                  value={newForm.scheduled_date}
-                  onChange={(e) => setNewForm({ ...newForm, scheduled_date: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  value={newForm.scheduled_date.slice(0, 10)}
+                  onChange={(e) => {
+                    const d = e.target.value;
+                    const curTime = newForm.scheduled_date.includes("T") ? newForm.scheduled_date.slice(11, 16) : "08:00";
+                    setNewForm({ ...newForm, scheduled_date: d ? `${d}T${curTime}` : "" });
+                  }}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red font-mono"
                 />
               </div>
+
+              {newForm.scheduled_date.slice(0, 10) && (
+                <div className="p-3 rounded-xl bg-reygas-dark/70 border border-blue-500/20 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Disponibilidad de Horarios — {formatPeruDate(newForm.scheduled_date.slice(0, 10))}</span>
+                    </label>
+                    <span className="text-[10px] text-gray-400 shrink-0">Capacidad 2 veh./hora</span>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                    {WORKSHOP_HOURLY_SLOTS.map((slot) => {
+                      const occ = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), slot);
+                      const selected = newForm.scheduled_date.slice(11, 16) === slot;
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          disabled={occ.isFull}
+                          onClick={() => setNewForm({ ...newForm, scheduled_date: `${newForm.scheduled_date.slice(0, 10)}T${slot}` })}
+                          className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${selected
+                            ? "bg-blue-600 text-white border-blue-400 shadow-md"
+                            : occ.isFull
+                              ? "bg-red-950/50 text-red-400 border-red-500/30 opacity-60 cursor-not-allowed line-through"
+                              : occ.totalOccupied === 1
+                                ? "bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
+                                : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                            }`}
+                          title={occ.isFull ? "Horario ocupado (2 vehículos)" : occ.totalOccupied === 1 ? "1 cupo ocupado — queda 1 libre" : "Horario disponible"}
+                        >
+                          {slot}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    🟢 Libre · 🟡 1 cupo ocupado · 🔴 Ocupado — Hora seleccionada: <strong className="text-blue-300 font-mono">{newForm.scheduled_date.slice(11, 16) || "-"}</strong>
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
