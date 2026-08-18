@@ -176,9 +176,6 @@ export async function saveSupabaseTechnician(
       is_active: tech.is_active,
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
-      email: tech.email || "",
-      username: tech.username || "",
-      password: tech.password || "",
     };
     const { error } = await supabase.from("technicians").upsert(payload, { onConflict: "id" });
     if (error) {
