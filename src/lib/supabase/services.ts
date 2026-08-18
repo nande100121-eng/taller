@@ -615,6 +615,225 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
   }
 }
 
+// ---------------------------------------------------------------------
+// MASTER TABLE SERVER-SIDE PAGINATION (Registros del Taller)
+// Carga solo la página activa (250 filas) + conteo + vehículos/facturas
+// relacionadas. Evita descargar las 41k+ work_orders e invoices en cada
+// sync global, logrando una carga de tabla instantánea en la tablet.
+// ---------------------------------------------------------------------
+export interface MasterTablePageParams {
+  page: number;
+  pageSize: number;
+  searchTerm?: string;
+  timeFilter?: "todos" | "hoy" | "fecha" | "rango";
+  queryDate?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface MasterTablePageResult {
+  rows: WorkOrder[];
+  total: number;
+  vehicles: Vehicle[];
+  invoices: Invoice[];
+}
+
+function formatWorkOrderTableRow(o: any): WorkOrder {
+  const rawDiag = o.diagnostic_notes || "";
+  let diagNotes = rawDiag;
+  let obs = "";
+  let allowMod = false;
+  let quinquennialDate = o.quinquennial_date || "";
+  let chipExpiryDate = o.chip_expiry_date || "";
+  let vehicleType = o.vehicle_type || "";
+  let generalMaintenanceService = o.general_maintenance_service || o.problem_description || "";
+  let sparePartsServices = o.spare_parts_services || "";
+
+  // Decode [ERP_META]: JSON if present
+  if (diagNotes.includes("[ERP_META]:")) {
+    try {
+      const metaStr = diagNotes.split("[ERP_META]:")[1].trim();
+      const meta = JSON.parse(metaStr);
+      if (meta) {
+        quinquennialDate = o.quinquennial_date || meta.q_date || meta.quinquennial_date || quinquennialDate;
+        chipExpiryDate = o.chip_expiry_date || meta.c_date || meta.chip_expiry_date || chipExpiryDate;
+        vehicleType = o.vehicle_type || meta.v_type || meta.vehicle_type || vehicleType;
+        generalMaintenanceService = o.general_maintenance_service || meta.m_serv || meta.general_maintenance_service || generalMaintenanceService;
+        sparePartsServices = o.spare_parts_services || meta.sp_serv || meta.spare_parts_services || sparePartsServices;
+      }
+      diagNotes = diagNotes.split("[ERP_META]:")[0].trim();
+    } catch (e) {
+      // ignore parse error
+    }
+  }
+
+  // Legacy fallback parsing from textual diagnostic_notes
+  if (!quinquennialDate && diagNotes.includes("Quinquenal:")) {
+    const match = diagNotes.match(/Quinquenal:\s*([^•\n]+)/);
+    if (match) quinquennialDate = match[1].trim();
+  }
+  if (!chipExpiryDate && diagNotes.includes("Chip Anual:")) {
+    const match = diagNotes.match(/Chip Anual:\s*([^•\n]+)/);
+    if (match) chipExpiryDate = match[1].trim();
+  }
+
+  if (diagNotes.includes("[ALLOW_MOD]: true")) {
+    allowMod = true;
+    diagNotes = diagNotes.replace("[ALLOW_MOD]: true", "").trim();
+  }
+  if (diagNotes.includes("[OBSERVACIONES]:")) {
+    const parts = diagNotes.split("[OBSERVACIONES]:");
+    diagNotes = parts[0].trim();
+    obs = parts[1].trim();
+  }
+
+  let parsedItems: any[] = [];
+  try {
+    parsedItems = typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [];
+  } catch {
+    parsedItems = [];
+  }
+
+  const orderDateStr = (o.entry_time || "").slice(0, 10);
+  const isMigratedOrBilled =
+    (orderDateStr && orderDateStr <= "2026-08-08") ||
+    o.status === "finalizado" ||
+    o.status === "entregado";
+
+  const items = parsedItems.map((it: any) => {
+    if (isMigratedOrBilled && (it.dispatched === undefined || it.dispatched === null || it.dispatched === false)) {
+      return {
+        ...it,
+        dispatched: true,
+        dispatched_at: it.dispatched_at || o.entry_time || new Date().toISOString(),
+      };
+    }
+    return it;
+  });
+
+  return {
+    ...o,
+    quinquennial_date: quinquennialDate || o.quinquennial_date || "",
+    chip_expiry_date: chipExpiryDate || o.chip_expiry_date || "",
+    vehicle_type: vehicleType || o.vehicle_type || "",
+    general_maintenance_service: generalMaintenanceService || o.general_maintenance_service || "",
+    spare_parts_services: sparePartsServices || o.spare_parts_services || "",
+    discount_amount: o.discount_amount !== undefined && o.discount_amount !== null ? Number(o.discount_amount) : 0,
+    allow_modifications: allowMod || !!o.allow_modifications,
+    diagnostic_notes: diagNotes,
+    observations: obs || o.observations || undefined,
+    items,
+  } as WorkOrder;
+}
+
+function escapePostgrestTerm(term: string): string {
+  // Remueve caracteres que rompen la sintaxis de filtros PostgREST ((), comas, comillas)
+  return term.replace(/[(),"']/g, "");
+}
+
+export async function fetchMasterTablePage(params: MasterTablePageParams): Promise<MasterTablePageResult | null> {
+  try {
+    const { page, pageSize, searchTerm, timeFilter, queryDate, startDate, endDate } = params;
+    const cleanTerm = escapePostgrestTerm((searchTerm || "").trim().toUpperCase());
+
+    // 1. Query base (se reconstruye por si la búsqueda exige un OR compuesto)
+    let pageQuery: any = supabase.from("work_orders").select("*");
+    let countQuery: any = supabase.from("work_orders").select("id", { count: "exact", head: true });
+
+    const applyDateFilters = (q: any) => {
+      if (timeFilter === "hoy" && queryDate) {
+        q = q.gte("entry_time", `${queryDate}T00:00:00`).lte("entry_time", `${queryDate}T23:59:59`);
+      } else if (timeFilter === "fecha" && queryDate) {
+        q = q.gte("entry_time", `${queryDate}T00:00:00`).lte("entry_time", `${queryDate}T23:59:59`);
+      } else if (timeFilter === "rango" && (startDate || endDate)) {
+        if (startDate) q = q.gte("entry_time", `${startDate}T00:00:00`);
+        if (endDate) q = q.lte("entry_time", `${endDate}T23:59:59`);
+      }
+      return q;
+    };
+
+    // 2. Búsqueda por placa, cliente o comprobante
+    if (cleanTerm) {
+      const orClauses: string[] = [`vehicle_plate.ilike.%${cleanTerm}%`];
+
+      // Cliente o comprobante en invoices → work_order_ids candidatos
+      const invLike = supabase
+        .from("invoices")
+        .select("work_order_id")
+        .or(`client_name.ilike.%${cleanTerm}%,receipt_number.ilike.%${cleanTerm}%`)
+        .limit(1000);
+      const invRes = await invLike;
+      const ids = ((invRes.data || []) as any[])
+        .map((i) => i.work_order_id)
+        .filter((id): id is string => !!id && id.length > 0);
+      if (ids.length > 0) {
+        orClauses.push(`work_order_id.in.(${ids.map((id) => `"${id}"`).join(",")})`);
+      }
+
+      // Cliente en vehicles → plates candidatos
+      const vehLike = supabase
+        .from("vehicles")
+        .select("plate")
+        .ilike("owner_name", `%${cleanTerm}%`)
+        .limit(1000);
+      const vehRes = await vehLike;
+      const plates = ((vehRes.data || []) as any[])
+        .map((v) => v.plate)
+        .filter((p): p is string => !!p && p.length > 0);
+      if (plates.length > 0) {
+        orClauses.push(`vehicle_plate.in.(${plates.map((p) => `"${p}"`).join(",")})`);
+      }
+
+      const orFilter = orClauses.join(",");
+      pageQuery = supabase.from("work_orders").select("*").or(orFilter);
+      countQuery = supabase.from("work_orders").select("id", { count: "exact", head: true }).or(orFilter);
+    }
+
+    // Re-aplicar filtros de fecha (la búsqueda reconstruyó las queries)
+    pageQuery = applyDateFilters(pageQuery);
+    countQuery = applyDateFilters(countQuery);
+
+    // 3. Conteo total (rápido, solo ids con head=true)
+    const countRes = await countQuery;
+    const total = countRes.count ?? 0;
+
+    if (total === 0) {
+      return { rows: [], total: 0, vehicles: [], invoices: [] };
+    }
+
+    // 4. Página activa (ordenada por fecha de ingreso descendente)
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    const pageRes = await pageQuery.order("entry_time", { ascending: false }).range(from, to);
+
+    if (pageRes.error) {
+      console.warn("Master table page fetch warning:", pageRes.error.message);
+      return null;
+    }
+
+    const rows = ((pageRes.data || []) as any[]).map((o) => formatWorkOrderTableRow(o));
+
+    // 5. Vehículos y facturas relacionadas a la página (solo las necesarias)
+    const orderIds = rows.map((r) => r.id).filter((id) => !!id);
+    const plates = rows.map((r) => r.vehicle_plate).filter((p) => !!p);
+    let vehicles: Vehicle[] = [];
+    let invoices: Invoice[] = [];
+    if (plates.length > 0) {
+      const vehRes = await supabase.from("vehicles").select("*").in("plate", plates);
+      if (vehRes.data) vehicles = vehRes.data as Vehicle[];
+    }
+    if (orderIds.length > 0) {
+      const invRes = await supabase.from("invoices").select("*").in("work_order_id", orderIds);
+      if (invRes.data) invoices = invRes.data as Invoice[];
+    }
+
+    return { rows, total, vehicles, invoices };
+  } catch (err) {
+    console.warn("Master table page fetch warning:", err);
+    return null;
+  }
+}
+
 // Singleton subscribed Realtime broadcast channel for ultra-low latency (<50ms) messaging
 let sharedRealtimeChannel: ReturnType<typeof supabase.channel> | null = null;
 

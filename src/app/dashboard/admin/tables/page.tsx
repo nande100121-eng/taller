@@ -39,7 +39,7 @@ import {
   Lock,
   AtSign
 } from "lucide-react";
-import { saveSupabaseSiteContent } from "@/lib/supabase/services";
+import { fetchMasterTablePage, saveSupabaseSiteContent } from "@/lib/supabase/services";
 
 const ALL_ERP_STATIONS = [
   { id: "/dashboard/porteria", label: "1. Portería" },
@@ -104,6 +104,15 @@ export default function AdminTablesPage() {
   const [pageInput, setPageInput] = useState("1");
   const ITEMS_PER_PAGE = 250;
 
+  // Server-side pagination state for the Master Workshop Table
+  // (carga solo la página activa; no depende del sync global de 41k+ filas)
+  const [masterRows, setMasterRows] = useState<WorkOrder[]>([]);
+  const [masterTotal, setMasterTotal] = useState(0);
+  const [masterVehicles, setMasterVehicles] = useState<typeof vehicles>([]);
+  const [masterInvoices, setMasterInvoices] = useState<typeof invoices>([]);
+  const [masterLoading, setMasterLoading] = useState(true);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+
   useEffect(() => {
     setCurrentPage(1);
     setPageInput("1");
@@ -113,7 +122,36 @@ export default function AdminTablesPage() {
     setPageInput(currentPage.toString());
   }, [currentPage]);
 
-  // Always fetch fresh Supabase data on mount
+  // Load the active page directly from Supabase (server-side pagination)
+  useEffect(() => {
+    let cancelled = false;
+    setMasterLoading(true);
+    const timer = setTimeout(async () => {
+      const res = await fetchMasterTablePage({
+        page: currentPage,
+        pageSize: ITEMS_PER_PAGE,
+        searchTerm: deferredSearchTerm,
+        timeFilter,
+        queryDate,
+        startDate,
+        endDate,
+      });
+      if (cancelled) return;
+      if (res) {
+        setMasterRows(res.rows);
+        setMasterTotal(res.total);
+        setMasterVehicles(res.vehicles);
+        setMasterInvoices(res.invoices);
+      }
+      setMasterLoading(false);
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [currentPage, deferredSearchTerm, timeFilter, queryDate, startDate, endDate, refreshNonce]);
+
+  // Always fetch fresh Supabase data on mount (background for other tabs)
   useEffect(() => {
     syncFromSupabase();
   }, [syncFromSupabase]);
@@ -640,6 +678,7 @@ export default function AdminTablesPage() {
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
+          setRefreshNonce((n) => n + 1);
         });
       } else {
         setIsImportingWorkshop(false);
@@ -649,71 +688,43 @@ export default function AdminTablesPage() {
     reader.readAsText(file);
   };
 
-  // O(1) Lookup maps for fast linear filtering (prevents O(N^2) lockup on 9,000+ records)
+  // O(1) Lookup maps over the server-paginated page (only the active 250 rows
+  // + their related vehicles/invoices are in memory, never the 41k+ dataset)
   const invoicesByWorkOrderId = React.useMemo(() => {
     const map = new Map<string, (typeof invoices)[0]>();
-    for (let i = 0; i < invoices.length; i++) {
-      const inv = invoices[i];
+    const src = masterInvoices.length > 0 ? masterInvoices : invoices;
+    for (let i = 0; i < src.length; i++) {
+      const inv = src[i];
       if (inv && inv.work_order_id) {
         map.set(inv.work_order_id, inv);
       }
     }
     return map;
-  }, [invoices]);
+  }, [masterInvoices, invoices]);
 
   const vehiclesByPlate = React.useMemo(() => {
     const map = new Map<string, (typeof vehicles)[0]>();
-    for (let i = 0; i < vehicles.length; i++) {
-      const v = vehicles[i];
+    const src = masterVehicles.length > 0 ? masterVehicles : vehicles;
+    for (let i = 0; i < src.length; i++) {
+      const v = src[i];
       if (v && v.plate) {
         map.set(v.plate, v);
       }
     }
     return map;
-  }, [vehicles]);
+  }, [masterVehicles, vehicles]);
 
-  // Filter master records with instant memoized lookup and unified date filtering
+  // Rows shown in the table = the server-paginated active page
   const filteredOrders = React.useMemo(() => {
-    const term = deferredSearchTerm.trim().toUpperCase();
-    const todayPeru = getPeruDateString();
+    return masterRows;
+  }, [masterRows]);
 
-    return workOrders.filter((wo) => {
-      // 1. Date Filter
-      if (timeFilter !== "todos") {
-        const rawDate = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        if (timeFilter === "hoy") {
-          if (rawDate !== todayPeru) return false;
-        } else if (timeFilter === "fecha") {
-          if (rawDate !== queryDate) return false;
-        } else if (timeFilter === "rango") {
-          if (!rawDate) return false;
-          if (startDate && rawDate < startDate) return false;
-          if (endDate && rawDate > endDate) return false;
-        }
-      }
-
-      // 2. Text Search Filter
-      if (!term) return true;
-      const inv = invoicesByWorkOrderId.get(wo.id);
-      const veh = vehiclesByPlate.get(wo.vehicle_plate);
-
-      return (
-        (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) ||
-        (veh?.owner_name && veh.owner_name.toUpperCase().includes(term)) ||
-        (inv?.client_name && inv.client_name.toUpperCase().includes(term)) ||
-        (inv?.receipt_number && inv.receipt_number.toUpperCase().includes(term))
-      );
-    });
-  }, [workOrders, invoicesByWorkOrderId, vehiclesByPlate, deferredSearchTerm, timeFilter, queryDate, startDate, endDate]);
-
-  // Calculate Pagination slice
-  const totalItems = filteredOrders.length;
+  // Calculate Pagination (server-side: total comes from the count query)
+  const totalItems = masterTotal;
   const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
-  const paginatedOrders = React.useMemo(() => {
-    return filteredOrders.slice(startIndex, endIndex);
-  }, [filteredOrders, startIndex, endIndex]);
+  const paginatedOrders = filteredOrders;
 
   // Checkbox selection handlers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -734,8 +745,8 @@ export default function AdminTablesPage() {
 
   // Editing Handlers for Workshop Orders (Modificar fecha, hora y datos)
   const handleOpenEditWorkshopOrder = (wo: WorkOrder) => {
-    const veh = vehiclesByPlate.get(wo.vehicle_plate) || vehicles.find((v) => v.plate === wo.vehicle_plate);
-    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id) || invoices.find((i) => i.vehicle_plate === wo.vehicle_plate && i.issued_at === wo.entry_time);
+    const veh = vehiclesByPlate.get(wo.vehicle_plate);
+    const inv = invoicesByWorkOrderId.get(wo.id);
 
     let datePart = getPeruDateString();
     let timePart = "08:30";
@@ -814,7 +825,7 @@ export default function AdminTablesPage() {
     });
 
     // 3. Update Invoice if exists
-    const targetInv = invoices.find((i) => i.work_order_id === editingWorkshopOrder.orderId);
+    const targetInv = invoicesByWorkOrderId.get(editingWorkshopOrder.orderId);
     if (targetInv) {
       updateInvoice(targetInv.id, {
         vehicle_plate: editingWorkshopOrder.vehiclePlate.toUpperCase(),
@@ -834,6 +845,7 @@ export default function AdminTablesPage() {
 
     notify("success", `¡Registro de ${editingWorkshopOrder.vehiclePlate} modificado exitosamente con hora ${editingWorkshopOrder.entryTime}!`);
     setEditingWorkshopOrder(null);
+    setRefreshNonce((n) => n + 1);
   };
 
   // Confirmation trigger helpers
@@ -881,6 +893,7 @@ export default function AdminTablesPage() {
       setSelectedIds([]);
     }
     setModalConfig({ ...modalConfig, isOpen: false });
+    setRefreshNonce((n) => n + 1);
   };
 
   return (
@@ -971,7 +984,7 @@ export default function AdminTablesPage() {
                     : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
                     }`}
                 >
-                  Histórico ({workOrders.length})
+                  Histórico ({masterTotal.toLocaleString()})
                 </button>
 
                 <button
@@ -1045,7 +1058,7 @@ export default function AdminTablesPage() {
                 )}
 
                 <div className="px-3 py-1 rounded-xl bg-white/5 text-[11px] font-bold text-gray-300 border border-white/10">
-                  Mostrando: <span className="text-indigo-300 font-black">{filteredOrders.length}</span> registros
+                  Mostrando: <span className="text-indigo-300 font-black">{masterTotal.toLocaleString()}</span> registros
                 </div>
               </div>
             </div>
@@ -1065,13 +1078,13 @@ export default function AdminTablesPage() {
                 </div>
 
                 <button
-                  onClick={() => syncFromSupabase()}
-                  disabled={isSyncing}
+                  onClick={() => setRefreshNonce((n) => n + 1)}
+                  disabled={masterLoading}
                   className="px-3.5 py-2 bg-reygas-surface hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all flex items-center gap-1.5 shadow"
-                  title="Refrescar datos manualmente desde la base de datos Supabase"
+                  title="Recargar la página activa desde Supabase"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isSyncing ? "animate-spin" : ""}`} />
-                  <span>{isSyncing ? "Sincronizando..." : "Refrescar Tabla"}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${masterLoading ? "animate-spin" : ""}`} />
+                  <span>{masterLoading ? "Cargando..." : "Refrescar Tabla"}</span>
                 </button>
 
                 {selectedIds.length > 0 && (
@@ -1104,7 +1117,7 @@ export default function AdminTablesPage() {
                   />
                 </label>
 
-                {workOrders.length > 0 && (
+                {masterTotal > 0 && (
                   <button
                     onClick={triggerClearAll}
                     className="px-3.5 py-2 bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-300 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5"
@@ -1160,7 +1173,14 @@ export default function AdminTablesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5 bg-black/20">
-                {filteredOrders.length === 0 ? (
+                {masterLoading && masterTotal === 0 ? (
+                  <tr>
+                    <td colSpan={24} className="text-center py-16 text-gray-500">
+                      <RefreshCw className="w-10 h-10 mx-auto mb-3 animate-spin opacity-60" />
+                      <p className="font-bold text-gray-400">Cargando registros del taller...</p>
+                    </td>
+                  </tr>
+                ) : filteredOrders.length === 0 ? (
                   <tr>
                     <td colSpan={24} className="text-center py-16 text-gray-500">
                       <FileSpreadsheet className="w-12 h-12 mx-auto mb-2 opacity-40" />
@@ -1172,8 +1192,8 @@ export default function AdminTablesPage() {
                   </tr>
                 ) : (
                   paginatedOrders.map((wo, index) => {
-                    const veh = vehiclesByPlate.get(wo.vehicle_plate) || vehicles.find((v) => v.plate === wo.vehicle_plate);
-                    const inv = invoicesByWorkOrderId.get(wo.id) || invoices.find((i) => i.work_order_id === wo.id) || invoices.find((i) => i.vehicle_plate === wo.vehicle_plate && i.issued_at === wo.entry_time);
+                    const veh = vehiclesByPlate.get(wo.vehicle_plate);
+                    const inv = invoicesByWorkOrderId.get(wo.id);
                     const isSelected = selectedIds.includes(wo.id);
 
                     const priceVal = inv?.raw_price_str !== undefined && inv.raw_price_str !== ""
