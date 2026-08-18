@@ -168,34 +168,22 @@ export async function saveSupabaseTechnician(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     markLocalMutation("technicians");
-    const { error } = await supabase.from("technicians").upsert(
-      {
-        id: tech.id,
-        full_name: tech.full_name,
-        specialty: tech.specialty,
-        phone: tech.phone,
-        is_active: tech.is_active,
-        allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
-        can_receive_payment: !!tech.can_receive_payment,
-      },
-      { onConflict: "id" }
-    );
+    const payload = {
+      id: tech.id,
+      full_name: tech.full_name,
+      specialty: tech.specialty,
+      phone: tech.phone,
+      is_active: tech.is_active,
+      allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+      can_receive_payment: !!tech.can_receive_payment,
+      email: tech.email || "",
+      username: tech.username || "",
+      password: tech.password || "",
+    };
+    const { error } = await supabase.from("technicians").upsert(payload, { onConflict: "id" });
     if (error) {
-      const retry = await supabase.from("technicians").upsert(
-        {
-          id: tech.id,
-          full_name: tech.full_name,
-          specialty: tech.specialty,
-          phone: tech.phone,
-          is_active: tech.is_active,
-          allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
-        },
-        { onConflict: "id" }
-      );
-      if (retry.error) {
-        console.warn("Supabase technician upsert failed:", retry.error);
-        return { success: false, error: retry.error.message || "Error al guardar técnico" };
-      }
+      console.warn("Supabase technician upsert failed:", error);
+      return { success: false, error: error.message || "Error al guardar técnico" };
     }
 
     const permsPayload = {

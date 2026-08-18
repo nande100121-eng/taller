@@ -60,12 +60,20 @@ CREATE TABLE IF NOT EXISTS public.technicians (
     phone TEXT,
     is_active BOOLEAN DEFAULT TRUE,
     allowed_tabs JSONB,
+    can_receive_payment BOOLEAN DEFAULT FALSE,
+    email TEXT,
+    username TEXT,
+    password TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS specialty TEXT;
 ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS phone TEXT;
 ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
 ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS allowed_tabs JSONB;
+ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS can_receive_payment BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS password TEXT;
 ALTER TABLE public.technicians ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE public.technicians ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Lectura y escritura publica technicians" ON public.technicians;
