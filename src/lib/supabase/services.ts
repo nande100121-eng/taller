@@ -851,16 +851,42 @@ export function getSharedRealtimeChannel() {
   return sharedRealtimeChannel;
 }
 
+// Memoria de sesión: si la tabla appointments no existe (404 PGRST205), no repetir
+// la petición REST en cada sync (elimina el "Failed to load resource: 404" del navegador).
+let appointmentsTableMissing = false;
+
+function isTableMissingError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || "");
+  const msg = String(error.message || error.error_description || "");
+  return code === "PGRST205" || /does not exist|relation .* does not exist|not found/i.test(msg);
+}
+
+async function queryAppointmentsWithMissingGuard(): Promise<{ data: any[] | null; error: any }> {
+  if (appointmentsTableMissing) {
+    return { data: null, error: { code: "PGRST205", message: "appointments table missing (cached)" } };
+  }
+  const res = await safeQuery<any[]>(supabase.from("appointments").select("*"));
+  if (isTableMissingError(res.error)) {
+    appointmentsTableMissing = true;
+  }
+  return res;
+}
+
 // Broadcast instant real-time signal to all other connected devices/tablets
 export async function broadcastRealtimeChange(eventType: string = "db_update") {
   try {
     markLocalMutation();
     const channel = getSharedRealtimeChannel();
-    await channel.send({
-      type: "broadcast",
-      event: "db_update",
-      payload: { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() },
-    });
+    const payload = { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() };
+    // Si el WebSocket ya está unido, usar el canal Realtime (latencia <50ms).
+    // Si aún no está listo (arranque o red intermitente de tablet), usar httpSend()
+    // explícito en vez del fallback implícito deprecado de send().
+    if ((channel as any).state === "joined") {
+      await channel.send({ type: "broadcast", event: "db_update", payload });
+    } else {
+      await channel.httpSend("db_update", payload);
+    }
   } catch (err) {
     // deferred
   }
@@ -1153,7 +1179,7 @@ export async function fetchSupabaseErpData() {
       ),
       fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
-      safeQuery<any[]>(supabase.from("appointments").select("*")),
+      queryAppointmentsWithMissingGuard(),
       fetchAllSupabaseTable("invoices"),
       fetchAllSupabaseTable("vehicles"),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
@@ -1600,6 +1626,7 @@ export async function saveSupabaseAppointment(app: Appointment) {
   try {
     // La tabla appointments puede no existir aún en la base; siempre respaldar en site_content.
     await saveSupabaseSiteContent(`appt_${app.id}`, app, "appointments");
+    if (appointmentsTableMissing) return;
     const { error } = await supabase.from("appointments").upsert({
       id: app.id,
       client_name: app.client_name,
@@ -1619,6 +1646,7 @@ export async function saveSupabaseAppointment(app: Appointment) {
 export async function deleteSupabaseAppointment(id: string) {
   try {
     await supabase.from("site_content").delete().eq("section_key", `appt_${id}`);
+    if (appointmentsTableMissing) return;
     const { error } = await supabase.from("appointments").delete().eq("id", id);
     if (error) console.warn("Supabase appointment delete warning:", error.message);
   } catch (err) {
