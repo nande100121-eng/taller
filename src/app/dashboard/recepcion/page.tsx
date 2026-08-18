@@ -58,6 +58,7 @@ export default function RecepcionPage() {
     assignTechnicianToOrder,
     scheduleRecords,
     addScheduleRecord,
+    workshopServices,
     notify,
   } = useAppStore();
 
@@ -333,6 +334,22 @@ export default function RecepcionPage() {
     notes: "",
     responsible: "",
   });
+
+  // Abrir modal de nueva cita con el formulario limpio y el primer servicio del catálogo por defecto
+  const catalogServices = (workshopServices || []).filter((s) => s.is_active !== false);
+  const handleOpenNewAppointmentModal = () => {
+    const firstService = catalogServices[0]?.name || "Conversión a GNV 5ta Gen";
+    setNewForm({
+      client_name: "",
+      client_phone: "",
+      plate: "",
+      service_type: firstService,
+      scheduled_date: getPeruDateTimeLocal(new Date(Date.now() + 86400000)),
+      notes: "",
+      responsible: "",
+    });
+    setNewModalOpen(true);
+  };
 
   // Edit appointment modal
   const [editingApp, setEditingApp] = useState<Appointment | null>(null);
@@ -788,7 +805,7 @@ export default function RecepcionPage() {
           </button>
 
           <button
-            onClick={() => setNewModalOpen(true)}
+            onClick={handleOpenNewAppointmentModal}
             className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-black text-xs rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-transform hover:scale-105"
             title="Registrar una nueva cita manualmente (modal)"
           >
@@ -1349,16 +1366,35 @@ export default function RecepcionPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">
-                    Tipo de Servicio
+                  <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                    <span>Tipo de Servicio</span>
+                    <span className="text-[9px] text-gray-500 font-semibold">Catálogo de Servicios</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     required
                     value={editForm.service_type}
-                    onChange={(e) => setEditForm({ ...editForm, service_type: capitalizeFirst(e.target.value) })}
+                    onChange={(e) => setEditForm({ ...editForm, service_type: e.target.value })}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
-                  />
+                  >
+                    {editForm.service_type && !catalogServices.some((s) => s.name === editForm.service_type) && (
+                      <option value={editForm.service_type}>{editForm.service_type} (manual)</option>
+                    )}
+                    {catalogServices.length > 0 ? (
+                      catalogServices.map((srv) => (
+                        <option key={srv.id} value={srv.name}>
+                          {srv.name}{srv.price > 0 ? ` — S/ ${srv.price.toFixed(2)}` : ""}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Conversión a GNV 5ta Gen">Conversión a GNV 5ta Gen</option>
+                        <option value="Conversión a GLP 5ta Gen">Conversión a GLP 5ta Gen</option>
+                        <option value="Mantenimiento Preventivo 15,000 km">Mantenimiento Preventivo 15,000 km</option>
+                        <option value="Certificación Anual & Prueba Hidrostática">Certificación Anual & Prueba Hidrostática</option>
+                        <option value="Diagnóstico de Inyección / Escáner ECU">Diagnóstico de Inyección / Escáner ECU</option>
+                      </>
+                    )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-300 mb-1">
@@ -1637,19 +1673,30 @@ export default function RecepcionPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1">
-                  Tipo de Servicio
+                <label className="block text-xs font-medium text-gray-300 mb-1 flex items-center justify-between">
+                  <span>Tipo de Servicio</span>
+                  <span className="text-[9px] text-gray-500 font-semibold">Catálogo de Servicios ({catalogServices.length})</span>
                 </label>
                 <select
                   value={newForm.service_type}
                   onChange={(e) => setNewForm({ ...newForm, service_type: e.target.value })}
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
                 >
-                  <option value="Conversión a GNV 5ta Gen">Conversión a GNV 5ta Gen</option>
-                  <option value="Conversión a GLP 5ta Gen">Conversión a GLP 5ta Gen</option>
-                  <option value="Mantenimiento Preventivo 15,000 km">Mantenimiento Preventivo 15,000 km</option>
-                  <option value="Certificación Anual & Prueba Hidrostática">Certificación Anual & Prueba Hidrostática</option>
-                  <option value="Diagnóstico de Inyección / Escáner ECU">Diagnóstico de Inyección / Escáner ECU</option>
+                  {catalogServices.length > 0 ? (
+                    catalogServices.map((srv) => (
+                      <option key={srv.id} value={srv.name}>
+                        {srv.name}{srv.price > 0 ? ` — S/ ${srv.price.toFixed(2)}` : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="Conversión a GNV 5ta Gen">Conversión a GNV 5ta Gen</option>
+                      <option value="Conversión a GLP 5ta Gen">Conversión a GLP 5ta Gen</option>
+                      <option value="Mantenimiento Preventivo 15,000 km">Mantenimiento Preventivo 15,000 km</option>
+                      <option value="Certificación Anual & Prueba Hidrostática">Certificación Anual & Prueba Hidrostática</option>
+                      <option value="Diagnóstico de Inyección / Escáner ECU">Diagnóstico de Inyección / Escáner ECU</option>
+                    </>
+                  )}
                 </select>
               </div>
 
