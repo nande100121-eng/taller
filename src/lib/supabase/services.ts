@@ -1841,7 +1841,23 @@ export async function fetchSupabaseErpData() {
       technicians: finalTechnicians,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
-      appointments: (appRes.data && appRes.data.length > 0) ? appRes.data : (fallbackApps.length > 0 ? fallbackApps : null),
+      // Citas: merge de la tabla con los snapshots appt_* de site_content (patrón roster).
+      // La tabla aporta lo más reciente; site_content aporta campos extendidos que no son
+      // columna (ej. responsible de la Tabla de Programación) para que sobrevivan en
+      // cualquier dispositivo.
+      appointments: (() => {
+        const baseApps = (appRes.data && appRes.data.length > 0) ? [...appRes.data] : [];
+        if (baseApps.length === 0) return fallbackApps.length > 0 ? fallbackApps : null;
+        if (fallbackApps.length === 0) return baseApps;
+        const appMap = new Map<string, any>();
+        baseApps.forEach((a: any) => { if (a && a.id) appMap.set(a.id, a); });
+        fallbackApps.forEach((fb: any) => {
+          if (fb && fb.id && appMap.has(fb.id)) {
+            appMap.set(fb.id, { ...fb, ...appMap.get(fb.id) });
+          }
+        });
+        return Array.from(appMap.values());
+      })(),
       invoices: finalInvoices.length > 0 ? finalInvoices : (invoiceData || []),
       vehicles: finalVehicles.length > 0 ? finalVehicles : (vehicleData || []),
       certifications: mergedCerts.length > 0 ? mergedCerts : null,

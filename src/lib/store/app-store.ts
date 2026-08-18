@@ -470,6 +470,7 @@ export interface Appointment {
   scheduled_date: string;
   status: "pendiente" | "confirmado" | "completado" | "cancelado";
   notes?: string;
+  responsible?: string; // Responsable de la atención (ej: Kelly, Cristhel) desde la Tabla de Programación
 }
 
 export interface Certification {

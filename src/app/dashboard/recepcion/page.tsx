@@ -21,11 +21,20 @@ import {
   FileText,
   Check,
   Phone,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Search,
+  Upload,
+  Printer,
+  CalendarDays,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  Loader2
 } from "lucide-react";
-import { getPeruDateTimeLocal, formatPeruDateTime } from "@/lib/utils/date-utils";
+import { getPeruDateTimeLocal, formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
+import ReactDOM from "react-dom";
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -320,6 +329,7 @@ export default function RecepcionPage() {
     service_type: "Conversión a GNV 5ta Gen",
     scheduled_date: getPeruDateTimeLocal(new Date(Date.now() + 86400000)),
     notes: "",
+    responsible: "",
   });
 
   // Edit appointment modal
@@ -362,6 +372,7 @@ export default function RecepcionPage() {
       service_type: newForm.service_type,
       scheduled_date: newForm.scheduled_date,
       notes: newForm.notes,
+      responsible: newForm.responsible,
     });
     setNewModalOpen(false);
     showSuccess(`¡Cita para ${newForm.plate.toUpperCase()} registrada con éxito!`);
@@ -457,6 +468,21 @@ export default function RecepcionPage() {
   // Card inline scheduling date/time state
   const [cardDates, setCardDates] = useState<Record<string, string>>({});
 
+  // ===== Tabla de Programación de Citas (semanal): búsqueda por placa, filtros rápidos, CSV e informe diario =====
+  const [plateSearch, setPlateSearch] = useState("");
+  const deferredPlateSearch = React.useDeferredValue(plateSearch);
+  const [quickFilter, setQuickFilter] = useState<"todas" | "hoy" | "semana" | "pendientes" | "confirmadas" | "completadas" | "canceladas">("todas");
+
+  // Modal de importación CSV (tabla de programación de la semana)
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [csvPreview, setCsvPreview] = useState<Array<{ plate: string; scheduled_date: string; service_type: string; responsible: string; notes: string }>>([]);
+  const [csvImporting, setCsvImporting] = useState(false);
+
+  // Modal de Informe Diario de Citas
+  const [dailyReportOpen, setDailyReportOpen] = useState(false);
+  const [reportDate, setReportDate] = useState(getPeruDateTimeLocal().slice(0, 10));
+
   const handleOpenAvailabilityForApp = (app: Appointment) => {
     setTargetAppointmentForSlot(app);
     const existingDate = app.scheduled_date ? app.scheduled_date.slice(0, 10) : getPeruDateTimeLocal().slice(0, 10);
@@ -496,6 +522,167 @@ export default function RecepcionPage() {
       window.open(`https://wa.me/?text=${message}`, "_blank");
     }
     showSuccess(`¡Cita de ${plate} confirmada y mensaje generado para WhatsApp!`);
+  };
+
+  // ===== Tabla de Programación (CSV): parseo, importación y filtros =====
+  const parseCsvDate = (d: string): string => {
+    const s = (d || "").trim();
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [dd, mm, yyyy] = s.split("/");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    return "";
+  };
+
+  const parseCsvTime = (t: string): string => {
+    const s = (t || "").trim().toLowerCase();
+    const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/);
+    if (!m) return "";
+    let h = parseInt(m[1], 10);
+    const min = m[2] ? parseInt(m[2], 10) : 0;
+    const ampm = m[3] || "";
+    if (ampm.includes("p") && h < 12) h += 12;
+    if (ampm.includes("a") && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  };
+
+  const parseProgramacionCsv = (text: string) => {
+    const rows: Array<{ plate: string; scheduled_date: string; service_type: string; responsible: string; notes: string }> = [];
+    const lines = (text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return rows;
+    const hasSemicolon = lines[0].includes(";");
+    for (const line of lines) {
+      const parts = hasSemicolon ? line.split(";") : line.split(",");
+      if (parts.length < 3) continue;
+      const [placa, fecha, hora, servicio, responsable, observaciones] = parts.map((p) => (p || "").trim());
+      if (!placa || placa.toLowerCase().includes("placa")) continue; // saltar encabezado
+      const isoDate = parseCsvDate(fecha);
+      const isoTime = parseCsvTime(hora);
+      if (!isoDate) continue;
+      const scheduled_date = isoTime ? `${isoDate}T${isoTime}` : `${isoDate}T08:00`;
+      rows.push({
+        plate: placa.toUpperCase().replace(/\s+/g, ""),
+        scheduled_date,
+        service_type: servicio || "Servicio Técnico",
+        responsible: responsable && responsable !== "—" && responsable !== "-" ? responsable : "",
+        notes: observaciones && observaciones !== "—" && observaciones !== "-" ? observaciones : "",
+      });
+    }
+    return rows;
+  };
+
+  const handlePreviewCsv = (text: string) => {
+    setCsvText(text);
+    setCsvPreview(parseProgramacionCsv(text));
+  };
+
+  const handleImportCsv = () => {
+    const existing = new Set(appointments.map((a) => `${a.plate.toUpperCase().trim()}_${a.scheduled_date}`));
+    let added = 0;
+    let skipped = 0;
+    for (const row of csvPreview) {
+      const key = `${row.plate}_${row.scheduled_date}`;
+      if (existing.has(key)) { skipped++; continue; }
+      addAppointment({
+        client_name: "CLIENTES VARIOS",
+        client_phone: "",
+        plate: row.plate,
+        service_type: row.service_type,
+        scheduled_date: row.scheduled_date,
+        notes: row.notes,
+        responsible: row.responsible,
+      });
+      existing.add(key);
+      added++;
+    }
+    setCsvModalOpen(false);
+    setCsvText("");
+    setCsvPreview([]);
+    showSuccess(added > 0
+      ? `¡Programación importada! ${added} cita(s) agregada(s)${skipped > 0 ? ` (${skipped} duplicada(s) omitida(s))` : ""}.`
+      : "No se importaron citas nuevas (ya estaban registradas o el archivo no tiene filas válidas).");
+  };
+
+  const handleLoadWeekCsv = async () => {
+    setCsvImporting(true);
+    try {
+      const res = await fetch("/tabla-de-programacion.csv");
+      const text = await res.text();
+      setCsvText(text);
+      setCsvPreview(parseProgramacionCsv(text));
+    } catch (err) {
+      notify("warning", "No se pudo cargar el archivo de programación. Péguelo manualmente.");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleFileUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => handlePreviewCsv(String(reader.result || ""));
+    reader.readAsText(file);
+  };
+
+  // Filtro rápido de citas por placa + chips de consulta rápida
+  const filteredAppointments = React.useMemo(() => {
+    const clean = deferredPlateSearch.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    let list = appointments;
+    if (clean) {
+      list = list.filter((a) => a.plate.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(clean));
+    }
+    const today = getPeruDateString();
+    const weekStart = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10); })();
+    const weekEnd = (() => { const d = new Date(weekStart + "T12:00:00"); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
+    switch (quickFilter) {
+      case "hoy":
+        list = list.filter((a) => (a.scheduled_date || "").slice(0, 10) === today);
+        break;
+      case "semana":
+        list = list.filter((a) => { const d = (a.scheduled_date || "").slice(0, 10); return d >= weekStart && d <= weekEnd; });
+        break;
+      case "pendientes":
+        list = list.filter((a) => a.status === "pendiente");
+        break;
+      case "confirmadas":
+        list = list.filter((a) => a.status === "confirmado");
+        break;
+      case "completadas":
+        list = list.filter((a) => a.status === "completado");
+        break;
+      case "canceladas":
+        list = list.filter((a) => a.status === "cancelado");
+        break;
+      default:
+        break;
+    }
+    // Ordenar por fecha/hora ascendente
+    return [...list].sort((a, b) => String(a.scheduled_date || "").localeCompare(String(b.scheduled_date || "")));
+  }, [appointments, deferredPlateSearch, quickFilter]);
+
+  // ===== Informe Diario de Citas / Programación =====
+  const dailyAppointments = React.useMemo(() => {
+    return appointments
+      .filter((a) => (a.scheduled_date || "").slice(0, 10) === reportDate)
+      .sort((a, b) => String(a.scheduled_date || "").localeCompare(String(b.scheduled_date || "")));
+  }, [appointments, reportDate]);
+
+  const dailyCounts = React.useMemo(() => ({
+    total: dailyAppointments.length,
+    confirmadas: dailyAppointments.filter((a) => a.status === "confirmado").length,
+    pendientes: dailyAppointments.filter((a) => a.status === "pendiente").length,
+    completadas: dailyAppointments.filter((a) => a.status === "completado").length,
+    canceladas: dailyAppointments.filter((a) => a.status === "cancelado").length,
+  }), [dailyAppointments]);
+
+  const changeReportDate = (delta: number) => {
+    const d = new Date(reportDate + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    setReportDate(d.toISOString().slice(0, 10));
+  };
+
+  const handlePrintDailyReport = () => {
+    setTimeout(() => window.print(), 150);
   };
 
   // Compute availability for slots on availabilityDate
@@ -564,6 +751,33 @@ export default function RecepcionPage() {
             <span>📅 Ver Disponibilidad General</span>
           </button>
 
+          <button
+            onClick={() => setNewModalOpen(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-black text-xs rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Registrar una nueva cita manualmente (modal)"
+          >
+            <Plus className="w-4 h-4" />
+            <span>➕ Nueva Cita</span>
+          </button>
+
+          <button
+            onClick={() => setCsvModalOpen(true)}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Importar la Tabla de Programación de la semana (CSV: Placa;Fecha;Hora;Servicio;Responsable;Observaciones)"
+          >
+            <Upload className="w-4 h-4" />
+            <span>📥 Importar Programación</span>
+          </button>
+
+          <button
+            onClick={() => setDailyReportOpen(true)}
+            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Informe Diario de Citas / Programación (imprimible)"
+          >
+            <CalendarDays className="w-4 h-4" />
+            <span>📊 Informe Diario</span>
+          </button>
+
           <div className="flex items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
             <button
               onClick={() => setActiveTab("citas")}
@@ -597,6 +811,72 @@ export default function RecepcionPage() {
 
       {activeTab === "citas" ? (
         <div className="space-y-6">
+          {/* Filtros rápidos de consulta (todo en base al N° de placa) */}
+          <div className="glass-panel p-4 rounded-2xl border border-blue-500/20 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar cita por N° de Placa... (Ej: B5Q-306)"
+                  value={plateSearch}
+                  onChange={(e) => setPlateSearch(e.target.value)}
+                  className="w-full pl-9 pr-10 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:border-blue-400 focus:outline-none font-mono font-bold uppercase"
+                />
+                {plateSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setPlateSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg px-2 py-1 text-[10px] font-bold"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0">
+                <Filter className="w-3.5 h-3.5 text-blue-400" />
+                <span>Mostrando <strong className="text-white">{filteredAppointments.length}</strong> de <strong className="text-white">{appointments.length}</strong> citas</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: "todas", label: "🗂️ Todas" },
+                { key: "hoy", label: "📅 Hoy" },
+                { key: "semana", label: "🗓️ Esta Semana" },
+                { key: "pendientes", label: "⏳ Pendientes" },
+                { key: "confirmadas", label: "✅ Confirmadas" },
+                { key: "completadas", label: "✔️ Completadas" },
+                { key: "canceladas", label: "🚫 Canceladas" },
+              ] as const).map((chip) => {
+                const count = chip.key === "todas" ? appointments.length
+                  : chip.key === "hoy" ? appointments.filter((a) => (a.scheduled_date || "").slice(0, 10) === getPeruDateString()).length
+                  : chip.key === "semana" ? (() => {
+                      const today = getPeruDateString();
+                      const ws = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10); })();
+                      const we = (() => { const d = new Date(ws + "T12:00:00"); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
+                      return appointments.filter((a) => { const d = (a.scheduled_date || "").slice(0, 10); return d >= ws && d <= we; }).length;
+                    })()
+                  : appointments.filter((a) => a.status === (chip.key === "pendientes" ? "pendiente" : chip.key === "confirmadas" ? "confirmado" : chip.key === "completadas" ? "completado" : "cancelado")).length;
+                const isActive = quickFilter === chip.key;
+                return (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => setQuickFilter(chip.key)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${isActive
+                      ? "bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-600/30"
+                      : "bg-reygas-surface text-gray-300 border-white/10 hover:border-blue-500/40 hover:text-white"
+                      }`}
+                  >
+                    {chip.label}
+                    <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-black ${isActive ? "bg-white/20" : "bg-black/40"}`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -612,10 +892,16 @@ export default function RecepcionPage() {
               <div className="p-12 text-center text-gray-500 space-y-2">
                 <Calendar className="w-12 h-12 mx-auto text-gray-600" />
                 <p className="text-sm">No hay citas registradas en el sistema.</p>
+                <p className="text-[11px]">Use <strong className="text-emerald-400">📥 Importar Programación</strong> para cargar la tabla de citas de la semana o <strong className="text-blue-400">➕ Nueva Cita</strong> para registrar una manualmente.</p>
+              </div>
+            ) : filteredAppointments.length === 0 ? (
+              <div className="p-10 text-center text-gray-500 space-y-2">
+                <Search className="w-10 h-10 mx-auto text-gray-600" />
+                <p className="text-sm">No hay citas que coincidan con el filtro de placa / estado.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {appointments.map((app) => {
+                {filteredAppointments.map((app) => {
                   const currentScheduled = cardDates[app.id] || app.scheduled_date || getPeruDateTimeLocal();
 
                   return (
@@ -655,6 +941,11 @@ export default function RecepcionPage() {
                           <span className="inline-block mt-2 text-xs font-extrabold text-reygas-red uppercase tracking-wider bg-reygas-red/10 px-2 py-0.5 rounded border border-reygas-red/30">
                             {app.service_type}
                           </span>
+                          {app.responsible && (
+                            <span className="inline-block mt-1.5 text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                              👤 Responsable: {app.responsible}
+                            </span>
+                          )}
                         </div>
 
                         {/* Assign Date & Time Section */}
@@ -1261,6 +1552,19 @@ export default function RecepcionPage() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Responsable de la Atención (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Kelly, Cristhel"
+                  value={newForm.responsible}
+                  onChange={(e) => setNewForm({ ...newForm, responsible: capitalizeFirst(e.target.value) })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
                   Fecha y Hora Agendada
                 </label>
                 <input
@@ -1303,6 +1607,256 @@ export default function RecepcionPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* MODAL: IMPORTAR TABLA DE PROGRAMACIÓN (CSV SEMANAL) */}
+      {csvModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-2xl p-6 rounded-2xl border border-emerald-500/40 space-y-4 relative shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setCsvModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Upload className="w-5 h-5 text-emerald-400" />
+                <span>Importar Tabla de Programación (CSV)</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Formato: <code className="text-emerald-300 font-mono text-[10px]">Placa;Fecha;Hora;Servicio;Responsable;Observaciones</code>. Las filas se agregan como citas y se consultan/filtran por N° de placa.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleLoadWeekCsv}
+                disabled={csvImporting}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold rounded-xl flex items-center gap-1.5 shadow transition-all disabled:opacity-50"
+              >
+                {csvImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CalendarDays className="w-3.5 h-3.5" />}
+                <span>Cargar Programación de la Semana</span>
+              </button>
+              <label className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow transition-all">
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Seleccionar archivo .csv</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv,text/plain"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-300 mb-1">Pegar contenido del CSV (opcional):</label>
+              <textarea
+                rows={5}
+                value={csvText}
+                onChange={(e) => handlePreviewCsv(e.target.value)}
+                placeholder={"Placa;Fecha;Hora;Servicio;Responsable;Observaciones\nB5Q-306;18/08/2026;8:30 a.m.;Mantenimiento general + filtro de gas;Kelly;—"}
+                className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-emerald-400 resize-y"
+              />
+            </div>
+
+            {csvPreview.length > 0 && (
+              <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl space-y-2">
+                <p className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{csvPreview.length} cita(s) listas para importar</span>
+                </p>
+                <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="text-gray-400 border-b border-white/10 text-left">
+                        <th className="py-1 pr-2">Placa</th>
+                        <th className="py-1 pr-2">Fecha / Hora</th>
+                        <th className="py-1 pr-2">Servicio</th>
+                        <th className="py-1">Responsable</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvPreview.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-b border-white/5 text-white">
+                          <td className="py-1 pr-2 font-mono font-bold text-emerald-300">{row.plate}</td>
+                          <td className="py-1 pr-2">{formatPeruDateTime(row.scheduled_date)}</td>
+                          <td className="py-1 pr-2">{row.service_type}</td>
+                          <td className="py-1">{row.responsible || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {csvPreview.length > 20 && <p className="text-[10px] text-gray-500 mt-1">...y {csvPreview.length - 20} más</p>}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setCsvModalOpen(false)} className="flex-1 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs">Cancelar</button>
+              <button
+                type="button"
+                onClick={handleImportCsv}
+                disabled={csvPreview.length === 0}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-transform hover:scale-105"
+              >
+                <Check className="w-4 h-4" />
+                <span>Importar {csvPreview.length > 0 ? `${csvPreview.length} cita(s)` : ""}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INFORME DIARIO DE CITAS / PROGRAMACIÓN (imprimible) */}
+      {dailyReportOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-4xl p-6 rounded-2xl border border-amber-500/40 space-y-5 relative shadow-2xl max-h-[92vh] overflow-y-auto">
+            <button onClick={() => setDailyReportOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <CalendarDays className="w-5 h-5 text-amber-400" />
+                <span>Informe Diario de Citas / Programación</span>
+              </h3>
+              <p className="text-xs text-gray-400">Programación de citas del día, consultable por fecha e imprimible.</p>
+            </div>
+
+            {/* Selector de fecha */}
+            <div className="flex flex-wrap items-center gap-3 p-3 bg-reygas-dark rounded-xl border border-white/10">
+              <button type="button" onClick={() => changeReportDate(-1)} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-300"><ChevronLeft className="w-4 h-4" /></button>
+              <input
+                type="date"
+                value={reportDate}
+                onChange={(e) => setReportDate(e.target.value)}
+                className="px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white focus:border-amber-400 font-mono"
+              />
+              <button type="button" onClick={() => changeReportDate(1)} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-gray-300"><ChevronRight className="w-4 h-4" /></button>
+              <button type="button" onClick={() => setReportDate(getPeruDateString())} className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold">Hoy</button>
+            </div>
+
+            {/* Cards resumen */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="p-3 rounded-xl bg-reygas-surface border border-white/10 text-center">
+                <p className="text-[10px] text-gray-400 font-bold uppercase">Total</p>
+                <p className="text-xl font-black text-white">{dailyCounts.total}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center">
+                <p className="text-[10px] text-amber-300 font-bold uppercase">Pendientes</p>
+                <p className="text-xl font-black text-amber-300">{dailyCounts.pendientes}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center">
+                <p className="text-[10px] text-emerald-300 font-bold uppercase">Confirmadas</p>
+                <p className="text-xl font-black text-emerald-300">{dailyCounts.confirmadas}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-center">
+                <p className="text-[10px] text-blue-300 font-bold uppercase">Completadas</p>
+                <p className="text-xl font-black text-blue-300">{dailyCounts.completadas}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-center">
+                <p className="text-[10px] text-red-300 font-bold uppercase">Canceladas</p>
+                <p className="text-xl font-black text-red-300">{dailyCounts.canceladas}</p>
+              </div>
+            </div>
+
+            {/* Narrativa ejecutiva */}
+            <div className="p-3 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-300 leading-relaxed">
+              <strong className="text-amber-300">📋 Resumen del día {formatPeruDate(reportDate)}:</strong> 
+              {dailyCounts.total === 0 ? "No se registraron citas programadas para esta fecha." : `Se registraron ${dailyCounts.total} cita(s) programada(s) en total: ${dailyCounts.pendientes} pendiente(s), ${dailyCounts.confirmadas} confirmada(s), ${dailyCounts.completadas} completada(s) y ${dailyCounts.canceladas} cancelada(s).`}
+            </div>
+
+            {/* Tabla del día */}
+            <div className="rounded-xl border border-white/10 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-reygas-surface text-gray-300 text-left">
+                    <th className="px-3 py-2 font-bold">Hora</th>
+                    <th className="px-3 py-2 font-bold">Placa</th>
+                    <th className="px-3 py-2 font-bold">Servicio</th>
+                    <th className="px-3 py-2 font-bold">Responsable</th>
+                    <th className="px-3 py-2 font-bold">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyAppointments.length === 0 ? (
+                    <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-500">Sin citas para esta fecha.</td></tr>
+                  ) : dailyAppointments.map((app) => (
+                    <tr key={app.id} className="border-t border-white/5">
+                      <td className="px-3 py-2 font-mono text-amber-300 font-bold">{formatPeruDateTime(app.scheduled_date).split(" ").slice(1).join(" ")}</td>
+                      <td className="px-3 py-2 font-mono font-bold text-white">{app.plate}</td>
+                      <td className="px-3 py-2 text-gray-300">{app.service_type}</td>
+                      <td className="px-3 py-2 text-gray-300">{app.responsible || "-"}</td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${app.status === "confirmado" ? "bg-emerald-500/20 text-emerald-400" : app.status === "completado" ? "bg-blue-500/20 text-blue-400" : app.status === "cancelado" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400"}`}>
+                          {app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : "Cancelada"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button type="button" onClick={() => setDailyReportOpen(false)} className="px-4 py-2.5 bg-reygas-surface hover:bg-gray-700 text-gray-300 hover:text-white text-xs font-bold rounded-xl border border-white/10">Cerrar</button>
+              <button type="button" onClick={handlePrintDailyReport} className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/30 flex items-center gap-2 transition-transform hover:scale-105">
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Informe Diario</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contenido imprimible del Informe Diario (portal a <body> — reygas-print-container) */}
+      {dailyReportOpen && typeof document !== "undefined" && ReactDOM.createPortal(
+        <div id="appointments-daily-print" className="reygas-print-container" style={{ display: "none", visibility: "hidden", position: "fixed", left: "-9999px", top: 0 }}>
+          <div className="reygas-print-page" style={{ background: "#ffffff", color: "#000" }}>
+            <div style={{ textAlign: "center", borderBottom: "2px solid #000", paddingBottom: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase" }}>REYGAS S.A.C.</div>
+              <div style={{ fontSize: 11 }}>AV. SAN MARTIN NRO. 279 LIMA - HUAURA - SANTA MARIA — RUC: 20600982860</div>
+              <div style={{ fontSize: 14, fontWeight: 800, marginTop: 6 }}>INFORME DIARIO DE CITAS / PROGRAMACIÓN</div>
+              <div style={{ fontSize: 12 }}>Fecha: {formatPeruDate(reportDate)}</div>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #000" }}>
+                  <th style={{ textAlign: "left", padding: 4 }}>Hora</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Placa</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Servicio</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Responsable</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyAppointments.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 8, textAlign: "center" }}>Sin citas para esta fecha.</td></tr>
+                ) : dailyAppointments.map((app) => (
+                  <tr key={app.id} style={{ borderBottom: "1px solid #ccc" }}>
+                    <td style={{ padding: 4 }}>{formatPeruDateTime(app.scheduled_date).split(" ").slice(1).join(" ")}</td>
+                    <td style={{ padding: 4, fontWeight: 700 }}>{app.plate}</td>
+                    <td style={{ padding: 4 }}>{app.service_type}</td>
+                    <td style={{ padding: 4 }}>{app.responsible || "-"}</td>
+                    <td style={{ padding: 4 }}>{app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : "Cancelada"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop: 10, fontSize: 11 }}>
+              <b>Total: {dailyCounts.total} cita(s)</b> — Pendientes: {dailyCounts.pendientes} | Confirmadas: {dailyCounts.confirmadas} | Completadas: {dailyCounts.completadas} | Canceladas: {dailyCounts.canceladas}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 10, borderTop: "1px solid #000", paddingTop: 6 }}>
+              Generado el {formatPeruDateTime(new Date())} — ReyGas Autogás Equipment
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* ========================================================================= */}
