@@ -590,6 +590,7 @@ export default function AdminTablesPage() {
       const importedPlateDates = new Set<string>();
       let skippedDuplicates = 0;
       let skippedFuture = 0;
+      let skippedBadDate = 0;
 
       const timestamp = Date.now();
 
@@ -623,6 +624,14 @@ export default function AdminTablesPage() {
         // Tabla Maestra; esas filas se omiten y se informan al final del import.
         if (importEntryDate > getPeruDateString()) {
           skippedFuture++;
+          return;
+        }
+
+        // Anti-fecha ilegible: celdas con basura (p. ej. "1452s21d wf") se omiten en vez
+        // de registrarse con la fecha de hoy (el parser no puede interpretarlas).
+        const dateLooksValid = /^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(record.rawDate || "");
+        if (!dateLooksValid) {
+          skippedBadDate++;
           return;
         }
 
@@ -722,18 +731,19 @@ export default function AdminTablesPage() {
         }).then((res) => {
           const dupNote = skippedDuplicates > 0 ? ` (${skippedDuplicates} filas omitidas por ser duplicadas de órdenes existentes de la misma placa y fecha)` : "";
           const futureNote = skippedFuture > 0 ? ` (${skippedFuture} filas omitidas por tener fecha futura, posterior a hoy: corríjalas en el Excel y vuelva a importar)` : "";
+          const badDateNote = skippedBadDate > 0 ? ` (${skippedBadDate} filas omitidas por tener fecha ilegible: corrija esa celda en el Excel)` : "";
           if (res?.success) {
-            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!${dupNote}${futureNote}`);
+            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!${dupNote}${futureNote}${badDateNote}`);
           } else {
-            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}${dupNote}${futureNote}`);
+            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}${dupNote}${futureNote}${badDateNote}`);
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
           setRefreshNonce((n) => n + 1);
         });
-      } else if (skippedDuplicates > 0 || skippedFuture > 0) {
+      } else if (skippedDuplicates > 0 || skippedFuture > 0 || skippedBadDate > 0) {
         setIsImportingWorkshop(false);
-        notify("warning", `No se importó nada: ${skippedDuplicates} filas duplicadas de la misma placa y fecha, y ${skippedFuture} filas con fecha futura (posterior a hoy). Corrija el Excel y vuelva a importar.`);
+        notify("warning", `No se importó nada: ${skippedDuplicates} filas duplicadas de la misma placa y fecha, ${skippedFuture} con fecha futura (posterior a hoy) y ${skippedBadDate} con fecha ilegible. Corrija el Excel y vuelva a importar.`);
       } else {
         setIsImportingWorkshop(false);
         notify("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
