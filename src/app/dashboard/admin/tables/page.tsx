@@ -248,7 +248,6 @@ export default function AdminTablesPage() {
       can_receive_payment: techEditForm.can_receive_payment,
       is_active: techEditForm.is_active,
     });
-    showAlert("success", `Datos y credenciales de ${techEditForm.full_name} actualizados con éxito.`);
     setTechEditModalOpen(false);
   };
 
@@ -268,7 +267,6 @@ export default function AdminTablesPage() {
     updateTechnician(quickPassModal.tech.id, {
       password: quickPassModal.newPass.trim(),
     });
-    showAlert("success", `Contraseña de ${quickPassModal.tech.full_name} actualizada con éxito.`);
     setQuickPassModal({ isOpen: false, tech: null, newPass: "", showPass: true });
   };
 
@@ -326,6 +324,7 @@ export default function AdminTablesPage() {
 
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<string[]>([]);
   const [isImportingSchedule, setIsImportingSchedule] = useState(false);
+  const [isImportingWorkshop, setIsImportingWorkshop] = useState(false);
 
   const handleOpenScheduleModal = (record?: ScheduleRecord) => {
     if (record) {
@@ -474,8 +473,12 @@ export default function AdminTablesPage() {
       }
 
       if (newRecords.length > 0) {
-        await importBulkScheduleRecords(newRecords);
-        showAlert("success", `¡Se importaron ${newRecords.length} registros a la Tabla de Programación con éxito!`);
+        const res = await importBulkScheduleRecords(newRecords);
+        if (res?.success) {
+          showAlert("success", `¡Se importaron ${newRecords.length} registros a la Tabla de Programación con éxito y guardados en Supabase!`);
+        } else {
+          showAlert("warning", `Se importaron ${newRecords.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+        }
       } else {
         showAlert("warning", "No se detectaron placas válidas en el archivo.");
       }
@@ -504,7 +507,6 @@ export default function AdminTablesPage() {
       is_active: true,
       can_receive_payment: techForm.can_receive_payment,
     });
-    const addedName = techForm.full_name;
     setTechForm({
       full_name: "",
       email: "",
@@ -513,7 +515,6 @@ export default function AdminTablesPage() {
       custom_password: "",
       can_receive_payment: false,
     });
-    showAlert("success", `Personal "${addedName}" registrado. Usuario: ${defUser}`);
   };
 
   // Importer for 20 Workshop Columns from CSV / Excel (Batch Processing for Performance)
@@ -521,6 +522,7 @@ export default function AdminTablesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setIsImportingWorkshop(true);
     const reader = new FileReader();
     reader.onload = (evt) => {
       const rawText = (evt.target?.result as string) || "";
@@ -591,14 +593,14 @@ export default function AdminTablesPage() {
           vehicle_type: record.vehicleType,
           items: record.sparePartsServices || record.maintenanceService
             ? [
-                {
-                  id: `item-${timestamp}-${idx}`,
-                  description: record.sparePartsServices || record.maintenanceService,
-                  quantity: 1,
-                  unit_price: parts_total,
-                  subtotal: parts_total,
-                },
-              ]
+              {
+                id: `item-${timestamp}-${idx}`,
+                description: record.sparePartsServices || record.maintenanceService,
+                quantity: 1,
+                unit_price: parts_total,
+                subtotal: parts_total,
+              },
+            ]
             : [],
           quinquennial_date: record.quinquennialDate,
           chip_expiry_date: record.chipExpiryDate,
@@ -640,10 +642,13 @@ export default function AdminTablesPage() {
           if (res?.success) {
             showAlert("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!`);
           } else {
-            showAlert("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+            showAlert("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
           }
+        }).finally(() => {
+          setIsImportingWorkshop(false);
         });
       } else {
+        setIsImportingWorkshop(false);
         showAlert("warning", "Verifique que el archivo CSV contenga las columnas correctas.");
       }
     };
@@ -793,14 +798,14 @@ export default function AdminTablesPage() {
       chip_expiry_date: editingWorkshopOrder.chipExpiryDate,
       items: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService
         ? [
-            {
-              id: `item-${editingWorkshopOrder.orderId}`,
-              description: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService,
-              quantity: 1,
-              unit_price: Number(editingWorkshopOrder.price) || 0,
-              subtotal: Number(editingWorkshopOrder.price) || 0,
-            },
-          ]
+          {
+            id: `item-${editingWorkshopOrder.orderId}`,
+            description: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService,
+            quantity: 1,
+            unit_price: Number(editingWorkshopOrder.price) || 0,
+            subtotal: Number(editingWorkshopOrder.price) || 0,
+          },
+        ]
         : [],
     });
 
@@ -904,11 +909,10 @@ export default function AdminTablesPage() {
         <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1.5 rounded-xl border border-white/10">
           <button
             onClick={() => setActiveTab("taller")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === "taller"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === "taller"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-gray-400 hover:text-white"
+              }`}
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Registros del Taller (20 Encabezados + Obs)</span>
@@ -916,11 +920,10 @@ export default function AdminTablesPage() {
 
           <button
             onClick={() => setActiveTab("personal")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === "personal"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === "personal"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-gray-400 hover:text-white"
+              }`}
           >
             <UserCheck className="w-4 h-4" />
             <span>Roster & Permisos de Personal ({technicians.length})</span>
@@ -928,11 +931,10 @@ export default function AdminTablesPage() {
 
           <button
             onClick={() => setActiveTab("servicios")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === "servicios"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === "servicios"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-gray-400 hover:text-white"
+              }`}
           >
             <Wrench className="w-4 h-4" />
             <span>Catálogo de Servicios ({workshopServices?.length || 0})</span>
@@ -940,11 +942,10 @@ export default function AdminTablesPage() {
 
           <button
             onClick={() => setActiveTab("programacion")}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${
-              activeTab === "programacion"
-                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                : "text-gray-400 hover:text-white"
-            }`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeTab === "programacion"
+              ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+              : "text-gray-400 hover:text-white"
+              }`}
           >
             <Calendar className="w-4 h-4" />
             <span>Tabla de Programación & Vencimientos ({scheduleRecords?.length || 0})</span>
@@ -954,11 +955,10 @@ export default function AdminTablesPage() {
 
       {alertMsg && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold animate-fadeIn ${
-            alertMsg.type === "success"
-              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-              : "bg-amber-950/40 border-amber-500/40 text-amber-300"
-          }`}
+          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-bold animate-fadeIn ${alertMsg.type === "success"
+            ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
+            : "bg-amber-950/40 border-amber-500/40 text-amber-300"
+            }`}
         >
           <span>{alertMsg.text}</span>
           <button onClick={() => setAlertMsg(null)}>✕</button>
@@ -983,11 +983,10 @@ export default function AdminTablesPage() {
                 <button
                   type="button"
                   onClick={() => setTimeFilter("todos")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    timeFilter === "todos"
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${timeFilter === "todos"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                    : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                    }`}
                 >
                   Histórico ({workOrders.length})
                 </button>
@@ -998,11 +997,10 @@ export default function AdminTablesPage() {
                     setTimeFilter("hoy");
                     setQueryDate(getPeruDateString());
                   }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    timeFilter === "hoy"
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${timeFilter === "hoy"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                    : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                    }`}
                 >
                   Hoy
                 </button>
@@ -1010,11 +1008,10 @@ export default function AdminTablesPage() {
                 <button
                   type="button"
                   onClick={() => setTimeFilter("fecha")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    timeFilter === "fecha"
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${timeFilter === "fecha"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                    : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                    }`}
                 >
                   Por Día Específico
                 </button>
@@ -1022,11 +1019,10 @@ export default function AdminTablesPage() {
                 <button
                   type="button"
                   onClick={() => setTimeFilter("rango")}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    timeFilter === "rango"
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${timeFilter === "rango"
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30"
+                    : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white"
+                    }`}
                 >
                   Por Rango
                 </button>
@@ -1107,9 +1103,16 @@ export default function AdminTablesPage() {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap">
-                  <Upload className="w-4 h-4" />
-                  <span>Cargar Excel Taller (21 Encabezados)</span>
+                <label
+                  className={`cursor-pointer px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30 whitespace-nowrap ${isImportingWorkshop ? "opacity-70 pointer-events-none" : ""
+                    }`}
+                >
+                  {isImportingWorkshop ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>{isImportingWorkshop ? "Subiendo datos a la nube..." : "Cargar Excel Taller (21 Encabezados)"}</span>
                   <input
                     type="file"
                     accept=".csv,.xlsx,.xls"
@@ -1192,11 +1195,11 @@ export default function AdminTablesPage() {
 
                     const priceVal = inv?.raw_price_str !== undefined && inv.raw_price_str !== ""
                       ? (inv.raw_price_str.startsWith("$") || inv.raw_price_str.startsWith("S/")
-                          ? inv.raw_price_str
-                          : `S/ ${parseFloat(inv.raw_price_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
+                        ? inv.raw_price_str
+                        : `S/ ${parseFloat(inv.raw_price_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
                       : (inv?.grand_total !== undefined && inv.grand_total > 0
-                          ? `S/ ${inv.grand_total.toFixed(2)}`
-                          : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
+                        ? `S/ ${inv.grand_total.toFixed(2)}`
+                        : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
 
                     const discountVal = inv?.discounts !== undefined && inv.discounts !== ""
                       ? String(inv.discounts)
@@ -1204,16 +1207,15 @@ export default function AdminTablesPage() {
 
                     const creditVal = inv?.raw_credit_str !== undefined && inv.raw_credit_str !== ""
                       ? (inv.raw_credit_str.startsWith("$") || inv.raw_credit_str.startsWith("S/")
-                          ? inv.raw_credit_str
-                          : `S/ ${parseFloat(inv.raw_credit_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
+                        ? inv.raw_credit_str
+                        : `S/ ${parseFloat(inv.raw_credit_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
                       : (inv?.credit_amount && inv.credit_amount > 0 ? `S/ ${inv.credit_amount.toFixed(2)}` : "");
 
                     return (
                       <tr
                         key={wo.id}
-                        className={`hover:bg-white/5 transition-colors ${
-                          isSelected ? "bg-indigo-950/40" : ""
-                        }`}
+                        className={`hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/40" : ""
+                          }`}
                       >
                         <td className="p-3 text-center">
                           <input
@@ -1528,7 +1530,6 @@ export default function AdminTablesPage() {
                             checked={!!t.can_receive_payment}
                             onChange={(e) => {
                               updateTechnician(t.id, { can_receive_payment: e.target.checked });
-                              showAlert("success", `${t.full_name} ${e.target.checked ? "habilitado" : "deshabilitado"} como destino de pago.`);
                             }}
                             className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500"
                           />
@@ -1540,7 +1541,6 @@ export default function AdminTablesPage() {
                           onClick={() => {
                             const newTabs = allActive ? [] : ALL_ERP_STATIONS.map((s) => s.id);
                             updateTechnician(t.id, { allowed_tabs: newTabs });
-                            showAlert("success", `Permisos de ${t.full_name} actualizados.`);
                           }}
                           className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition-colors border border-white/10"
                         >
@@ -1549,11 +1549,10 @@ export default function AdminTablesPage() {
 
                         <button
                           onClick={() => toggleTechnicianActive(t.id)}
-                          className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                            t.is_active
-                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                              : "bg-gray-800 text-gray-500 border border-gray-700"
-                          }`}
+                          className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${t.is_active
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-gray-800 text-gray-500 border border-gray-700"
+                            }`}
                         >
                           {t.is_active ? "Activo" : "Inactivo"}
                         </button>
@@ -1573,7 +1572,6 @@ export default function AdminTablesPage() {
                           onClick={() => {
                             if (window.confirm(`¿Está seguro de eliminar a ${t.full_name} del personal?`)) {
                               deleteTechnician(t.id);
-                              showAlert("success", `${t.full_name} fue eliminado del personal.`);
                             }
                           }}
                           className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
@@ -1644,11 +1642,10 @@ export default function AdminTablesPage() {
                           return (
                             <label
                               key={station.id}
-                              className={`flex items-center gap-2 p-2 rounded-lg text-xs font-semibold cursor-pointer border transition-all ${
-                                isChecked
-                                  ? "bg-indigo-950/40 border-indigo-500/50 text-indigo-200"
-                                  : "bg-white/[0.02] border-white/5 text-gray-500 hover:text-gray-300"
-                              }`}
+                              className={`flex items-center gap-2 p-2 rounded-lg text-xs font-semibold cursor-pointer border transition-all ${isChecked
+                                ? "bg-indigo-950/40 border-indigo-500/50 text-indigo-200"
+                                : "bg-white/[0.02] border-white/5 text-gray-500 hover:text-gray-300"
+                                }`}
                             >
                               <input
                                 type="checkbox"
@@ -1848,8 +1845,12 @@ export default function AdminTablesPage() {
             <div className="flex items-center gap-2 flex-wrap">
               {/* Import Excel/CSV Button */}
               <label className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer transition-transform hover:scale-105">
-                <FileUp className="w-4 h-4" />
-                <span>{isImportingSchedule ? "Importando..." : "Importar Excel / CSV"}</span>
+                {isImportingSchedule ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileUp className="w-4 h-4" />
+                )}
+                <span>{isImportingSchedule ? "Subiendo a la nube..." : "Importar Excel / CSV"}</span>
                 <input
                   type="file"
                   accept=".csv,.txt,.xlsx,.xls"
@@ -1952,9 +1953,8 @@ export default function AdminTablesPage() {
                       return (
                         <tr
                           key={rec.id}
-                          className={`hover:bg-white/5 transition-colors ${
-                            isSelected ? "bg-indigo-950/20" : ""
-                          }`}
+                          className={`hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/20" : ""
+                            }`}
                         >
                           <td className="p-3 text-center">
                             <input
@@ -1998,13 +1998,12 @@ export default function AdminTablesPage() {
                           </td>
                           <td className="p-3">
                             <span
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                rec.status === "atendido"
-                                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                  : rec.status === "vencido"
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${rec.status === "atendido"
+                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                : rec.status === "vencido"
                                   ? "bg-red-500/20 text-red-400 border border-red-500/30"
                                   : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                              }`}
+                                }`}
                             >
                               {rec.status || "programado"}
                             </span>
@@ -2525,7 +2524,7 @@ export default function AdminTablesPage() {
             </div>
 
             <form onSubmit={handleSaveEditWorkshopOrder} className="space-y-4 text-xs">
-              
+
               {/* Fecha y Hora de Ingreso */}
               <div className="p-4 rounded-2xl bg-black/40 border border-amber-500/30 space-y-3">
                 <div className="flex items-center gap-2 text-amber-300 font-black uppercase text-[11px] tracking-wider">

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
+import { Toast } from "@/components/ui/toast";
 import { useAppStore } from "@/lib/store/app-store";
 import {
   Globe,
@@ -135,9 +136,8 @@ export default function DashboardLayout({
     <div className="min-h-screen flex bg-reygas-dark text-white">
       {/* LEFT VERTICAL SIDEBAR FOR DESKTOP & TABLETS */}
       <aside
-        className={`hidden md:flex flex-col border-r border-white/10 glass-panel transition-all duration-300 z-40 sticky top-0 h-screen ${
-          sidebarCollapsed ? "w-20" : "w-64 lg:w-72"
-        }`}
+        className={`hidden md:flex flex-col border-r border-white/10 glass-panel transition-all duration-300 z-40 sticky top-0 h-screen ${sidebarCollapsed ? "w-20" : "w-64 lg:w-72"
+          }`}
       >
         {/* Sidebar Header */}
         <div className="p-4 border-b border-white/10 flex items-center justify-between">
@@ -149,9 +149,8 @@ export default function DashboardLayout({
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
           >
             <ChevronRight
-              className={`w-5 h-5 transition-transform ${
-                sidebarCollapsed ? "" : "rotate-180"
-              }`}
+              className={`w-5 h-5 transition-transform ${sidebarCollapsed ? "" : "rotate-180"
+                }`}
             />
           </button>
         </div>
@@ -189,18 +188,16 @@ export default function DashboardLayout({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all group ${
-                  isActive
-                    ? "bg-reygas-red text-white shadow-lg shadow-reygas-red/30"
-                    : "text-gray-300 hover:bg-white/5 hover:text-white"
-                }`}
+                className={`flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all group ${isActive
+                  ? "bg-reygas-red text-white shadow-lg shadow-reygas-red/30"
+                  : "text-gray-300 hover:bg-white/5 hover:text-white"
+                  }`}
                 title={item.name}
               >
                 <div className="flex items-center gap-3 overflow-hidden">
                   <Icon
-                    className={`w-5 h-5 shrink-0 ${
-                      isActive ? "text-white" : item.color
-                    }`}
+                    className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : item.color
+                      }`}
                   />
                   {!sidebarCollapsed && (
                     <span className="truncate">{item.name}</span>
@@ -222,11 +219,10 @@ export default function DashboardLayout({
           {!sidebarCollapsed && userRole === "admin" && (
             <button
               onClick={toggleVisualEditing}
-              className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold transition-all border flex items-center justify-center gap-2 ${
-                isVisualEditing
-                  ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/30"
-                  : "bg-gray-800 text-gray-400 border-gray-700 hover:text-white"
-              }`}
+              className={`w-full py-2 px-3 rounded-xl text-xs font-extrabold transition-all border flex items-center justify-center gap-2 ${isVisualEditing
+                ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/30"
+                : "bg-gray-800 text-gray-400 border-gray-700 hover:text-white"
+                }`}
             >
               <Edit3 className="w-4 h-4" />
               <span>{isVisualEditing ? "Edición Web ON" : "Edición Web OFF"}</span>
@@ -277,9 +273,8 @@ export default function DashboardLayout({
                   key={item.href}
                   href={item.href}
                   onClick={() => setMobileSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${
-                    isActive ? "bg-reygas-red text-white" : "text-gray-300 hover:bg-white/5"
-                  }`}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold ${isActive ? "bg-reygas-red text-white" : "text-gray-300 hover:bg-white/5"
+                    }`}
                 >
                   <Icon className={`w-5 h-5 ${item.color}`} />
                   <span>{item.name}</span>
@@ -318,6 +313,7 @@ export default function DashboardLayout({
           children
         )}
       </main>
+      <Toast />
     </div>
   );
 }

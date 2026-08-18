@@ -27,7 +27,8 @@ import {
   ShieldCheck,
   Coins,
   Filter,
-  Car
+  Car,
+  RefreshCw,
 } from "lucide-react";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate } from "@/lib/utils/date-utils";
 
@@ -41,6 +42,7 @@ export default function ConsultasPage() {
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
   const [visibleLimit, setVisibleLimit] = useState(40);
   const [isRealtimeFetching, setIsRealtimeFetching] = useState(false);
+  const [isImportingWorkshop, setIsImportingWorkshop] = useState(false);
 
   // State for Plate History Timeline Modal
   const [selectedPlateHistory, setSelectedPlateHistory] = useState<string | null>(null);
@@ -313,8 +315,8 @@ export default function ConsultasPage() {
   // Get all work orders for the selected plate sorted by date (newest first)
   const plateHistoryOrders = selectedPlateHistory
     ? workOrders
-        .filter((wo) => wo.vehicle_plate === selectedPlateHistory)
-        .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime())
+      .filter((wo) => wo.vehicle_plate === selectedPlateHistory)
+      .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime())
     : [];
 
   const activePlateVehicle = selectedPlateHistory
@@ -333,6 +335,8 @@ export default function ConsultasPage() {
   const handleImportFullWorkshopExcelCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isImportingWorkshop) return;
+    setIsImportingWorkshop(true);
 
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -403,14 +407,14 @@ export default function ConsultasPage() {
           vehicle_type: record.vehicleType,
           items: record.sparePartsServices || record.maintenanceService
             ? [
-                {
-                  id: `item-${timestamp}-${idx}`,
-                  description: record.sparePartsServices || record.maintenanceService,
-                  quantity: 1,
-                  unit_price: parts_total,
-                  subtotal: parts_total,
-                },
-              ]
+              {
+                id: `item-${timestamp}-${idx}`,
+                description: record.sparePartsServices || record.maintenanceService,
+                quantity: 1,
+                unit_price: parts_total,
+                subtotal: parts_total,
+              },
+            ]
             : [],
           quinquennial_date: record.quinquennialDate,
           chip_expiry_date: record.chipExpiryDate,
@@ -453,8 +457,11 @@ export default function ConsultasPage() {
           } else {
             showAlert("warning", `Guardados localmente. Notificación de Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
           }
+        }).finally(() => {
+          setIsImportingWorkshop(false);
         });
       } else {
+        setIsImportingWorkshop(false);
         showAlert("warning", "No se pudieron interpretar filas. Verifique que el archivo CSV tenga los 20 encabezados.");
       }
     };
@@ -501,9 +508,9 @@ export default function ConsultasPage() {
             <span>{isRealtimeFetching ? "Sincronizando..." : "Sincronizar Nube"}</span>
           </button>
 
-          <label className="px-3.5 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40 shrink-0 touch-target">
-            <Receipt className="w-4 h-4 text-white shrink-0" />
-            <span className="whitespace-nowrap">Cargar Excel Taller</span>
+          <label className={`px-3.5 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer transition-all border border-emerald-400/40 shrink-0 touch-target ${isImportingWorkshop ? "opacity-70 pointer-events-none" : ""}`}>
+            {isImportingWorkshop ? <RefreshCw className="w-4 h-4 text-white shrink-0 animate-spin" /> : <Receipt className="w-4 h-4 text-white shrink-0" />}
+            <span className="whitespace-nowrap">{isImportingWorkshop ? "Subiendo datos a la nube..." : "Cargar Excel Taller"}</span>
             <input type="file" accept=".csv, .txt, .xlsx, .xls" onChange={handleImportFullWorkshopExcelCSV} className="hidden" />
           </label>
 
@@ -835,8 +842,8 @@ export default function ConsultasPage() {
                         {pricing.isCredit || pricing.creditAmount > 0
                           ? "Monto a Crédito"
                           : pricing.discountAmount > 0
-                          ? "Monto Final Cobrado"
-                          : "Total Registrado"}
+                            ? "Monto Final Cobrado"
+                            : "Total Registrado"}
                       </span>
                       <span className={`text-3xl font-black font-mono ${pricing.isCredit || pricing.creditAmount > 0 ? "text-amber-400" : "text-white"}`}>
                         S/ {pricing.finalAmount.toFixed(2)}
@@ -921,11 +928,10 @@ export default function ConsultasPage() {
                 return (
                   <div
                     key={wo.id}
-                    className={`rounded-2xl border transition-all glass-panel overflow-hidden ${
-                      isSelectedDate
-                        ? "border-amber-500 bg-amber-950/20 shadow-xl"
-                        : "border-white/10 bg-reygas-dark/90 hover:border-amber-500/40"
-                    }`}
+                    className={`rounded-2xl border transition-all glass-panel overflow-hidden ${isSelectedDate
+                      ? "border-amber-500 bg-amber-950/20 shadow-xl"
+                      : "border-white/10 bg-reygas-dark/90 hover:border-amber-500/40"
+                      }`}
                   >
                     {/* Date Item Header Bar (Clickable) */}
                     <div
@@ -1102,8 +1108,8 @@ export default function ConsultasPage() {
                                 const itemSubtotal = pricing.discountAmount > 0 && wo.items.length === 1 && item.subtotal === pricing.finalAmount
                                   ? pricing.originalSubtotal
                                   : item.subtotal > 0
-                                  ? item.subtotal
-                                  : pricing.finalAmount;
+                                    ? item.subtotal
+                                    : pricing.finalAmount;
                                 return (
                                   <div
                                     key={item.id}

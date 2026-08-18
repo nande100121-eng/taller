@@ -5,15 +5,27 @@ import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, 
 export const CLIENT_SESSION_ID =
   typeof window !== "undefined"
     ? (window as any).__REYGAS_CLIENT_ID ||
-      ((window as any).__REYGAS_CLIENT_ID = "cli_" + Math.random().toString(36).substring(2) + Date.now().toString(36))
+    ((window as any).__REYGAS_CLIENT_ID = "cli_" + Math.random().toString(36).substring(2) + Date.now().toString(36))
     : "server";
 
 let lastLocalMutationTimestamp = 0;
-export function markLocalMutation() {
-  lastLocalMutationTimestamp = Date.now();
+const lastLocalMutationMap = new Map<string, number>();
+export function markLocalMutation(key?: string) {
+  const now = Date.now();
+  lastLocalMutationTimestamp = now;
+  if (key) {
+    lastLocalMutationMap.set(key, now);
+  }
 }
-export function getLastLocalMutationTime() {
+export function getLastLocalMutationTime(key?: string) {
+  if (key) {
+    return lastLocalMutationMap.get(key) ?? 0;
+  }
   return lastLocalMutationTimestamp;
+}
+export function hasRecentLocalMutation(key: string, thresholdMs: number = 5000): boolean {
+  const t = lastLocalMutationMap.get(key) ?? 0;
+  return Date.now() - t < thresholdMs;
 }
 
 // =====================================================================
@@ -46,12 +58,17 @@ export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> |
   }
 }
 
-export async function saveSupabaseSiteContent(key: string, value: any, category: string = "general", shouldBroadcast: boolean = true) {
+export async function saveSupabaseSiteContent(
+  key: string,
+  value: any,
+  category: string = "general",
+  shouldBroadcast: boolean = true
+): Promise<{ success: boolean; error?: string }> {
+  markLocalMutation(key);
   try {
-    markLocalMutation();
     const serializedValue = typeof value === "object" ? JSON.stringify(value) : value;
 
-    // PostgreSQL schema primary key is section_key or key
+    // site_content.section_key is the unique PK; always upsert on section_key only
     const payload: any = {
       section_key: key,
       key: key,
@@ -61,26 +78,22 @@ export async function saveSupabaseSiteContent(key: string, value: any, category:
       updated_at: new Date().toISOString(),
     };
 
-    // 1. Try upsert on section_key
-    let { error } = await supabase.from("site_content").upsert(payload, { onConflict: "section_key" });
+    const { error } = await supabase.from("site_content").upsert(payload, { onConflict: "section_key" });
 
-    // 2. If conflict resolution fails on section_key, try on key
     if (error) {
-      const { error: keyErr } = await supabase.from("site_content").upsert(payload, { onConflict: "key" });
-      if (keyErr) {
-        const { error: updateErr } = await supabase.from("site_content").update(payload).or(`section_key.eq.${key},key.eq.${key}`);
-        if (updateErr) {
-          await supabase.from("site_content").insert(payload);
-        }
-      }
+      return { success: false, error: error.message };
     }
 
-    // 3. Broadcast instant real-time signal to other devices
+    // Broadcast instant real-time signal to other devices
     if (shouldBroadcast) {
       broadcastRealtimeChange(`site_content_${key}`);
     }
+
+    return { success: true };
   } catch (err) {
-    console.warn("Supabase site_content deferred:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("Supabase site_content save failed:", msg);
+    return { success: false, error: msg };
   }
 }
 
@@ -149,9 +162,12 @@ export async function saveFullSiteContentToSupabase(content: SiteContent): Promi
 // ---------------------------------------------------------------------
 // TECHNICIANS SUPABASE SYNC
 // ---------------------------------------------------------------------
-export async function saveSupabaseTechnician(tech: Technician, allTechs?: Technician[]) {
+export async function saveSupabaseTechnician(
+  tech: Technician,
+  allTechs?: Technician[]
+): Promise<{ success: boolean; error?: string }> {
   try {
-    markLocalMutation();
+    markLocalMutation("technicians");
     const { error } = await supabase.from("technicians").upsert(
       {
         id: tech.id,
@@ -165,7 +181,7 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       { onConflict: "id" }
     );
     if (error) {
-      await supabase.from("technicians").upsert(
+      const retry = await supabase.from("technicians").upsert(
         {
           id: tech.id,
           full_name: tech.full_name,
@@ -176,6 +192,10 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
         },
         { onConflict: "id" }
       );
+      if (retry.error) {
+        console.warn("Supabase technician upsert failed:", retry.error);
+        return { success: false, error: retry.error.message || "Error al guardar técnico" };
+      }
     }
 
     const permsPayload = {
@@ -185,7 +205,10 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       username: tech.username || "",
       password: tech.password || "",
     };
-    await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians", false);
+    const permsRes = await saveSupabaseSiteContent(`tech_perms_${tech.id}`, permsPayload, "technicians", false);
+    if (!permsRes.success) {
+      return { success: false, error: permsRes.error || "Error al guardar permisos" };
+    }
     const normName = tech.full_name.trim().toLowerCase();
     await saveSupabaseSiteContent(`tech_perms_name_${encodeURIComponent(normName)}`, permsPayload, "technicians", false);
 
@@ -193,8 +216,10 @@ export async function saveSupabaseTechnician(tech: Technician, allTechs?: Techni
       await saveSupabaseSiteContent("all_technicians", allTechs, "technicians", false);
     }
     broadcastRealtimeChange("technician_saved");
-  } catch (err) {
+    return { success: true };
+  } catch (err: any) {
     console.warn("Supabase technician deferred:", err);
+    return { success: false, error: err?.message || "Error de red al guardar técnico" };
   }
 }
 
@@ -216,6 +241,7 @@ export async function deleteSupabaseTechnician(id: string, allTechs?: Technician
 // ---------------------------------------------------------------------
 export async function saveSupabaseInventoryItem(item: InventoryItem) {
   try {
+    markLocalMutation("inventory");
     // 1. Try upserting with all columns
     const { error } = await supabase.from("inventory_items").upsert({
       id: item.id,
@@ -351,7 +377,7 @@ export async function clearSupabaseInventory() {
 // ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
-    markLocalMutation();
+    markLocalMutation("workOrders");
     let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").trim();
     if (order.allow_modifications) {
       diagText = `${diagText}\n[ALLOW_MOD]: true`.trim();
@@ -629,7 +655,7 @@ export async function fetchSupabaseServices(): Promise<WorkshopService[] | null>
           if (Array.isArray(list) && list.length > 0) {
             return list;
           }
-        } catch {}
+        } catch { }
       }
     }
     return null;
@@ -702,7 +728,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 password: rawVal.password || "",
               };
             }
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("tech_perms_")) {
           const techId = k.replace("tech_perms_", "");
           try {
@@ -718,12 +744,12 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 password: rawVal.password || "",
               };
             }
-          } catch {}
+          } catch { }
         } else if (k === "all_technicians") {
           try {
             const tList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(tList)) fallbackTechs.push(...tList);
-          } catch {}
+          } catch { }
         }
       });
     }
@@ -745,8 +771,8 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
           can_receive_payment: isDbPaymentTrue
             ? true
             : isDbPaymentFalse
-            ? false
-            : (perm?.can_receive_payment !== undefined
+              ? false
+              : (perm?.can_receive_payment !== undefined
                 ? !!perm.can_receive_payment
                 : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
         };
@@ -765,6 +791,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
 // ---------------------------------------------------------------------
 export async function saveSupabaseCertification(cert: Certification) {
   try {
+    markLocalMutation("certifications");
     // 1. Try dedicated table
     await supabase.from("certifications").upsert({
       id: cert.id,
@@ -793,6 +820,7 @@ export async function saveSupabaseCertification(cert: Certification) {
 // ---------------------------------------------------------------------
 export async function saveSupabaseScheduleRecord(record: ScheduleRecord) {
   try {
+    markLocalMutation("schedule");
     // 1. Try dedicated table
     await supabase.from("schedule_records").upsert({
       id: record.id,
@@ -925,7 +953,7 @@ export async function fetchSupabaseErpData() {
                 password: rawVal.password || "",
               };
             }
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("tech_perms_")) {
           const techId = k.replace("tech_perms_", "");
           try {
@@ -941,42 +969,42 @@ export async function fetchSupabaseErpData() {
                 password: rawVal.password || "",
               };
             }
-          } catch {}
+          } catch { }
         } else if (k === "all_technicians") {
           try {
             const tList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(tList)) fallbackTechs.push(...tList);
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("cert_")) {
           try {
             const certObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (certObj && certObj.id) fallbackCerts.push(certObj);
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("sched_")) {
           try {
             const sObj = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (sObj && sObj.id) fallbackSched.push(sObj);
-          } catch {}
+          } catch { }
         } else if (k === "all_schedule_records") {
           try {
             const sList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(sList)) fallbackSched.push(...sList);
-          } catch {}
+          } catch { }
         } else if (k === "all_inventory_records") {
           try {
             const invList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(invList)) fallbackInventory.push(...invList);
-          } catch {}
+          } catch { }
         } else if (k === "workshopServices" || k === "workshop_services" || k === "all_services") {
           try {
             const sList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(sList) && sList.length > 0) fallbackServices = sList;
-          } catch {}
+          } catch { }
         } else if (k === "inventory_recent_ingresos") {
           try {
             const list = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (Array.isArray(list)) fallbackRecentIngresos = list;
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("inv_breakdown_")) {
           const invKey = k.replace("inv_breakdown_", "");
           try {
@@ -984,19 +1012,19 @@ export async function fetchSupabaseErpData() {
             if (Array.isArray(bd)) {
               invBreakdownsMap.set(invKey, bd);
             }
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("inv_full_")) {
           const invKey = k.replace("inv_full_", "");
           try {
             const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (val && typeof val === "object") invFullMap.set(invKey, val);
-          } catch {}
+          } catch { }
         } else if (k && k.startsWith("wo_mod_")) {
           const woKey = k.replace("wo_mod_", "");
           try {
             const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (val && typeof val === "object") woModMap.set(woKey, val);
-          } catch {}
+          } catch { }
         }
       });
     }
@@ -1008,7 +1036,7 @@ export async function fetchSupabaseErpData() {
       if (backupRow) {
         try {
           masterBackup = typeof backupRow.value === "string" ? JSON.parse(backupRow.value) : (backupRow.value || backupRow.content);
-        } catch {}
+        } catch { }
       }
     }
 
@@ -1257,8 +1285,8 @@ export async function fetchSupabaseErpData() {
           can_receive_payment: isDbPaymentTrue
             ? true
             : isDbPaymentFalse
-            ? false
-            : (perm?.can_receive_payment !== undefined
+              ? false
+              : (perm?.can_receive_payment !== undefined
                 ? !!perm.can_receive_payment
                 : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
         };
@@ -1341,7 +1369,7 @@ export async function deleteSupabaseAppointment(id: string) {
 // ---------------------------------------------------------------------
 export async function saveSupabaseInvoice(inv: Invoice) {
   try {
-    markLocalMutation();
+    markLocalMutation("invoices");
     const payload: any = {
       id: inv.id,
       work_order_id: inv.work_order_id,
@@ -1577,7 +1605,7 @@ export async function saveSupabaseBulkWorkshopData(
         total_invoices: invoices.length,
         last_updated: new Date().toISOString(),
       }, "workshop");
-    } catch {}
+    } catch { }
 
     broadcastRealtimeChange("bulk_workshop_saved");
 

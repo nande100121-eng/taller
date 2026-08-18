@@ -35,7 +35,8 @@ import {
   Sparkles,
   Printer,
   ArrowUpDown,
-  FileText
+  FileText,
+  RefreshCw
 } from "lucide-react";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
@@ -142,6 +143,9 @@ export default function AlmacenPage() {
 
   // Daily Executive Warehouse Report Modal State
   const [dailyReportModalOpen, setDailyReportModalOpen] = useState(false);
+
+  // CSV/Excel Import Loading State (visible save feedback)
+  const [isImportingInventory, setIsImportingInventory] = useState(false);
 
   const showWebNotification = (
     type: "info" | "warning" | "success" | "error",
@@ -427,9 +431,11 @@ export default function AlmacenPage() {
   };
 
   // Sanitized CSV/Excel file parser preventing binary character corruption & column overflow
-  const handleFileUploadExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isImportingInventory) return;
+    setIsImportingInventory(true);
 
     // Check if file is a binary .xlsx file without proper text encoding
     if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
@@ -483,21 +489,33 @@ export default function AlmacenPage() {
       });
 
       if (parsedItems.length > 0) {
-        importBulkInventoryItems(parsedItems);
-        showWebNotification(
-          "success",
-          "¡Catálogo CSV Sincronizado!",
-          `Se importaron y sincronizaron con Supabase ${parsedItems.length} productos del archivo "${file.name}".`
-        );
+        importBulkInventoryItems(parsedItems).then((res) => {
+          if (res?.success) {
+            showWebNotification(
+              "success",
+              "¡Catálogo CSV Sincronizado!",
+              `Se importaron y guardaron en Supabase ${res.count} productos del archivo "${file.name}".`
+            );
+          } else {
+            showWebNotification(
+              "warning",
+              "Guardado Local con Advertencia",
+              `Se cargaron ${parsedItems.length} productos localmente, pero hubo un problema al sincronizar con Supabase: ${res?.errorMsg || "Respuesta diferida"}`
+            );
+          }
+        }).finally(() => {
+          setIsImportingInventory(false);
+          e.target.value = "";
+        });
       } else {
+        setIsImportingInventory(false);
         showWebNotification(
           "error",
           "Error de Interpretación",
           "No se pudieron interpretar productos. Verifique que el archivo esté en formato CSV separado por punto y coma (;) o comas (,)."
         );
+        e.target.value = "";
       }
-      // Reset input so re-uploading the same file works immediately
-      e.target.value = "";
     };
     reader.readAsText(file);
   };
@@ -603,8 +621,8 @@ export default function AlmacenPage() {
       pedidosDispatchFilter === "todos"
         ? true
         : pedidosDispatchFilter === "pendientes"
-        ? pendingCount > 0
-        : isAllDispatched;
+          ? pendingCount > 0
+          : isAllDispatched;
 
     return matchesDate && matchesStatus;
   });
@@ -863,24 +881,24 @@ export default function AlmacenPage() {
         stockFilter === "todos"
           ? true
           : stockFilter === "errores"
-          ? item.stock_quantity < 0
-          : stockFilter === "no_validado"
-          ? !item.counted_status ||
-            item.counted_status.trim().toUpperCase() === "NO CONTADO" ||
-            item.counted_status.trim().toUpperCase().includes("NO") ||
-            item.counted_status.trim().toUpperCase().includes("PENDIENTE")
-          : stockFilter === "bajo"
-          ? item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert
-          : stockFilter === "critico"
-          ? item.stock_quantity === 0
-          : true;
+            ? item.stock_quantity < 0
+            : stockFilter === "no_validado"
+              ? !item.counted_status ||
+              item.counted_status.trim().toUpperCase() === "NO CONTADO" ||
+              item.counted_status.trim().toUpperCase().includes("NO") ||
+              item.counted_status.trim().toUpperCase().includes("PENDIENTE")
+              : stockFilter === "bajo"
+                ? item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert
+                : stockFilter === "critico"
+                  ? item.stock_quantity === 0
+                  : true;
 
       const matchesLetter =
         selectedLetter === "TODAS"
           ? true
           : selectedLetter === "0-9"
-          ? /^[0-9]/.test((item.name || "").trim())
-          : (item.name || "").trim().toUpperCase().startsWith(selectedLetter);
+            ? /^[0-9]/.test((item.name || "").trim())
+            : (item.name || "").trim().toUpperCase().startsWith(selectedLetter);
 
       return matchesSearch && matchesStock && matchesLetter;
     })
@@ -933,11 +951,10 @@ export default function AlmacenPage() {
           <div className="flex flex-wrap items-center gap-2 bg-reygas-dark p-1 rounded-xl border border-white/10">
             <button
               onClick={() => setActiveTab("pedidos")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === "pedidos"
-                  ? "bg-amber-500 text-black font-extrabold shadow-lg"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "pedidos"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <span>Pedidos por Vehículo</span>
               {pendingRequisitionsCount > 0 && (
@@ -949,31 +966,28 @@ export default function AlmacenPage() {
 
             <button
               onClick={() => setActiveTab("inventario")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "inventario"
-                  ? "bg-emerald-600 text-white shadow-lg"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "inventario"
+                ? "bg-emerald-600 text-white shadow-lg"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               Inventario & Stock ({inventoryItems.length})
             </button>
             <button
               onClick={() => setActiveTab("herramientas")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "herramientas"
-                  ? "bg-emerald-600 text-white shadow-lg"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "herramientas"
+                ? "bg-emerald-600 text-white shadow-lg"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               Préstamo Herramientas ({toolLoans.length})
             </button>
             <button
               onClick={() => setActiveTab("ingreso")}
-              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === "ingreso"
-                  ? "bg-amber-500 text-black font-extrabold shadow-lg"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "ingreso"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <PackagePlus className="w-4 h-4" />
               <span>Ingreso de Material</span>
@@ -1011,11 +1025,10 @@ export default function AlmacenPage() {
 
                 <button
                   onClick={() => setShowAllPedidosDates(!showAllPedidosDates)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                    showAllPedidosDates
-                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md font-black"
-                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
-                  }`}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors ${showAllPedidosDates
+                    ? "bg-emerald-600 text-white border-emerald-500 shadow-md font-black"
+                    : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border-white/10"
+                    }`}
                 >
                   {showAllPedidosDates ? "✓ Mostrando Todas las Fechas" : "Ver Todas las Fechas"}
                 </button>
@@ -1031,11 +1044,10 @@ export default function AlmacenPage() {
                     setPedidosPage(1);
                     setPedidosPageInput("1");
                   }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
-                    pedidosDispatchFilter === "todos"
-                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
-                      : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
-                  }`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${pedidosDispatchFilter === "todos"
+                    ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
+                    : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                    }`}
                 >
                   Todos ({totalPedidosCount})
                 </button>
@@ -1046,11 +1058,10 @@ export default function AlmacenPage() {
                     setPedidosPage(1);
                     setPedidosPageInput("1");
                   }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                    pedidosDispatchFilter === "pendientes"
-                      ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
-                      : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
-                  }`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${pedidosDispatchFilter === "pendientes"
+                    ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
+                    : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                    }`}
                 >
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
                   <span>Pendientes ({pendingPedidosCount})</span>
@@ -1062,11 +1073,10 @@ export default function AlmacenPage() {
                     setPedidosPage(1);
                     setPedidosPageInput("1");
                   }}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                    pedidosDispatchFilter === "atendidos"
-                      ? "bg-cyan-600 text-white border-cyan-500 shadow-md font-black ring-2 ring-cyan-300"
-                      : "bg-cyan-950/40 text-cyan-300 border-cyan-500/40 hover:bg-cyan-950/70"
-                  }`}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${pedidosDispatchFilter === "atendidos"
+                    ? "bg-cyan-600 text-white border-cyan-500 shadow-md font-black ring-2 ring-cyan-300"
+                    : "bg-cyan-950/40 text-cyan-300 border-cyan-500/40 hover:bg-cyan-950/70"
+                    }`}
                 >
                   <CheckCheck className="w-3.5 h-3.5 text-cyan-400" />
                   <span>Atendidos ({attendedPedidosCount})</span>
@@ -1173,11 +1183,10 @@ export default function AlmacenPage() {
                           {group.items.map((item) => (
                             <div
                               key={item.id}
-                              className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
-                                item.dispatched
-                                  ? "bg-emerald-950/20 border-emerald-500/30"
-                                  : "bg-amber-950/20 border-amber-500/40"
-                              }`}
+                              className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${item.dispatched
+                                ? "bg-emerald-950/20 border-emerald-500/30"
+                                : "bg-amber-950/20 border-amber-500/40"
+                                }`}
                             >
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
@@ -1313,337 +1322,335 @@ export default function AlmacenPage() {
       {/* TAB 2: INVENTARIO & STOCK CON SELECCION MULTIPLE, FILTRO DE BAJO STOCK Y LIMPIEZA */}
       {activeTab === "inventario" && (
         <div className="space-y-6">
-            {/* ALERT BANNER FOR NEGATIVE, LOW OR CRITICAL STOCK MATERIALS */}
-            {(errorStockItems.length > 0 || lowStockItems.length > 0) && (
-              <div className="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shrink-0">
-                    <AlertTriangle className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
-                      <span>⚠️ Alerta de Almacén & Stock</span>
-                      {errorStockItems.length > 0 && (
-                        <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
-                          {errorStockItems.length} con Stock Negativo
-                        </span>
-                      )}
-                      <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
-                        {lowStockItems.length} con Stock Bajo
-                      </span>
-                    </h3>
-                    <p className="text-xs text-amber-200/90 font-medium">
-                      Existen {errorStockItems.length} ítems con error de stock negativo y {lowStockItems.length} materiales con stock bajo o agotado.
-                    </p>
-                  </div>
+          {/* ALERT BANNER FOR NEGATIVE, LOW OR CRITICAL STOCK MATERIALS */}
+          {(errorStockItems.length > 0 || lowStockItems.length > 0) && (
+            <div className="p-4 rounded-2xl bg-amber-950/60 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl animate-fadeIn">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
                 </div>
-
-                <div className="flex items-center gap-2">
-                  {errorStockItems.length > 0 && (
-                    <button
-                      onClick={() => setStockFilter(stockFilter === "errores" ? "todos" : "errores")}
-                      className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
-                        stockFilter === "errores"
-                          ? "bg-red-600 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400"
-                          : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40"
-                      }`}
-                    >
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      <span>{stockFilter === "errores" ? "Viendo Errores Negativos ✓" : "Ver Errores Negativos"}</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => setStockFilter(stockFilter === "bajo" ? "todos" : "bajo")}
-                    className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${
-                      stockFilter === "bajo"
-                        ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
-                        : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
-                    }`}
-                  >
-                    <Filter className="w-3.5 h-3.5" />
-                    <span>{stockFilter === "bajo" ? "Viendo Stock Bajo ✓" : "Ver Stock Bajo"}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
                 <div>
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Package className="w-5 h-5 text-emerald-400" />
-                    <span>Catálogo de Inventario de Almacén</span>
-                  </h2>
-                  <p className="text-xs text-gray-400">
-                    Filtro de errores negativos, ítems no validados, stock bajo y vaciado de base de datos.
+                  <h3 className="font-extrabold text-white text-sm flex items-center gap-2">
+                    <span>⚠️ Alerta de Almacén & Stock</span>
+                    {errorStockItems.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
+                        {errorStockItems.length} con Stock Negativo
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                      {lowStockItems.length} con Stock Bajo
+                    </span>
+                  </h3>
+                  <p className="text-xs text-amber-200/90 font-medium">
+                    Existen {errorStockItems.length} ítems con error de stock negativo y {lowStockItems.length} materiales con stock bajo o agotado.
                   </p>
                 </div>
+              </div>
 
-                {/* Action Buttons Toolbar */}
-                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-                  {/* Batch Delete Selection Button */}
-                  {selectedRowIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                {errorStockItems.length > 0 && (
+                  <button
+                    onClick={() => setStockFilter(stockFilter === "errores" ? "todos" : "errores")}
+                    className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${stockFilter === "errores"
+                      ? "bg-red-600 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400"
+                      : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40"
+                      }`}
+                  >
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>{stockFilter === "errores" ? "Viendo Errores Negativos ✓" : "Ver Errores Negativos"}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setStockFilter(stockFilter === "bajo" ? "todos" : "bajo")}
+                  className={`px-3 py-2 rounded-xl text-xs font-black transition-all shrink-0 flex items-center gap-1.5 ${stockFilter === "bajo"
+                    ? "bg-amber-400 text-black shadow-lg shadow-amber-400/30"
+                    : "bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40"
+                    }`}
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>{stockFilter === "bajo" ? "Viendo Stock Bajo ✓" : "Ver Stock Bajo"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-emerald-400" />
+                  <span>Catálogo de Inventario de Almacén</span>
+                </h2>
+                <p className="text-xs text-gray-400">
+                  Filtro de errores negativos, ítems no validados, stock bajo y vaciado de base de datos.
+                </p>
+              </div>
+
+              {/* Action Buttons Toolbar */}
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                {/* Batch Delete Selection Button */}
+                {selectedRowIds.length > 0 && (
+                  <button
+                    onClick={promptDeleteSelected}
+                    className="px-3.5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse shrink-0 touch-target"
+                  >
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                    <span className="whitespace-nowrap">Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                  </button>
+                )}
+
+                {/* Clear Database / Purge All Inventory Button */}
+                <button
+                  onClick={promptPurgeAll}
+                  className="px-3.5 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs sm:text-sm font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all shrink-0 touch-target"
+                  title="Vaciar y limpiar todo el inventario de la base de datos"
+                >
+                  <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                  <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
+                </button>
+
+                {/* Imprimir Códigos de Barra Button */}
+                <button
+                  type="button"
+                  onClick={() => setBarcodePrintModalOpen(true)}
+                  className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all shrink-0 touch-target"
+                  title="Imprimir planchas de códigos de barra (8 por hoja A4, ordenadas por letra)"
+                >
+                  <Printer className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">Imprimir Códigos de Barra</span>
+                </button>
+
+                <label
+                  className={`px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all shrink-0 touch-target ${isImportingInventory ? "opacity-70 pointer-events-none" : ""
+                    }`}
+                >
+                  {isImportingInventory ? (
+                    <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4 shrink-0" />
+                  )}
+                  <span className="whitespace-nowrap">{isImportingInventory ? "Subiendo datos a la nube..." : "Cargar CSV / Excel"}</span>
+                  <input
+                    type="file"
+                    accept=".csv, .txt, .xlsx, .xls"
+                    onChange={handleFileUploadExcel}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  onClick={() => setManualExitModalOpen(true)}
+                  className="px-3.5 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all shrink-0 touch-target"
+                >
+                  <RotateCcw className="w-4 h-4 rotate-180 shrink-0" />
+                  <span className="whitespace-nowrap">Salida Urgente</span>
+                </button>
+
+                <button
+                  onClick={handleOpenNewModal}
+                  className="px-3.5 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors shrink-0 touch-target"
+                >
+                  <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="whitespace-nowrap">Agregar Fila</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH & LOW/CRITICAL STOCK FILTER TOOLBAR */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar producto por SKU, nombre o marca..."
+                  value={inventorySearch}
+                  onChange={(e) => setInventorySearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Quick Stock Filter Tabs */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setStockFilter("todos")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${stockFilter === "todos"
+                    ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
+                    : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                    }`}
+                >
+                  Todos ({inventoryItems.length})
+                </button>
+
+                <button
+                  onClick={() => setStockFilter("errores")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${stockFilter === "errores"
+                    ? "bg-red-600 text-white border-red-500 shadow-md font-black ring-2 ring-red-400"
+                    : "bg-red-950/40 text-red-300 border-red-500/40 hover:bg-red-950/70"
+                    }`}
+                >
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                  <span>⚠️ Errores / Negativos ({errorStockItems.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setStockFilter("no_validado")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${stockFilter === "no_validado"
+                    ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
+                    : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
+                    }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span>📋 No Validado ({unvalidatedItems.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setStockFilter("bajo")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${stockFilter === "bajo"
+                    ? "bg-amber-500 text-black border-amber-400 shadow-md font-black"
+                    : "bg-amber-950/20 text-amber-300/80 border-amber-500/30 hover:bg-amber-950/50"
+                    }`}
+                >
+                  <span>Stock Bajo ({lowStockItems.length})</span>
+                </button>
+
+              </div>
+            </div>
+
+            {/* ALPHABET STARTING LETTER FILTER BAR & UNIT COUNT METRICS */}
+            <div className="space-y-2.5 p-3.5 rounded-2xl bg-black/40 border border-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🔤</span>
+                  <span>Filtrar por Letra Inicial del Producto:</span>
+                </span>
+
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-gray-300 font-medium">
+                    Productos: <strong className="text-white font-mono font-black">{totalInventoryItems}</strong>
+                  </span>
+                  <span className="text-gray-400">•</span>
+                  <span className="text-gray-300 font-medium">
+                    Total Unidades Físicas: <strong className="text-emerald-400 font-mono font-black">{displayTotalUnits.toLocaleString()} unid.</strong>
+                  </span>
+                  {selectedLetter !== "TODAS" && (
                     <button
-                      onClick={promptDeleteSelected}
-                      className="px-3.5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 animate-pulse shrink-0 touch-target"
+                      type="button"
+                      onClick={() => setSelectedLetter("TODAS")}
+                      className="ml-2 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white text-[10px] font-bold transition-colors"
                     >
-                      <Trash2 className="w-4 h-4 shrink-0" />
-                      <span className="whitespace-nowrap">Eliminar Filas Seleccionadas ({selectedRowIds.length})</span>
+                      Limpiar Letra &times;
                     </button>
                   )}
-
-                  {/* Clear Database / Purge All Inventory Button */}
-                  <button
-                    onClick={promptPurgeAll}
-                    className="px-3.5 py-2.5 bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-500/40 text-xs sm:text-sm font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all shrink-0 touch-target"
-                    title="Vaciar y limpiar todo el inventario de la base de datos"
-                  >
-                    <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
-                    <span className="whitespace-nowrap">Limpiar Base de Datos Completa</span>
-                  </button>
-
-                  {/* Imprimir Códigos de Barra Button */}
-                  <button
-                    type="button"
-                    onClick={() => setBarcodePrintModalOpen(true)}
-                    className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-amber-500/25 flex items-center gap-2 transition-all shrink-0 touch-target"
-                    title="Imprimir planchas de códigos de barra (8 por hoja A4, ordenadas por letra)"
-                  >
-                    <Printer className="w-4 h-4 shrink-0" />
-                    <span className="whitespace-nowrap">Imprimir Códigos de Barra</span>
-                  </button>
-
-                  <label className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer transition-all shrink-0 touch-target">
-                    <Upload className="w-4 h-4 shrink-0" />
-                    <span className="whitespace-nowrap">Cargar CSV / Excel</span>
-                    <input
-                      type="file"
-                      accept=".csv, .txt, .xlsx, .xls"
-                      onChange={handleFileUploadExcel}
-                      className="hidden"
-                    />
-                  </label>
-
-                  <button
-                    onClick={() => setManualExitModalOpen(true)}
-                    className="px-3.5 py-2.5 bg-reygas-red/90 hover:bg-reygas-red text-white text-xs sm:text-sm font-black rounded-xl shadow-lg shadow-red-500/20 flex items-center gap-2 transition-all shrink-0 touch-target"
-                  >
-                    <RotateCcw className="w-4 h-4 rotate-180 shrink-0" />
-                    <span className="whitespace-nowrap">Salida Urgente</span>
-                  </button>
-
-                  <button
-                    onClick={handleOpenNewModal}
-                    className="px-3.5 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white text-xs sm:text-sm font-bold rounded-xl border border-white/10 flex items-center gap-2 transition-colors shrink-0 touch-target"
-                  >
-                    <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span className="whitespace-nowrap">Agregar Fila</span>
-                  </button>
                 </div>
               </div>
 
-              {/* SEARCH & LOW/CRITICAL STOCK FILTER TOOLBAR */}
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-reygas-dark/60 p-4 rounded-xl border border-white/5">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Buscar producto por SKU, nombre o marca..."
-                    value={inventorySearch}
-                    onChange={(e) => setInventorySearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-emerald-500"
-                  />
-                </div>
+              {/* Alphabet Pills Horizontal Scroll */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 touch-scroll">
+                {ALPHABET_LETTERS.map((letter) => {
+                  const stats = letterStats.get(letter) || { count: 0, units: 0 };
+                  const isSelected = selectedLetter === letter;
+                  const hasItems = stats.count > 0;
 
-                {/* Quick Stock Filter Tabs */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={() => setStockFilter("todos")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border ${
-                      stockFilter === "todos"
-                        ? "bg-emerald-600 text-white border-emerald-500 shadow-md"
-                        : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
-                    }`}
-                  >
-                    Todos ({inventoryItems.length})
-                  </button>
-
-                  <button
-                    onClick={() => setStockFilter("errores")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                      stockFilter === "errores"
-                        ? "bg-red-600 text-white border-red-500 shadow-md font-black ring-2 ring-red-400"
-                        : "bg-red-950/40 text-red-300 border-red-500/40 hover:bg-red-950/70"
-                    }`}
-                  >
-                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                    <span>⚠️ Errores / Negativos ({errorStockItems.length})</span>
-                  </button>
-
-                  <button
-                    onClick={() => setStockFilter("no_validado")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                      stockFilter === "no_validado"
-                        ? "bg-amber-500 text-black border-amber-400 shadow-md font-black ring-2 ring-amber-300"
-                        : "bg-amber-950/40 text-amber-300 border-amber-500/40 hover:bg-amber-950/70"
-                    }`}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                    <span>📋 No Validado ({unvalidatedItems.length})</span>
-                  </button>
-
-                  <button
-                    onClick={() => setStockFilter("bajo")}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border flex items-center gap-1.5 ${
-                      stockFilter === "bajo"
-                        ? "bg-amber-500 text-black border-amber-400 shadow-md font-black"
-                        : "bg-amber-950/20 text-amber-300/80 border-amber-500/30 hover:bg-amber-950/50"
-                    }`}
-                  >
-                    <span>Stock Bajo ({lowStockItems.length})</span>
-                  </button>
-
-                </div>
-              </div>
-
-              {/* ALPHABET STARTING LETTER FILTER BAR & UNIT COUNT METRICS */}
-              <div className="space-y-2.5 p-3.5 rounded-2xl bg-black/40 border border-white/10">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <span>🔤</span>
-                    <span>Filtrar por Letra Inicial del Producto:</span>
-                  </span>
-
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className="text-gray-300 font-medium">
-                      Productos: <strong className="text-white font-mono font-black">{totalInventoryItems}</strong>
-                    </span>
-                    <span className="text-gray-400">•</span>
-                    <span className="text-gray-300 font-medium">
-                      Total Unidades Físicas: <strong className="text-emerald-400 font-mono font-black">{displayTotalUnits.toLocaleString()} unid.</strong>
-                    </span>
-                    {selectedLetter !== "TODAS" && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedLetter("TODAS")}
-                        className="ml-2 px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white text-[10px] font-bold transition-colors"
-                      >
-                        Limpiar Letra &times;
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Alphabet Pills Horizontal Scroll */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 touch-scroll">
-                  {ALPHABET_LETTERS.map((letter) => {
-                    const stats = letterStats.get(letter) || { count: 0, units: 0 };
-                    const isSelected = selectedLetter === letter;
-                    const hasItems = stats.count > 0;
-
-                    return (
-                      <button
-                        key={letter}
-                        type="button"
-                        disabled={!hasItems && letter !== "TODAS"}
-                        onClick={() => setSelectedLetter(letter)}
-                        className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 ${
-                          isSelected
-                            ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30 scale-105 ring-2 ring-amber-400"
-                            : hasItems
-                            ? "bg-reygas-surface/80 hover:bg-white/15 text-white border border-white/10"
-                            : "bg-transparent text-gray-600 border border-white/5 opacity-40 cursor-not-allowed"
+                  return (
+                    <button
+                      key={letter}
+                      type="button"
+                      disabled={!hasItems && letter !== "TODAS"}
+                      onClick={() => setSelectedLetter(letter)}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 ${isSelected
+                        ? "bg-amber-500 text-black shadow-lg shadow-amber-500/30 scale-105 ring-2 ring-amber-400"
+                        : hasItems
+                          ? "bg-reygas-surface/80 hover:bg-white/15 text-white border border-white/10"
+                          : "bg-transparent text-gray-600 border border-white/5 opacity-40 cursor-not-allowed"
                         }`}
-                        title={`${letter}: ${stats.count} productos (${stats.units} unidades)`}
-                      >
-                        <span>{letter}</span>
-                        {hasItems && letter !== "TODAS" && (
-                          <span
-                            className={`px-1.5 py-0.2 rounded-md font-mono text-[9px] font-black ${
-                              isSelected
-                                ? "bg-black/30 text-black"
-                                : "bg-black/50 text-amber-400 border border-amber-500/20"
+                      title={`${letter}: ${stats.count} productos (${stats.units} unidades)`}
+                    >
+                      <span>{letter}</span>
+                      {hasItems && letter !== "TODAS" && (
+                        <span
+                          className={`px-1.5 py-0.2 rounded-md font-mono text-[9px] font-black ${isSelected
+                            ? "bg-black/30 text-black"
+                            : "bg-black/50 text-amber-400 border border-amber-500/20"
                             }`}
-                          >
-                            {stats.count}
-                          </span>
+                        >
+                          {stats.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Inventory Table with Sticky Header & Overflow Protection */}
+            <div className="overflow-x-auto max-h-[70vh] overflow-y-auto border border-white/10 rounded-xl relative">
+              <table className="w-full text-left text-xs text-gray-300 table-auto border-collapse">
+                <thead className="sticky top-0 z-20 bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10 shadow-md">
+                  <tr>
+                    <th className="p-3 w-10 text-center">
+                      <button
+                        onClick={handleToggleSelectAll}
+                        className="text-gray-400 hover:text-white"
+                        title="Seleccionar todo"
+                      >
+                        {selectedRowIds.length > 0 && selectedRowIds.length === inventoryItems.length ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Square className="w-4 h-4" />
                         )}
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Inventory Table with Sticky Header & Overflow Protection */}
-              <div className="overflow-x-auto max-h-[70vh] overflow-y-auto border border-white/10 rounded-xl relative">
-                <table className="w-full text-left text-xs text-gray-300 table-auto border-collapse">
-                  <thead className="sticky top-0 z-20 bg-reygas-dark text-[11px] uppercase text-gray-400 border-b border-white/10 shadow-md">
+                    </th>
+                    <th className="p-3 font-extrabold w-16 text-center text-amber-400">ÍTEM (#)</th>
+                    <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
+                    <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
+                    <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
+                    <th className="p-3 font-extrabold max-w-[120px]">SERIE</th>
+                    <th className="p-3 font-extrabold">PRECIO VENTA</th>
+                    <th className="p-3 font-extrabold">STOCK INICIAL</th>
+                    <th className="p-3 font-extrabold">ENTRADAS</th>
+                    <th className="p-3 font-extrabold">SALIDAS</th>
+                    <th className="p-3 font-extrabold">STOCK VIGENTE</th>
+                    <th className="p-3 font-extrabold">CONTADOS</th>
+                    <th className="p-3 font-extrabold text-right">OPCIONES</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {displayInventoryItems.length === 0 ? (
                     <tr>
-                      <th className="p-3 w-10 text-center">
-                        <button
-                          onClick={handleToggleSelectAll}
-                          className="text-gray-400 hover:text-white"
-                          title="Seleccionar todo"
-                        >
-                          {selectedRowIds.length > 0 && selectedRowIds.length === inventoryItems.length ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-400" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="p-3 font-extrabold w-16 text-center text-amber-400">ÍTEM (#)</th>
-                      <th className="p-3 font-extrabold max-w-[140px]">CÓDIGO SKU</th>
-                      <th className="p-3 font-extrabold max-w-[200px]">PRODUCTO</th>
-                      <th className="p-3 font-extrabold max-w-[120px]">MARCA</th>
-                      <th className="p-3 font-extrabold max-w-[120px]">SERIE</th>
-                      <th className="p-3 font-extrabold">PRECIO VENTA</th>
-                      <th className="p-3 font-extrabold">STOCK INICIAL</th>
-                      <th className="p-3 font-extrabold">ENTRADAS</th>
-                      <th className="p-3 font-extrabold">SALIDAS</th>
-                      <th className="p-3 font-extrabold">STOCK VIGENTE</th>
-                      <th className="p-3 font-extrabold">CONTADOS</th>
-                      <th className="p-3 font-extrabold text-right">OPCIONES</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {displayInventoryItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
-                          <Package className="w-10 h-10 text-gray-600 mx-auto" />
-                          <p className="font-bold text-sm">
-                            {stockFilter === "errores"
-                              ? "No se encontraron materiales con stock negativo."
-                              : stockFilter === "no_validado"
+                      <td colSpan={13} className="text-center py-12 text-gray-400 space-y-2">
+                        <Package className="w-10 h-10 text-gray-600 mx-auto" />
+                        <p className="font-bold text-sm">
+                          {stockFilter === "errores"
+                            ? "No se encontraron materiales con stock negativo."
+                            : stockFilter === "no_validado"
                               ? "No hay materiales pendientes de validación / no contados."
                               : stockFilter === "bajo"
-                              ? "No hay materiales con stock bajo o crítico."
-                              : stockFilter === "critico"
-                              ? "No hay materiales agotados en 0."
-                              : "No se encontraron productos con el filtro aplicado."}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            Pruebe cambiando el filtro a "Todos" o limpiando el texto de búsqueda.
-                          </p>
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedInventoryItems.map((item, idx) => {
-                        const isLow = item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert;
-                        const isNegative = typeof item.stock_quantity === "number" && item.stock_quantity < 0;
-                        const isSelected = selectedRowIds.includes(item.id);
-                        const globalIdx = startInvIndex + idx + 1;
+                                ? "No hay materiales con stock bajo o crítico."
+                                : stockFilter === "critico"
+                                  ? "No hay materiales agotados en 0."
+                                  : "No se encontraron productos con el filtro aplicado."}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Pruebe cambiando el filtro a "Todos" o limpiando el texto de búsqueda.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedInventoryItems.map((item, idx) => {
+                      const isLow = item.stock_quantity >= 0 && item.stock_quantity <= item.min_stock_alert;
+                      const isNegative = typeof item.stock_quantity === "number" && item.stock_quantity < 0;
+                      const isSelected = selectedRowIds.includes(item.id);
+                      const globalIdx = startInvIndex + idx + 1;
 
                       return (
                         <tr
                           key={item.id}
-                          className={`transition-colors ${
-                            isNegative
-                              ? "bg-red-950/20 hover:bg-red-950/40"
-                              : isSelected
+                          className={`transition-colors ${isNegative
+                            ? "bg-red-950/20 hover:bg-red-950/40"
+                            : isSelected
                               ? "bg-emerald-950/30"
                               : "hover:bg-white/5"
-                          }`}
+                            }`}
                         >
                           <td className="p-3 text-center">
                             <button
@@ -1698,13 +1705,12 @@ export default function AlmacenPage() {
                           </td>
                           <td className="p-3">
                             <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${
-                                isNegative
-                                  ? "bg-red-600/30 text-red-400 border border-red-500 font-black shadow-sm"
-                                  : isLow
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold ${isNegative
+                                ? "bg-red-600/30 text-red-400 border border-red-500 font-black shadow-sm"
+                                : isLow
                                   ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                                   : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                              }`}
+                                }`}
                             >
                               {isNegative ? (
                                 <AlertCircle className="w-3.5 h-3.5 text-red-400" />
@@ -1939,11 +1945,10 @@ export default function AlmacenPage() {
                   setIngresoFoundItem(null);
                   setIngresoSku("");
                 }}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
-                  !showNewMaterialForm
-                    ? "bg-amber-500 text-black border-amber-400 font-black shadow-lg shadow-amber-500/20"
-                    : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
-                }`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${!showNewMaterialForm
+                  ? "bg-amber-500 text-black border-amber-400 font-black shadow-lg shadow-amber-500/20"
+                  : "bg-reygas-surface text-gray-300 border-white/10 hover:text-white"
+                  }`}
               >
                 <Search className="w-4 h-4" />
                 <span>Buscar SKU Existente</span>
@@ -1965,11 +1970,10 @@ export default function AlmacenPage() {
                     raw_counted: "",
                   });
                 }}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
-                  showNewMaterialForm
-                    ? "bg-emerald-600 text-white border-emerald-500 font-black shadow-lg shadow-emerald-600/30"
-                    : "bg-emerald-950/40 text-emerald-300 border-emerald-500/40 hover:bg-emerald-950/70"
-                }`}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${showNewMaterialForm
+                  ? "bg-emerald-600 text-white border-emerald-500 font-black shadow-lg shadow-emerald-600/30"
+                  : "bg-emerald-950/40 text-emerald-300 border-emerald-500/40 hover:bg-emerald-950/70"
+                  }`}
               >
                 <Plus className="w-4 h-4" />
                 <span>+ Registrar Material Nuevo</span>
@@ -2051,7 +2055,7 @@ export default function AlmacenPage() {
                             </span>
                           )}
                         </div>
-                        
+
                         {matchingSuggestions.length > 0 ? (
                           <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
                             {matchingSuggestions.slice(0, 8).map((item) => (
@@ -2184,11 +2188,10 @@ export default function AlmacenPage() {
                                   key={qty}
                                   type="button"
                                   onClick={() => setIngresoQuantity(qty)}
-                                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                                    ingresoQuantity === qty
-                                      ? "bg-emerald-500 text-black border-emerald-400 font-black"
-                                      : "bg-white/5 hover:bg-white/10 text-gray-300 border-white/10"
-                                  }`}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${ingresoQuantity === qty
+                                    ? "bg-emerald-500 text-black border-emerald-400 font-black"
+                                    : "bg-white/5 hover:bg-white/10 text-gray-300 border-white/10"
+                                    }`}
                                 >
                                   +{qty}
                                 </button>
@@ -2529,15 +2532,14 @@ export default function AlmacenPage() {
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white/20 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
             <div className="flex items-center gap-3 border-b border-white/10 pb-4">
               <div
-                className={`p-3 rounded-2xl border ${
-                  webAlert.type === "warning"
-                    ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                    : webAlert.type === "error"
+                className={`p-3 rounded-2xl border ${webAlert.type === "warning"
+                  ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                  : webAlert.type === "error"
                     ? "bg-red-500/20 text-red-400 border-red-500/30"
                     : webAlert.type === "success"
-                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                    : "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                }`}
+                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                      : "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                  }`}
               >
                 <AlertCircle className="w-7 h-7" />
               </div>

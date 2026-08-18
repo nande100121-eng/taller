@@ -3,7 +3,12 @@
 import React, { useEffect, useRef } from "react";
 import { useAppStore } from "@/lib/store/app-store";
 import { supabase } from "@/lib/supabase/client";
-import { getSharedRealtimeChannel, CLIENT_SESSION_ID, getLastLocalMutationTime } from "@/lib/supabase/services";
+import {
+  getSharedRealtimeChannel,
+  CLIENT_SESSION_ID,
+  getLastLocalMutationTime,
+  hasRecentLocalMutation,
+} from "@/lib/supabase/services";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
@@ -14,6 +19,25 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncScheduleOnly = useAppStore((state) => state.syncScheduleOnly);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Apply a single site_content section into the store without a full refetch
+  const applySiteContentSection = (section: string, row: any) => {
+    let value: any = row?.value !== undefined ? row.value : row?.content;
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        // keep raw string
+      }
+    }
+    if (value === undefined) return;
+    useAppStore.setState((state: any) => ({
+      siteContent: {
+        ...state.siteContent,
+        [section]: value,
+      },
+    }));
+  };
 
   const debouncedFullSync = () => {
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -30,15 +54,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 1. Cloud-First initial sync from Supabase on app mount
     syncFromSupabase();
 
-    // 2. Instant Cross-Tab Sync in the same browser (0ms delay between tabs)
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === "reygas-autogas-storage" || !e.key) {
-        useAppStore.persist.rehydrate();
-      }
-    };
-    window.addEventListener("storage", handleStorage);
-
-    // 3. Window focus sync with 15s throttle protection (prevents request storms on tablet tab switching)
+    // 2. Window focus sync with 15s throttle protection (prevents request storms on tablet tab switching)
     let lastFocusTime = 0;
     const handleFocus = () => {
       const now = Date.now();
@@ -75,25 +91,35 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // 5. Supabase Postgres changes listener on site_content and core tables (ultra-fast targeted handlers)
     const dbChannel = supabase
       .channel("schema-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, (payload: any) => {
+        // Ignore events originating from this same browser window
         if (Date.now() - getLastLocalMutationTime() < 3500) return;
-        syncServicesOnly();
-        syncTechniciansOnly();
+        const row = payload.new || {};
+        const section = row.section_key || row.key;
+        if (!section) {
+          // Fallback: unknown section, do a targeted services/technicians sync (previous behavior)
+          if (hasRecentLocalMutation("workshopServices") || hasRecentLocalMutation("services") || hasRecentLocalMutation("technicians")) return;
+          syncServicesOnly();
+          syncTechniciansOnly();
+          return;
+        }
+        if (hasRecentLocalMutation(section)) return;
+        applySiteContentSection(section, row);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "certifications" }, () => {
-        if (Date.now() - getLastLocalMutationTime() < 3500) return;
+        if (hasRecentLocalMutation("certifications")) return;
         syncCertificationsOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "technicians" }, () => {
-        if (Date.now() - getLastLocalMutationTime() < 3500) return;
+        if (hasRecentLocalMutation("technicians")) return;
         syncTechniciansOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory_items" }, () => {
-        if (Date.now() - getLastLocalMutationTime() < 3500) return;
+        if (hasRecentLocalMutation("inventory")) return;
         syncInventoryOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "schedule_records" }, () => {
-        if (Date.now() - getLastLocalMutationTime() < 3500) return;
+        if (hasRecentLocalMutation("schedule")) return;
         syncScheduleOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
@@ -114,7 +140,6 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }, 90000);
 
     return () => {
-      window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
       clearInterval(interval);
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
