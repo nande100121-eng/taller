@@ -1098,6 +1098,18 @@ export default function CajaPage() {
     }
   };
 
+  // Desmarcar pago de una card: si hay abonos registrados se limpian (para que al
+  // re-confirmar NO se duplique el historial); si no hay historial, solo revierte el estado.
+  const handleDesmarcarPago = (wo: any, invoice?: any) => {
+    const hasHistory = Array.isArray(invoice?.payment_history) && invoice.payment_history.length > 0;
+    if (hasHistory && invoice?.id) {
+      clearInvoicePayments(invoice.id);
+    } else {
+      toggleOrderPayment(wo.id, invoice?.id);
+    }
+    notify("warning", "Pago de " + wo.vehicle_plate + " desmarcado (Estado: Pendiente de Cobro).");
+  };
+
   // Open Partial / Installment Payment Modal (Abono sobre saldo pendiente por placa)
   const handleOpenPartialPaymentModal = (wo: any, inv?: any) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
@@ -1242,6 +1254,27 @@ export default function CajaPage() {
     notify("success", isFullyPaid
       ? `¡Saldo de ${partialPaymentModal.workOrder?.vehicle_plate} cancelado! Abono de S/ ${amount.toFixed(2)} registrado.`
       : `Abono parcial de S/ ${amount.toFixed(2)} registrado para ${partialPaymentModal.workOrder?.vehicle_plate}. Saldo restante: S/ ${(balance - amount).toFixed(2)}`);
+
+    // Visualización e impresión del comprobante del abono (igual que al confirmar pago)
+    if (partialPaymentModal.receiptType !== "Sin Comprobante" && amount > 0) {
+      setActiveReceiptModal({
+        isOpen: true,
+        workOrder: partialPaymentModal.workOrder,
+        invoice: partialPaymentModal.invoice,
+        receiptType: (finalReceiptType || "Ticket") as any,
+        receiptNumber: assignedReceiptNum,
+        customerDoc: partialPaymentModal.customerDoc,
+        customerName: partialPaymentModal.customerName,
+        customerAddress: partialPaymentModal.customerAddress,
+        plate: partialPaymentModal.workOrder?.vehicle_plate,
+        observations: "ABONO (" + (isFullyPaid ? "TOTAL" : "PARCIAL") + ")" + (partialPaymentModal.observation ? " | " + partialPaymentModal.observation : ""),
+        grandTotal: amount,
+        items: partialPaymentModal.workOrder?.items,
+        paymentMethod: finalMethod,
+        paymentBreakdown,
+        issuedAt: new Date().toISOString(),
+      });
+    }
 
     setPartialPaymentModal(null);
   };
@@ -2195,26 +2228,56 @@ export default function CajaPage() {
                           {isPaid ? (
                             <>
                               <button
-                                onClick={() => {
-                                  toggleOrderPayment(wo.id, invoice?.id);
-                                  notify("warning", `Pago de ${wo.vehicle_plate} desmarcado (Estado: Pendiente de Cobro).`);
-                                }}
+                                onClick={() => handleDesmarcarPago(wo, invoice)}
                                 className="px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 hover:bg-amber-500/20 hover:text-amber-400 border border-emerald-500/40 hover:border-amber-500/40 text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow"
-                                title="Haga clic para desmarcar pago y revertir a Pendiente"
+                                title="Haga clic para desmarcar pago y revertir a Pendiente (sin duplicar el historial al re-confirmar)"
                               >
                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                                 <span>PAGADO (Desmarcar Pago)</span>
                               </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
+                                className="px-4 py-2.5 bg-cyan-600/80 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-600/20 flex items-center gap-2 transition-transform hover:scale-105"
+                                title="Abonar el saldo pendiente total o hacer un pago parcial (métodos, destinos y comprobante)"
+                              >
+                                <History className="w-4 h-4 stroke-[2.5]" />
+                                <span>Abonar Total o Saldo</span>
+                              </button>
 
+                              {partialHistory.length > 0 ? (
+                                <button
+                                  onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
+                                  className="px-5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 font-extrabold text-xs rounded-xl border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center gap-2 transition-all cursor-pointer"
+                                  title="Registrar solo este abono parcial sin duplicar el historial"
+                                >
+                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                                  <span>Confirmar Abono Parcial</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
+                                  className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                                  title="Registrar el pago completo (100% seguro) — tras confirmar queda bloqueado a modificaciones"
+                                >
+                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                                  <span>Confirmar Pago</span>
+                                </button>
+                              )}
+
+                              {/* 🔒 Habilitar Modificación en Taller (solo mientras el pago NO esté confirmado/desmarcado) */}
                               <button
                                 onClick={() => {
                                   toggleAllowModificationsInWorkshop(wo.id);
-                                  notify("success", !allowModInWorkshop ? `🔓 Modificaciones habilitadas en Taller para ${wo.vehicle_plate}.` : `🔒 Modificaciones bloqueadas en Taller para ${wo.vehicle_plate}.`);
+                                  notify("success", !allowModInWorkshop ? "🔓 Modificaciones habilitadas en Taller para " + wo.vehicle_plate + "." : "🔒 Modificaciones bloqueadas en Taller para " + wo.vehicle_plate + ".");
                                 }}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${allowModInWorkshop
                                   ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
                                   : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
                                   }`}
+                                title="Habilitar/deshabilitar la edición de esta orden en el Taller (las modificaciones se reflejan en esta card)"
                               >
                                 {allowModInWorkshop ? (
                                   <>
@@ -2228,38 +2291,6 @@ export default function CajaPage() {
                                   </>
                                 )}
                               </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
-                                className="px-4 py-2.5 bg-cyan-600/80 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-600/20 flex items-center gap-2 transition-transform hover:scale-105"
-                                title="Abonar el saldo pendiente total o hacer un pago parcial por placa"
-                              >
-                                <History className="w-4 h-4 stroke-[2.5]" />
-                                <span>Abonar Saldo (Total / Parcial)</span>
-                              </button>
-                              {isPartiallyPaid ? (
-                                <button
-                                  onClick={() => {
-                                    if (invoice?.id) undoLastPayment(invoice.id);
-                                    notify("warning", `Abono parcial de ${wo.vehicle_plate} desmarcado. La factura vuelve a estar pendiente de cobro completo.`);
-                                  }}
-                                  className="px-5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 font-extrabold text-xs rounded-xl border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center gap-2 transition-all cursor-pointer"
-                                  title="Desmarcar el abono parcial: la factura vuelve a estar pendiente de cobro completo"
-                                >
-                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                                  <span>Pagado Parcialmente (Desmarcar Pago)</span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
-                                  className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                                >
-                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                                  <span>Confirmar Cobro (Método & Destino)</span>
-                                </button>
-                              )}
                             </>
                           )}
                         </div>
@@ -4330,9 +4361,16 @@ export default function CajaPage() {
                 <button
                   type="submit"
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                  title={Math.abs((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) - (Number(partialPaymentModal.amount) || 0)) <= 0.01
+                    ? "Abonar y cancelar el saldo pendiente completo"
+                    : "Registrar solo este abono parcial (sin duplicar el historial)"}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirmar Abono (Ingreso del Día)</span>
+                  <span>
+                    {Math.abs((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) - (Number(partialPaymentModal.amount) || 0)) <= 0.01
+                      ? "Confirmar Abono Total"
+                      : "Confirmar Abono Parcial"}
+                  </span>
                 </button>
               </div>
             </form>
