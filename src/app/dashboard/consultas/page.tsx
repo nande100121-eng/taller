@@ -29,6 +29,8 @@ import {
   Filter,
   Car,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate } from "@/lib/utils/date-utils";
 
@@ -41,6 +43,15 @@ export default function ConsultasPage() {
   const deferredSearchPlate = React.useDeferredValue(searchPlate);
   const [statusFilter, setStatusFilter] = useState<"todos" | "pagados" | "pendientes">("todos");
   const [visibleLimit, setVisibleLimit] = useState(40);
+  // Cards de placas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
+  const [expandedConsCards, setExpandedConsCards] = useState<Set<string>>(new Set());
+  const toggleConsCard = (id: string) => {
+    setExpandedConsCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [isRealtimeFetching, setIsRealtimeFetching] = useState(false);
   const [isImportingWorkshop, setIsImportingWorkshop] = useState(false);
 
@@ -650,6 +661,7 @@ export default function ConsultasPage() {
               const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, pricing.finalAmount);
               const isPaid = settledInfo?.isSettled || wo.status === "pagado_autorizado" || invoice?.payment_status === "pagado";
               const isSelectedDate = wo.entry_time && wo.entry_time.slice(0, 10) === queryDate;
+              const isConsExpanded = expandedConsCards.has(wo.id);
 
               return (
                 <div
@@ -728,9 +740,24 @@ export default function ConsultasPage() {
                           <span className="text-xs px-2.5 py-0.5 rounded-lg bg-reygas-surface text-gray-300 border border-white/10">
                             Mecánico: <strong className="text-amber-400">{tech?.full_name || ""}</strong>
                           </span>
+
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleConsCard(wo.id); }}
+                            className={`px-2.5 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 transition-all ${isConsExpanded
+                              ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
+                              : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                              }`}
+                            title={isConsExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
+                          >
+                            {isConsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            <span>{isConsExpanded ? "Contraer" : "Expandir"}</span>
+                          </button>
                         </div>
                       </div>
 
+                      {isConsExpanded ? (
+                        <>
                       {/* Dynamic Credit & Debt Status Banner */}
                       {settledInfo?.isSettled ? (
                         <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
@@ -831,6 +858,22 @@ export default function ConsultasPage() {
                           })}
                         </div>
                       </div>
+                        </>
+                      ) : (
+                        <div className="p-2.5 rounded-xl bg-reygas-dark/40 border border-white/5 text-[11px] text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span>Orden #{wo.id}</span>
+                          <span>•</span>
+                          <span>{wo.items.length} ítem(s)</span>
+                          {pricing.isCredit || pricing.creditAmount > 0 ? (
+                            <span className="text-amber-400 font-bold">Crédito: S/ {(pricing.creditAmount > 0 ? pricing.creditAmount : pricing.finalAmount).toFixed(2)}</span>
+                          ) : isPaid ? (
+                            <span className="text-emerald-400 font-bold">PAGADO ✓</span>
+                          ) : (
+                            <span className="text-amber-300 font-bold">PENDIENTE</span>
+                          )}
+                          <span className="ml-auto text-amber-300 font-bold">Pulse Expandir para ver detalle</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Total Amount Badge */}

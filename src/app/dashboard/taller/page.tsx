@@ -79,7 +79,8 @@ export default function WorkshopOperationsPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
-  const [collapsedOrders, setCollapsedOrders] = useState<Set<string>>(new Set());
+  // Cards de placas colapsadas POR DEFECTO: se guardan los ids EXPANDIDOS (vacío = todas colapsadas)
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
   // Discount modal state
   const [discountModalOrder, setDiscountModalOrder] = useState<string | null>(null);
@@ -619,7 +620,7 @@ export default function WorkshopOperationsPage() {
   const displayedOrders = filteredOrders.slice(0, visibleLimit);
 
   const toggleCollapse = (id: string) => {
-    setCollapsedOrders((prev) => {
+    setExpandedOrders((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -630,10 +631,10 @@ export default function WorkshopOperationsPage() {
     });
   };
   const collapseAll = () => {
-    setCollapsedOrders(new Set(filteredOrders.map((o) => o.id)));
+    setExpandedOrders(new Set());
   };
   const expandAll = () => {
-    setCollapsedOrders(new Set());
+    setExpandedOrders(new Set(filteredOrders.map((o) => o.id)));
   };
 
   return (
@@ -854,7 +855,7 @@ export default function WorkshopOperationsPage() {
             // Current step index in pipeline
             const currentStepIdx = statusSteps.findIndex((s) => s.status === wo.status);
             const currentStep = statusSteps[currentStepIdx];
-            const isCollapsed = collapsedOrders.has(wo.id);
+            const isCollapsed = !expandedOrders.has(wo.id);
             const cardTotal = Math.max(
               0,
               wo.items.reduce((acc, i) => acc + i.subtotal, 0) +

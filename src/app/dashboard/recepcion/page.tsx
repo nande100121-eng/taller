@@ -29,6 +29,8 @@ import {
   Filter,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Loader2
 } from "lucide-react";
 import { getPeruDateTimeLocal, formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
@@ -493,6 +495,15 @@ export default function RecepcionPage() {
   const [plateSearch, setPlateSearch] = useState("");
   const deferredPlateSearch = React.useDeferredValue(plateSearch);
   const [quickFilter, setQuickFilter] = useState<"todas" | "hoy" | "semana" | "pendientes" | "confirmadas" | "completadas" | "canceladas">("todas");
+  // Cards de citas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
+  const [expandedAppCards, setExpandedAppCards] = useState<Set<string>>(new Set());
+  const toggleAppCard = (id: string) => {
+    setExpandedAppCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // Modal de importación CSV (tabla de programación de la semana)
   const [csvModalOpen, setCsvModalOpen] = useState(false);
@@ -928,6 +939,7 @@ export default function RecepcionPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredAppointments.map((app) => {
                   const currentScheduled = cardDates[app.id] || app.scheduled_date || getPeruDateTimeLocal();
+                  const isAppExpanded = expandedAppCards.has(app.id);
 
                   return (
                     <div
@@ -952,8 +964,22 @@ export default function RecepcionPage() {
                           >
                             {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => toggleAppCard(app.id)}
+                            className={`px-2 py-1 rounded-lg border text-[10px] font-black flex items-center gap-1 shrink-0 transition-all ${isAppExpanded
+                              ? "bg-blue-600/20 text-blue-300 border-blue-500/40"
+                              : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                              }`}
+                            title={isAppExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
+                          >
+                            {isAppExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            <span>{isAppExpanded ? "Contraer" : "Expandir"}</span>
+                          </button>
                         </div>
 
+                        {isAppExpanded ? (
+                          <>
                         {/* Client Info */}
                         <div>
                           <h3 className="font-bold text-white text-base flex items-center justify-between">
@@ -1007,6 +1033,14 @@ export default function RecepcionPage() {
                             </p>
                           )}
                         </div>
+                          </>
+                        ) : (
+                          <div className="text-[11px] text-gray-400 space-y-1 pt-1">
+                            <div>👤 {app.client_name}{app.client_phone ? " • " + app.client_phone : ""}</div>
+                            <div className="text-reygas-red font-bold">{app.service_type}</div>
+                            {app.scheduled_date && <div>📅 {formatPeruDateTime(app.scheduled_date)}</div>}
+                          </div>
+                        )}
                       </div>
 
                       {/* Action Toolbar */}

@@ -46,6 +46,8 @@ import {
   Trash2,
   Split,
   Check,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 const ThermalReceiptModal = dynamic(
@@ -90,6 +92,15 @@ export default function CajaPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterMode, setFilterMode] = useState<"todos" | "pendientes" | "pagados">("todos");
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
+  // Cards de placas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const toggleCard = (id: string) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString()); // Default today in Peru
 
@@ -1845,6 +1856,7 @@ export default function CajaPage() {
                 const partialHistory = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
                 const totalPaidSoFar = partialHistory.reduce((s, p) => s + (Number(p.amount) || 0), 0);
                 const isPartiallyPaid = !isPaid && partialHistory.length > 0 && (invoice?.credit_amount || 0) > 0;
+                const isCardExpanded = expandedCards.has(wo.id);
                 const allowModInWorkshop = wo.allow_modifications;
 
                 const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
@@ -1933,9 +1945,24 @@ export default function CajaPage() {
                                 🏷️ Chip: <strong className="text-white">{wo.chip_expiry_date}</strong>
                               </span>
                             )}
+
+                            <button
+                              type="button"
+                              onClick={() => toggleCard(wo.id)}
+                              className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-black flex items-center gap-1 transition-all ${isCardExpanded
+                                ? "bg-purple-600/20 text-purple-300 border-purple-500/40"
+                                : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                                }`}
+                              title={isCardExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
+                            >
+                              {isCardExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              <span>{isCardExpanded ? "Contraer" : "Expandir"}</span>
+                            </button>
                           </div>
                         </div>
 
+                        {isCardExpanded ? (
+                          <>
                         {/* Dynamic Credit & Debt Status Banner */}
                         {settledInfo?.isSettled ? (
                           <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
@@ -2074,6 +2101,27 @@ export default function CajaPage() {
                             </div>
                           )}
                         </div>
+                          </>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-reygas-dark/40 border border-white/5 text-[11px] text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span>OT #{wo.id}</span>
+                            <span>•</span>
+                            <span>{wo.items.length} ítem(s)</span>
+                            {settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || (!isPaid && grandTotal > 0) ? (
+                              <>
+                                <span>•</span>
+                                <span className="text-amber-400 font-bold">Saldo: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || grandTotal).toFixed(2)}</span>
+                              </>
+                            ) : null}
+                            {isPartiallyPaid && (
+                              <>
+                                <span>•</span>
+                                <span className="text-emerald-400 font-bold">Pagado: S/ {totalPaidSoFar.toFixed(2)}</span>
+                              </>
+                            )}
+                            <span className="ml-auto text-purple-300 font-bold">Pulse Expandir para ver detalle completo</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Total Amount & Action Buttons */}
