@@ -2053,6 +2053,26 @@ export default function CajaPage() {
                               <span>🧾 <strong>Recibo/Comp:</strong> {effectiveReceiptNum} ({effectiveReceiptType})</span>
                             )}
                           </div>
+
+                          {/* Historial de pagos: fecha/hora, método, comprobante (ticket/boleta/factura) y monto */}
+                          {partialHistory.length > 0 && (
+                            <div className="pt-2 border-t border-white/5 space-y-1">
+                              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                                🧾 Historial de Pagos ({partialHistory.length}):
+                              </span>
+                              {partialHistory.map((rec, i) => (
+                                <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-gray-300">
+                                  <span>
+                                    <span className="text-gray-400 font-mono">{formatPeruDateTime(rec.date)}</span>
+                                    {" — "}
+                                    <strong>{rec.method}</strong>
+                                    {rec.receipt_number ? " (" + (rec.receipt_type || "") + " " + rec.receipt_number + ")" : ""}
+                                  </span>
+                                  <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -51,6 +51,8 @@ export default function ThermalReceiptModal({
   const receiptRef = useRef<HTMLDivElement>(null);
   const [copiedEscPos, setCopiedEscPos] = useState(false);
   const [sunatData, setSunatData] = useState<{ razonSocial?: string; direccion?: string } | null>(null);
+  // Navegación entre comprobantes cuando el pago se hizo con varios tickets/boletas/facturas
+  const [previewIdx, setPreviewIdx] = useState(0);
 
   // Normalize Receipt Type case-insensitively (FACTURA -> Factura, BOLETA -> Boleta, TICKET -> Ticket)
   const rawType = (receiptType || invoice?.receipt_type || "").toUpperCase().trim();
@@ -62,6 +64,11 @@ export default function ThermalReceiptModal({
 
   const rawDoc = (customerDoc || invoice?.customer_doc || "").replace(/[^0-9]/g, "").trim();
   const effectiveDoc = rawDoc && rawDoc !== "0" && rawDoc !== "00000000" && rawDoc !== "20600982860" ? rawDoc : "";
+
+  // Reiniciar la navegación de comprobantes al abrir o cambiar el desglose
+  React.useEffect(() => {
+    setPreviewIdx(0);
+  }, [isOpen, (paymentBreakdown && paymentBreakdown.length) || (invoice?.payment_breakdown || []).length]);
 
   // Auto-query SUNAT if 11-digit RUC is available
   React.useEffect(() => {
@@ -189,6 +196,34 @@ export default function ThermalReceiptModal({
   // Date formatted in Peru timezone
   const rawDate = issuedAt || invoice?.issued_at || workOrder?.entry_time || new Date().toISOString();
   const dateFormatted = formatPeruDate(rawDate);
+
+  // Comprobante actual en la navegación (vista previa página por página)
+  const previewSplit = useMultiTickets ? (effectiveSplits[previewIdx] || null) : null;
+  const viewType: "Ticket" | "Boleta" | "Factura" = previewSplit
+    ? (previewSplit.receipt_type === "Factura" || previewSplit.receipt_type === "Boleta" ? previewSplit.receipt_type : "Ticket")
+    : effectiveType;
+  const viewNumber = previewSplit ? (previewSplit.receipt_number || effectiveNumber) : effectiveNumber;
+  const viewMethod = previewSplit ? previewSplit.method : (paymentMethod || "CONTADO");
+  const viewTotal = previewSplit ? (Number(previewSplit.amount) || 0) : effectiveTotal;
+  const viewSplits = previewSplit ? [previewSplit] : effectiveSplits;
+  const viewOpGravadas = viewTotal > 0 ? viewTotal / 1.18 : 0;
+  const viewIgv = viewTotal - viewOpGravadas;
+  const viewAmountInWords = previewSplit ? numberToSpanishWords(viewTotal) : amountInWords;
+  const viewQrUrl = viewType !== "Ticket"
+    ? (() => {
+        const igv = viewTotal > 0 ? viewTotal - viewTotal / 1.18 : 0;
+        const qr = buildSunatFiscalQrString({
+          rucEmisor: "20600982860",
+          receiptType: viewType,
+          receiptNumber: viewNumber,
+          igvAmount: igv,
+          grandTotal: viewTotal,
+          dateStr: dateFormatted,
+          customerDoc: effectiveDoc,
+        });
+        return "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=" + encodeURIComponent(qr);
+      })()
+    : "";
 
   // Build standard SUNAT fiscal QR String
   const sunatQrString = buildSunatFiscalQrString({
@@ -451,7 +486,12 @@ export default function ThermalReceiptModal({
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             <h3 className="text-sm font-black text-white uppercase tracking-wider">
-              {effectiveType}: {effectiveNumber}
+              {viewType}: {viewNumber}
+              {useMultiTickets && (
+                <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-purple-600/40 text-purple-200 border border-purple-500/40 font-bold">
+                  {previewIdx + 1} de {effectiveSplits.length}
+                </span>
+              )}
             </h3>
           </div>
           <button
@@ -480,6 +520,31 @@ export default function ThermalReceiptModal({
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Navegación página por página de los comprobantes del pago */}
+          {useMultiTickets && (
+            <div className="w-full max-w-[310px] mb-2 flex items-center justify-between gap-2 p-2 rounded-xl bg-purple-950/40 border border-purple-500/40 text-[10px] text-purple-200 font-bold">
+              <button
+                type="button"
+                disabled={previewIdx === 0}
+                onClick={() => setPreviewIdx(Math.max(0, previewIdx - 1))}
+                className="px-2 py-1 bg-purple-600/50 hover:bg-purple-600 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                ‹ Anterior
+              </button>
+              <span className="text-center">
+                Comprobante {previewIdx + 1} de {effectiveSplits.length} — {viewType} {viewNumber}
+              </span>
+              <button
+                type="button"
+                disabled={previewIdx >= effectiveSplits.length - 1}
+                onClick={() => setPreviewIdx(Math.min(effectiveSplits.length - 1, previewIdx + 1))}
+                className="px-2 py-1 bg-purple-600/50 hover:bg-purple-600 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Siguiente ›
+              </button>
             </div>
           )}
 
@@ -517,13 +582,13 @@ export default function ThermalReceiptModal({
             {/* 2. Document Title & Correlative (Centered & Bold) */}
             <div className="border-t border-dashed border-black pt-1 text-center font-bold">
               <div className="text-xs uppercase font-black tracking-wider">
-                {effectiveType === "Factura"
+                {viewType === "Factura"
                   ? "FACTURA ELECTRÓNICA"
-                  : effectiveType === "Boleta"
+                  : viewType === "Boleta"
                   ? "BOLETA DE VENTA ELECTRÓNICA"
                   : "TICKET DE VENTA"}
               </div>
-              <div className="text-xs font-bold font-mono tracking-wider">{effectiveNumber}</div>
+              <div className="text-xs font-bold font-mono tracking-wider">{viewNumber}</div>
             </div>
 
             {/* 3. Client & Document Info */}
@@ -531,11 +596,11 @@ export default function ThermalReceiptModal({
               <div>
                 <strong>CLIENTE:</strong> {effectiveClient}
               </div>
-              {effectiveType === "Factura" ? (
+              {viewType === "Factura" ? (
                 <div>
                   <strong>RUC:</strong> {effectiveDoc || "-"}
                 </div>
-              ) : effectiveType === "Boleta" ? (
+              ) : viewType === "Boleta" ? (
                 <div>
                   <strong>DNI:</strong> {effectiveDoc || "-"}
                 </div>
@@ -549,11 +614,11 @@ export default function ThermalReceiptModal({
                 <strong>FECHA DE EMISIÓN:</strong> {dateFormatted}
               </div>
               <div>
-                <strong>FORMA DE PAGO:</strong> {effectiveSplits.length > 1 ? "MIXTO" : (paymentMethod || "CONTADO")}
+                <strong>FORMA DE PAGO:</strong> {viewSplits.length > 1 ? "MIXTO" : viewMethod}
               </div>
-              {effectiveSplits.length > 1 && (
+              {viewSplits.length > 1 && (
                 <div className="pl-2 space-y-0.5 text-[9px] border-l-2 border-black/30 my-0.5">
-                  {effectiveSplits.map((p, idx) => (
+                  {viewSplits.map((p, idx) => (
                     <div key={idx} className="flex justify-between text-gray-800">
                       <span>• {p.method} ({p.destination}):</span>
                       <span className="font-mono font-bold">S/ {Number(p.amount).toFixed(2)}</span>
@@ -602,7 +667,7 @@ export default function ThermalReceiptModal({
             <div className="border-t border-dashed border-black pt-1 space-y-0.5 text-[10px]">
               <div className="flex justify-between">
                 <span>OP. GRAVADAS:</span>
-                <span className="text-right pr-1 font-bold">S/ {opGravadas.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {viewOpGravadas.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>OP. EXONERADAS:</span>
@@ -618,7 +683,7 @@ export default function ThermalReceiptModal({
               </div>
               <div className="flex justify-between">
                 <span>SUBTOTAL:</span>
-                <span className="text-right pr-1 font-bold">S/ {(opGravadas + effectiveDiscount).toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {(viewOpGravadas + effectiveDiscount).toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>DESCUENTOS:</span>
@@ -626,7 +691,7 @@ export default function ThermalReceiptModal({
               </div>
               <div className="flex justify-between">
                 <span>IGV 18.0%:</span>
-                <span className="text-right pr-1 font-bold">S/ {igvAmount.toFixed(2)}</span>
+                <span className="text-right pr-1 font-bold">S/ {viewIgv.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>ICBPER:</span>
@@ -638,15 +703,15 @@ export default function ThermalReceiptModal({
               </div>
               <div className="flex justify-between font-black text-xs border-t border-b border-black py-1 mt-0.5">
                 <span>TOTAL:</span>
-                <span className="text-right pr-1 font-black">S/ {effectiveTotal.toFixed(2)}</span>
+                <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
               </div>
             </div>
 
             {/* 6. SUNAT Dynamic Fiscal QR Code (ONLY for Boleta and Factura, NOT for Ticket) */}
-            {effectiveType !== "Ticket" && (
+            {viewType !== "Ticket" && (
               <div className="flex flex-col items-center justify-center py-2 border-b border-dashed border-black space-y-1">
                 <img
-                  src={qrImageUrl}
+                  src={viewQrUrl}
                   alt="Código QR Fiscal SUNAT"
                   className="w-24 h-24 object-contain bg-white mx-auto block"
                 />
@@ -658,17 +723,17 @@ export default function ThermalReceiptModal({
 
             {/* 7. Amount in words (SON OCHENTA CON 00/100 SOLES) */}
             <div className="border-b border-black py-1 text-[9.5px] font-bold uppercase text-center tracking-tight">
-              {amountInWords}
+              {viewAmountInWords}
             </div>
 
             {/* 8. Footer Legal Notes */}
             <div className="pt-1 text-center space-y-0.5 text-[8.5px] text-black leading-tight">
               <div className="font-bold">
-                {effectiveType === "Ticket"
+                {viewType === "Ticket"
                   ? "Gracias por su preferencia"
-                  : `Representación impresa de la ${effectiveType === "Factura" ? "Factura" : "Boleta de Venta"} Electrónica`}
+                  : "Representación impresa de la " + (viewType === "Factura" ? "Factura" : "Boleta de Venta") + " Electrónica"}
               </div>
-              {effectiveType !== "Ticket" && (
+              {viewType !== "Ticket" && (
                 <>
                   <div>Autorizado mediante Resolución de Superintendencia</div>
                   <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>

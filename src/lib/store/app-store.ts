@@ -2760,6 +2760,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       };
 
       let updatedInvoices = [...state.invoices];
+      // Pago completo: se usa para el estado de la orden (pagado_autorizado vs pendiente_pago)
+      let isFullyPaid = false;
 
       if (targetInvoice) {
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
@@ -2771,7 +2773,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const totalDue = Number(targetInvoice.grand_total) || 0;
         const balance = Math.max(0, totalDue - prevPaid);
 
-        const isFullyPaid = balance <= 0.01;
+        isFullyPaid = balance <= 0.01;
         const updated: Invoice = {
           ...targetInvoice,
           payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
@@ -2795,7 +2797,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const discountVal = targetOrder.discount_amount || 0;
         const totalDue = Math.max(0, partsTotal + certFee - discountVal);
         const balance = Math.max(0, totalDue - payAmount);
-        const isFullyPaid = balance <= 0.01;
+        isFullyPaid = balance <= 0.01;
 
         const newInvoice: Invoice = {
           id: `inv-${Date.now()}`,
@@ -2829,9 +2831,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === effectiveWorkOrderId) {
+          // Si el pago cubrió el 100% del saldo, la orden pasa a PAGADO_AUTORIZADO
+          // (la card muestra "PAGADO - Desmarcar Pago"); si queda saldo, pendiente de pago.
           const updatedOrder = {
             ...o,
-            status: ("pendiente_pago" as WorkOrderStatus),
+            status: (isFullyPaid ? ("pagado_autorizado" as WorkOrderStatus) : ("pendiente_pago" as WorkOrderStatus)),
           };
           saveSupabaseWorkOrder(updatedOrder);
           return updatedOrder;
