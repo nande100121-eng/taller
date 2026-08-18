@@ -23,12 +23,16 @@ import {
   clearSupabaseWorkOrders,
   saveSupabaseBulkWorkshopData,
   saveSupabaseCertification,
+  deleteSupabaseCertification,
   saveSupabaseScheduleRecord,
   deleteSupabaseScheduleRecord,
   deleteSupabaseMultipleScheduleRecords,
   clearSupabaseScheduleRecords,
   saveSupabaseBulkScheduleRecords,
   saveSupabaseBulkInventory,
+  saveSupabaseToolLoans,
+  deleteSupabaseToolLoan,
+  saveSupabaseAttendanceLogs,
   broadcastRealtimeChange,
   fetchSupabaseServices,
   fetchSupabaseCertifications,
@@ -1060,6 +1064,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
         if (Array.isArray((erpData as any)?.recentIngresos) && (erpData as any).recentIngresos.length > 0) {
           updates.recentIngresos = (erpData as any).recentIngresos;
         }
+        // Préstamos de herramientas y asistencia: catálogos ligeros protegidos por
+        // hasRecentLocalMutation para no pisar una edición activa del usuario (patrón roster).
+        if (Array.isArray((erpData as any)?.toolLoans) && (erpData as any).toolLoans.length > 0 && !hasRecentLocalMutation("toolLoans")) {
+          updates.toolLoans = (erpData as any).toolLoans;
+        }
+        if (Array.isArray((erpData as any)?.attendanceLogs) && (erpData as any).attendanceLogs.length > 0 && !hasRecentLocalMutation("attendanceLogs")) {
+          updates.attendanceLogs = (erpData as any).attendanceLogs;
+        }
         // MERGE POR ID (no sobrescritura): conserva las OT/vehículos/facturas/citas creadas
         // localmente aunque su upsert aún no haya confirmado en la nube (consistencia eventual).
         // Esto evita que una sync en segundo plano "borre" una card recién creada en Portería->Taller.
@@ -1877,6 +1889,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
         return o;
       });
 
+      // Persistir la certificación recién creada en la nube (patrón roster:
+      // tabla certifications + backup site_content) y propagarla en tiempo real.
+      saveSupabaseCertification(newCert);
+      broadcastRealtimeChange("certification_updated");
+
       return {
         workOrders: updatedOrders,
         certifications: [newCert, ...state.certifications],
@@ -1902,6 +1919,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }
         return o;
       });
+      // Eliminar también la certificación de la nube (tabla + site_content)
+      const removedCerts = state.certifications.filter((c) => c.work_order_id === orderId);
+      removedCerts.forEach((c) => deleteSupabaseCertification(c.id));
       const updatedCerts = state.certifications.filter((c) => c.work_order_id !== orderId);
       return {
         workOrders: updatedOrders,
@@ -2079,27 +2099,28 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   toolLoans: [],
 
-  addToolLoan: (loan) =>
+  addToolLoan: (loan) => {
+    const newLoan: ToolLoan = {
+      ...loan,
+      id: `loan-${Date.now()}`,
+      borrowed_at: new Date().toISOString(),
+      status: "prestado",
+    };
+    saveSupabaseToolLoans([...get().toolLoans, newLoan]);
     set((state) => ({
-      toolLoans: [
-        ...state.toolLoans,
-        {
-          ...loan,
-          id: `loan-${Date.now()}`,
-          borrowed_at: new Date().toISOString(),
-          status: "prestado",
-        },
-      ],
-    })),
+      toolLoans: [...state.toolLoans, newLoan],
+    }));
+  },
 
-  returnTool: (loanId) =>
-    set((state) => ({
-      toolLoans: state.toolLoans.map((tl) =>
-        tl.id === loanId
-          ? { ...tl, status: "devuelto", returned_at: new Date().toISOString() }
-          : tl
-      ),
-    })),
+  returnTool: (loanId) => {
+    const updated: ToolLoan[] = get().toolLoans.map((tl) =>
+      tl.id === loanId
+        ? { ...tl, status: "devuelto" as const, returned_at: new Date().toISOString() }
+        : tl
+    );
+    saveSupabaseToolLoans(updated);
+    set({ toolLoans: updated });
+  },
 
   invoices: [],
 
@@ -2757,11 +2778,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
     return res;
   },
 
-  addAttendanceLogs: (logs) =>
-    set((state) => ({
-      attendanceLogs: [
-        ...state.attendanceLogs,
-        ...logs.map((l) => ({ ...l, id: `att-${Date.now()}-${Math.random()}` })),
-      ],
-    })),
+  addAttendanceLogs: (logs) => {
+    const newLogs: AttendanceLog[] = logs.map((l) => ({ ...l, id: `att-${Date.now()}-${Math.random()}` }));
+    const merged = [...get().attendanceLogs, ...newLogs];
+    saveSupabaseAttendanceLogs(merged);
+    set({ attendanceLogs: merged });
+  },
 }));

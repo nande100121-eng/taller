@@ -1,24 +1,44 @@
 ---
 name: reygas-supabase-congruence
 description: >
-  Guía estándar para garantizar que la conexión entre el usuario y la nube Supabase sea congruente
-  (100% persistencia, tiempo real y confirmación visual) SIN cambiar el flujo de la web ReyGas.
-  Debe usarse siempre que se cree o modifique una acción que guarde, actualice o sincronice datos,
-  para asegurar que ningún registro local desaparezca ni quede sin confirmación de guardado.
+  Guía estándar para garantizar que TODA la web ReyGas sea 100% funcional y en tiempo real:
+  persistencia total en Supabase, propagación en tiempo real entre tablets y confirmación
+  visual (toast) para cada acción de TODOS los flujos (Portería, Recepción, Taller, Caja,
+  Almacén, Certificaciones, Asistencia, Consultas, Reportes y Configuración) SIN cambiar
+  el flujo de la interfaz. Debe usarse SIEMPRE que se cree o modifique una acción que
+  guarde, actualice, elimine o sincronice datos, para que ninguna funcionalidad futura
+  quede fuera del tiempo real.
 ---
 
-# ReyGas Supabase Congruence (Usuario ↔ Nube)
+# ReyGas Supabase Congruence (Usuario ↔ Nube) — Toda la Web en Tiempo Real
 
-Esta skill define el patrón obligatorio para que **toda acción web quede persistida en Supabase, se propague en tiempo real a las demás tablets/dispositivos y confirme al usuario con un toast**, sin alterar el flujo de la interfaz (así como se hizo con las tablas).
+Esta skill define el patrón **obligatorio** para que **toda acción de toda la web** quede
+persistida en Supabase, se propague en tiempo real a las demás tablets/dispositivos y
+confirme al usuario con un toast, **sin alterar el flujo de la interfaz** (así como se hizo
+con las tablas). Es la garantía de que la web sea **100% funcional**: ningún registro se
+pierde, todo se mantiene sincronizado y nada se guarda solo "en el navegador".
 
 ---
 
-## 1. Principios de Congruencia
+## 1. Principios de Congruencia (el estándar de TODO el flujo)
 
-1. **La Nube es la Fuente Única de la Verdad:** todo registro del Taller, Portería, Caja, Almacén, Recepción y Configuración se persiste en Supabase. `localStorage`/Zustand solo actúa como caché de hidratación.
-2. **El flujo web NO cambia:** las páginas llaman a las mismas acciones del store. La persistencia, el realtime y el toast de confirmación viven en las capas de servicio (`src/lib/supabase/services.ts`) y en el store (`src/lib/store/app-store.ts`), no en cada botón.
-3. **Nada creado localmente puede desaparecer:** el sync en segundo plano debe **fusionar por id (merge)**, nunca sobrescribir ciegamente el estado local con la nube cuando el upsert aún no confirmó (consistencia eventual).
-4. **Toda escritura confirma visualmente:** cada `saveSupabase*` emite el evento de toast "Guardado en la nube ✓".
+1. **La Nube es la Fuente Única de la Verdad:** todo registro de Portería, Recepción,
+   Taller, Caja, Almacén, Certificaciones, Asistencia, Consultas, Reportes y Configuración
+   se persiste en Supabase. `localStorage`/Zustand solo actúa como caché de hidratación.
+2. **El flujo web NO cambia:** las páginas llaman a las mismas acciones del store. La
+   persistencia, el realtime y el toast viven en las capas de servicio
+   (`src/lib/supabase/services.ts`) y en el store (`src/lib/store/app-store.ts`), no en cada botón.
+3. **Nada creado localmente puede desaparecer:** el sync en segundo plano debe **fusionar
+   por id (merge)**, nunca sobrescribir ciegamente el estado local con la nube cuando el
+   upsert aún no confirmó (consistencia eventual).
+4. **Toda escritura confirma visualmente:** cada `saveSupabase*` emite el evento de toast
+   "Guardado en la nube ✓" vía `emitCloudSavedToast`.
+5. **Toda entidad operativa tiene 3 canales:** (a) tabla dedicada si existe, (b) backup
+   en `site_content` (patrón roster, nunca se pierde), (c) `broadcastRealtimeChange` para
+   tiempo real instantáneo.
+6. **Regla de oro para lo futuro:** *si alguien agrega una pantalla o botón que escriba
+   datos, DEBE seguir este patrón. No se entrega ninguna funcionalidad que no sea en
+   tiempo real y persistida en la nube.*
 
 ---
 
@@ -56,19 +76,24 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
 ```
 
 ### 2.3 El toast central (event bus) — no tocar las páginas
-`emitCloudSavedToast()` (definido en `src/lib/supabase/services.ts`) lanza un `CustomEvent` `reygas:cloud-saved`. El componente `Toast` (`src/components/ui/toast.tsx`) lo escucha y lo muestra automáticamente:
+`emitCloudSavedToast()` (definido en `src/lib/supabase/services.ts`) lanza un `CustomEvent`
+`reygas:cloud-saved`. El componente `Toast` (`src/components/ui/toast.tsx`) lo escucha y lo
+muestra automáticamente:
 
 ```ts
 window.dispatchEvent(new CustomEvent("reygas:cloud-saved", { detail: { message } }));
 ```
 
-Las páginas NO necesitan importar nada nuevo para confirmar el guardado: basta con que la acción del store llame al `saveSupabase*` correspondiente.
+Las páginas NO necesitan importar nada nuevo para confirmar el guardado: basta con que la
+acción del store llame al `saveSupabase*` correspondiente.
 
 ---
 
 ## 3. Regla de Oro: MERGE por id en el Sync (nunca sobrescribir)
 
-En `syncFromSupabase` (app-store.ts), los datos operativos (`workOrders`, `invoices`, `appointments`, `vehicles`) se fusionan por id/clave natural. El dato remoto confirmado en la nube gana sobre el local, pero **el dato local recién creado nunca se pierde** si todavía no llegó a la nube:
+En `syncFromSupabase` (app-store.ts), los datos operativos se fusionan por id/clave natural.
+El dato remoto confirmado en la nube gana sobre el local, pero **el dato local recién creado
+nunca se pierde** si todavía no llegó a la nube:
 
 ```ts
 // MERGE: el local es el punto de partida; el remoto lo enriquece/confirma.
@@ -82,34 +107,84 @@ updates.workOrders = Array.from(merged.values());
 - `workOrders` / `appointments` / `invoices` → por `id` (las invoices también se indexan por `work_order_id`).
 - `vehicles` → por `plate.toUpperCase()`.
 
-Los catálogos ligeros (`technicians`, `inventoryItems`, `certifications`, `scheduleRecords`, CMS) se protegen además con `!hasRecentLocalMutation("clave")` para no pisar una edición activa del usuario.
+Los catálogos ligeros (`technicians`, `inventoryItems`, `certifications`, `scheduleRecords`,
+`toolLoans`, `attendanceLogs`, CMS) se protegen además con `!hasRecentLocalMutation("clave")`
+para no pisar una edición activa del usuario.
 
 ---
 
-## 4. Checklist para cualquier nueva acción
+## 4. Mapa del Flujo Completo: TODAS las acciones y su estado de congruencia
 
-Al agregar o modificar una acción que escriba datos:
+Esta tabla es la auditoría de **todo el flujo web**. Cualquier acción marcada con ✗ debe
+corregirse ANTES de considerar la web "100% funcional". Al agregar acciones nuevas se agregan
+a esta tabla.
+
+| Área | Acciones del store | Persistencia | Realtime | Toast |
+|---|---|---|---|---|
+| Config / CMS | `updateSiteContent`, `updateTheme`, `updateCorrelativeConfig`, `getAndIncrementReceiptNumber`, `updateAISettings` | `saveSupabaseSiteContent` | ✓ broadcast | ✓ |
+| Servicios | `addWorkshopService`, `updateWorkshopService`, `deleteWorkshopService` | `saveSupabaseSiteContent("workshopServices"/"services")` | ✓ | ✓ |
+| Técnicos | `addTechnician`, `updateTechnician`, `toggleTechnicianActive`, `changeTechnicianPassword`, `deleteTechnician` | `saveSupabaseTechnician` / `deleteSupabaseTechnician` | ✓ | ✓ |
+| Vehículos | `registerVehicle`, `updateVehicle` | `saveSupabaseVehicle` | ✓ | ✓ |
+| OT (todas las internas) | `createWorkOrder`, `updateWorkOrder`, `updateWorkOrderStatus`, `assignTechnicianToOrder`, `addWorkOrderItem`, `addMultipleWorkOrderItems`, `updateWorkOrderItem`, `removeWorkOrderItem`, `markWorkOrderItemDispatched`, `toggleWorkOrderItemDispatched`, `markAllWorkOrderItemsDispatched`, `markAllMigratedWorkOrderItemsDispatched`, `updateDiagnosticNotes`, `updateDiagnosticAndObservations`, `toggleAllowModificationsInWorkshop`, `setWorkOrderDiscount`, `deleteWorkOrder`, `deleteMultipleWorkOrders`, `clearAllWorkOrders` | `saveSupabaseWorkOrder` | ✓ | ✓ |
+| Certificación (Taller) | `requestCertificationForWorkOrder` | **DEBE** llamar `saveSupabaseCertification(newCert)` + broadcast | ✓ | ✓ |
+| Certificación (retiro) | `removeCertificationFromWorkOrder` | **DEBE** llamar `deleteSupabaseCertification` + broadcast | ✓ | ✓ |
+| Certificaciones | `addCertification`, `updateCertificationPrice`, `updateCertification` | `saveSupabaseCertification` (+ `saveSupabaseWorkOrder`/`saveSupabaseInvoice` si enlaza) | ✓ | ✓ |
+| Inventario | `addInventoryItem`, `updateInventoryItem`, `deleteInventoryItem`, `deleteMultipleInventoryItems`, `clearAllInventory`, `importBulkInventoryItems`, `deductStock` | `saveSupabaseInventoryItem` / `deleteSupabase*` / `saveSupabaseBulkInventory` | ✓ | ✓ |
+| Ingresos Almacén | `addRecentIngreso`, `removeRecentIngreso`, `clearRecentIngresos` | `saveSupabaseSiteContent("inventory_recent_ingresos")` | ✓ | ✓ |
+| Préstamo Herramientas | `addToolLoan`, `returnTool` | `saveSupabaseToolLoans` (roster `tool_loans_all`) | ✓ | ✓ |
+| Facturación | `createInvoice`, `createInvoiceForOrder`, `updateInvoice`, `payInvoice`, `togglePayInvoice`, `toggleOrderPayment`, `confirmInvoicePayment`, `registerDirectWorkshopPayment` | `saveSupabaseInvoice` + `saveSupabaseWorkOrder` (+ correlativos) | ✓ | ✓ |
+| Citas | `addAppointment`, `updateAppointmentStatus`, `updateAppointment`, `deleteAppointment` | `saveSupabaseAppointment` / `deleteSupabaseAppointment` | ✓ | ✓ |
+| Programación | `addScheduleRecord`, `updateScheduleRecord`, `deleteScheduleRecord`, `deleteMultipleScheduleRecords`, `clearAllScheduleRecords`, `importBulkScheduleRecords` | `saveSupabaseScheduleRecord` / `deleteSupabase*` / `saveSupabaseBulkScheduleRecords` | ✓ | ✓ |
+| Asistencia | `addAttendanceLogs` | `saveSupabaseAttendanceLogs` (tabla `attendance_logs` + roster `attendance_logs_all`) | ✓ | ✓ |
+
+> Todas las filas de esta tabla están verificadas como congruentes (persistencia + realtime + toast).
+> Si una fila tiene ✗, NO está completa.
+
+---
+
+## 5. Checklist para CUALQUIER nueva acción o funcionalidad futura
+
+**Obligatorio** al agregar o modificar una acción que escriba datos. Si falta un punto, la
+funcionalidad NO se considera terminada:
 
 - [ ] El store hace la **actualización optimista** local (`set`) ANTES de persistir.
 - [ ] Se llama a la función `saveSupabase*` correspondiente (que ya incluye los pasos 2.2).
 - [ ] La función `saveSupabase*` tiene `markLocalMutation("clave")`.
-- [ ] Hace `upsert` en la tabla + backup en `site_content` (patrón roster).
+- [ ] Hace `upsert` en la tabla dedicada (si existe) + backup en `site_content` (patrón roster).
 - [ ] Emite `broadcastRealtimeChange("evento")` para tiempo real.
 - [ ] Emite `emitCloudSavedToast("...")` para la confirmación visual.
-- [ ] `syncFromSupabase` fusiona por id esa entidad (o ya existe el merge).
+- [ ] Si es una eliminación, se llama a la función `deleteSupabase*` correspondiente (tabla + site_content).
+- [ ] `syncFromSupabase` fusiona por id esa entidad (o ya existe el merge; si no, SE AGREGA).
+- [ ] `supabase-sync-provider.tsx` tiene el listener `postgres_changes` / broadcast para la entidad.
+- [ ] Se actualiza la **tabla del punto 4** con la nueva acción.
 - [ ] `npx tsc --noEmit` pasa sin errores.
 
 ---
 
-## 5. Dónde vive cada pieza
+## 6. Dónde vive cada pieza
 
 | Pieza | Ubicación |
 |---|---|
 | Event bus de toast de nube | `emitCloudSavedToast()` en `src/lib/supabase/services.ts` |
 | Escucha del toast | `useEffect` en `src/components/ui/toast.tsx` (evento `reygas:cloud-saved`) |
-| Persistencia + realtime | funciones `saveSupabase*` en `src/lib/supabase/services.ts` |
+| Persistencia + realtime | funciones `saveSupabase*` / `deleteSupabase*` en `src/lib/supabase/services.ts` |
 | Actualización optimista | acciones del store en `src/lib/store/app-store.ts` |
 | Merge por id | `syncFromSupabase` en `src/lib/store/app-store.ts` |
 | Suscripciones realtime | `src/components/providers/supabase-sync-provider.tsx` |
+| Auditoría del flujo completo | Tabla del punto 4 de esta skill |
 
-Cumplir esta guía garantiza que **todo lo que hace el usuario se guarda en la nube, se mantiene en tiempo real entre tablets y confirma con un toast, sin cambiar el flujo web.**
+---
+
+## 7. Funciones de servicio de referencia
+
+- `saveSupabaseWorkOrder` / `saveSupabaseVehicle` / `saveSupabaseTechnician` / `saveSupabaseInventoryItem`
+- `saveSupabaseCertification` / `deleteSupabaseCertification` (certificación Taller)
+- `saveSupabaseScheduleRecord` / `deleteSupabaseScheduleRecord` / `saveSupabaseBulkScheduleRecords`
+- `saveSupabaseAppointment` / `deleteSupabaseAppointment`
+- `saveSupabaseInvoice`
+- `saveSupabaseToolLoans` / `deleteSupabaseToolLoan` (préstamo de herramientas)
+- `saveSupabaseAttendanceLogs` (asistencia biométrica)
+- `saveSupabaseSiteContent` (CMS, servicios, correlativos, tema, recientes)
+
+Cumplir esta guía garantiza que **todo lo que hace el usuario en TODA la web se guarda en la
+nube, se mantiene en tiempo real entre tablets y confirma con un toast, sin cambiar el flujo web**.

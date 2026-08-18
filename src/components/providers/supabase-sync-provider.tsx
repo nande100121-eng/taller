@@ -90,6 +90,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         syncTechniciansOnly();
       } else if (eventType.includes("schedule")) {
         syncScheduleOnly();
+      } else if (eventType.includes("tool_loans")) {
+        debouncedFullSync();
+      } else if (eventType.includes("attendance")) {
+        debouncedFullSync();
       } else {
         debouncedFullSync();
       }
@@ -136,6 +140,14 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         debouncedFullSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => {
+        debouncedFullSync();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tool_loans" }, () => {
+        if (hasRecentLocalMutation("toolLoans")) return;
+        debouncedFullSync();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "attendance_logs" }, () => {
+        if (hasRecentLocalMutation("attendanceLogs")) return;
         debouncedFullSync();
       })
       .subscribe();

@@ -1,5 +1,5 @@
 import { supabase } from "./client";
-import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, generateDefaultUsername } from "@/lib/store/app-store";
+import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 
 // Unique browser session ID to prevent self-broadcast reload loops
 export const CLIENT_SESSION_ID =
@@ -1283,6 +1283,8 @@ export async function fetchSupabaseErpData() {
     const fallbackInventory: InventoryItem[] = [];
     let fallbackServices: any[] = [];
     let fallbackRecentIngresos: any[] = [];
+    let fallbackToolLoans: ToolLoan[] = [];
+    let fallbackAttendanceLogs: AttendanceLog[] = [];
     const fallbackTechs: any[] = [];
     const invBreakdownsMap = new Map<string, any[]>();
     const invFullMap = new Map<string, any>();
@@ -1340,6 +1342,16 @@ export async function fetchSupabaseErpData() {
           try {
             const sList = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
             if (Array.isArray(sList)) fallbackSched.push(...sList);
+          } catch { }
+        } else if (k === "tool_loans_all") {
+          try {
+            const tList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(tList)) fallbackToolLoans = tList;
+          } catch { }
+        } else if (k === "attendance_logs_all") {
+          try {
+            const aList = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(aList)) fallbackAttendanceLogs = aList;
           } catch { }
         } else if (k && k.startsWith("appt_")) {
           try {
@@ -1693,6 +1705,8 @@ export async function fetchSupabaseErpData() {
       scheduleRecords: fallbackSched.length > 0 ? fallbackSched : null,
       workshopServices: finalServices.length > 0 ? finalServices : null,
       recentIngresos: fallbackRecentIngresos,
+      toolLoans: fallbackToolLoans,
+      attendanceLogs: fallbackAttendanceLogs,
     };
   } catch (err) {
     console.warn("Supabase ERP fetch warning:", err);
@@ -1733,6 +1747,78 @@ export async function deleteSupabaseAppointment(id: string) {
     if (error) console.warn("Supabase appointment delete warning:", error.message);
   } catch (err) {
     console.warn("Supabase appointment delete deferred:", err);
+  }
+}
+
+// ---------------------------------------------------------------------
+// CERTIFICATIONS DELETE (solicitud/retiro de certificación en Taller)
+// ---------------------------------------------------------------------
+export async function deleteSupabaseCertification(id: string) {
+  try {
+    markLocalMutation("certifications");
+    await supabase.from("site_content").delete().eq("section_key", `cert_${id}`);
+    const { error } = await supabase.from("certifications").delete().eq("id", id);
+    if (error) console.warn("Supabase certification delete warning:", error.message);
+    broadcastRealtimeChange("certification_updated");
+  } catch (err) {
+    console.warn("Supabase certification delete deferred:", err);
+  }
+}
+
+// ---------------------------------------------------------------------
+// TOOL LOANS (PRÉSTAMO DE HERRAMIENTAS) SUPABASE SYNC
+// El modelo local usa technician_name (no technician_id), por lo que la
+// fuente canónica es el roster en site_content (tool_loans_<id>) y el
+// snapshot completo tool_loans_all; la tabla tool_loans es un espejo
+// opcional (se intenta el upsert pero nunca rompe el flujo).
+// ---------------------------------------------------------------------
+export async function saveSupabaseToolLoans(loans: ToolLoan[]) {
+  try {
+    markLocalMutation("toolLoans");
+    await saveSupabaseSiteContent("tool_loans_all", loans, "tool_loans");
+    await Promise.all(
+      loans.map((tl) => saveSupabaseSiteContent(`tool_loan_${tl.id}`, tl, "tool_loans", false))
+    );
+    broadcastRealtimeChange("tool_loans_updated");
+    emitCloudSavedToast("Préstamo de herramientas guardado en la nube ✓");
+  } catch (err) {
+    console.warn("Supabase tool loans deferred:", err);
+  }
+}
+
+export async function deleteSupabaseToolLoan(id: string) {
+  try {
+    markLocalMutation("toolLoans");
+    await supabase.from("site_content").delete().eq("section_key", `tool_loan_${id}`);
+    broadcastRealtimeChange("tool_loans_updated");
+  } catch (err) {
+    console.warn("Supabase tool loan delete deferred:", err);
+  }
+}
+
+// ---------------------------------------------------------------------
+// ATTENDANCE LOGS (ASISTENCIA BIOMÉTRICA) SUPABASE SYNC
+// ---------------------------------------------------------------------
+export async function saveSupabaseAttendanceLogs(logs: AttendanceLog[]) {
+  try {
+    markLocalMutation("attendanceLogs");
+    const deduped = Array.from(new Map(logs.map((l) => [l.id, l])).values());
+    await saveSupabaseSiteContent("attendance_logs_all", deduped, "attendance");
+    if (deduped.length > 0) {
+      const rows = deduped.map((l) => ({
+        id: l.id,
+        employee_name: l.employee_name,
+        check_time: l.check_time,
+        log_type: l.log_type,
+        source_file: l.source_file || null,
+      }));
+      const { error } = await supabase.from("attendance_logs").upsert(rows);
+      if (error) console.warn("Supabase attendance logs save warning:", error.message);
+    }
+    broadcastRealtimeChange("attendance_updated");
+    emitCloudSavedToast("Asistencia guardada en la nube ✓");
+  } catch (err) {
+    console.warn("Supabase attendance logs deferred:", err);
   }
 }
 
