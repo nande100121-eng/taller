@@ -58,7 +58,6 @@ export default function RecepcionPage() {
     createWorkOrder,
     assignTechnicianToOrder,
     scheduleRecords,
-    addScheduleRecord,
     workshopServices,
     correlativeConfig,
     notify,
@@ -78,75 +77,7 @@ export default function RecepcionPage() {
     danger?: boolean;
   } | null>(null);
 
-  // Cartilla Registration Modal State (Alimenta Tabla de Programación)
-  const [cartillaModalOpen, setCartillaModalOpen] = useState(false);
-  const [cartillaForm, setCartillaForm] = useState({
-    vehicle_plate: "",
-    client_name: "",
-    client_phone: "",
-    current_mileage: 0,
-    service_date: getPeruDateTimeLocal().slice(0, 10),
-    service_name: "Instalación 5ta GNV FISE",
-    next_maintenance_date: "",
-    expiry_quinquennial: "",
-    expiry_chip_annual: "",
-    notes: "",
-  });
 
-  const calculate90Days = (baseDateStr?: string) => {
-    try {
-      const base = baseDateStr ? new Date(baseDateStr + "T12:00:00") : new Date();
-      if (isNaN(base.getTime())) return "";
-      base.setDate(base.getDate() + 90);
-      return base.toISOString().slice(0, 10);
-    } catch {
-      return "";
-    }
-  };
-
-  const handleOpenCartillaModal = () => {
-    const today = getPeruDateTimeLocal().slice(0, 10);
-    setCartillaForm({
-      vehicle_plate: "",
-      client_name: "",
-      client_phone: "",
-      current_mileage: 0,
-      service_date: today,
-      service_name: "Instalación 5ta GNV FISE",
-      next_maintenance_date: calculate90Days(today),
-      expiry_quinquennial: "",
-      expiry_chip_annual: "",
-      notes: "",
-    });
-    setCartillaModalOpen(true);
-  };
-
-  const handleSaveCartilla = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cartillaForm.vehicle_plate.trim()) {
-      notify("warning", "Por favor ingrese la placa del vehículo.");
-      return;
-    }
-
-    const calcDue = cartillaForm.next_maintenance_date || calculate90Days(cartillaForm.service_date);
-
-    addScheduleRecord({
-      vehicle_plate: cartillaForm.vehicle_plate.toUpperCase().trim(),
-      client_name: cartillaForm.client_name.trim() || "Cliente",
-      client_phone: cartillaForm.client_phone.trim(),
-      current_mileage: Number(cartillaForm.current_mileage) || 0,
-      service_date: cartillaForm.service_date,
-      service_name: cartillaForm.service_name,
-      next_maintenance_date: calcDue,
-      expiry_quinquennial: cartillaForm.expiry_quinquennial,
-      expiry_chip_annual: cartillaForm.expiry_chip_annual,
-      status: "programado",
-      notes: cartillaForm.notes,
-    });
-
-    setCartillaModalOpen(false);
-    showSuccess(`¡Cartilla de ${cartillaForm.vehicle_plate.toUpperCase()} registrada con éxito a 90 días!`);
-  };
 
   // Radar 90 Días Logic & 4 Filters
   const [radarFilter, setRadarFilter] = useState<"semanal" | "mensual" | "10dias" | "todos">("semanal");
@@ -472,6 +403,7 @@ export default function RecepcionPage() {
       scheduled_date: editForm.scheduled_date,
       status: editForm.status,
       notes: editForm.notes,
+      responsible: editForm.responsible,
     });
 
     setEditingApp(null);
@@ -911,14 +843,7 @@ export default function RecepcionPage() {
             >
               Reservas & Citas Web ({appointments.length})
             </button>
-            <button
-              onClick={() => handleOpenCartillaModal()}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/30"
-              title="Registrar nueva cartilla de servicio para alimentar la Tabla de Programación"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Registrar Cartilla</span>
-            </button>
+
             <button
               onClick={() => setActiveTab("radar")}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "radar"
@@ -1272,9 +1197,7 @@ export default function RecepcionPage() {
             <div className="p-12 text-center text-gray-500 space-y-2">
               <AlertCircle className="w-10 h-10 mx-auto text-gray-600" />
               <p className="text-sm">No hay vehículos con vencimiento para el filtro seleccionado ({radarFilter}).</p>
-              <p className="text-xs text-gray-600">
-                Puedes registrar cartillas de servicio con el botón "Registrar Cartilla" para alimentar las alertas a 90 días.
-              </p>
+
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1490,6 +1413,34 @@ export default function RecepcionPage() {
                     <option value="cancelado">Cancelado</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Responsable de la Atención {attentionResponsibles.length > 0 ? "" : "(opcional)"}
+                </label>
+                {attentionResponsibles.length > 0 ? (
+                  <select
+                    value={editForm.responsible || ""}
+                    onChange={(e) => setEditForm({ ...editForm, responsible: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  >
+                    <option value="">— Sin asignar —</option>
+                    {attentionResponsibles.map((t) => (
+                      <option key={t.id} value={t.full_name}>
+                        {t.full_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Ej: Kelly, Cristhel"
+                    value={editForm.responsible || ""}
+                    onChange={(e) => setEditForm({ ...editForm, responsible: capitalizeFirst(e.target.value) })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
+                  />
+                )}
               </div>
 
               <div>
@@ -2358,226 +2309,6 @@ export default function RecepcionPage() {
                 Cerrar
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL 5: REGISTRAR CARTILLA DE SERVICIO (ALIMENTA TABLA DE PROGRAMACIÓN) */}
-      {/* ========================================================================= */}
-      {cartillaModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-lg w-full p-6 rounded-2xl border border-emerald-500/40 space-y-4 relative shadow-2xl animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto bg-reygas-dark">
-            <button
-              onClick={() => setCartillaModalOpen(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="space-y-1">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-                <span>Registrar Cartilla de Servicio</span>
-              </h3>
-              <p className="text-xs text-gray-400">
-                Al registrar esta cartilla se alimenta la <strong>Tabla de Programación</strong> y se activa el <strong>Radar a 90 días</strong>.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveCartilla} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Placa del Vehículo *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ABC-123"
-                    value={cartillaForm.vehicle_plate}
-                    onChange={(e) => {
-                      const plate = formatPlate(e.target.value);
-                      setCartillaForm((prev) => ({ ...prev, vehicle_plate: plate }));
-                      void autofillPlateClient(plate, (name, phone) => {
-                        setCartillaForm((prev) => {
-                          if (prev.vehicle_plate !== plate) return prev; // la placa cambió durante la búsqueda
-                          return {
-                            ...prev,
-                            client_name: name || prev.client_name,
-                            client_phone: phone || prev.client_phone,
-                          };
-                        });
-                      });
-                    }}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white uppercase font-mono font-bold focus:border-emerald-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Kilometraje (KM)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Ej. 15000"
-                    value={cartillaForm.current_mileage || ""}
-                    onChange={(e) =>
-                      setCartillaForm({
-                        ...cartillaForm,
-                        current_mileage: parseInt(e.target.value, 10) || 0,
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white font-mono focus:border-emerald-400"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Nombre del Cliente
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej. Carlos Ramírez"
-                    value={cartillaForm.client_name}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, client_name: titleCase(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white focus:border-emerald-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    WhatsApp / Teléfono *
-                  </label>
-                  <input
-                    type="tel"
-                    placeholder="+51 987654321"
-                    value={cartillaForm.client_phone}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, client_phone: e.target.value })
-                    }
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white font-mono focus:border-emerald-400"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Servicio / Instalación Realizada *
-                </label>
-                <select
-                  value={cartillaForm.service_name}
-                  onChange={(e) =>
-                    setCartillaForm({ ...cartillaForm, service_name: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 bg-reygas-surface border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
-                >
-                  <option value="Instalación 5ta GNV FISE">Instalación 5ta GNV FISE (Alerta 90 Días)</option>
-                  <option value="Instalación 5ta GNV al contado">Instalación 5ta GNV al contado (Alerta 90 Días)</option>
-                  <option value="Instalación 3ra GNV al contado">Instalación 3ra GNV al contado (Alerta 90 Días)</option>
-                  <option value="Instalación 5ta GLP">Instalación 5ta GLP (Alerta 90 Días)</option>
-                  <option value="Instalación 3ra GLP">Instalación 3ra GLP (Alerta 90 Días)</option>
-                  <option value="Mantenimiento Preventivo 15,000 km">Mantenimiento Preventivo 15,000 km</option>
-                  <option value="Calibración & Escaneo ECU">Calibración & Escaneo ECU</option>
-                  <option value="Certificación Anual & Prueba Hidrostática">Certificación Anual & Prueba Hidrostática</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <MiniDatePicker
-                    value={cartillaForm.service_date}
-                    onChange={(newDate) => {
-                      setCartillaForm({
-                        ...cartillaForm,
-                        service_date: newDate,
-                        next_maintenance_date: calculate90Days(newDate),
-                      });
-                    }}
-                    label="Fecha del Servicio *"
-                  />
-                </div>
-
-                <div>
-                  <MiniDatePicker
-                    value={cartillaForm.next_maintenance_date}
-                    onChange={(newDate) =>
-                      setCartillaForm({ ...cartillaForm, next_maintenance_date: newDate })
-                    }
-                    label="Próx. Vencimiento (90 Días) *"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-purple-300 mb-1">
-                    Vencimiento Quinquenal (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="DD/MM/YYYY"
-                    value={cartillaForm.expiry_quinquennial}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, expiry_quinquennial: e.target.value })
-                    }
-                    className="w-full px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-emerald-400 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-amber-300 mb-1">
-                    Vencimiento Chip / Anual (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="DD/MM/YYYY"
-                    value={cartillaForm.expiry_chip_annual}
-                    onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, expiry_chip_annual: e.target.value })
-                    }
-                    className="w-full px-3 py-1.5 bg-reygas-surface border border-white/10 rounded-lg text-xs text-white focus:border-emerald-400 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Observaciones / Notas
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Detalles del equipo instalado, cilindro, reductor..."
-                  value={cartillaForm.notes}
-                  onChange={(e) =>
-                    setCartillaForm({ ...cartillaForm, notes: e.target.value })
-                  }
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-3 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setCartillaModalOpen(false)}
-                  className="flex-1 py-2.5 bg-reygas-surface hover:bg-gray-700 text-white font-bold rounded-xl text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5 transition-transform hover:scale-102"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Guardar Cartilla & Alimentar Programación</span>
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
