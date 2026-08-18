@@ -133,13 +133,23 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (hasRecentLocalMutation("schedule")) return;
         syncScheduleOnly();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, (payload: any) => {
+        // Borrado en la nube (Tabla Maestra / otra tablet / migración): quitar la card localmente
+        // de inmediato; el merge del sync conserva lo local, por eso el DELETE se maneja aparte.
+        if (payload?.eventType === "DELETE") {
+          const oldId = payload?.old?.id;
+          if (oldId) useAppStore.getState().removeDeletedWorkOrderLocal(oldId);
+        }
         debouncedFullSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
         debouncedFullSync();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, (payload: any) => {
+        if (payload?.eventType === "DELETE") {
+          const oldId = payload?.old?.id;
+          if (oldId) useAppStore.getState().removeDeletedInvoiceLocal(oldId);
+        }
         debouncedFullSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "tool_loans" }, () => {

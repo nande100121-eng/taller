@@ -597,6 +597,8 @@ interface AppState {
   updateDiagnosticAndObservations: (orderId: string, notes: string, observations?: string) => void;
   toggleAllowModificationsInWorkshop: (orderId: string) => void;
   deleteWorkOrder: (id: string) => void;
+  removeDeletedWorkOrderLocal: (orderId: string) => void;
+  removeDeletedInvoiceLocal: (invoiceId: string) => void;
   deleteMultipleWorkOrders: (ids: string[]) => void;
   clearAllWorkOrders: () => void;
   requestCertificationForWorkOrder: (
@@ -1930,6 +1932,27 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     }));
   },
 
+  // Eliminación LOCAL pura (sin tocar la nube): usada cuando llega un evento realtime
+  // "DELETE" de otra tablet/ventana o de un borrado directo en Supabase (Tabla Maestra),
+  // para que la card borrada desaparezca de TODOS los dispositivos.
+  removeDeletedWorkOrderLocal: (orderId) => {
+    if (!orderId) return;
+    set((state) => {
+      if (!state.workOrders.some((o) => o.id === orderId)) return state;
+      return {
+        workOrders: state.workOrders.filter((o) => o.id !== orderId),
+        invoices: state.invoices.filter((i) => i.work_order_id !== orderId),
+      };
+    });
+  },
+  removeDeletedInvoiceLocal: (invoiceId) => {
+    if (!invoiceId) return;
+    set((state) => {
+      if (!state.invoices.some((i) => i.id === invoiceId)) return state;
+      return { invoices: state.invoices.filter((i) => i.id !== invoiceId) };
+    });
+  },
+
   deleteMultipleWorkOrders: (ids) => {
     deleteSupabaseMultipleWorkOrders(ids);
     set((state) => ({
@@ -3173,7 +3196,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   },
 }),
 {
-  name: "reygas-store-cache-v1",
+  name: "reygas-store-cache-v2", // v2: limpia cachés con registros eliminados en la nube (card duplicada BVZ-412)
   // Storage con escritura diferida (máximo 1 write cada 3s): serializar ~1-2MB de caché
   // en cada set() bloquearía el hilo principal de la tablet. El último estado pendiente
   // se persiste al siguiente tick; el sync completo de arranque es la red de seguridad.
