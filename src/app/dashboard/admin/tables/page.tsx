@@ -586,6 +586,9 @@ export default function AdminTablesPage() {
       const batchWorkOrders: any[] = [];
       const batchInvoices: any[] = [];
       const seenRowKeys = new Set<string>();
+      // Anti-duplicado: placa+fecha ya importadas en ESTE lote (evita cards duplicadas en Taller)
+      const importedPlateDates = new Set<string>();
+      let skippedDuplicates = 0;
 
       const timestamp = Date.now();
 
@@ -598,6 +601,21 @@ export default function AdminTablesPage() {
         const rowKey = `${record.rawDate}|${record.plate.toUpperCase()}|${record.receiptNumber}|${(record.clientName || "").toUpperCase()}|${(record.sparePartsServices || record.maintenanceService || "").toUpperCase()}|${record.price}|${record.creditAmount}|${(record.paymentMethod || "").toUpperCase()}`;
         if (seenRowKeys.has(rowKey)) return;
         seenRowKeys.add(rowKey);
+
+        // Anti-duplicado de cards en Taller/Caja: si la placa ya tiene una orden con la
+        // MISMA fecha en el ERP (portería/taller/caja) o ya se importó en este lote, la
+        // fila se omite (ej: histórico CSV repetido de un vehículo que está en atención).
+        const importEntryDate = (record.dateISO || "").slice(0, 10);
+        const plateDateKey = `${record.plate.toUpperCase()}|${importEntryDate}`;
+        const alreadyExistingSameDay = workOrders.some(
+          (o) => o.vehicle_plate && o.vehicle_plate.toUpperCase() === record.plate.toUpperCase() &&
+            (o.entry_time || "").slice(0, 10) === importEntryDate
+        );
+        if (alreadyExistingSameDay || importedPlateDates.has(plateDateKey)) {
+          skippedDuplicates++;
+          return;
+        }
+        importedPlateDates.add(plateDateKey);
 
         const is_explicit_paid = record.paymentCondition.toUpperCase().includes("PAGADO");
         const is_credit_order = !is_explicit_paid && (
@@ -693,15 +711,19 @@ export default function AdminTablesPage() {
           workOrders: batchWorkOrders,
           invoices: batchInvoices,
         }).then((res) => {
+          const dupNote = skippedDuplicates > 0 ? ` (${skippedDuplicates} filas omitidas por ser duplicadas de órdenes existentes de la misma placa y fecha)` : "";
           if (res?.success) {
-            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!`);
+            notify("success", `¡Se importaron ${batchWorkOrders.length} registros exitosamente y guardados en Supabase!${dupNote}`);
           } else {
-            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}`);
+            notify("warning", `Se importaron ${batchWorkOrders.length} registros localmente, pero hubo un problema al guardar en Supabase: ${res?.errorMsg || "Respuesta diferida"}${dupNote}`);
           }
         }).finally(() => {
           setIsImportingWorkshop(false);
           setRefreshNonce((n) => n + 1);
         });
+      } else if (skippedDuplicates > 0) {
+        setIsImportingWorkshop(false);
+        notify("warning", `No se importó nada: las ${skippedDuplicates} filas del archivo ya existen como órdenes de la misma placa y fecha (se omiten para no duplicar cards en Taller).`);
       } else {
         setIsImportingWorkshop(false);
         notify("warning", "Verifique que el archivo CSV contenga las columnas correctas.");

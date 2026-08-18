@@ -875,6 +875,12 @@ export default function WorkshopOperationsPage() {
               (wo.discount_amount || 0)
             );
 
+            // Pago parcial sobre esta orden: muestra abonado y saldo por pagar
+            const payHistory = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
+            const paidSoFar = payHistory.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
+            const creditAmt = Number(invoice?.credit_amount) || 0;
+            const hasPartialPayment = paidSoFar > 0 && creditAmt > 0;
+
             // Tiempo del servicio: desde el ingreso a Taller hasta que terminó (por cobrar / pagado)
             const entryMs = wo.entry_time ? new Date(wo.entry_time).getTime() : 0;
             const finishMs = wo.completion_time ? new Date(wo.completion_time).getTime() : 0;
@@ -918,6 +924,11 @@ export default function WorkshopOperationsPage() {
                       {isCollapsed && (
                         <div className="text-[11px] text-gray-400 truncate mt-0.5">
                           OT #{wo.id} • {wo.items.length} ítem(s) • {vehicle?.owner_name || "Cliente Garita"}
+                          {hasPartialPayment && (
+                            <>
+                              • <span className="text-amber-400 font-bold">Pago parcial · Saldo S/ {creditAmt.toFixed(2)}</span>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -965,6 +976,25 @@ export default function WorkshopOperationsPage() {
                         </div>
                         <span className="text-[10px] text-amber-200 font-normal">
                           Puede modificar repuestos, servicios y diagnóstico libremente.
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Pago Parcial: abonado + saldo por pagar (cuando la orden tiene abonos) */}
+                    {hasPartialPayment && (
+                      <div className="p-3 bg-rose-950/30 border border-rose-500/40 rounded-xl text-xs text-rose-200 font-semibold flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-black uppercase text-[10px] border border-rose-500/40">
+                          🧾 Pago Parcial
+                        </span>
+                        <span>
+                          Abonado: <strong className="text-emerald-300 font-mono">S/ {paidSoFar.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-rose-400">•</span>
+                        <span>
+                          Saldo por pagar: <strong className="text-amber-300 font-mono">S/ {creditAmt.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-[10px] text-rose-300/70">
+                          (Completar en Caja → Abonar Saldo o Confirmar Pago)
                         </span>
                       </div>
                     )}
