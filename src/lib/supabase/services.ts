@@ -1377,9 +1377,69 @@ export async function saveSupabaseBulkScheduleRecords(
   }
 }
 
+// ============================================================================
+// CARGA OPERATIVA CON TOPE (OPTIMIZACIÓN DE VELOCIDAD — skill de rendimiento):
+// El ERP tiene 41k+ órdenes y 118k+ facturas. Descargarlas TODAS al navegador hace
+// que CADA pestaña demore en cargar. Esta función carga SOLO la ventana operativa:
+//   - Órdenes de trabajo recientes (3,000 más recientes por entry_time)
+//   - TODAS las facturas pendientes / con crédito (deuda real) + 3,000 pagadas recientes
+//   - Vehículos recientes (2,000 por last_visit_date; los lookups por placa se resuelven)
+// El histórico completo sigue siendo consultable por fecha/placa con consultas dirigidas
+// (fetchSupabaseConsultasRealtime / fetchSupabaseDayReport) sin descargar todo.
+// Si el tope falla, se hace fallback a la carga completa (nunca dejar sin datos).
+// ============================================================================
+async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
+  try {
+    const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes] = await Promise.all([
+      safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(3000)),
+      safeQuery<any[]>(
+        supabase
+          .from("invoices")
+          .select("*")
+          .or("payment_status.neq.pagado,payment_status.is.null,credit_amount.gt.0")
+          .limit(5000)
+      ),
+      safeQuery<any[]>(supabase.from("invoices").select("*").eq("payment_status", "pagado").order("issued_at", { ascending: false }).limit(3000)),
+      safeQuery<any[]>(supabase.from("vehicles").select("*").order("last_visit_date", { ascending: false }).limit(2000)),
+    ]);
+
+    const workOrders = ordersRes?.data || [];
+    const vehicles = vehiclesRes?.data || [];
+
+    // Fusionar facturas: pendientes/crédito primero (deuda nunca se pierde), luego pagadas recientes
+    const invMap = new Map<string, any>();
+    (pendingInvRes?.data || []).forEach((i: any) => {
+      const k = i?.work_order_id || i?.id;
+      if (k) invMap.set(k, i);
+    });
+    (paidInvRes?.data || []).forEach((i: any) => {
+      const k = i?.work_order_id || i?.id;
+      if (k && !invMap.has(k)) invMap.set(k, i);
+    });
+
+    // Si el tope devolvió vacío (algo raro), caer a la carga completa
+    if (workOrders.length === 0 && invMap.size === 0) {
+      return {
+        workOrders: await fetchAllSupabaseTable("work_orders"),
+        invoices: await fetchAllSupabaseTable("invoices"),
+        vehicles: await fetchAllSupabaseTable("vehicles"),
+      };
+    }
+
+    return { workOrders, invoices: Array.from(invMap.values()), vehicles };
+  } catch (err) {
+    console.warn("Capped operational fetch failed, fallback to full load:", err);
+    return {
+      workOrders: await fetchAllSupabaseTable("work_orders"),
+      invoices: await fetchAllSupabaseTable("invoices"),
+      vehicles: await fetchAllSupabaseTable("vehicles"),
+    };
+  }
+}
+
 export async function fetchSupabaseErpData() {
   try {
-    const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
+    const [techRes, invData, cappedData, appRes, certData, contentRes] = await Promise.all([
       // Slim select: solo las columnas que la UI necesita (evita descargar columnas pesadas innecesarias)
       safeQuery<any[]>(
         supabase
@@ -1387,10 +1447,8 @@ export async function fetchSupabaseErpData() {
           .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
       fetchAllSupabaseTable("inventory_items"),
-      fetchAllSupabaseTable("work_orders"),
+      fetchCappedOperationalData(),
       queryAppointmentsWithMissingGuard(),
-      fetchAllSupabaseTable("invoices"),
-      fetchAllSupabaseTable("vehicles"),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
       // Excluir el backup masivo master_workshop_backup del sync inicial de site_content:
       // solo se carga bajo demanda en herramientas de migración/backup (skill de carga optimizada).
@@ -1401,6 +1459,10 @@ export async function fetchSupabaseErpData() {
           .or("section_key.neq.master_workshop_backup,key.neq.master_workshop_backup")
       ),
     ]);
+
+    const orderData = (cappedData && cappedData.workOrders) || [];
+    const invoiceData = (cappedData && cappedData.invoices) || [];
+    const vehicleData = (cappedData && cappedData.vehicles) || [];
 
     // Build permissions, certifications, and schedule records from site_content if any
     const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};

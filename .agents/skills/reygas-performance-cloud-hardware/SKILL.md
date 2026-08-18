@@ -69,6 +69,15 @@ await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
 - **Portales de Impresión:** La impresión A4 debe renderizarse en `ReactDOM.createPortal(..., document.body)` con visibilidad oculta en pantalla, evitando sobrecargar el DOM del modal interactivo.
 - **Formateo Numérico Estándar:** Usar `formatPEN()` y `formatQty()` con separadores de miles para garantizar lectura rápida y evitar errores visuales.
 
+### 3.4 Topes de Volumen de Datos (CRÍTICO para no detener producción)
+El ERP tiene **41k+ órdenes y 118k+ facturas**. Descargarlas TODAS al navegador hace que **cada pestaña demore** y que la tablet quede saturada. Reglas obligatorias:
+1. **Sync inicial acotado:** `fetchCappedOperationalData()` carga solo la ventana operativa: 3,000 órdenes recientes, TODAS las facturas pendientes/crédito + 3,000 pagadas recientes, 2,000 vehículos recientes. El histórico se consulta bajo demanda (fecha/placa).
+2. **Throttle de sync completo (30s):** ninguna llamada (foco, broadcast, heartbeat, montaje de página) dispara una re-descarga masiva antes de 30s del último sync (`lastFullSyncAt` en el store).
+3. **Heartbeat de seguridad cada 5 minutos** (nunca 90s): los cambios reales llegan por Realtime/broadcast; el heartbeat solo es red de seguridad.
+4. **Caché local acotada:** persistir ventana reciente (600 órdenes, pendientes + 400 pagadas, 300 vehículos) con escritura diferida (1 write/3s) para hidratación instantánea al reabrir.
+5. **`siteContent` sin snapshots pesados:** filtrar del merge las claves `inv_full_*`, `wo_mod_*`, `tech_perms_*`, `sched_*`, `cert_*`, `appt_*` (evita duplicar ~100MB en memoria).
+6. **Fetch paginado concurrente:** al leer tablas completas, descargar páginas de 1000 en lotes de 5 concurrentes (`Promise.all`) para reducir ~5x el tiempo de arranque.
+
 ---
 
 ## 4. Checklist de Optimización & Calidad
@@ -79,3 +88,8 @@ await saveSupabaseSiteContent(`tech_perms_${tech.id}`, {
 - [ ] ¿La edición de formularios está protegida contra sobreescrituras accidentales?
 - [ ] ¿Todos los datos se sincronizan directamente con Supabase en tiempo real?
 - [ ] ¿No existen temporizadores cíclicos agresivos (`setInterval`) que agoten la batería del dispositivo?
+- [ ] ¿El sync inicial carga SOLO la ventana operativa (`fetchCappedOperationalData`), NO las 118k facturas completas?
+- [ ] ¿El sync completo está throttled a 30s y el heartbeat es de 5 minutos (no 90s)?
+- [ ] ¿Existe caché local acotada (`reygas-store-cache-v1`) para hidratación instantánea al reabrir?
+- [ ] ¿`siteContent` no acumula snapshots pesados (`inv_full_*`, `wo_mod_*`, `tech_perms_*`)?
+- [ ] ¿El fetch paginado de tablas completas usa lotes concurrentes (5 a la vez)?

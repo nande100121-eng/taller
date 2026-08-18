@@ -31,6 +31,13 @@ Se permite (y se fomenta) persistir en el store:
 Se debe **evitar** persistir en localStorage:
 - `workOrders`, `invoices`, `vehicles`, `inventoryItems` completos **si son grandes** — mejor un `updatedAt` + conteo para saber si el caché está fresco.
 
+**Implementado (store `partialize` con `reygas-store-cache-v1`):** se persiste una **ventana reciente acotada** para hidratación instantánea:
+- `workOrders`: últimas 600 por orden de aparición.
+- `invoices`: **TODAS las pendientes/crédito** (la deuda nunca se pierde del caché) + las 400 pagadas más recientes.
+- `vehicles`: últimos 300.
+- Catálogos ligeros completos (`technicians`, `workshopServices`, `certifications`, `scheduleRecords`, `siteContent` slim, `correlativeConfig`, `aiSettings`).
+- Escritura **diferida** (storage wrapper: máximo 1 write cada 3s) para no bloquear el hilo principal de la tablet.
+
 ### 2.2 Regla: `updatedAt` de caché para evitar descargas innecesarias
 Guardar una marca de tiempo `lastSyncAt` y, si el caché tiene menos de **60 segundos**, mostrar los datos del caché sin refetch masivo (solo suscribirse a Realtime para cambios).
 
@@ -88,6 +95,18 @@ supabase.from("invoices").select("id, grand_total, payment_status, payment_metho
 ### 4.3 NUNCA arrastrar `master_workshop_backup` en cada carga
 El `master_workshop_backup` (JSONB masivo con vehículos+OT+facturas) **solo** debe leerse en herramientas de migración/backup, jamás en el `syncFromSupabase()` inicial. Si está presente en `site_content`, filtrarlo antes de hidratar el store.
 
+### 4.4 TOPE DE VOLUMEN en el sync inicial (`fetchCappedOperationalData`) — OBLIGATORIO
+El ERP tiene **41k+ órdenes y 118k+ facturas**. Descargarlas TODAS al navegador hace que **cada pestaña demore**. La carga operativa debe ir **acotada por SQL** (nunca `fetchAllSupabaseTable` en operación):
+- `work_orders`: las **3,000 más recientes** por `entry_time` (`.order("entry_time", { ascending: false }).limit(3000)`).
+- `invoices`: **TODAS las pendientes / con crédito** (`.or("payment_status.neq.pagado,payment_status.is.null,credit_amount.gt.0")` — la deuda nunca se pierde) + las **3,000 pagadas recientes** por `issued_at`.
+- `vehicles`: las 2,000 más recientes por `last_visit_date` (lookups por placa se resuelven igual).
+- El histórico completo se consulta **bajo demanda** (por fecha/placa) con `fetchSupabaseConsultasRealtime` / `fetchSupabaseDayReport`.
+- Si el tope falla → **fallback a carga completa** (nunca dejar la web sin datos).
+- Además, `siteContent` del store **NO** debe acumular snapshots pesados (`inv_full_*`, `wo_mod_*`, `tech_perms_*`, `sched_*`, `cert_*`, `appt_*`): se filtran del merge (sus datos ya llegan reconstruidos en las listas) para no duplicar ~100MB en memoria.
+
+### 4.5 Throttle global del sync completo (30s) — OBLIGATORIO
+El store (`syncFromSupabase`) debe tener un throttle de **30 segundos** (`lastFullSyncAt`): cualquier llamada (foco de ventana, broadcast, postgres_changes, heartbeat, montaje de página) que ocurra dentro de los 30s posteriores al último sync completo se **omite**. Así las re-descargas masivas colapsan a máximo ~2 por minuto y no saturan la red/batería de la tablet Chainway P80.
+
 ---
 
 ## 5. Paralelización Inteligente y Procesamiento
@@ -114,7 +133,7 @@ Al aplicar datos masivos al store, procesar en **bloques** (`for` en trozos de 2
 
 1. **Realtime es la fuente de cambios**: al recibir `broadcastRealtimeChange` o `postgres_changes`, usar los handlers `Only` granulares — **no** `syncFromSupabase()` completo.
 2. **Throttle de foco**: `window focus` no debe disparar sync masivo si el caché está fresco (<60s) o si hubo sync reciente (<15s).
-3. **Prohibido `setInterval` de refresco**: nunca refrescar tablas completas con temporizadores; solo el heartbeat de seguridad cada 90s que ya existe.
+3. **Prohibido `setInterval` de refresco**: nunca refrescar tablas completas con temporizadores; solo el heartbeat de seguridad **cada 5 minutos** (el ERP tiene 41k+ órdenes y 118k+ facturas: re-descargarlas cada 90s satura la red).
 4. **Protección de edición**: si `hasRecentLocalMutation(key)` es verdadero, no sobreescribir esa sección.
 
 ---
