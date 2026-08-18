@@ -1196,7 +1196,7 @@ export default function AdminTablesPage() {
                     const inv = invoicesByWorkOrderId.get(wo.id);
                     const isSelected = selectedIds.includes(wo.id);
 
-                    const priceVal = inv?.raw_price_str !== undefined && inv.raw_price_str !== ""
+                    const priceVal = inv?.raw_price_str != null && inv.raw_price_str !== ""
                       ? (inv.raw_price_str.startsWith("$") || inv.raw_price_str.startsWith("S/")
                         ? inv.raw_price_str
                         : `S/ ${parseFloat(inv.raw_price_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
@@ -1208,7 +1208,7 @@ export default function AdminTablesPage() {
                       ? String(inv.discounts)
                       : "";
 
-                    const creditVal = inv?.raw_credit_str !== undefined && inv.raw_credit_str !== ""
+                    const creditVal = inv?.raw_credit_str != null && inv.raw_credit_str !== ""
                       ? (inv.raw_credit_str.startsWith("$") || inv.raw_credit_str.startsWith("S/")
                         ? inv.raw_credit_str
                         : `S/ ${parseFloat(inv.raw_credit_str.replace(/[^0-9.]/g, "")).toFixed(2)}`)
