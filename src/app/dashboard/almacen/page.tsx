@@ -42,6 +42,7 @@ import {
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 
 const BarcodePrintModal = dynamic(
   () => import("@/components/BarcodePrintModal").then((m) => m.BarcodePrintModal),
@@ -2916,7 +2917,7 @@ export default function AlmacenPage() {
                     </label>
                     <select
                       value={exitForm.responsibleName}
-                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
+                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: titleCase(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                     >
                       <option value="">-- Seleccionar Personal Registrado --</option>
@@ -2937,7 +2938,7 @@ export default function AlmacenPage() {
                       required
                       placeholder="Ej. Técnico Carlos Mendoza / Ing. Miguel Torres"
                       value={exitForm.responsibleName}
-                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: e.target.value })}
+                      onChange={(e) => setExitForm({ ...exitForm, responsibleName: titleCase(e.target.value) })}
                       className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                     />
                   </div>
@@ -2949,7 +2950,7 @@ export default function AlmacenPage() {
                 <input
                   type="text"
                   value={exitForm.reason}
-                  onChange={(e) => setExitForm({ ...exitForm, reason: e.target.value })}
+                  onChange={(e) => setExitForm({ ...exitForm, reason: capitalizeFirst(e.target.value) })}
                   className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-red-400 focus:ring-1 focus:ring-red-400 focus:outline-none"
                 />
               </div>

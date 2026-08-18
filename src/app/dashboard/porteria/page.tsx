@@ -5,6 +5,7 @@ import { useAppStore, Appointment, WorkOrder } from "@/lib/store/app-store";
 import { parseCSVRows, parseWorkshopRow } from "@/lib/csv-parser";
 import { compressImageFile } from "@/lib/image-compressor";
 import { supabase } from "@/lib/supabase/client";
+import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import {
   ShieldAlert,
@@ -308,20 +309,7 @@ export default function PorteriaPage() {
    * Handle Plate Input Changes & Auto-complete with Auto-Hyphen after 3 chars
    */
   const handlePlateChange = async (plateInput: string) => {
-    let formatted = (plateInput || "").toUpperCase();
-
-    // Special case for direct sale code
-    if (formatted.startsWith("VENT")) {
-      formatted = formatted.replace(/[^A-Z]/g, "").slice(0, 5);
-    } else {
-      // Clean all non-alphanumerics (strip duplicate hyphens, spaces, symbols)
-      const cleanChars = formatted.replace(/[^A-Z0-9]/g, "").slice(0, 6);
-      if (cleanChars.length > 3) {
-        formatted = `${cleanChars.slice(0, 3)}-${cleanChars.slice(3)}`;
-      } else {
-        formatted = cleanChars;
-      }
-    }
+    let formatted = formatPlate(plateInput || "");
 
     setEntryForm((prev) => ({ ...prev, plate: formatted }));
 
@@ -479,7 +467,7 @@ export default function PorteriaPage() {
    */
   const handleRegisterEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    const plate = isVentaDirecta ? "VENTA" : entryForm.plate.toUpperCase().trim();
+    const plate = isVentaDirecta ? "VENTA" : formatPlate(entryForm.plate);
     if (!isVentaDirecta && !plate) {
       notify("warning", "Ingrese una placa válida.");
       return;
@@ -502,7 +490,7 @@ export default function PorteriaPage() {
       year: isVentaDirecta ? 2025 : (Number(entryForm.year) || 2023),
       color: isVentaDirecta ? "Sin Vehículo" : (entryForm.color || "Plata"),
       fuel_type: isVentaDirecta ? "GNV" : entryForm.fuel_type,
-      owner_name: entryForm.owner_name.trim() || (isVentaDirecta ? "Cliente Mostrador / Venta" : "Cliente Taller"),
+      owner_name: titleCase(entryForm.owner_name) || (isVentaDirecta ? "Cliente Mostrador / Venta" : "Cliente Taller"),
       owner_phone: entryForm.owner_phone.trim() || (isVentaDirecta ? "-" : "+51 987654321"),
       current_mileage: isVentaDirecta ? 0 : (Number(entryForm.current_mileage) || 0),
       last_visit_date: chosenDateTimeISO,
@@ -920,7 +908,7 @@ export default function PorteriaPage() {
                       type="text"
                       placeholder="Toyota"
                       value={entryForm.brand}
-                      onChange={(e) => setEntryForm({ ...entryForm, brand: e.target.value })}
+                      onChange={(e) => setEntryForm({ ...entryForm, brand: capitalizeFirst(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
                     />
                   </div>
@@ -930,7 +918,7 @@ export default function PorteriaPage() {
                       type="text"
                       placeholder="Yaris"
                       value={entryForm.model}
-                      onChange={(e) => setEntryForm({ ...entryForm, model: e.target.value })}
+                      onChange={(e) => setEntryForm({ ...entryForm, model: capitalizeFirst(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
                     />
                   </div>
@@ -940,7 +928,7 @@ export default function PorteriaPage() {
                       type="text"
                       placeholder="Plata"
                       value={entryForm.color}
-                      onChange={(e) => setEntryForm({ ...entryForm, color: e.target.value })}
+                      onChange={(e) => setEntryForm({ ...entryForm, color: capitalizeFirst(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
                     />
                   </div>
@@ -956,7 +944,7 @@ export default function PorteriaPage() {
                       type="text"
                       placeholder="Nombre Cliente"
                       value={entryForm.owner_name}
-                      onChange={(e) => setEntryForm({ ...entryForm, owner_name: e.target.value })}
+                      onChange={(e) => setEntryForm({ ...entryForm, owner_name: titleCase(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-amber-400 focus:outline-none font-medium"
                     />
                   </div>
@@ -997,7 +985,7 @@ export default function PorteriaPage() {
                     type="text"
                     placeholder="Nombre del comprador..."
                     value={entryForm.owner_name}
-                    onChange={(e) => setEntryForm({ ...entryForm, owner_name: e.target.value })}
+                    onChange={(e) => setEntryForm({ ...entryForm, owner_name: titleCase(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 focus:outline-none font-medium"
                   />
                 </div>
@@ -1030,7 +1018,7 @@ export default function PorteriaPage() {
                     : "Especifique el motivo de ingreso del vehículo (ej: Mantenimiento 5ta gen, calibración, revisión de fuga, cambio de filtros, etc.)..."
                 }
                 value={entryForm.problem_description}
-                onChange={(e) => setEntryForm({ ...entryForm, problem_description: e.target.value })}
+                onChange={(e) => setEntryForm({ ...entryForm, problem_description: capitalizeFirst(e.target.value) })}
                 className={`w-full px-3.5 py-2.5 bg-reygas-surface border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none transition-colors leading-relaxed font-medium ${isVentaDirecta ? "border-emerald-500/40 focus:border-emerald-400" : "border-white/15 focus:border-red-400"
                   }`}
               />

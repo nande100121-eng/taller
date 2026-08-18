@@ -7,6 +7,7 @@ import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import {
   FileText,
   Calendar,
@@ -1789,7 +1790,7 @@ export function WorkshopDailyReportView({
                 </label>
                 <textarea
                   value={observations}
-                  onChange={(e) => setObservations(e.target.value)}
+                  onChange={(e) => setObservations(capitalizeFirst(e.target.value))}
                   rows={2}
                   className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors print:bg-white print:border-black print:text-black"
                   placeholder="Escriba incidencias, novedades de técnicos o justificaciones..."
@@ -1803,7 +1804,7 @@ export function WorkshopDailyReportView({
                   <input
                     type="text"
                     value={responsibleName}
-                    onChange={(e) => setResponsibleName(e.target.value)}
+                    onChange={(e) => setResponsibleName(titleCase(e.target.value))}
                     className="bg-transparent text-center text-xs font-bold text-white w-full focus:outline-none print:text-black"
                     placeholder="Nombre del Responsable"
                   />
@@ -1817,7 +1818,7 @@ export function WorkshopDailyReportView({
                   <input
                     type="text"
                     value={managerName}
-                    onChange={(e) => setManagerName(e.target.value)}
+                    onChange={(e) => setManagerName(titleCase(e.target.value))}
                     className="bg-transparent text-center text-xs font-bold text-white w-full focus:outline-none print:text-black"
                     placeholder="Nombre de Gerencia"
                   />

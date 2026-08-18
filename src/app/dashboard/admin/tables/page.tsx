@@ -5,6 +5,7 @@ import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, ge
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate, getPeruDateString, buildPeruISOString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { formatPlate, titleCase } from "@/lib/utils/text-format";
 import {
   Table,
   UserCheck,
@@ -404,8 +405,8 @@ export default function AdminTablesPage() {
 
     if (editingSchedule) {
       updateScheduleRecord(editingSchedule.id, {
-        vehicle_plate: scheduleForm.vehicle_plate.toUpperCase().trim(),
-        client_name: scheduleForm.client_name.trim(),
+        vehicle_plate: formatPlate(scheduleForm.vehicle_plate),
+        client_name: titleCase(scheduleForm.client_name),
         client_phone: scheduleForm.client_phone.trim(),
         current_mileage: Number(scheduleForm.current_mileage) || 0,
         service_date: scheduleForm.service_date,
@@ -420,8 +421,8 @@ export default function AdminTablesPage() {
       notify("success", `Programación para ${scheduleForm.vehicle_plate.toUpperCase()} actualizada.`);
     } else {
       addScheduleRecord({
-        vehicle_plate: scheduleForm.vehicle_plate.toUpperCase().trim(),
-        client_name: scheduleForm.client_name.trim() || "Cliente",
+        vehicle_plate: formatPlate(scheduleForm.vehicle_plate),
+        client_name: titleCase(scheduleForm.client_name) || "Cliente",
         client_phone: scheduleForm.client_phone.trim(),
         current_mileage: Number(scheduleForm.current_mileage) || 0,
         service_date: scheduleForm.service_date,
@@ -794,7 +795,7 @@ export default function AdminTablesPage() {
     // 1. Update Work Order (including entry_time / hora de ingreso!)
     updateWorkOrder(editingWorkshopOrder.orderId, {
       entry_time: newDateTimeISO,
-      vehicle_plate: editingWorkshopOrder.vehiclePlate.toUpperCase(),
+      vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
       assigned_technician_id: editingWorkshopOrder.technicianName,
       problem_description: editingWorkshopOrder.maintenanceService,
       general_maintenance_service: editingWorkshopOrder.maintenanceService,
@@ -828,8 +829,8 @@ export default function AdminTablesPage() {
     const targetInv = invoicesByWorkOrderId.get(editingWorkshopOrder.orderId);
     if (targetInv) {
       updateInvoice(targetInv.id, {
-        vehicle_plate: editingWorkshopOrder.vehiclePlate.toUpperCase(),
-        client_name: editingWorkshopOrder.clientName,
+        vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
+        client_name: titleCase(editingWorkshopOrder.clientName),
         parts_total: Number(editingWorkshopOrder.price) || 0,
         grand_total: Number(editingWorkshopOrder.price) || 0,
         issued_at: newDateTimeISO,
@@ -2067,7 +2068,7 @@ export default function AdminTablesPage() {
                     required
                     placeholder="ABC-123"
                     value={scheduleForm.vehicle_plate}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, vehicle_plate: e.target.value })}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, vehicle_plate: formatPlate(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white uppercase font-mono font-bold focus:border-indigo-400"
                   />
                 </div>
@@ -2091,7 +2092,7 @@ export default function AdminTablesPage() {
                     type="text"
                     placeholder="Ej. Juan Pérez"
                     value={scheduleForm.client_name}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, client_name: e.target.value })}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, client_name: titleCase(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400"
                   />
                 </div>
@@ -2564,7 +2565,7 @@ export default function AdminTablesPage() {
                     type="text"
                     required
                     value={editingWorkshopOrder.vehiclePlate}
-                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, vehiclePlate: e.target.value.toUpperCase() })}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, vehiclePlate: formatPlate(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono font-black uppercase focus:border-amber-400 focus:outline-none"
                   />
                 </div>
@@ -2608,7 +2609,7 @@ export default function AdminTablesPage() {
                   <input
                     type="text"
                     value={editingWorkshopOrder.clientName}
-                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, clientName: e.target.value })}
+                    onChange={(e) => setEditingWorkshopOrder({ ...editingWorkshopOrder, clientName: titleCase(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-white focus:border-amber-400 focus:outline-none"
                   />
                 </div>

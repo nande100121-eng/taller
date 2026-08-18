@@ -1083,8 +1083,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
           remoteOrders.forEach((wo) => {
             if (wo && wo.id) {
               const local = mergedOrders.get(wo.id);
-              // El dato remoto (confirmado en nube) es la fuente de verdad; se sobreescribe local.
-              mergedOrders.set(wo.id, local ? { ...local, ...wo } : wo);
+              if (local) {
+                // Fusionar items por id: conserva items recién agregados localmente
+                // (p. ej. un repuesto/servicio en Taller) que aún no confirmaron en la
+                // nube, sin duplicar los que ya existen en el dato remoto.
+                const localItems: any[] = Array.isArray(local.items) ? local.items : [];
+                const remoteItems: any[] = Array.isArray(wo.items) ? wo.items : [];
+                const itemsMap = new Map<string, any>();
+                localItems.forEach((it: any) => { if (it && it.id) itemsMap.set(it.id, it); });
+                remoteItems.forEach((it: any) => {
+                  if (it && it.id) itemsMap.set(it.id, { ...itemsMap.get(it.id), ...it });
+                });
+                mergedOrders.set(wo.id, { ...local, ...wo, items: Array.from(itemsMap.values()) });
+              } else {
+                mergedOrders.set(wo.id, wo);
+              }
             }
           });
           updates.workOrders = Array.from(mergedOrders.values());

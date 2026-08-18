@@ -23,6 +23,7 @@ import {
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
+import { formatPlate, titleCase } from "@/lib/utils/text-format";
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -1005,7 +1006,7 @@ export default function CertificacionesPage() {
                     required
                     placeholder="Ej. ABC-123"
                     value={manualForm.vehicle_plate}
-                    onChange={(e) => setManualForm({ ...manualForm, vehicle_plate: e.target.value.toUpperCase() })}
+                    onChange={(e) => setManualForm({ ...manualForm, vehicle_plate: formatPlate(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-teal-400"
                   />
                 </div>
@@ -1031,7 +1032,7 @@ export default function CertificacionesPage() {
                     type="text"
                     placeholder="Nombre del cliente"
                     value={manualForm.client_name}
-                    onChange={(e) => setManualForm({ ...manualForm, client_name: e.target.value })}
+                    onChange={(e) => setManualForm({ ...manualForm, client_name: titleCase(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white focus:border-teal-400"
                   />
                 </div>

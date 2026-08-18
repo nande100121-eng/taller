@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { getPeruDateTimeLocal, formatPeruDateTime } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -567,8 +568,8 @@ export default function RecepcionPage() {
             <button
               onClick={() => setActiveTab("citas")}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "citas"
-                  ? "bg-blue-600 text-white shadow-lg"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-blue-600 text-white shadow-lg"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               Reservas & Citas Web ({appointments.length})
@@ -584,8 +585,8 @@ export default function RecepcionPage() {
             <button
               onClick={() => setActiveTab("radar")}
               className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === "radar"
-                  ? "bg-blue-600 text-white shadow-lg"
-                  : "text-gray-400 hover:text-white"
+                ? "bg-blue-600 text-white shadow-lg"
+                : "text-gray-400 hover:text-white"
                 }`}
             >
               Radar Vencimientos 90D ({radarItems.length})
@@ -630,12 +631,12 @@ export default function RecepcionPage() {
                           </span>
                           <span
                             className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${app.status === "confirmado"
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : app.status === "completado"
-                                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                                  : app.status === "cancelado"
-                                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                    : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : app.status === "completado"
+                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                                : app.status === "cancelado"
+                                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                  : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                               }`}
                           >
                             {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status}
@@ -750,8 +751,8 @@ export default function RecepcionPage() {
               <button
                 onClick={() => setRadarFilter("semanal")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "semanal"
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-blue-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 <span>📅 Semanal</span>
@@ -763,8 +764,8 @@ export default function RecepcionPage() {
               <button
                 onClick={() => setRadarFilter("mensual")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "mensual"
-                    ? "bg-blue-600 text-white shadow-lg"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-blue-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 <span>🗓️ Mensual</span>
@@ -776,8 +777,8 @@ export default function RecepcionPage() {
               <button
                 onClick={() => setRadarFilter("10dias")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "10dias"
-                    ? "bg-amber-600 text-white shadow-lg"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-amber-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 <span>⚠️ Faltando 10 días</span>
@@ -789,8 +790,8 @@ export default function RecepcionPage() {
               <button
                 onClick={() => setRadarFilter("todos")}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${radarFilter === "todos"
-                    ? "bg-indigo-600 text-white shadow-lg"
-                    : "text-gray-400 hover:text-white"
+                  ? "bg-indigo-600 text-white shadow-lg"
+                  : "text-gray-400 hover:text-white"
                   }`}
               >
                 <span>🌐 Mostrar todos</span>
@@ -850,10 +851,10 @@ export default function RecepcionPage() {
                   <div
                     key={item.id + item.plate}
                     className={`p-5 rounded-2xl glass-card border flex flex-col justify-between space-y-4 transition-all hover:border-amber-500/50 ${isOverdue
-                        ? "border-red-500/40 bg-red-950/10"
-                        : isUrgent
-                          ? "border-amber-500/40 bg-amber-950/10"
-                          : "border-white/10"
+                      ? "border-red-500/40 bg-red-950/10"
+                      : isUrgent
+                        ? "border-amber-500/40 bg-amber-950/10"
+                        : "border-white/10"
                       }`}
                   >
                     <div className="space-y-3">
@@ -864,12 +865,12 @@ export default function RecepcionPage() {
                         </span>
                         <span
                           className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-wider ${isOverdue
-                              ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
-                              : isToday
-                                ? "bg-red-500 text-white font-black animate-bounce"
-                                : isUrgent
-                                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                                  : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse"
+                            : isToday
+                              ? "bg-red-500 text-white font-black animate-bounce"
+                              : isUrgent
+                                ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                             }`}
                         >
                           {isOverdue
@@ -964,7 +965,7 @@ export default function RecepcionPage() {
                   type="text"
                   required
                   value={editForm.client_name}
-                  onChange={(e) => setEditForm({ ...editForm, client_name: e.target.value })}
+                  onChange={(e) => setEditForm({ ...editForm, client_name: titleCase(e.target.value) })}
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
                 />
               </div>
@@ -990,7 +991,7 @@ export default function RecepcionPage() {
                     type="text"
                     required
                     value={editForm.plate}
-                    onChange={(e) => setEditForm({ ...editForm, plate: e.target.value.toUpperCase() })}
+                    onChange={(e) => setEditForm({ ...editForm, plate: formatPlate(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white uppercase focus:outline-none focus:border-reygas-red font-mono font-bold"
                   />
                 </div>
@@ -1005,7 +1006,7 @@ export default function RecepcionPage() {
                     type="text"
                     required
                     value={editForm.service_type}
-                    onChange={(e) => setEditForm({ ...editForm, service_type: e.target.value })}
+                    onChange={(e) => setEditForm({ ...editForm, service_type: capitalizeFirst(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
                   />
                 </div>
@@ -1046,7 +1047,7 @@ export default function RecepcionPage() {
                 <textarea
                   rows={2}
                   value={editForm.notes || ""}
-                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  onChange={(e) => setEditForm({ ...editForm, notes: capitalizeFirst(e.target.value) })}
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
                   placeholder="Detalles adicionales del requerimiento..."
                 />
@@ -1148,7 +1149,7 @@ export default function RecepcionPage() {
                   rows={3}
                   required
                   value={transferForm.problem_description}
-                  onChange={(e) => setTransferForm({ ...transferForm, problem_description: e.target.value })}
+                  onChange={(e) => setTransferForm({ ...transferForm, problem_description: capitalizeFirst(e.target.value) })}
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -1207,7 +1208,7 @@ export default function RecepcionPage() {
                   required
                   placeholder="Ej. Carlos Ramírez"
                   value={newForm.client_name}
-                  onChange={(e) => setNewForm({ ...newForm, client_name: e.target.value })}
+                  onChange={(e) => setNewForm({ ...newForm, client_name: titleCase(e.target.value) })}
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:outline-none focus:border-reygas-red"
                 />
               </div>
@@ -1235,7 +1236,7 @@ export default function RecepcionPage() {
                     required
                     placeholder="ABC-123"
                     value={newForm.plate}
-                    onChange={(e) => setNewForm({ ...newForm, plate: e.target.value })}
+                    onChange={(e) => setNewForm({ ...newForm, plate: formatPlate(e.target.value) })}
                     className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white uppercase focus:outline-none focus:border-reygas-red font-mono font-bold"
                   />
                 </div>
@@ -1358,10 +1359,10 @@ export default function RecepcionPage() {
                   <div
                     key={slot}
                     className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-2 ${isFull
-                        ? "bg-red-950/20 border-red-500/30 text-red-300"
-                        : occupancy.totalOccupied > 0
-                          ? "bg-amber-950/20 border-amber-500/30 text-amber-300"
-                          : "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
+                      ? "bg-red-950/20 border-red-500/30 text-red-300"
+                      : occupancy.totalOccupied > 0
+                        ? "bg-amber-950/20 border-amber-500/30 text-amber-300"
+                        : "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
                       }`}
                   >
                     <div className="flex items-center justify-between">
@@ -1371,10 +1372,10 @@ export default function RecepcionPage() {
                       </span>
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${isFull
-                            ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                            : occupancy.totalOccupied > 0
-                              ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
-                              : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                          : occupancy.totalOccupied > 0
+                            ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                           }`}
                       >
                         {isFull ? "🔴 Ocupado (2/2)" : occupancy.totalOccupied > 0 ? "🟡 1 Turno Ocupado" : "🟢 Disponible"}
@@ -1406,8 +1407,8 @@ export default function RecepcionPage() {
                         type="button"
                         onClick={() => handleSelectSlot(slot)}
                         className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all shadow ${isFull
-                            ? "bg-gray-800 text-gray-400 hover:text-white"
-                            : "bg-blue-600 hover:bg-blue-500 text-white"
+                          ? "bg-gray-800 text-gray-400 hover:text-white"
+                          : "bg-blue-600 hover:bg-blue-500 text-white"
                           }`}
                       >
                         {isFull ? "Asignar de todos modos" : "✓ Seleccionar este Horario"}
@@ -1469,7 +1470,7 @@ export default function RecepcionPage() {
                     placeholder="ABC-123"
                     value={cartillaForm.vehicle_plate}
                     onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, vehicle_plate: e.target.value.toUpperCase() })
+                      setCartillaForm({ ...cartillaForm, vehicle_plate: formatPlate(e.target.value) })
                     }
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white uppercase font-mono font-bold focus:border-emerald-400"
                   />
@@ -1505,7 +1506,7 @@ export default function RecepcionPage() {
                     placeholder="Ej. Carlos Ramírez"
                     value={cartillaForm.client_name}
                     onChange={(e) =>
-                      setCartillaForm({ ...cartillaForm, client_name: e.target.value })
+                      setCartillaForm({ ...cartillaForm, client_name: titleCase(e.target.value) })
                     }
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-sm text-white focus:border-emerald-400"
                   />
@@ -1685,8 +1686,8 @@ export default function RecepcionPage() {
                   setConfirmModal(null);
                 }}
                 className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] ${confirmModal.danger
-                    ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
-                    : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
+                  ? "bg-red-600 hover:bg-red-500 text-white shadow-red-600/30"
+                  : "bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30"
                   }`}
               >
                 {confirmModal.confirmLabel || "Aceptar"}

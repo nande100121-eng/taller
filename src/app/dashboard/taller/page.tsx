@@ -40,6 +40,7 @@ import {
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
+import { capitalizeFirst } from "@/lib/utils/text-format";
 
 const DailyWorkshopReportModal = dynamic(
   () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
@@ -1432,7 +1433,7 @@ export default function WorkshopOperationsPage() {
                     rows={3}
                     placeholder="Ej. Código P0300 Misfire detectado en cilindro 2. Inyector de gas con pulsos irregulares."
                     value={diagnosticText}
-                    onChange={(e) => setDiagnosticText(e.target.value)}
+                    onChange={(e) => setDiagnosticText(capitalizeFirst(e.target.value))}
                     className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-purple-400"
                   />
                 </div>
@@ -1445,7 +1446,7 @@ export default function WorkshopOperationsPage() {
                     rows={3}
                     placeholder="Ej. Se recomienda cambio preventivo de bujías y filtro de fase gaseosa en próximo mantenimiento."
                     value={observationsText}
-                    onChange={(e) => setObservationsText(e.target.value)}
+                    onChange={(e) => setObservationsText(capitalizeFirst(e.target.value))}
                     className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400"
                   />
                 </div>
@@ -1605,7 +1606,7 @@ export default function WorkshopOperationsPage() {
                           type="text"
                           placeholder="Buscar por nombre, marca o serie/código..."
                           value={partsSearchQuery}
-                          onChange={(e) => setPartsSearchQuery(e.target.value)}
+                          onChange={(e) => setPartsSearchQuery(capitalizeFirst(e.target.value))}
                           className="w-full pl-9 pr-8 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-xs text-white placeholder-gray-500 focus:border-amber-400 focus:outline-none font-bold transition-all"
                         />
                         {partsSearchQuery && (
@@ -1742,7 +1743,7 @@ export default function WorkshopOperationsPage() {
                         type="text"
                         placeholder="Ej. Filtro de gas 5ta generación rail"
                         value={customItemName}
-                        onChange={(e) => setCustomItemName(e.target.value)}
+                        onChange={(e) => setCustomItemName(capitalizeFirst(e.target.value))}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-amber-400 font-bold"
                       />
                     </div>
@@ -1939,7 +1940,7 @@ export default function WorkshopOperationsPage() {
                         type="text"
                         placeholder="Ej. Calibración fina de mapa de gas en ruta"
                         value={customItemName}
-                        onChange={(e) => setCustomItemName(e.target.value)}
+                        onChange={(e) => setCustomItemName(capitalizeFirst(e.target.value))}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400 font-bold"
                       />
                     </div>
@@ -2102,7 +2103,7 @@ export default function WorkshopOperationsPage() {
                 <input
                   type="text"
                   value={editItemDescription}
-                  onChange={(e) => setEditItemDescription(e.target.value)}
+                  onChange={(e) => setEditItemDescription(capitalizeFirst(e.target.value))}
                   className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-bold focus:border-amber-400 focus:outline-none"
                 />
               </div>

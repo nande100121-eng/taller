@@ -10,6 +10,7 @@ import {
 import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
+import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import {
   CreditCard,
   TrendingUp,
@@ -1977,7 +1978,7 @@ export default function CajaPage() {
                         type="text"
                         placeholder="Razón Social de la Empresa"
                         value={paymentModal.customerName}
-                        onChange={(e) => setPaymentModal({ ...paymentModal, customerName: e.target.value })}
+                        onChange={(e) => setPaymentModal({ ...paymentModal, customerName: titleCase(e.target.value) })}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-purple-400 font-bold uppercase"
                       />
                     </div>
@@ -2003,7 +2004,7 @@ export default function CajaPage() {
                       type="text"
                       placeholder="CLIENTES VARIOS"
                       value={paymentModal.customerName}
-                      onChange={(e) => setPaymentModal({ ...paymentModal, customerName: e.target.value })}
+                      onChange={(e) => setPaymentModal({ ...paymentModal, customerName: titleCase(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
                     />
                   </div>
@@ -2432,7 +2433,7 @@ export default function CajaPage() {
                       required
                       placeholder="Ej: ABC-123"
                       value={manualPaymentModal.vehiclePlate}
-                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, vehiclePlate: e.target.value.toUpperCase().replace(/\s+/g, "") })}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, vehiclePlate: formatPlate(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-amber-300 font-mono font-black focus:border-amber-400 uppercase"
                     />
                   </div>
@@ -2472,7 +2473,7 @@ export default function CajaPage() {
                       type="text"
                       placeholder="Ej: Toyota, Nissan"
                       value={manualPaymentModal.brand}
-                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, brand: e.target.value })}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, brand: capitalizeFirst(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
                     />
                   </div>
@@ -2492,7 +2493,7 @@ export default function CajaPage() {
                       type="text"
                       placeholder="CLIENTES VARIOS"
                       value={manualPaymentModal.clientName}
-                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, clientName: e.target.value })}
+                      onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, clientName: titleCase(e.target.value) })}
                       className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
                     />
                   </div>

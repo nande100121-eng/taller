@@ -1562,9 +1562,13 @@ export async function fetchSupabaseErpData() {
         diagnostic_notes: diagNotes,
         observations: obs || o.observations || undefined,
         items: (() => {
+          // El snapshot wo_mod_<id> (escrito por saveSupabaseWorkOrder) es la fuente
+          // más reciente de items; si existe, se usa como fuente preferente con
+          // fallback a la columna items de la tabla work_orders.
+          const itemsSource = (woMod && Array.isArray(woMod.items)) ? woMod.items : o.items;
           let parsed: any[] = [];
           try {
-            parsed = typeof o.items === "string" ? JSON.parse(o.items || "[]") : o.items || [];
+            parsed = typeof itemsSource === "string" ? JSON.parse(itemsSource || "[]") : itemsSource || [];
           } catch {
             parsed = [];
           }
