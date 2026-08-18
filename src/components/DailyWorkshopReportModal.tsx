@@ -102,17 +102,26 @@ export function WorkshopDailyReportView({
 
   const isToday = selectedDate === getPeruDateString();
 
-  // Fast lookups
+  // Fast lookups: solo invoices emitidas en el día seleccionado, para no cruzar
+  // montos/cobros de otra fecha a un WO del día consultado.
   const invoicesByWorkOrderId = useMemo(() => {
     const map = new Map<string, (typeof invoices)[0]>();
     for (let i = 0; i < invoices.length; i++) {
       const inv = invoices[i];
       if (inv && inv.work_order_id) {
-        map.set(inv.work_order_id, inv);
+        const invDate = (inv.issued_at || "").slice(0, 10);
+        if (invDate !== selectedDate) continue;
+        // Si ya existe una invoice para el WO (duplicada), conservar la de mayor monto
+        const prev = map.get(inv.work_order_id);
+        const curTotal = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
+        const prevTotal = prev ? Number(prev.grand_total) || Number((prev as any).total_amount) || 0 : 0;
+        if (!prev || curTotal > prevTotal) {
+          map.set(inv.work_order_id, inv);
+        }
       }
     }
     return map;
-  }, [invoices]);
+  }, [invoices, selectedDate]);
 
   // Authorized staff for payment destination columns
   const authorizedStaff = useMemo(() => {
@@ -348,10 +357,24 @@ export function WorkshopDailyReportView({
     });
 
     // 3. Map Direct Invoices not linked to day's work orders
+    // Solo se incluyen invoices REALES del día seleccionado:
+    //  - Descarta huérfanas (work_order_id sin WO en work_orders)
+    //  - Descarta invoices de WOs de otra fecha
+    //  - Descarta invoices ya incluidas vía su WO del día
+    //  - Deduplica por placa + recibo + monto (evita registros duplicados que inflan totales)
+    const dayOrderIds = new Set(dayOrders.map((wo) => wo.id));
+    const processedInvoiceKeys = new Set<string>();
     dayInvoices.forEach((inv) => {
-      if (inv.work_order_id && processedOrderIds.has(inv.work_order_id)) return;
+      if (inv.work_order_id) {
+        if (!dayOrderIds.has(inv.work_order_id)) return;
+        if (processedOrderIds.has(inv.work_order_id)) return;
+      }
       const plateKey = (inv.vehicle_plate || "").toUpperCase().trim();
       if (csvDayRecords.length > 0 && processedKeys.has(plateKey)) return;
+
+      const dupKey = `${plateKey}|${inv.receipt_number || ""}|${Number(inv.grand_total) || 0}|${inv.payment_status || ""}`;
+      if (processedInvoiceKeys.has(dupKey)) return;
+      processedInvoiceKeys.add(dupKey);
 
       const isPending = inv.payment_status === "pendiente";
       const totalAmount = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
@@ -698,11 +721,11 @@ export function WorkshopDailyReportView({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
+
         {/* Main Cash & Workshop Table (8 cols on lg) */}
         <div className="lg:col-span-8 space-y-2">
           <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-            
+
             {/* Table Title Header Bar in Vibrant Gold */}
             <div className="bg-[#e58a00] text-black px-4 py-2.5 flex items-center justify-between font-black text-sm uppercase tracking-wider print:bg-gray-200 print:text-black">
               <span className="tracking-wide">REYGAS TALLER</span>
@@ -818,7 +841,7 @@ export function WorkshopDailyReportView({
         {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
         <div className="lg:col-span-4 space-y-4">
           <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-            
+
             {/* Header with dual tabs Yape / Transferencia */}
             <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
               <div className="flex items-center gap-1.5">
@@ -855,9 +878,8 @@ export function WorkshopDailyReportView({
                   {electronicMatrix.yapeStaff.map((col) => (
                     <th
                       key={"y_" + col}
-                      className={`py-1.5 px-1 text-center font-black border-r border-purple-300 ${
-                        col === "EMPRESA" ? "bg-[#dcfce7] text-emerald-950" : ""
-                      }`}
+                      className={`py-1.5 px-1 text-center font-black border-r border-purple-300 ${col === "EMPRESA" ? "bg-[#dcfce7] text-emerald-950" : ""
+                        }`}
                     >
                       {col}
                     </th>
@@ -884,9 +906,8 @@ export function WorkshopDailyReportView({
                       return (
                         <td
                           key={"y_val_" + col}
-                          className={`py-1 px-1 text-right border-r border-white/5 ${
-                            val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
-                          }`}
+                          className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
+                            }`}
                         >
                           {val > 0 ? formatPEN(val) : "-"}
                         </td>
@@ -898,9 +919,8 @@ export function WorkshopDailyReportView({
                       return (
                         <td
                           key={"t_val_" + col}
-                          className={`py-1 px-1 text-right border-r border-white/5 ${
-                            val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
-                          }`}
+                          className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
+                            }`}
                         >
                           {val > 0 ? formatPEN(val) : "-"}
                         </td>
@@ -998,11 +1018,10 @@ export function WorkshopDailyReportView({
 
                   return (
                     <tr
-                      className={`text-xs font-black border-t-2 ${
-                        isCuadrado
-                          ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
-                          : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
-                      }`}
+                      className={`text-xs font-black border-t-2 ${isCuadrado
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
+                        : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
+                        }`}
                     >
                       <td
                         className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
@@ -1278,11 +1297,10 @@ export function WorkshopDailyReportView({
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
-                isActive
-                  ? "bg-gradient-to-r from-amber-500 to-indigo-600 text-white shadow-lg shadow-amber-500/20 scale-[1.02]"
-                  : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
-              }`}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${isActive
+                ? "bg-gradient-to-r from-amber-500 to-indigo-600 text-white shadow-lg shadow-amber-500/20 scale-[1.02]"
+                : "bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white"
+                }`}
             >
               <Icon className={`w-4 h-4 ${isActive ? "text-white" : tab.color}`} />
               <span>{tab.label}</span>
@@ -1295,7 +1313,7 @@ export function WorkshopDailyReportView({
       {/* BODY CONTENT (SCROLLABLE ON SCREEN, CLEAN ON PRINT) */}
       {/* ========================================================================= */}
       <div className={`p-4 sm:p-6 space-y-6 print:p-0 ${isModal ? "overflow-y-auto flex-1 custom-scrollbar min-h-0" : ""}`}>
-        
+
         {/* Printable Header (Visible Only When Printing) */}
         <div className="hidden print:block border-b-2 border-black pb-4 mb-4">
           <div className="flex items-center justify-between">
@@ -1405,7 +1423,7 @@ export function WorkshopDailyReportView({
 
             {/* Technician Production & Work Orders in Patio */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              
+
               {/* Technician Production Summary (5 cols on lg) */}
               <div className="lg:col-span-5 glass-panel p-4 rounded-2xl border border-indigo-500/30 space-y-3">
                 <div className="flex items-center justify-between border-b border-white/10 pb-2">
@@ -1504,11 +1522,10 @@ export function WorkshopDailyReportView({
                               </td>
                               <td className="py-2 px-2 text-center">
                                 <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    wo.status === "finalizado" || wo.status === "pagado_autorizado"
-                                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                      : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                  }`}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${wo.status === "finalizado" || wo.status === "pagado_autorizado"
+                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                    : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    }`}
                                 >
                                   {wo.status.toUpperCase()}
                                 </span>
@@ -1569,11 +1586,10 @@ export function WorkshopDailyReportView({
                         </td>
                         <td className="py-2 px-2 text-center">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              it.type === "servicio"
-                                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                                : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                            }`}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${it.type === "servicio"
+                              ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                              : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                              }`}
                           >
                             {it.type.toUpperCase()}
                           </span>
