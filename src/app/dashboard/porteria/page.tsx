@@ -217,6 +217,22 @@ export default function PorteriaPage() {
     }
   };
 
+  /**
+   * Abre la Consulta Vehicular oficial de SUNARP en una pestaña nueva con la
+   * placa ingresada, para ver la información registral de dicho vehículo.
+   */
+  const handleOpenSunarpConsult = (targetPlate?: string) => {
+    const rawPlate = targetPlate || entryForm.plate;
+    const clean = (rawPlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!clean || clean.length < 3) {
+      notify("warning", "Por favor ingrese o escanee una placa válida primero para consultarla en SUNARP.");
+      return;
+    }
+    const url = `https://consultavehicular.sunarp.gob.pe/consulta-vehicular/inicio?placa=${encodeURIComponent(clean)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+    notify("info", `Abriendo Consulta Vehicular SUNARP para la placa ${clean}...`);
+  };
+
   // Date Navigator Helpers
   const changeDate = (days: number) => {
     const d = new Date(selectedDate + "T12:00:00");
@@ -860,15 +876,26 @@ export default function PorteriaPage() {
                       <label className="block text-xs font-bold text-gray-300 uppercase">
                         Placa Vehículo *
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenVehicleInfoModal(entryForm.plate)}
-                        className="text-[11px] font-black text-cyan-300 hover:text-white flex items-center gap-1 bg-cyan-950/60 hover:bg-cyan-600/80 border border-cyan-500/40 hover:border-cyan-400 px-2 py-0.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-cyan-950/40"
-                        title="Ver ficha completa y último ingreso al taller de esta placa"
-                      >
-                        <Info className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Info</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenVehicleInfoModal(entryForm.plate)}
+                          className="text-[11px] font-black text-cyan-300 hover:text-white flex items-center gap-1 bg-cyan-950/60 hover:bg-cyan-600/80 border border-cyan-500/40 hover:border-cyan-400 px-2 py-0.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-cyan-950/40"
+                          title="Ver ficha completa y último ingreso al taller de esta placa"
+                        >
+                          <Info className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Info</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSunarpConsult(entryForm.plate)}
+                          className="text-[11px] font-black text-emerald-300 hover:text-white flex items-center gap-1 bg-emerald-950/60 hover:bg-emerald-600/80 border border-emerald-500/40 hover:border-emerald-400 px-2 py-0.5 rounded-lg transition-all active:scale-95 shadow-sm shadow-emerald-950/40"
+                          title="Consultar esta placa en SUNARP (Consulta Vehicular oficial)"
+                        >
+                          <Search className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Sunarp</span>
+                        </button>
+                      </div>
                     </div>
                     <div className="relative">
                       <input
