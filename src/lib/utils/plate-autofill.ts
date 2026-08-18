@@ -60,7 +60,38 @@ export async function lookupPlateClientData(
     };
   }
 
-  // 2) Histórico CSV de la Tabla Registro del Taller (carga diferida)
+  // 2) Consulta EN VIVO a Supabase (Tabla Registro del Taller completa): cubre placas
+  //    que existen en work_orders/invoices pero NO están en el caché de vehículos
+  //    (p. ej. D1C-156, importada a la tabla maestra sin fila en vehicles).
+  try {
+    const { supabase } = await import("@/lib/supabase/client");
+    const plateVariants = Array.from(new Set([clean, cleanNorm]));
+    const [vRes, iRes, wRes] = await Promise.all([
+      supabase.from("vehicles").select("owner_name,owner_phone").in("plate", plateVariants).limit(1),
+      supabase.from("invoices").select("client_name").in("vehicle_plate", plateVariants).order("issued_at", { ascending: false }).limit(1),
+      supabase.from("work_orders").select("diagnostic_notes").in("vehicle_plate", plateVariants).order("entry_time", { ascending: false }).limit(3),
+    ]);
+    const vRow = vRes.data?.[0];
+    const iRow = iRes.data?.[0];
+    let woName = "";
+    let woPhone = "";
+    for (const w of (wRes.data || [])) {
+      const meta = (w.diagnostic_notes || "").match(/\[ERP_META\]:(.*)/);
+      if (!meta) continue;
+      const nm = (meta[1].match(/"c_name":"([^"]*)"/) || [])[1] || "";
+      const ph = (meta[1].match(/"c_phone":"([^"]*)"/) || [])[1] || "";
+      if (nm || ph) { woName = nm; woPhone = ph; break; }
+    }
+    const name = vRow?.owner_name || iRow?.client_name || woName || "";
+    const phone = vRow?.owner_phone || woPhone || "";
+    if (name || phone) {
+      return { client_name: name, client_phone: phone, found: true };
+    }
+  } catch {
+    // Supabase no disponible: continuar con el histórico CSV.
+  }
+
+  // 3) Histórico CSV estático de la Tabla Registro del Taller (último recurso, carga diferida)
   try {
     const { WORKSHOP_CSV_LOOKUP } = await import("@/lib/workshop-csv-lookup");
     // Algunos registros históricos vienen sin cliente: buscar en TODOS los registros
