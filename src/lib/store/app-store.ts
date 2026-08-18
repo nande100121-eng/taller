@@ -629,6 +629,7 @@ interface AppState {
   payInvoice: (invoiceId: string) => void;
   togglePayInvoice: (invoiceId: string) => void;
   toggleOrderPayment: (orderId: string, invoiceId?: string) => void;
+  undoLastPayment: (invoiceId: string) => void;
   confirmInvoicePayment: (params: {
     invoiceId?: string;
     workOrderId?: string;
@@ -2428,6 +2429,48 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         workOrders: updatedOrders,
       };
     }),
+
+  // Desmarca el último abono/pago parcial de una factura: revierte a pendiente de
+  // cobro completo. Se usa desde Caja con el botón "Pagado Parcialmente (Desmarcar Pago)".
+  undoLastPayment: (invoiceId) => {
+    set((state) => {
+      const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!targetInvoice) return state;
+      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+        ? [...targetInvoice.payment_history]
+        : [];
+      const removed = history.pop();
+      if (!removed) return state;
+      const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const totalDue = Number(targetInvoice.grand_total) || 0;
+      const balance = Math.max(0, totalDue - prevPaid);
+      const fullyUnpaid = history.length === 0;
+      const updated: Invoice = {
+        ...targetInvoice,
+        payment_status: "pendiente" as const,
+        payment_condition: "PENDIENTE",
+        credit_amount: fullyUnpaid ? 0 : balance,
+        payment_history: history,
+        payment_breakdown: fullyUnpaid ? undefined : targetInvoice.payment_breakdown,
+        receipt_number: fullyUnpaid ? "" : targetInvoice.receipt_number,
+        receipt_type: fullyUnpaid ? "" : targetInvoice.receipt_type,
+        paid_at: undefined,
+        debt_observation: fullyUnpaid ? undefined : targetInvoice.debt_observation,
+        debt_responsible: fullyUnpaid ? undefined : targetInvoice.debt_responsible,
+      };
+      saveSupabaseInvoice(updated);
+      const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === targetInvoice.work_order_id) {
+          const u = { ...o, status: "por_cobrar" as WorkOrderStatus };
+          saveSupabaseWorkOrder(u);
+          return u;
+        }
+        return o;
+      });
+      return { invoices: updatedInvoices, workOrders: updatedOrders };
+    });
+  },
 
   confirmInvoicePayment: ({
     invoiceId,

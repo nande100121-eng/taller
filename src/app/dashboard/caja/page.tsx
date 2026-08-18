@@ -70,6 +70,7 @@ export default function CajaPage() {
     createInvoiceForOrder,
     togglePayInvoice,
     toggleOrderPayment,
+    undoLastPayment,
     confirmInvoicePayment,
     registerDirectWorkshopPayment,
     registerInvoicePayment,
@@ -1827,6 +1828,10 @@ export default function CajaPage() {
                 }
                 const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, grandTotal);
                 const isPaid = settledInfo?.isSettled || isOrderPaid(wo, invoice);
+                // Pago parcial: hay abonos registrados y aún queda saldo pendiente (crédito)
+                const partialHistory = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
+                const totalPaidSoFar = partialHistory.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                const isPartiallyPaid = !isPaid && partialHistory.length > 0 && (invoice?.credit_amount || 0) > 0;
                 const allowModInWorkshop = wo.allow_modifications;
 
                 const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
@@ -2042,11 +2047,17 @@ export default function CajaPage() {
                       <div className="flex flex-col items-end justify-center gap-3 shrink-0 pt-4 lg:pt-0 border-t lg:border-t-0 border-white/10">
                         <div className="text-right">
                           <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                            {isPaid ? "Monto Cobrado" : "Monto por Cobrar"}
+                            {isPaid ? "Monto Cobrado" : isPartiallyPaid ? "Monto Total" : "Monto por Cobrar"}
                           </span>
                           <span className={`text-3xl font-black font-mono ${isPaid ? "text-white" : "text-amber-400"}`}>
                             S/ {grandTotal.toFixed(2)}
                           </span>
+                          {isPartiallyPaid && (
+                            <div className="text-right text-[11px] text-gray-300 mt-1 space-y-0.5">
+                              <div>Pagado: <strong className="text-emerald-400 font-mono">S/ {totalPaidSoFar.toFixed(2)}</strong></div>
+                              <div>Saldo: <strong className="text-amber-400 font-mono">S/ {(invoice?.credit_amount || 0).toFixed(2)}</strong></div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
@@ -2106,13 +2117,27 @@ export default function CajaPage() {
                                 <History className="w-4 h-4 stroke-[2.5]" />
                                 <span>Abonar Saldo (Total / Parcial)</span>
                               </button>
-                              <button
-                                onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
-                                className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                              >
-                                <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                                <span>Confirmar Cobro (Método & Destino)</span>
-                              </button>
+                              {isPartiallyPaid ? (
+                                <button
+                                  onClick={() => {
+                                    if (invoice?.id) undoLastPayment(invoice.id);
+                                    notify("warning", `Abono parcial de ${wo.vehicle_plate} desmarcado. La factura vuelve a estar pendiente de cobro completo.`);
+                                  }}
+                                  className="px-5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 font-extrabold text-xs rounded-xl border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center gap-2 transition-all cursor-pointer"
+                                  title="Desmarcar el abono parcial: la factura vuelve a estar pendiente de cobro completo"
+                                >
+                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                                  <span>Pagado Parcialmente (Desmarcar Pago)</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
+                                  className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                                >
+                                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                                  <span>Confirmar Cobro (Método & Destino)</span>
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
