@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAppStore, PaymentSplit } from "@/lib/store/app-store";
 import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
 } from "@/lib/utils/credit-tracker";
 import { getWorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
-import ThermalReceiptModal from "@/components/caja/thermal-receipt-modal";
-import { DailyWorkshopReportModal } from "@/components/DailyWorkshopReportModal";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import {
@@ -47,6 +46,15 @@ import {
   Split,
   Check,
 } from "lucide-react";
+
+const ThermalReceiptModal = dynamic(
+  () => import("@/components/caja/thermal-receipt-modal"),
+  { ssr: false }
+);
+const DailyWorkshopReportModal = dynamic(
+  () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
+  { ssr: false }
+);
 
 export default function CajaPage() {
   const {
@@ -655,25 +663,25 @@ export default function CajaPage() {
     const previewNum = isZero
       ? ""
       : inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
-      ? inv.receipt_number
-      : getCorrelativePreview(initialType as any);
+        ? inv.receipt_number
+        : getCorrelativePreview(initialType as any);
 
     const hasExistingSplits = Array.isArray(inv?.payment_breakdown) && inv.payment_breakdown.length > 1;
     const initialSplits: PaymentSplit[] = (Array.isArray(inv?.payment_breakdown) && inv.payment_breakdown.length > 0)
       ? inv.payment_breakdown.map((s: any, idx: number) => ({
-          id: s.id || `split-${Date.now()}-${idx}`,
-          method: s.method || "Efectivo",
-          destination: s.destination || eligibleDestinations[0] || "EMPRESA",
-          amount: typeof s.amount === "number" ? s.amount : Number(s.amount) || 0,
-        }))
+        id: s.id || `split-${Date.now()}-${idx}`,
+        method: s.method || "Efectivo",
+        destination: s.destination || eligibleDestinations[0] || "EMPRESA",
+        amount: typeof s.amount === "number" ? s.amount : Number(s.amount) || 0,
+      }))
       : [
-          {
-            id: `split-1`,
-            method: (inv?.payment_method as any) || "Efectivo",
-            destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
-            amount: total,
-          },
-        ];
+        {
+          id: `split-1`,
+          method: (inv?.payment_method as any) || "Efectivo",
+          destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
+          amount: total,
+        },
+      ];
 
     const effectiveDiscount = (wo.discount_amount && wo.discount_amount > 0)
       ? Number(wo.discount_amount)
@@ -714,11 +722,11 @@ export default function CajaPage() {
         setPaymentModal((prev) =>
           prev
             ? {
-                ...prev,
-                isSearchingRuc: false,
-                customerName: data.razonSocial || prev.customerName,
-                customerAddress: data.direccion || prev.customerAddress,
-              }
+              ...prev,
+              isSearchingRuc: false,
+              customerName: data.razonSocial || prev.customerName,
+              customerAddress: data.direccion || prev.customerAddress,
+            }
             : null
         );
         showAlert("success", `RUC verificado: ${data.razonSocial}`);
@@ -912,11 +920,11 @@ export default function CajaPage() {
         setManualPaymentModal((prev) =>
           prev
             ? {
-                ...prev,
-                isSearchingRuc: false,
-                clientName: data.razonSocial || prev.clientName,
-                customerAddress: data.direccion || prev.customerAddress,
-              }
+              ...prev,
+              isSearchingRuc: false,
+              clientName: data.razonSocial || prev.clientName,
+              customerAddress: data.direccion || prev.customerAddress,
+            }
             : null
         );
         showAlert("success", `RUC verificado: ${data.razonSocial}`);
@@ -1063,22 +1071,22 @@ export default function CajaPage() {
     const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
 
-    const effectiveReceiptNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number !== "S/N" 
-      ? inv.receipt_number 
+    const effectiveReceiptNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number !== "S/N"
+      ? inv.receipt_number
       : (csvRec?.receiptNumber || "");
 
     const rawType = (inv?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
-    const rType = (rawType.includes("FACTURA") 
-      ? "Factura" 
-      : rawType.includes("BOLETA") 
-      ? "Boleta" 
-      : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
+    const rType = (rawType.includes("FACTURA")
+      ? "Factura"
+      : rawType.includes("BOLETA")
+        ? "Boleta"
+        : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket")) as "Ticket" | "Boleta" | "Factura";
 
     const clientName = inv?.client_name && inv.client_name !== "Cliente Taller"
       ? inv.client_name
       : (vehicle?.owner_name && vehicle.owner_name !== "Cliente Taller"
-          ? vehicle.owner_name
-          : (csvRec?.clientName || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")));
+        ? vehicle.owner_name
+        : (csvRec?.clientName || (rType === "Ticket" ? "CLIENTES VARIOS" : "Cliente General")));
 
     const effectiveMethod = inv?.payment_method || csvRec?.method || "Efectivo";
 
@@ -1112,11 +1120,10 @@ export default function CajaPage() {
       {/* Alert Notifications */}
       {alertMsg && (
         <div
-          className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 transition-all animate-fadeIn ${
-            alertMsg.type === "success"
+          className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 transition-all animate-fadeIn ${alertMsg.type === "success"
               ? "bg-emerald-950/90 text-emerald-300 border border-emerald-500/50"
               : "bg-amber-950/90 text-amber-300 border border-amber-500/50"
-          }`}
+            }`}
         >
           <AlertCircle className="w-5 h-5 shrink-0" />
           <span>{alertMsg.text}</span>
@@ -1254,21 +1261,19 @@ export default function CajaPage() {
           <button
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Ticket" ? "TODOS" : "Ticket")}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
-              receiptTypeFilter === "Ticket"
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Ticket"
                 ? "bg-amber-950/70 border-amber-400 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 scale-[1.01]"
                 : "glass-panel border-white/10 hover:border-amber-400/50 hover:bg-white/5"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
               <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
                 <span className="text-sm">🎫</span> Ticket
               </span>
-              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
-                receiptTypeFilter === "Ticket"
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Ticket"
                   ? "bg-amber-500 text-black border-amber-400 font-black shadow-sm"
                   : "bg-amber-500/20 text-amber-300 border-amber-500/30 group-hover:border-amber-400/60"
-              }`}>
+                }`}>
                 {receiptTypeFilter === "Ticket" ? "✓ Filtro Activo" : `${latestCorrelatives.ticket.count} registrados`}
               </span>
             </div>
@@ -1294,21 +1299,19 @@ export default function CajaPage() {
           <button
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Boleta" ? "TODOS" : "Boleta")}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
-              receiptTypeFilter === "Boleta"
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Boleta"
                 ? "bg-cyan-950/70 border-cyan-400 ring-2 ring-cyan-400/60 shadow-lg shadow-cyan-500/30 scale-[1.01]"
                 : "glass-panel border-white/10 hover:border-cyan-400/50 hover:bg-white/5"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
               <span className="text-[11px] font-extrabold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
                 <span className="text-sm">📄</span> Boleta
               </span>
-              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
-                receiptTypeFilter === "Boleta"
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Boleta"
                   ? "bg-cyan-500 text-black border-cyan-400 font-black shadow-sm"
                   : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30 group-hover:border-cyan-400/60"
-              }`}>
+                }`}>
                 {receiptTypeFilter === "Boleta" ? "✓ Filtro Activo" : `${latestCorrelatives.boleta.count} registradas`}
               </span>
             </div>
@@ -1334,21 +1337,19 @@ export default function CajaPage() {
           <button
             type="button"
             onClick={() => setReceiptTypeFilter(receiptTypeFilter === "Factura" ? "TODOS" : "Factura")}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${
-              receiptTypeFilter === "Factura"
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col justify-between group ${receiptTypeFilter === "Factura"
                 ? "bg-purple-950/70 border-purple-400 ring-2 ring-purple-400/60 shadow-lg shadow-purple-500/30 scale-[1.01]"
                 : "glass-panel border-white/10 hover:border-purple-400/50 hover:bg-white/5"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between w-full mb-1.5">
               <span className="text-[11px] font-extrabold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
                 <span className="text-sm">📑</span> Factura
               </span>
-              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
-                receiptTypeFilter === "Factura"
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${receiptTypeFilter === "Factura"
                   ? "bg-purple-500 text-black border-purple-400 font-black shadow-sm"
                   : "bg-purple-500/20 text-purple-300 border-purple-500/30 group-hover:border-purple-400/60"
-              }`}>
+                }`}>
                 {receiptTypeFilter === "Factura" ? "✓ Filtro Activo" : `${latestCorrelatives.factura.count} registradas`}
               </span>
             </div>
@@ -1376,73 +1377,69 @@ export default function CajaPage() {
       {/* CAJA & COBROS DE COMPROBANTES */}
       {/* ========================================================================= */}
       <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-6 h-6 text-emerald-400" />
-              <h2 className="text-lg font-bold text-white">Comprobantes y Liquidación de Taller</h2>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5 bg-reygas-dark p-1 rounded-xl border border-white/10 text-xs font-bold">
-              {/* 1. Comprobantes del Día (Principal / Default) */}
-              <button
-                onClick={() => setActiveStatusFilter("hoy")}
-                className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  activeStatusFilter === "hoy"
-                    ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 font-black scale-[1.02]"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>📅 Del Día / Hoy ({todayCount})</span>
-              </button>
-
-              {/* 2. Pendientes */}
-              <button
-                onClick={() => setActiveStatusFilter("pendientes")}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  activeStatusFilter === "pendientes"
-                    ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>⏳ Pendientes ({pendingCount})</span>
-              </button>
-
-              {/* 3. Pagados */}
-              <button
-                onClick={() => setActiveStatusFilter("pagados")}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  activeStatusFilter === "pagados"
-                    ? "bg-emerald-600 text-white font-extrabold shadow-lg shadow-emerald-600/20 scale-[1.02]"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>✅ Pagados ({paidCount})</span>
-              </button>
-
-              {/* 4. Todos */}
-              <button
-                onClick={() => setActiveStatusFilter("todos")}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  activeStatusFilter === "todos"
-                    ? "bg-gray-700 text-white font-bold shadow"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                <span>Todos ({allBillingWorkOrders.length})</span>
-              </button>
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-6 h-6 text-emerald-400" />
+            <h2 className="text-lg font-bold text-white">Comprobantes y Liquidación de Taller</h2>
           </div>
 
-          {filteredCajaOrders.length === 0 ? (
-            <div className="text-center py-12 space-y-3">
-              <Receipt className="w-12 h-12 text-gray-500 mx-auto" />
-              <p className="text-sm font-bold text-gray-400">
-                No hay vehículos en Caja con los filtros seleccionados.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-4">
+          <div className="flex flex-wrap items-center gap-1.5 bg-reygas-dark p-1 rounded-xl border border-white/10 text-xs font-bold">
+            {/* 1. Comprobantes del Día (Principal / Default) */}
+            <button
+              onClick={() => setActiveStatusFilter("hoy")}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeStatusFilter === "hoy"
+                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30 font-black scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>📅 Del Día / Hoy ({todayCount})</span>
+            </button>
+
+            {/* 2. Pendientes */}
+            <button
+              onClick={() => setActiveStatusFilter("pendientes")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientes"
+                  ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>⏳ Pendientes ({pendingCount})</span>
+            </button>
+
+            {/* 3. Pagados */}
+            <button
+              onClick={() => setActiveStatusFilter("pagados")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pagados"
+                  ? "bg-emerald-600 text-white font-extrabold shadow-lg shadow-emerald-600/20 scale-[1.02]"
+                  : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>✅ Pagados ({paidCount})</span>
+            </button>
+
+            {/* 4. Todos */}
+            <button
+              onClick={() => setActiveStatusFilter("todos")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "todos"
+                  ? "bg-gray-700 text-white font-bold shadow"
+                  : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>Todos ({allBillingWorkOrders.length})</span>
+            </button>
+          </div>
+        </div>
+
+        {filteredCajaOrders.length === 0 ? (
+          <div className="text-center py-12 space-y-3">
+            <Receipt className="w-12 h-12 text-gray-500 mx-auto" />
+            <p className="text-sm font-bold text-gray-400">
+              No hay vehículos en Caja con los filtros seleccionados.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4">
               {filteredCajaOrders.slice(0, visibleLimit).map((wo) => {
                 const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
                 const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
@@ -1471,14 +1468,14 @@ export default function CajaPage() {
 
                 const csvRec = getWorkshopCSVRecord(wo.vehicle_plate, wo.entry_time);
 
-                const effectiveClient = invoice?.client_name && invoice.client_name !== "Cliente Taller" 
-                  ? invoice.client_name 
-                  : (vehicle?.owner_name && vehicle.owner_name !== "Cliente Taller" 
-                      ? vehicle.owner_name 
-                      : (csvRec?.clientName || "Cliente General"));
+                const effectiveClient = invoice?.client_name && invoice.client_name !== "Cliente Taller"
+                  ? invoice.client_name
+                  : (vehicle?.owner_name && vehicle.owner_name !== "Cliente Taller"
+                    ? vehicle.owner_name
+                    : (csvRec?.clientName || "Cliente General"));
 
-                const effectivePhone = vehicle?.owner_phone && vehicle.owner_phone !== "S/T" && vehicle.owner_phone !== "+51 900000000" 
-                  ? vehicle.owner_phone 
+                const effectivePhone = vehicle?.owner_phone && vehicle.owner_phone !== "S/T" && vehicle.owner_phone !== "+51 900000000"
+                  ? vehicle.owner_phone
                   : (csvRec?.clientPhone || "S/T");
 
                 const effectiveBrand = vehicle?.brand && vehicle.brand !== "Automóvil" ? vehicle.brand : (csvRec?.brand || "Automóvil");
@@ -1486,18 +1483,18 @@ export default function CajaPage() {
                 const isSinComp = invoice?.receipt_type === "Sin Comprobante" || (invoice && invoice.receipt_type === "" && !invoice.receipt_number);
                 const effectiveReceiptNum = isSinComp
                   ? ""
-                  : invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N" 
-                  ? invoice.receipt_number 
-                  : (csvRec?.receiptNumber || "");
+                  : invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N"
+                    ? invoice.receipt_number
+                    : (csvRec?.receiptNumber || "");
 
                 const rawType = (invoice?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
                 const effectiveReceiptType = isSinComp
                   ? "Sin Comprobante"
-                  : rawType.includes("FACTURA") 
-                  ? "Factura" 
-                  : rawType.includes("BOLETA") 
-                  ? "Boleta" 
-                  : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket");
+                  : rawType.includes("FACTURA")
+                    ? "Factura"
+                    : rawType.includes("BOLETA")
+                      ? "Boleta"
+                      : (effectiveReceiptNum.startsWith("F") || (parseInt(effectiveReceiptNum) < 1000 && parseInt(effectiveReceiptNum) > 0) ? "Factura" : "Ticket");
 
                 const effectiveMethod = invoice?.payment_method || csvRec?.method || "Efectivo";
                 const effectiveDestination = invoice?.payment_destination || csvRec?.destination || "EMPRESA";
@@ -1505,17 +1502,16 @@ export default function CajaPage() {
                 const buttonReceiptLabel = isSinComp
                   ? "Sin Comp."
                   : effectiveReceiptNum && effectiveReceiptNum !== "0"
-                  ? (effectiveReceiptType === "Factura" ? `F001-${effectiveReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : effectiveReceiptNum)
-                  : "S/N";
+                    ? (effectiveReceiptType === "Factura" ? `F001-${effectiveReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : effectiveReceiptNum)
+                    : "S/N";
 
                 return (
                   <div
                     key={wo.id}
-                    className={`p-5 rounded-2xl border transition-all glass-panel hover:border-purple-500/40 ${
-                      isPaid
+                    className={`p-5 rounded-2xl border transition-all glass-panel hover:border-purple-500/40 ${isPaid
                         ? "bg-emerald-950/20 border-emerald-500/40"
                         : "bg-amber-950/20 border-amber-500/40 shadow-lg shadow-amber-500/5"
-                    }`}
+                      }`}
                   >
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                       {/* Vehicle & Client Info */}
@@ -1719,11 +1715,10 @@ export default function CajaPage() {
                                   toggleAllowModificationsInWorkshop(wo.id);
                                   showAlert("success", !allowModInWorkshop ? `🔓 Modificaciones habilitadas en Taller para ${wo.vehicle_plate}.` : `🔒 Modificaciones bloqueadas en Taller para ${wo.vehicle_plate}.`);
                                 }}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${
-                                  allowModInWorkshop
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${allowModInWorkshop
                                     ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
                                     : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
-                                }`}
+                                  }`}
                               >
                                 {allowModInWorkshop ? (
                                   <>
@@ -1866,15 +1861,14 @@ export default function CajaPage() {
                               type === "Ticket" && !paymentModal.customerName
                                 ? "CLIENTES VARIOS"
                                 : type === "Sin Comprobante"
-                                ? (paymentModal.customerName || "CLIENTES VARIOS")
-                                : paymentModal.customerName,
+                                  ? (paymentModal.customerName || "CLIENTES VARIOS")
+                                  : paymentModal.customerName,
                           });
                         }}
-                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                          isSelected
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
                             ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
                             : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
-                        }`}
+                          }`}
                       >
                         <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
                         <span>{type}</span>
@@ -2023,11 +2017,10 @@ export default function CajaPage() {
                             isSplitPayment: false,
                           });
                         }}
-                        className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                          !paymentModal.isSplitPayment
+                        className={`px-3 py-1 rounded-lg font-bold transition-all ${!paymentModal.isSplitPayment
                             ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
                             : "text-gray-400 hover:text-white"
-                        }`}
+                          }`}
                       >
                         💵 Pago Único
                       </button>
@@ -2037,24 +2030,23 @@ export default function CajaPage() {
                           const currentSplits = (paymentModal.paymentSplits && paymentModal.paymentSplits.length > 0)
                             ? paymentModal.paymentSplits
                             : [
-                                {
-                                  id: `split-1`,
-                                  method: paymentModal.paymentMethod || "Efectivo",
-                                  destination: paymentModal.paymentDestination || "EMPRESA",
-                                  amount: paymentModal.grandTotal,
-                                },
-                              ];
+                              {
+                                id: `split-1`,
+                                method: paymentModal.paymentMethod || "Efectivo",
+                                destination: paymentModal.paymentDestination || "EMPRESA",
+                                amount: paymentModal.grandTotal,
+                              },
+                            ];
                           setPaymentModal({
                             ...paymentModal,
                             isSplitPayment: true,
                             paymentSplits: currentSplits,
                           });
                         }}
-                        className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-                          paymentModal.isSplitPayment
+                        className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${paymentModal.isSplitPayment
                             ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
                             : "text-gray-400 hover:text-white"
-                        }`}
+                          }`}
                       >
                         <Split className="w-3.5 h-3.5" />
                         <span>Pago Mixto / Parcial</span>
@@ -2079,11 +2071,10 @@ export default function CajaPage() {
                               key={method}
                               type="button"
                               onClick={() => setPaymentModal({ ...paymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
-                              className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                                isSelected
+                              className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
                                   ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
                                   : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
-                              }`}
+                                }`}
                             >
                               <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
                               <span>{method}</span>
@@ -2244,13 +2235,12 @@ export default function CajaPage() {
 
                       return (
                         <div
-                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${
-                            isBalanced
+                          className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${isBalanced
                               ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
                               : diff > 0
-                              ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-                              : "bg-red-950/50 border-red-500/40 text-red-300"
-                          }`}
+                                ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                                : "bg-red-950/50 border-red-500/40 text-red-300"
+                            }`}
                         >
                           <div className="flex items-center gap-2">
                             <span>Total Cobro: <strong>S/ {paymentModal.grandTotal.toFixed(2)}</strong></span>
@@ -2612,11 +2602,10 @@ export default function CajaPage() {
                                   : manualPaymentModal.clientName,
                             });
                           }}
-                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                            isSelected
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
                               ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
                               : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
-                          }`}
+                            }`}
                         >
                           <span>{type === "Ticket" ? "🎟️" : type === "Boleta" ? "🧾" : type === "Factura" ? "📑" : "🚫"}</span>
                           <span>{type}</span>
@@ -2693,11 +2682,10 @@ export default function CajaPage() {
                               isSplitPayment: false,
                             });
                           }}
-                          className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                            !manualPaymentModal.isSplitPayment
+                          className={`px-3 py-1 rounded-lg font-bold transition-all ${!manualPaymentModal.isSplitPayment
                               ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
                               : "text-gray-400 hover:text-white"
-                          }`}
+                            }`}
                         >
                           💵 Pago Único
                         </button>
@@ -2707,24 +2695,23 @@ export default function CajaPage() {
                             const currentSplits = (manualPaymentModal.paymentSplits && manualPaymentModal.paymentSplits.length > 0)
                               ? manualPaymentModal.paymentSplits
                               : [
-                                  {
-                                    id: `split-1`,
-                                    method: manualPaymentModal.paymentMethod || "Efectivo",
-                                    destination: manualPaymentModal.paymentDestination || "EMPRESA",
-                                    amount: manualPaymentModal.price,
-                                  },
-                                ];
+                                {
+                                  id: `split-1`,
+                                  method: manualPaymentModal.paymentMethod || "Efectivo",
+                                  destination: manualPaymentModal.paymentDestination || "EMPRESA",
+                                  amount: manualPaymentModal.price,
+                                },
+                              ];
                             setManualPaymentModal({
                               ...manualPaymentModal,
                               isSplitPayment: true,
                               paymentSplits: currentSplits,
                             });
                           }}
-                          className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-                            manualPaymentModal.isSplitPayment
+                          className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${manualPaymentModal.isSplitPayment
                               ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
                               : "text-gray-400 hover:text-white"
-                          }`}
+                            }`}
                         >
                           <Split className="w-3.5 h-3.5" />
                           <span>Pago Mixto / Parcial</span>
@@ -2748,11 +2735,10 @@ export default function CajaPage() {
                                 key={method}
                                 type="button"
                                 onClick={() => setManualPaymentModal({ ...manualPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
-                                className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
-                                  isSelected
+                                className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
                                     ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
                                     : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
-                                }`}
+                                  }`}
                               >
                                 <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
                                 <span>{method}</span>
@@ -2912,13 +2898,12 @@ export default function CajaPage() {
 
                         return (
                           <div
-                            className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${
-                              isBalanced
+                            className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-bold ${isBalanced
                                 ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
                                 : diff > 0
-                                ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-                                : "bg-red-950/50 border-red-500/40 text-red-300"
-                            }`}
+                                  ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                                  : "bg-red-950/50 border-red-500/40 text-red-300"
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <span>Precio Total: <strong>S/ {manualPaymentModal.price.toFixed(2)}</strong></span>

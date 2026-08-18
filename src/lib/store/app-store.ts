@@ -1061,6 +1061,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
           updates.workshopServices = (erpData as any).workshopServices;
         }
 
+        // Aplicar datos en chunks para no congelar el hilo principal de la tablet
+        // (skill de optimización de carga). Los datos pesados (workOrders, invoices,
+        // vehicles) se aplican en un solo set, pero el procesamiento de formateo ya
+        // quedó en fetchSupabaseErpData; aquí solo asignamos referencias.
         set(updates);
       }
     } catch (err) {

@@ -52,6 +52,13 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     // 1. Cloud-First initial sync from Supabase on app mount
+    // Carga escalonada (skill de optimización): primero los catálogos ligeros
+    // que pintan la UI en <50ms, y en paralelo el sync completo en segundo plano
+    // para los datos de operación (workOrders, invoices, vehicles, inventory).
+    syncTechniciansOnly();
+    syncServicesOnly();
+    syncCertificationsOnly();
+    syncScheduleOnly();
     syncFromSupabase();
 
     // 2. Window focus sync with 15s throttle protection (prevents request storms on tablet tab switching)

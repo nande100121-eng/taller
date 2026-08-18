@@ -1,7 +1,21 @@
 "use client";
 
 import React from "react";
-import { WorkshopDailyReportView } from "@/components/DailyWorkshopReportModal";
+import dynamic from "next/dynamic";
+
+const WorkshopDailyReportView = dynamic(
+  () => import("@/components/DailyWorkshopReportModal").then((m) => m.WorkshopDailyReportView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-9 bg-white/10 rounded-lg w-64" />
+        <div className="h-72 bg-white/5 rounded-xl" />
+        <div className="h-40 bg-white/5 rounded-xl" />
+      </div>
+    ),
+  }
+);
 
 export default function WorkshopReportsCenterPage() {
   return (

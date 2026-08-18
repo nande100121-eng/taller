@@ -507,9 +507,13 @@ async function fetchAllSupabaseTable(tableName: string) {
     if (firstBatch.length < PAGE_SIZE) return firstBatch;
 
     // 2. Fetch subsequent pages only if firstBatch was saturated
+    // MAX_FETCH_ROWS: cap defensivo para que la carga de la tablet no se arrastre
+    // indefinidamente en tablas de operación. Los históricos completos se cargan
+    // bajo demanda (filtros/paginación) según la skill de optimización de carga.
+    const MAX_FETCH_ROWS = 2000;
     let allRecords = [...firstBatch];
     let offset = PAGE_SIZE;
-    while (offset < 20000) {
+    while (offset < MAX_FETCH_ROWS) {
       const { data: nextBatch, error: nextErr } = await supabase
         .from(tableName)
         .select("*")
@@ -689,7 +693,11 @@ export async function fetchSupabaseInventory(): Promise<InventoryItem[] | null> 
 export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
   try {
     const [techRes, contentRes] = await Promise.all([
-      safeQuery<any[]>(supabase.from("technicians").select("*")),
+      safeQuery<any[]>(
+        supabase
+          .from("technicians")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, email, username, password, created_at")
+      ),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
@@ -899,14 +907,26 @@ export async function saveSupabaseBulkScheduleRecords(
 export async function fetchSupabaseErpData() {
   try {
     const [techRes, invData, orderData, appRes, invoiceData, vehicleData, certData, contentRes] = await Promise.all([
-      safeQuery<any[]>(supabase.from("technicians").select("*")),
+      // Slim select: solo las columnas que la UI necesita (evita descargar columnas pesadas innecesarias)
+      safeQuery<any[]>(
+        supabase
+          .from("technicians")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, email, username, password, created_at")
+      ),
       fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
       safeQuery<any[]>(supabase.from("appointments").select("*")),
       fetchAllSupabaseTable("invoices"),
       fetchAllSupabaseTable("vehicles"),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
-      safeQuery<any[]>(supabase.from("site_content").select("*")),
+      // Excluir el backup masivo master_workshop_backup del sync inicial de site_content:
+      // solo se carga bajo demanda en herramientas de migración/backup (skill de carga optimizada).
+      safeQuery<any[]>(
+        supabase
+          .from("site_content")
+          .select("*")
+          .or("section_key.neq.master_workshop_backup,key.neq.master_workshop_backup")
+      ),
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any

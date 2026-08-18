@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAppStore, WorkOrderStatus } from "@/lib/store/app-store";
 import {
   Wrench,
@@ -38,8 +39,12 @@ import {
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
-import { DailyWorkshopReportModal } from "@/components/DailyWorkshopReportModal";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
+
+const DailyWorkshopReportModal = dynamic(
+  () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
+  { ssr: false }
+);
 
 export default function WorkshopOperationsPage() {
   const {
@@ -644,11 +649,10 @@ export default function WorkshopOperationsPage() {
           <div className="flex items-center gap-1 bg-reygas-surface p-1 rounded-xl border border-white/10 text-xs font-bold">
             <button
               onClick={() => { setTimeFilter("hoy"); setVisibleLimit(30); }}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                timeFilter === "hoy"
-                  ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${timeFilter === "hoy"
+                ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black shadow-lg shadow-amber-500/20 font-black scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <Calendar className="w-3.5 h-3.5" />
               <span>Del Día / Hoy ({counts.today})</span>
@@ -656,11 +660,10 @@ export default function WorkshopOperationsPage() {
 
             <button
               onClick={() => { setTimeFilter("todos"); setVisibleLimit(30); }}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                timeFilter === "todos"
-                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 font-black scale-[1.02]"
-                  : "text-gray-400 hover:text-white"
-              }`}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${timeFilter === "todos"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 font-black scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
             >
               <span>Todos / Histórico ({counts.all})</span>
             </button>
@@ -715,11 +718,10 @@ export default function WorkshopOperationsPage() {
         {/* 1. Ingresados (Principal / Default) */}
         <button
           onClick={() => { setStatusFilter("ingresado"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "ingresado"
-              ? "bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30 font-black scale-105"
-              : "bg-blue-950/30 text-blue-300 border-blue-500/20 hover:bg-blue-900/40"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "ingresado"
+            ? "bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30 font-black scale-105"
+            : "bg-blue-950/30 text-blue-300 border-blue-500/20 hover:bg-blue-900/40"
+            }`}
         >
           1. Ingresados ({counts.ingresado})
         </button>
@@ -727,11 +729,10 @@ export default function WorkshopOperationsPage() {
         {/* 2. En Diagnóstico */}
         <button
           onClick={() => { setStatusFilter("en_diagnostico"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "en_diagnostico"
-              ? "bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30 font-black scale-105"
-              : "bg-purple-950/30 text-purple-300 border-purple-500/20 hover:bg-purple-900/40"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "en_diagnostico"
+            ? "bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30 font-black scale-105"
+            : "bg-purple-950/30 text-purple-300 border-purple-500/20 hover:bg-purple-900/40"
+            }`}
         >
           2. En Diagnóstico ({counts.en_diagnostico})
         </button>
@@ -739,11 +740,10 @@ export default function WorkshopOperationsPage() {
         {/* 3. Esperando Repuestos */}
         <button
           onClick={() => { setStatusFilter("esperando_repuestos"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "esperando_repuestos"
-              ? "bg-amber-600 text-white border-amber-400 shadow-lg shadow-amber-600/30 font-black scale-105"
-              : "bg-amber-950/30 text-amber-300 border-amber-500/20 hover:bg-amber-900/40"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "esperando_repuestos"
+            ? "bg-amber-600 text-white border-amber-400 shadow-lg shadow-amber-600/30 font-black scale-105"
+            : "bg-amber-950/30 text-amber-300 border-amber-500/20 hover:bg-amber-900/40"
+            }`}
         >
           3. Esperando Repuestos ({counts.esperando_repuestos})
         </button>
@@ -751,11 +751,10 @@ export default function WorkshopOperationsPage() {
         {/* 4. En Servicio / Bahía */}
         <button
           onClick={() => { setStatusFilter("en_servicio"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "en_servicio"
-              ? "bg-teal-600 text-white border-teal-400 shadow-lg shadow-teal-600/30 font-black scale-105"
-              : "bg-teal-950/30 text-teal-300 border-teal-500/20 hover:bg-teal-900/40"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "en_servicio"
+            ? "bg-teal-600 text-white border-teal-400 shadow-lg shadow-teal-600/30 font-black scale-105"
+            : "bg-teal-950/30 text-teal-300 border-teal-500/20 hover:bg-teal-900/40"
+            }`}
         >
           4. En Servicio / Bahía ({counts.en_servicio})
         </button>
@@ -763,11 +762,10 @@ export default function WorkshopOperationsPage() {
         {/* 5. Por Cobrar */}
         <button
           onClick={() => { setStatusFilter("por_cobrar"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "por_cobrar"
-              ? "bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-600/30 font-black scale-105"
-              : "bg-emerald-950/30 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/40"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "por_cobrar"
+            ? "bg-emerald-600 text-white border-emerald-400 shadow-lg shadow-emerald-600/30 font-black scale-105"
+            : "bg-emerald-950/30 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/40"
+            }`}
         >
           5. Por Cobrar ({counts.por_cobrar})
         </button>
@@ -775,11 +773,10 @@ export default function WorkshopOperationsPage() {
         {/* 6. Todos los Estados (Al final) */}
         <button
           onClick={() => { setStatusFilter("todos"); setVisibleLimit(30); }}
-          className={`px-3 py-1.5 rounded-xl transition-all border ${
-            statusFilter === "todos"
-              ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-105"
-              : "bg-reygas-surface/60 text-gray-400 border-white/10 hover:text-white hover:border-white/20"
-          }`}
+          className={`px-3 py-1.5 rounded-xl transition-all border ${statusFilter === "todos"
+            ? "bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20 font-black scale-105"
+            : "bg-reygas-surface/60 text-gray-400 border-white/10 hover:text-white hover:border-white/20"
+            }`}
         >
           Todos los Estados ({counts.currentTotal})
         </button>
@@ -815,13 +812,12 @@ export default function WorkshopOperationsPage() {
             return (
               <div
                 key={wo.id}
-                className={`glass-panel p-6 rounded-2xl border transition-all space-y-6 ${
-                  isLocked
-                    ? "border-emerald-500/40 bg-emerald-950/10"
-                    : wo.allow_modifications && isPaid
+                className={`glass-panel p-6 rounded-2xl border transition-all space-y-6 ${isLocked
+                  ? "border-emerald-500/40 bg-emerald-950/10"
+                  : wo.allow_modifications && isPaid
                     ? "border-amber-500/50 bg-amber-950/10 shadow-lg shadow-amber-500/10"
                     : "border-white/10 hover:border-amber-500/30"
-                }`}
+                  }`}
               >
                 {/* Locked Banner if Paid */}
                 {isLocked && (
@@ -894,11 +890,10 @@ export default function WorkshopOperationsPage() {
                             onChange={(e) => {
                               updateVehicle(wo.vehicle_plate, { fuel_type: e.target.value as any });
                             }}
-                            className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${
-                              isLocked
-                                ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
-                                : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
-                            }`}
+                            className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${isLocked
+                              ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
+                              : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
+                              }`}
                             title="Cambiar tipo de combustible / sistema"
                           >
                             <option value="GNV" className="bg-gray-900 text-white font-bold">⛽ GNV</option>
@@ -944,13 +939,12 @@ export default function WorkshopOperationsPage() {
                               key={step.status}
                               disabled={isLocked}
                               onClick={() => updateWorkOrderStatus(wo.id, step.status)}
-                              className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${
-                                isCurrent
-                                  ? `${step.color} text-black border-white shadow-lg`
-                                  : isPassed
+                              className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${isCurrent
+                                ? `${step.color} text-black border-white shadow-lg`
+                                : isPassed
                                   ? "bg-reygas-surface text-gray-200 border-white/20 hover:border-amber-400"
                                   : "bg-reygas-dark/60 text-gray-500 border-white/5 hover:border-white/20"
-                              } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
+                                } ${isLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                             >
                               <span>{step.label}</span>
                               {isCurrent && <Check className="w-3 h-3 text-black stroke-[3]" />}
@@ -1019,9 +1013,8 @@ export default function WorkshopOperationsPage() {
                           disabled={isLocked}
                           value={wo.assigned_technician_id || ""}
                           onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
-                          className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${
-                            isLocked ? "opacity-60 cursor-not-allowed" : ""
-                          }`}
+                          className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${isLocked ? "opacity-60 cursor-not-allowed" : ""
+                            }`}
                         >
                           <option value="">-- Sin Técnico Asignado --</option>
                           {assignableTechnicians.map((t) => (
@@ -1107,11 +1100,10 @@ export default function WorkshopOperationsPage() {
 
                         <button
                           onClick={() => handleOpenDiscountModal(wo.id, wo.discount_amount)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
-                            (wo.discount_amount && wo.discount_amount > 0)
-                              ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
-                              : "bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border-emerald-500/30"
-                          }`}
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${(wo.discount_amount && wo.discount_amount > 0)
+                            ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
+                            : "bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-200 border-emerald-500/30"
+                            }`}
                         >
                           <Tag className="w-3.5 h-3.5 text-emerald-400" />
                           <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
@@ -1119,11 +1111,10 @@ export default function WorkshopOperationsPage() {
 
                         <button
                           onClick={() => handleOpenCertModal(wo.id)}
-                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${
-                            wo.requires_certification
-                              ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
-                              : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
-                          }`}
+                          className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${wo.requires_certification
+                            ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
+                            : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
+                            }`}
                         >
                           <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
                           <span>{wo.requires_certification ? "Certificado" : "+ Certificación"}</span>
@@ -1474,11 +1465,10 @@ export default function WorkshopOperationsPage() {
                         key={fuel}
                         type="button"
                         onClick={() => setSelectedFuelType(fuel)}
-                        className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all border flex items-center justify-center gap-1.5 active:scale-95 ${
-                          selectedFuelType === fuel
-                            ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]"
-                            : "bg-reygas-dark text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
-                        }`}
+                        className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all border flex items-center justify-center gap-1.5 active:scale-95 ${selectedFuelType === fuel
+                          ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]"
+                          : "bg-reygas-dark text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
+                          }`}
                       >
                         <span>⛽ {fuel}</span>
                       </button>
@@ -1582,18 +1572,16 @@ export default function WorkshopOperationsPage() {
                     <button
                       type="button"
                       onClick={() => setRequisitionType("repuesto")}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                        requisitionType === "repuesto" ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${requisitionType === "repuesto" ? "bg-amber-500 text-black shadow" : "text-gray-400 hover:text-white"
+                        }`}
                     >
                       Inventario Almacén
                     </button>
                     <button
                       type="button"
                       onClick={() => setRequisitionType("manual")}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                        requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
+                        }`}
                     >
                       Repuesto Libre
                     </button>
@@ -1609,7 +1597,7 @@ export default function WorkshopOperationsPage() {
                           {filteredInventoryItems.length} de {inventoryItems.length} disponibles
                         </span>
                       </label>
-                      
+
                       {/* Search Bar */}
                       <div className="relative mb-2">
                         <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1660,11 +1648,10 @@ export default function WorkshopOperationsPage() {
                                   setSelectedInventoryId(item.id);
                                   setCustomItemPrice(item.unit_price || 0);
                                 }}
-                                className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between border ${
-                                  isSelected
-                                    ? "bg-amber-500/20 border-amber-400 text-white font-bold ring-1 ring-amber-400 shadow-md scale-[1.01]"
-                                    : "bg-reygas-surface/40 border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/15"
-                                }`}
+                                className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between border ${isSelected
+                                  ? "bg-amber-500/20 border-amber-400 text-white font-bold ring-1 ring-amber-400 shadow-md scale-[1.01]"
+                                  : "bg-reygas-surface/40 border-white/5 text-gray-300 hover:bg-white/5 hover:border-white/15"
+                                  }`}
                               >
                                 <div className="flex-1 min-w-0 pr-3">
                                   {/* Nombre del Producto */}
@@ -1672,7 +1659,7 @@ export default function WorkshopOperationsPage() {
                                     {isSelected && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 stroke-[3]" />}
                                     <span>{item.name}</span>
                                   </div>
-                                  
+
                                   {/* Marca y Serie */}
                                   <div className="text-[11px] text-gray-400 truncate flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-0.5">
                                     <span className="text-cyan-300 font-semibold flex items-center gap-1">
@@ -1688,11 +1675,10 @@ export default function WorkshopOperationsPage() {
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                                    hasStock
-                                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
-                                      : "bg-red-500/20 text-red-300 border-red-500/30"
-                                  }`}>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${hasStock
+                                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                    : "bg-red-500/20 text-red-300 border-red-500/30"
+                                    }`}>
                                     Stock: {item.stock_quantity}
                                   </span>
                                   <span className="text-xs font-black text-amber-400 font-mono">
@@ -1868,8 +1854,8 @@ export default function WorkshopOperationsPage() {
                   <span>
                     {pendingPartsCart.length > 0
                       ? `📦 Solicitar ${pendingPartsCart.length} Repuestos (Total S/ ${pendingPartsCart
-                          .reduce((acc, p) => acc + p.subtotal, 0)
-                          .toFixed(2)})`
+                        .reduce((acc, p) => acc + p.subtotal, 0)
+                        .toFixed(2)})`
                       : "+ Agregar Repuesto Directo a la Orden"}
                   </span>
                 </button>
@@ -1887,18 +1873,16 @@ export default function WorkshopOperationsPage() {
                     <button
                       type="button"
                       onClick={() => setRequisitionType("servicio")}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                        requisitionType === "servicio" ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-white"
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${requisitionType === "servicio" ? "bg-indigo-600 text-white shadow" : "text-gray-400 hover:text-white"
+                        }`}
                     >
                       Catálogo Servicios
                     </button>
                     <button
                       type="button"
                       onClick={() => setRequisitionType("manual")}
-                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                        requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
-                      }`}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${requisitionType === "manual" ? "bg-teal-600 text-white shadow" : "text-gray-400 hover:text-white"
+                        }`}
                     >
                       Servicio Libre
                     </button>
@@ -2241,11 +2225,10 @@ export default function WorkshopOperationsPage() {
                       key={val}
                       type="button"
                       onClick={() => setDiscountInput(val)}
-                      className={`py-1.5 px-2 rounded-lg text-xs font-mono font-bold border transition-all ${
-                        discountInput === val
-                          ? "bg-emerald-500 text-black border-white shadow-md font-black scale-105"
-                          : "bg-emerald-950/40 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/60"
-                      }`}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-mono font-bold border transition-all ${discountInput === val
+                        ? "bg-emerald-500 text-black border-white shadow-md font-black scale-105"
+                        : "bg-emerald-950/40 text-emerald-300 border-emerald-500/20 hover:bg-emerald-900/60"
+                        }`}
                     >
                       S/ {val}
                     </button>
@@ -2253,11 +2236,10 @@ export default function WorkshopOperationsPage() {
                   <button
                     type="button"
                     onClick={() => setDiscountInput(0)}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
-                      discountInput === 0
-                        ? "bg-gray-600 text-white border-white font-black"
-                        : "bg-gray-800 text-gray-300 border-white/10 hover:bg-gray-700"
-                    }`}
+                    className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${discountInput === 0
+                      ? "bg-gray-600 text-white border-white font-black"
+                      : "bg-gray-800 text-gray-300 border-white/10 hover:bg-gray-700"
+                      }`}
                   >
                     S/ 0 (Sin Desc.)
                   </button>

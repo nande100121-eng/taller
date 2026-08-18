@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { useAppStore, InventoryItem } from "@/lib/store/app-store";
 import { parseCSVRows } from "@/lib/csv-parser";
 import {
@@ -41,8 +42,15 @@ import {
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
-import { BarcodePrintModal } from "@/components/BarcodePrintModal";
-import { DailyWarehouseReportModal } from "@/components/DailyWarehouseReportModal";
+
+const BarcodePrintModal = dynamic(
+  () => import("@/components/BarcodePrintModal").then((m) => m.BarcodePrintModal),
+  { ssr: false }
+);
+const DailyWarehouseReportModal = dynamic(
+  () => import("@/components/DailyWarehouseReportModal").then((m) => m.DailyWarehouseReportModal),
+  { ssr: false }
+);
 
 export default function AlmacenPage() {
   const {
