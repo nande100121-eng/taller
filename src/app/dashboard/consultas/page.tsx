@@ -777,6 +777,20 @@ export default function ConsultasPage() {
                               <span className="text-[11px] text-gray-300">
                                 Atención registrada con saldo deudor pendiente de cobro.
                               </span>
+                              {(invoice?.debt_responsible || invoice?.debt_observation) && (
+                                <span className="flex flex-wrap items-center gap-2 mt-1">
+                                  {invoice?.debt_responsible && (
+                                    <span className="px-2 py-0.5 rounded-full bg-rose-950/60 border border-rose-500/40 text-rose-300 font-bold text-[10px] flex items-center gap-1">
+                                      👤 Responsable: {invoice.debt_responsible}
+                                    </span>
+                                  )}
+                                  {invoice?.debt_observation && (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-300 font-semibold text-[10px] flex items-center gap-1">
+                                      📝 {invoice.debt_observation}
+                                    </span>
+                                  )}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <span className="px-3 py-1 bg-amber-500/20 text-amber-300 font-extrabold text-xs rounded-lg border border-amber-500/40 shrink-0 animate-pulse self-start sm:self-auto">
@@ -1074,6 +1088,20 @@ export default function ConsultasPage() {
                                   </strong>
                                 </span>
                               </p>
+                              {(invoice?.debt_responsible || invoice?.debt_observation) && (
+                                <p className="flex flex-wrap items-center gap-1.5 pt-1">
+                                  {invoice?.debt_responsible && (
+                                    <span className="px-2 py-0.5 rounded-full bg-rose-950/60 border border-rose-500/40 text-rose-300 font-bold text-[10px]">
+                                      👤 Resp: {invoice.debt_responsible}
+                                    </span>
+                                  )}
+                                  {invoice?.debt_observation && (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-300 font-semibold text-[10px]">
+                                      📝 {invoice.debt_observation}
+                                    </span>
+                                  )}
+                                </p>
+                              )}
                             </div>
                           </div>
                         </div>

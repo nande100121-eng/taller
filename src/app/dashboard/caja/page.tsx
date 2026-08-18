@@ -132,6 +132,8 @@ export default function CajaPage() {
     customerDoc: string;
     customerName: string;
     customerAddress: string;
+    observation?: string;        // Observación del saldo pendiente / abono
+    responsible?: string;        // Responsable del saldo pendiente (FRANCO, JAIME, ...)
   } | null>(null);
 
   // Modal State for Manual / Direct Payment Confirmation (Registro Taller)
@@ -164,6 +166,8 @@ export default function CajaPage() {
     isSplitPayment?: boolean;
     paymentSplits?: PaymentSplit[];
     isSearchingRuc?: boolean;
+    debtObservation?: string;  // Observación del saldo pendiente (si condición CREDITO/PENDIENTE)
+    debtResponsible?: string;  // Responsable del saldo pendiente (si condición CREDITO/PENDIENTE)
   } | null>(null);
 
   // Modal State for Viewing / Printing Thermal Receipt
@@ -251,6 +255,38 @@ export default function CajaPage() {
 
     return list;
   }, [technicians, paymentModal?.paymentDestination, manualPaymentModal?.paymentDestination]);
+
+  // Personal habilitado como RESPONSABLE DEL SALDO PENDIENTE (flag is_debt_responsible + activo)
+  const debtResponsibles = React.useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+    (technicians || [])
+      .filter((t) => {
+        const isActive = t.is_active !== false;
+        const isDebtResp = t.is_debt_responsible === true || (t.is_debt_responsible as any) === "true" || (t.is_debt_responsible as any) === 1;
+        return isActive && isDebtResp;
+      })
+      .forEach((t) => {
+        const name = (t.full_name || "").trim().toUpperCase();
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          list.push(name);
+        }
+      });
+
+    // Preservar el responsable ya asignado en el modal abierto (aunque ya no esté en la lista)
+    const preserve = (current?: string) => {
+      const cur = (current || "").trim().toUpperCase();
+      if (cur && cur !== "NINGUNO" && !seen.has(cur)) {
+        seen.add(cur);
+        list.push(cur);
+      }
+    };
+    preserve(partialPaymentModal?.responsible);
+    preserve(manualPaymentModal?.debtResponsible);
+
+    return list;
+  }, [technicians, partialPaymentModal?.responsible, manualPaymentModal?.debtResponsible]);
 
   // Cross-order credit settlement index (matches earlier credits with subsequent debt cancellations)
   const creditSettlementMap = React.useMemo(() => {
@@ -977,6 +1013,8 @@ export default function CajaPage() {
       customerDoc: inv?.customer_doc || "",
       customerName: inv?.client_name || vehicle?.owner_name || "CLIENTES VARIOS",
       customerAddress: inv?.customer_address || "-",
+      observation: inv?.debt_observation || inv?.observations || wo.observations || "",
+      responsible: inv?.debt_responsible || "",
     });
   };
 
@@ -1046,6 +1084,8 @@ export default function CajaPage() {
       receiptNumber: assignedReceiptNum,
       receiptType: finalReceiptType,
       paymentBreakdown: paymentBreakdown,
+      observation: partialPaymentModal.observation,
+      responsible: partialPaymentModal.responsible,
     });
 
     notify("success", isFullyPaid
@@ -1100,6 +1140,8 @@ export default function CajaPage() {
         },
       ],
       isSearchingRuc: false,
+      debtObservation: "",
+      debtResponsible: "",
     });
   };
 
@@ -1233,6 +1275,8 @@ export default function CajaPage() {
       quinquennial_date: manualPaymentModal.quinquennialDate,
       chip_expiry_date: manualPaymentModal.chipExpiryDate,
       payment_breakdown: paymentBreakdown,
+      debt_observation: manualPaymentModal.debtObservation,
+      debt_responsible: manualPaymentModal.debtResponsible,
     });
 
     notify("success", `¡Cobro directo de ${plate} (S/ ${Number(manualPaymentModal.price).toFixed(2)}) registrado y sincronizado en la Tabla de Registro Taller!`);
@@ -2856,6 +2900,53 @@ export default function CajaPage() {
                   </div>
                 </div>
 
+                {/* Saldo Pendiente: Observación y Responsable (solo si condición CREDITO/PENDIENTE) */}
+                {manualPaymentModal.paymentCondition !== "PAGADO" && (
+                  <div className="p-4 bg-amber-950/40 rounded-2xl border border-amber-500/30 space-y-3 animate-fadeIn">
+                    <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Saldo Pendiente: Observación y Responsable</span>
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-gray-300 block mb-1.5 font-bold">
+                          Responsable del Saldo (Opcional)
+                        </label>
+                        <div className="relative">
+                          <User className="w-4 h-4 text-amber-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <select
+                            value={manualPaymentModal.debtResponsible || ""}
+                            onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, debtResponsible: e.target.value })}
+                            className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-amber-400"
+                          >
+                            <option value="">(Sin responsable asignado)</option>
+                            {debtResponsibles.map((name) => (
+                              <option key={name} value={name}>
+                                👤 {name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-gray-300 block mb-1.5 font-bold">
+                          Observación del Saldo (Opcional)
+                        </label>
+                        <div className="relative">
+                          <FileText className="w-4 h-4 text-amber-400 absolute left-3 top-3" />
+                          <textarea
+                            rows={2}
+                            placeholder="Ej: SE PROGRAMA A CANCELAR EL DIA 31/07"
+                            value={manualPaymentModal.debtObservation || ""}
+                            onChange={(e) => setManualPaymentModal({ ...manualPaymentModal, debtObservation: e.target.value })}
+                            className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-amber-400 resize-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Método y Destino de Pago (Pago Único o Pago Mixto / Parcial) */}
                 <div className="space-y-3 pt-1">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-2">
@@ -3561,6 +3652,54 @@ export default function CajaPage() {
                     })()}
                   </div>
                 )}
+              </div>
+
+              {/* Sección 4: Observación y Responsable del Saldo Pendiente */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>4. Observación y Responsable del Saldo Pendiente</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-gray-300 block mb-1.5 font-bold">
+                      Responsable del Saldo (Opcional)
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-rose-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <select
+                        value={partialPaymentModal.responsible || ""}
+                        onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, responsible: e.target.value })}
+                        className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-rose-400"
+                      >
+                        <option value="">(Sin responsable asignado)</option>
+                        {debtResponsibles.map((name) => (
+                          <option key={name} value={name}>
+                            👤 {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Solo aparece el personal con el flag "Responsable de Saldo" activado en Tabla Maestra de Personal.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-gray-300 block mb-1.5 font-bold">
+                      Observación del Saldo (Opcional)
+                    </label>
+                    <div className="relative">
+                      <FileText className="w-4 h-4 text-rose-400 absolute left-3 top-3" />
+                      <textarea
+                        rows={2}
+                        placeholder="Ej: SE PROGRAMA A CANCELAR EL DIA 31/07"
+                        value={partialPaymentModal.observation || ""}
+                        onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, observation: e.target.value })}
+                        className="w-full pl-9 pr-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs text-white focus:border-rose-400 resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Action Buttons */}

@@ -37,6 +37,7 @@ import {
   Wallet,
   TrendingDown,
   Receipt,
+  User,
 } from "lucide-react";
 
 // Universal Formatting Helpers
@@ -81,7 +82,9 @@ export interface PendingPlateInvoiceDetail {
   paid: number;
   balance: number;
   description: string;
-  payments: Array<{ date: string; amount: number; method: string; receipt_number?: string }>;
+  debt_observation?: string;
+  debt_responsible?: string;
+  payments: Array<{ date: string; amount: number; method: string; receipt_number?: string; observation?: string; responsible?: string }>;
 }
 
 // Agrupación de cuentas por cobrar por placa
@@ -682,11 +685,15 @@ export function WorkshopDailyReportView({
         paid: Math.min(grand, paid),
         balance,
         description: inv.observations || inv.notes || (inv.receipt_number ? `Factura ${inv.receipt_number}` : "Factura pendiente"),
+        debt_observation: inv.debt_observation || "",
+        debt_responsible: inv.debt_responsible || "",
         payments: history.map((p: any) => ({
           date: p.date || "",
           amount: Number(p.amount) || 0,
           method: p.method || "Efectivo",
           receipt_number: p.receipt_number,
+          observation: p.observation || "",
+          responsible: p.responsible || "",
         })),
       });
       byPlate.set(plate, entry);
@@ -1969,6 +1976,22 @@ export function WorkshopDailyReportView({
                                   </span>
                                 </div>
                                 <div className="mt-2 text-[11px] font-sans text-gray-300">{inv.description}</div>
+                                {(inv.debt_observation || inv.debt_responsible) && (
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-sans">
+                                    {inv.debt_responsible && (
+                                      <span className="px-2 py-0.5 rounded-full bg-rose-950/60 border border-rose-500/40 text-rose-300 font-bold flex items-center gap-1">
+                                        <User className="w-3 h-3" />
+                                        Resp: {inv.debt_responsible}
+                                      </span>
+                                    )}
+                                    {inv.debt_observation && (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-300 font-semibold flex items-center gap-1">
+                                        <FileText className="w-3 h-3" />
+                                        {inv.debt_observation}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-mono">
                                   <div className="rounded-lg bg-white/5 px-2 py-1.5">
                                     <span className="block text-[9px] uppercase text-gray-400">Total</span>
@@ -1992,6 +2015,8 @@ export function WorkshopDailyReportView({
                                           <span className="text-gray-300">
                                             {p.date ? formatPeruDate(p.date.slice(0, 10)) : "—"} • {p.method}
                                             {p.receipt_number ? ` (${p.receipt_number})` : ""}
+                                            {p.responsible ? ` • 👤 ${p.responsible}` : ""}
+                                            {p.observation ? ` • 📝 ${p.observation}` : ""}
                                           </span>
                                           <span className="font-black text-emerald-300">S/ {formatPEN(p.amount)}</span>
                                         </div>

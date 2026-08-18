@@ -209,6 +209,7 @@ export default function AdminTablesPage() {
     phone: "",
     custom_password: "",
     can_receive_payment: false,
+    is_debt_responsible: false,
   });
 
   // Technician Password Visibility Map on Cards
@@ -230,6 +231,7 @@ export default function AdminTablesPage() {
     username: "",
     password: "",
     can_receive_payment: false,
+    is_debt_responsible: false,
     is_active: true,
   });
 
@@ -257,6 +259,7 @@ export default function AdminTablesPage() {
       username: tech.username || defUser,
       password: tech.password || defUser,
       can_receive_payment: !!tech.can_receive_payment,
+      is_debt_responsible: !!tech.is_debt_responsible,
       is_active: tech.is_active !== false,
     });
     setShowEditPassword(false);
@@ -279,6 +282,7 @@ export default function AdminTablesPage() {
       username: techEditForm.username.trim() || defUser,
       password: techEditForm.password.trim() || defUser,
       can_receive_payment: techEditForm.can_receive_payment,
+      is_debt_responsible: techEditForm.is_debt_responsible,
       is_active: techEditForm.is_active,
     });
     setTechEditModalOpen(false);
@@ -539,6 +543,7 @@ export default function AdminTablesPage() {
       password: techForm.custom_password.trim() || defUser,
       is_active: true,
       can_receive_payment: techForm.can_receive_payment,
+      is_debt_responsible: techForm.is_debt_responsible,
     });
     setTechForm({
       full_name: "",
@@ -547,6 +552,7 @@ export default function AdminTablesPage() {
       phone: "",
       custom_password: "",
       can_receive_payment: false,
+      is_debt_responsible: false,
     });
   };
 
@@ -1448,6 +1454,16 @@ export default function AdminTablesPage() {
                 <span>💳 Habilitado como Destino de Cobro (Caja / Reportes)</span>
               </label>
 
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-bold cursor-pointer hover:bg-rose-950/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={techForm.is_debt_responsible}
+                  onChange={(e) => setTechForm({ ...techForm, is_debt_responsible: e.target.checked })}
+                  className="rounded border-rose-500 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                />
+                <span>🏦 Responsable de Saldo Pendiente (aparece en selectores de deuda)</span>
+              </label>
+
               <button
                 type="submit"
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95"
@@ -1538,6 +1554,18 @@ export default function AdminTablesPage() {
                             className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500"
                           />
                           <span>💳 Cobro</span>
+                        </label>
+
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-bold cursor-pointer hover:bg-rose-950/70 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!t.is_debt_responsible}
+                            onChange={(e) => {
+                              updateTechnician(t.id, { is_debt_responsible: e.target.checked });
+                            }}
+                            className="rounded border-rose-500 text-rose-600 focus:ring-rose-500"
+                          />
+                          <span>🏦 Resp. Saldo</span>
                         </label>
 
                         <button
@@ -2346,6 +2374,16 @@ export default function AdminTablesPage() {
                     className="rounded border-emerald-500 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
                   <span>💳 Habilitar Cobro</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 text-xs font-bold cursor-pointer hover:bg-rose-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={!!techEditForm.is_debt_responsible}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, is_debt_responsible: e.target.checked })}
+                    className="rounded border-rose-500 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                  />
+                  <span>🏦 Responsable de Saldo Pendiente</span>
                 </label>
 
                 <label className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-indigo-200 text-xs font-bold cursor-pointer hover:bg-indigo-950/60 transition-colors">

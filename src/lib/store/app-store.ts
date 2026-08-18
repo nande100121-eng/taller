@@ -273,6 +273,7 @@ export interface Technician {
   is_active: boolean;
   allowed_tabs?: string[]; // Allowed dashboard stations / routes for this user
   can_receive_payment?: boolean; // Habilitado como destino de pago (personal / empresa)
+  is_debt_responsible?: boolean; // Habilitado como RESPONSABLE del saldo pendiente (aparece en selectores de deuda)
 }
 
 export interface Vehicle {
@@ -412,6 +413,8 @@ export interface PaymentRecord {
   receipt_number?: string; // N° de Ticket/Boleta/Factura del abono
   receipt_type?: string;   // Ticket | Boleta | Factura | Sin Comprobante
   reference?: string;      // Nota / desglose del pago
+  observation?: string;    // Observación del abono (ej: "SE PROGRAMA A CANCELAR EL DIA 31/07")
+  responsible?: string;    // Responsable del saldo pendiente (ej: FRANCO, JAIME)
 }
 
 export interface Invoice {
@@ -440,6 +443,8 @@ export interface Invoice {
   observations?: string; // OBSERVACIONES DEL COMPROBANTE
   payment_breakdown?: PaymentSplit[]; // Desglose de pagos parciales / métodos mixtos
   payment_history?: PaymentRecord[]; // Historial cronológico de pagos por fecha (abonos parciales)
+  debt_observation?: string; // Observación del saldo pendiente actual (ej: "SE PROGRAMA A CANCELAR EL DIA 15/08")
+  debt_responsible?: string; // Responsable del saldo pendiente actual (ej: FRANCO, JAIME)
   credit_note_number?: string; // N° de Nota de Crédito emitida si se anula Factura
 }
 
@@ -648,6 +653,8 @@ interface AppState {
     quinquennial_date?: string;
     chip_expiry_date?: string;
     payment_breakdown?: PaymentSplit[];
+    debt_observation?: string;   // Observación del saldo pendiente (cuando queda crédito)
+    debt_responsible?: string;   // Responsable del saldo pendiente (cuando queda crédito)
   }) => { workOrder: WorkOrder; invoice: Invoice };
   registerInvoicePayment: (params: {
     invoiceId?: string;
@@ -659,6 +666,8 @@ interface AppState {
     receiptType?: string;
     paymentBreakdown?: PaymentSplit[];
     paidAt?: string;                   // Fecha del abono (default: ahora)
+    observation?: string;              // Observación del abono / saldo pendiente
+    responsible?: string;              // Responsable del saldo pendiente
   }) => void;
   importBulkWorkshopData: (data: { vehicles: Vehicle[]; workOrders: WorkOrder[]; invoices: Invoice[] }) => Promise<{ success: boolean; errorMsg?: string }>;
   mergeWorkshopRecords: (data: { vehicles?: Vehicle[]; workOrders?: WorkOrder[]; invoices?: Invoice[] }) => void;
@@ -2611,6 +2620,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       discounts: data.discounts || "0",
       credit_amount: Number(data.credit_amount) || 0,
       payment_breakdown: data.payment_breakdown,
+      debt_observation: data.debt_observation,
+      debt_responsible: data.debt_responsible,
       issued_at: entryTime,
       paid_at: data.payment_condition === "PENDIENTE" ? undefined : entryTime,
     };
@@ -2646,6 +2657,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
     receiptType,
     paymentBreakdown,
     paidAt,
+    observation,
+    responsible,
   }) => {
     const nowISO = paidAt || new Date().toISOString();
     set((state) => {
@@ -2672,6 +2685,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
         destination: destStr,
         receipt_number: recNum || undefined,
         receipt_type: recType || undefined,
+        observation: observation || undefined,
+        responsible: responsible || undefined,
       };
 
       let updatedInvoices = [...state.invoices];
@@ -2698,6 +2713,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
           receipt_type: recType || targetInvoice.receipt_type,
           payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
           payment_history: history,
+          debt_observation: isFullyPaid ? undefined : (observation !== undefined ? observation : targetInvoice.debt_observation),
+          debt_responsible: isFullyPaid ? undefined : (responsible !== undefined ? responsible : targetInvoice.debt_responsible),
           paid_at: nowISO,
         };
         saveSupabaseInvoice(updated);
@@ -2731,6 +2748,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
           receipt_type: recType,
           payment_breakdown: paymentBreakdown,
           payment_history: [newRecord],
+          debt_observation: isFullyPaid ? undefined : observation,
+          debt_responsible: isFullyPaid ? undefined : responsible,
           issued_at: targetOrder.entry_time || nowISO,
           paid_at: nowISO,
         };

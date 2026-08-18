@@ -107,6 +107,7 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
       const permsPayload = {
         allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
         can_receive_payment: !!tech.can_receive_payment,
+        is_debt_responsible: !!tech.is_debt_responsible,
         email: tech.email || "",
         username: tech.username || "",
         password: tech.password || "",
@@ -124,6 +125,8 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
           phone: tech.phone,
           is_active: tech.is_active,
           allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+          can_receive_payment: !!tech.can_receive_payment,
+          is_debt_responsible: !!tech.is_debt_responsible,
         },
         { onConflict: "id" }
       );
@@ -134,6 +137,8 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
           phone: tech.phone,
           is_active: tech.is_active,
           allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
+          can_receive_payment: !!tech.can_receive_payment,
+          is_debt_responsible: !!tech.is_debt_responsible,
         });
       }
     }
@@ -176,6 +181,7 @@ export async function saveSupabaseTechnician(
       is_active: tech.is_active,
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
+      is_debt_responsible: !!tech.is_debt_responsible,
     };
     const { error } = await supabase.from("technicians").upsert(payload, { onConflict: "id" });
     if (error) {
@@ -186,6 +192,7 @@ export async function saveSupabaseTechnician(
     const permsPayload = {
       allowed_tabs: Array.isArray(tech.allowed_tabs) ? tech.allowed_tabs : [],
       can_receive_payment: !!tech.can_receive_payment,
+      is_debt_responsible: !!tech.is_debt_responsible,
       email: tech.email || "",
       username: tech.username || "",
       password: tech.password || "",
@@ -1137,13 +1144,13 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackTechs: any[] = [];
 
     if (contentRes.data) {
@@ -1157,6 +1164,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
               permsNameMap[techName] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1173,6 +1181,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
               permsMap[techId] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1195,6 +1204,8 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
         const fbTech = fallbackTechs.find((f: any) => f.id === t.id || (f.full_name && f.full_name.trim().toLowerCase() === normName));
         const isDbPaymentTrue = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
         const isDbPaymentFalse = t.can_receive_payment === false || (t.can_receive_payment as any) === "false" || (t.can_receive_payment as any) === 0;
+        const isDbDebtTrue = t.is_debt_responsible === true || (t.is_debt_responsible as any) === "true" || (t.is_debt_responsible as any) === 1;
+        const isDbDebtFalse = t.is_debt_responsible === false || (t.is_debt_responsible as any) === "false" || (t.is_debt_responsible as any) === 0;
 
         return {
           ...t,
@@ -1209,6 +1220,13 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
               : (perm?.can_receive_payment !== undefined
                 ? !!perm.can_receive_payment
                 : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
+          is_debt_responsible: isDbDebtTrue
+            ? true
+            : isDbDebtFalse
+              ? false
+              : (perm?.is_debt_responsible !== undefined
+                ? !!perm.is_debt_responsible
+                : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {
@@ -1354,7 +1372,7 @@ export async function fetchSupabaseErpData() {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
       fetchAllSupabaseTable("inventory_items"),
       fetchAllSupabaseTable("work_orders"),
@@ -1373,8 +1391,8 @@ export async function fetchSupabaseErpData() {
     ]);
 
     // Build permissions, certifications, and schedule records from site_content if any
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackApps: any[] = [];
@@ -1399,6 +1417,7 @@ export async function fetchSupabaseErpData() {
               permsNameMap[techName] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1415,6 +1434,7 @@ export async function fetchSupabaseErpData() {
               permsMap[techId] = {
                 allowed_tabs: Array.isArray(rawVal.allowed_tabs) ? rawVal.allowed_tabs : undefined,
                 can_receive_payment: rawVal.can_receive_payment !== undefined ? !!rawVal.can_receive_payment : undefined,
+                is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 email: rawVal.email || "",
                 username: rawVal.username || "",
                 password: rawVal.password || "",
@@ -1755,6 +1775,8 @@ export async function fetchSupabaseErpData() {
 
         const isDbPaymentTrue = t.can_receive_payment === true || (t.can_receive_payment as any) === "true" || (t.can_receive_payment as any) === 1;
         const isDbPaymentFalse = t.can_receive_payment === false || (t.can_receive_payment as any) === "false" || (t.can_receive_payment as any) === 0;
+        const isDbDebtTrue = t.is_debt_responsible === true || (t.is_debt_responsible as any) === "true" || (t.is_debt_responsible as any) === 1;
+        const isDbDebtFalse = t.is_debt_responsible === false || (t.is_debt_responsible as any) === "false" || (t.is_debt_responsible as any) === 0;
 
         return {
           ...t,
@@ -1769,6 +1791,13 @@ export async function fetchSupabaseErpData() {
               : (perm?.can_receive_payment !== undefined
                 ? !!perm.can_receive_payment
                 : (fbTech?.can_receive_payment !== undefined ? !!fbTech.can_receive_payment : false)),
+          is_debt_responsible: isDbDebtTrue
+            ? true
+            : isDbDebtFalse
+              ? false
+              : (perm?.is_debt_responsible !== undefined
+                ? !!perm.is_debt_responsible
+                : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
         };
       });
     } else if (fallbackTechs.length > 0) {
@@ -1954,6 +1983,8 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       payment_condition: inv.payment_condition || null,
       payment_destination: inv.payment_destination || null,
       observations: inv.observations || null,
+      debt_observation: inv.debt_observation || null,
+      debt_responsible: inv.debt_responsible || null,
     };
 
     const { error } = await supabase.from("invoices").upsert(payload);
