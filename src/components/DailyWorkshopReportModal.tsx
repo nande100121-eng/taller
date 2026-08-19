@@ -1717,19 +1717,6 @@ export function WorkshopDailyReportView({
                     </td>
                   </tr>
 
-                  {/* 3. Row Total Pendiente */}
-                  <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
-                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                      ⏳ TOTAL PENDIENTE
-                    </td>
-                    <td
-                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
-                      colSpan={electronicMatrix.transfStaff.length}
-                    >
-                      S/ {formatPEN(totals.totalPendiente)}
-                    </td>
-                  </tr>
-
                   {/* 4. Row Total Culqi / Tarjeta */}
                   <tr className="bg-amber-950/70 text-amber-300 font-extrabold text-xs border-t border-amber-500/20">
                     <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
@@ -1745,7 +1732,7 @@ export function WorkshopDailyReportView({
 
                   {/* 5. Row TOTAL GENERAL DEL DÍA (pertenece a la tabla YAPES & TRANSFERENCIAS) */}
                   {(() => {
-                    const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.cobradoCulqi;
                     const isC = Math.abs(g - totals.totalFacturado) < 0.05;
                     return (
                       <tr className={`text-xs font-black border-t-2 ${isC
@@ -1794,7 +1781,7 @@ export function WorkshopDailyReportView({
                   <span>ARQUEO GENERAL DEL DÍA</span>
                 </span>
                 {(() => {
-                  const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                  const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.cobradoCulqi;
                   const isC = Math.abs(g - totals.totalFacturado) < 0.05;
                   return (
                     <span className={`px-2 py-0.5 rounded text-[10px] font-black ${isC ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
