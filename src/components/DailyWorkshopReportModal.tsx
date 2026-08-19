@@ -121,6 +121,8 @@ export function WorkshopDailyReportView({
   // Paneles colapsables del informe: TODO lo colapsable nace COLAPSADO por defecto
   const [showYapesPanel, setShowYapesPanel] = useState(false);
   const [showConceptPanel, setShowConceptPanel] = useState(false);
+  // Card expandida en la pestaña PORTERÍA (vehículos ingresados del día)
+  const [expandedPorteriaVehicle, setExpandedPorteriaVehicle] = useState<string | null>(null);
 
   // Sync activeTab when component mounts or initialTab changes
   useEffect(() => {
@@ -2832,7 +2834,7 @@ export function WorkshopDailyReportView({
         {/* ========================================================================= */}
         {activeTab === "porteria" && (
           <div className="space-y-4">
-            <div className="overflow-x-auto rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+            <div className="rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
               <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
                 <div className="flex items-center gap-1.5">
                   <ShieldAlert className="w-4 h-4 text-rose-300" />
@@ -2847,49 +2849,79 @@ export function WorkshopDailyReportView({
                   No se registraron ingresos de vehículos para esta fecha.
                 </div>
               ) : (
-                <table className="w-full text-xs text-left border-collapse font-mono">
-                  <thead>
-                    <tr className="bg-[#fecdd3] text-rose-950 font-extrabold uppercase text-[10px] border-b border-rose-300">
-                      <th className="py-1.5 px-2.5">N°</th>
-                      <th className="py-1.5 px-2 text-center">HORA INGRESO</th>
-                      <th className="py-1.5 px-2">PLACA</th>
-                      <th className="py-1.5 px-2">CLIENTE</th>
-                      <th className="py-1.5 px-2">SERVICIO / MOTIVO</th>
-                      <th className="py-1.5 px-2 text-center">TÉCNICO</th>
-                      <th className="py-1.5 px-2 text-center">ESTADO</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 text-[11px]">
-                    {dayVehicles.map((v: any, i: number) => (
-                      <tr key={v.id} className="hover:bg-white/5 text-gray-200">
-                        <td className="py-2 px-2.5 text-center text-gray-400 font-bold">{i + 1}</td>
-                        <td className="py-2 px-2 text-center font-black text-rose-300">{v.entryTime ? v.entryTime.slice(11, 16) : "—"} hrs</td>
-                        <td className="py-2 px-2 font-black text-white">{v.plate}</td>
-                        <td className="py-2 px-2 text-gray-300 truncate max-w-[150px]">{v.client || "—"}</td>
-                        <td className="py-2 px-2 text-gray-300 truncate max-w-[220px]" title={v.service}>{v.service || "—"}</td>
-                        <td className="py-2 px-2 text-center text-indigo-300">{v.tech || "—"}</td>
-                        <td className="py-2 px-2 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${v.status === "finalizado" || v.status === "entregado" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
-                            {STATUS_LABEL[v.status] || v.status || "—"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-[#e11d48] text-white font-black text-xs">
-                      <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={4}>
-                        TOTAL VEHÍCULOS INGRESADOS
-                      </td>
-                      <td className="py-2 px-2 text-right font-mono font-black text-sm">{dayVehicles.length}</td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                </table>
+                <div className="p-3 space-y-2.5">
+                  {dayVehicles.map((v: any, i: number) => {
+                    const isOpen = expandedPorteriaVehicle === v.id;
+                    return (
+                      <div
+                        key={v.id}
+                        className="overflow-hidden rounded-2xl border border-rose-500/30 bg-black/40 print:border-black print:rounded-none"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPorteriaVehicle(isOpen ? null : v.id)}
+                          className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-gradient-to-r from-rose-950/50 to-black/60 hover:bg-rose-950/70 transition-colors print:bg-gray-100 print:text-black"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 font-black text-sm font-mono">
+                              {v.plate}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold text-white truncate print:text-black">
+                                {v.entryTime ? `${v.entryTime.slice(11, 16)} hrs · ` : ""}{v.client || "Cliente no registrado"}
+                              </div>
+                              <div className="text-[10px] text-gray-400 font-mono truncate">
+                                {v.service || "Sin servicio asignado"}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${v.status === "finalizado" || v.status === "entregado" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                              {STATUS_LABEL[v.status] || v.status || "—"}
+                            </span>
+                            {isOpen ? <ChevronUp className="w-4 h-4 text-rose-300" /> : <ChevronDown className="w-4 h-4 text-rose-300" />}
+                          </div>
+                        </button>
+                        {isOpen && (
+                          <div className="border-t border-rose-500/20 p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px] font-mono">
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">N° Ingreso</span>
+                              <span className="font-black text-white print:text-black">#{i + 1}</span>
+                            </div>
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">Hora Ingreso</span>
+                              <span className="font-black text-rose-300">{v.entryTime ? v.entryTime.slice(11, 16) : "—"} hrs</span>
+                            </div>
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">Cliente</span>
+                              <span className="font-black text-white print:text-black">{v.client || "—"}</span>
+                            </div>
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">Técnico</span>
+                              <span className="font-black text-indigo-300">{v.tech || "—"}</span>
+                            </div>
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 col-span-2 sm:col-span-1 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">Estado</span>
+                              <span className="font-black text-amber-300">{STATUS_LABEL[v.status] || v.status || "—"}</span>
+                            </div>
+                            <div className="rounded-lg bg-white/5 px-2.5 py-2 col-span-2 print:bg-gray-50">
+                              <span className="block text-[9px] uppercase text-gray-400">Servicio / Motivo</span>
+                              <span className="font-sans text-gray-200 print:text-black">{v.service || "—"}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="rounded-xl bg-gradient-to-r from-rose-700 to-red-800 text-white px-4 py-2.5 flex items-center justify-between font-black text-xs uppercase tracking-wider print:bg-gray-100 print:text-black">
+                    <span>TOTAL VEHÍCULOS INGRESADOS</span>
+                    <span className="font-mono font-black text-sm">{dayVehicles.length}</span>
+                  </div>
+                </div>
               )}
             </div>
             <p className="text-[10px] text-gray-500 font-mono">
-              Registro de ingreso vehicular del día seleccionado (Portería & Patio): placa, hora de ingreso, cliente, servicio asignado y estado en taller.
+              Registro de ingreso vehicular del día seleccionado (Portería & Patio). Haz clic en cada card para ver el detalle (todas colapsadas por defecto).
             </p>
           </div>
         )}
