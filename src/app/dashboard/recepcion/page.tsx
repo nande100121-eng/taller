@@ -481,6 +481,8 @@ export default function RecepcionPage() {
   const [plateSearch, setPlateSearch] = useState("");
   const deferredPlateSearch = React.useDeferredValue(plateSearch);
   const [quickFilter, setQuickFilter] = useState<"todas" | "hoy" | "semana" | "pendientes" | "confirmadas" | "completadas" | "canceladas">("todas");
+  // Filtro por FECHA: al elegir una fecha se muestran solo las cards de citas de ese día.
+  const [citasDateFilter, setCitasDateFilter] = useState<string>("");
   // Cards de citas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
   const [expandedAppCards, setExpandedAppCards] = useState<Set<string>>(new Set());
   const toggleAppCard = (id: string) => {
@@ -685,6 +687,10 @@ export default function RecepcionPage() {
     const today = getPeruDateString();
     const weekStart = (() => { const d = new Date(today + "T12:00:00"); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10); })();
     const weekEnd = (() => { const d = new Date(weekStart + "T12:00:00"); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
+    // Filtro por FECHA seleccionada: muestra SOLO las cards de citas de ese día
+    if (citasDateFilter) {
+      list = list.filter((a) => (a.scheduled_date || "").slice(0, 10) === citasDateFilter);
+    }
     switch (quickFilter) {
       case "hoy":
         list = list.filter((a) => (a.scheduled_date || "").slice(0, 10) === today);
@@ -709,7 +715,7 @@ export default function RecepcionPage() {
     }
     // Ordenar por fecha/hora ascendente
     return [...list].sort((a, b) => String(a.scheduled_date || "").localeCompare(String(b.scheduled_date || "")));
-  }, [appointments, deferredPlateSearch, quickFilter]);
+  }, [appointments, deferredPlateSearch, quickFilter, citasDateFilter]);
 
   // ===== Informe Diario de Citas / Programación =====
   const dailyAppointments = React.useMemo(() => {
@@ -923,6 +929,36 @@ export default function RecepcionPage() {
                 );
               })}
             </div>
+
+            {/* Filtro por FECHA: muestra las cards de citas del día seleccionado */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-gray-400 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                  Filtrar por fecha:
+                </span>
+                <input
+                  type="date"
+                  value={citasDateFilter}
+                  onChange={(e) => setCitasDateFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg bg-reygas-dark border border-white/10 text-xs text-white font-mono focus:border-blue-400"
+                />
+                {citasDateFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setCitasDateFilter("")}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-blue-600 text-white border border-blue-400 shadow-md shadow-blue-600/30 flex items-center gap-1"
+                  >
+                    📅 {citasDateFilter.slice(8)}/{citasDateFilter.slice(5, 7)}/{citasDateFilter.slice(0, 4)} ✕
+                  </button>
+                )}
+              </div>
+              <span className="text-[10px] text-gray-500">
+                {citasDateFilter
+                  ? `Mostrando solo las cards de citas del día ${citasDateFilter.slice(8)}/${citasDateFilter.slice(5, 7)}/${citasDateFilter.slice(0, 4)} (${filteredAppointments.length}).`
+                  : "Elige una fecha para ver solo las cards de ese día."}
+              </span>
+            </div>
           </div>
 
           <div className="glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
@@ -945,7 +981,7 @@ export default function RecepcionPage() {
             ) : filteredAppointments.length === 0 ? (
               <div className="p-10 text-center text-gray-500 space-y-2">
                 <Search className="w-10 h-10 mx-auto text-gray-600" />
-                <p className="text-sm">No hay citas que coincidan con el filtro de placa / estado.</p>
+                <p className="text-sm">No hay citas que coincidan con el filtro de placa / estado / fecha.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
