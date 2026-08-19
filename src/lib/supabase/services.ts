@@ -402,12 +402,25 @@ export async function clearSupabaseInventory() {
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   try {
     markLocalMutation("workOrders");
-    let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").trim();
+    let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").replace(/\[ERP_META\]:[^\n]+/g, "").trim();
     if (order.allow_modifications) {
       diagText = `${diagText}\n[ALLOW_MOD]: true`.trim();
     }
     if (order.observations && !diagText.includes("[OBSERVACIONES]:")) {
       diagText = `${diagText}\n[OBSERVACIONES]: ${order.observations}`.trim();
+    }
+    // Respaldo [ERP_META] con las fechas (misma técnica que la importación masiva):
+    // la reconstrucción recupera quinquenal/chip desde aquí aunque una tablet con
+    // datos viejos sobrescriba las columnas -> las fechas NUNCA se pierden.
+    const meta = {
+      q_date: order.quinquennial_date || "",
+      c_date: order.chip_expiry_date || "",
+      v_type: order.vehicle_type || "",
+      m_serv: order.general_maintenance_service || "",
+      sp_serv: order.spare_parts_services || "",
+    };
+    if (Object.values(meta).some((v) => v !== "")) {
+      diagText = `${diagText}\n[ERP_META]:${JSON.stringify(meta)}`.trim();
     }
 
     const payload: any = {
@@ -426,13 +439,16 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       vehicle_type: order.vehicle_type || null,
       general_maintenance_service: order.general_maintenance_service || null,
       spare_parts_services: order.spare_parts_services || null,
-      discount_amount: order.discount_amount || 0,
       requires_certification: !!order.requires_certification,
       certification_type: order.certification_type || null,
       certification_price: order.certification_price || 0,
       allow_modifications: !!order.allow_modifications,
     };
 
+    // NOTA: discount_amount NO es una columna de work_orders (quedó en el snapshot
+    // wo_mod_<id>). Incluirla hacía FALLAR el upsert principal (PGRST204) y el fallback
+    // que se usaba después NO guardaba quinquennial_date/chip_expiry_date -> las fechas
+    // de Infogas no persistían en la nube. Por eso se retiró del payload.
     const { error } = await supabase.from("work_orders").upsert(payload);
     if (error) {
       console.warn("Supabase work order upsert notice, trying core columns fallback:", error.message);
@@ -447,6 +463,16 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
         entry_time: order.entry_time || new Date().toISOString(),
         completion_time: order.completion_time || null,
         items: typeof order.items === "string" ? order.items : JSON.stringify(order.items || []),
+        // El fallback también preserva TODAS las columnas extra (nunca perder fechas/cert.)
+        quinquennial_date: order.quinquennial_date || null,
+        chip_expiry_date: order.chip_expiry_date || null,
+        vehicle_type: order.vehicle_type || null,
+        general_maintenance_service: order.general_maintenance_service || null,
+        spare_parts_services: order.spare_parts_services || null,
+        requires_certification: !!order.requires_certification,
+        certification_type: order.certification_type || null,
+        certification_price: order.certification_price || 0,
+        allow_modifications: !!order.allow_modifications,
       });
     }
 
