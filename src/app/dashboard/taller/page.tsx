@@ -15,6 +15,7 @@ import {
   X,
   Cpu,
   Search,
+  Loader2,
   Check,
   ChevronRight,
   User,
@@ -98,6 +99,39 @@ export default function WorkshopOperationsPage() {
   const [editEntryOrder, setEditEntryOrder] = useState<{ id: string; plate: string; entryTime: string } | null>(null);
   const [editEntryDate, setEditEntryDate] = useState<string>("");
   const [editEntryTime, setEditEntryTime] = useState<string>("");
+
+  // Consulta a INFOGAS (chip/quinquenal por placa) vía proxy /api/infogas
+  const [consultInfogasPlate, setConsultInfogasPlate] = useState<string | null>(null);
+  const handleConsultInfogas = async (wo: any) => {
+    const plate = (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!plate) {
+      notify("warning", "La orden no tiene placa para consultar.");
+      return;
+    }
+    setConsultInfogasPlate(plate);
+    try {
+      const res = await fetch(`/api/infogas?plate=${encodeURIComponent(plate)}`);
+      const data = await res.json();
+      setConsultInfogasPlate(null);
+      if (data?.status === "Success" && data.data) {
+        const d = data.data;
+        const qDate = d.ProximoVencCilindro ? String(d.ProximoVencCilindro).slice(0, 10) : "";
+        const cDate = d.ProximaRevAnual ? String(d.ProximaRevAnual).slice(0, 10) : "";
+        const updates: any = {};
+        if (qDate) updates.quinquennial_date = qDate;
+        if (cDate) updates.chip_expiry_date = cDate;
+        if (Object.keys(updates).length > 0) {
+          updateWorkOrder(wo.id, updates);
+        }
+        notify("success", `Infogas ${wo.vehicle_plate}: Quinquenal ${qDate || "—"} · Chip ${cDate || "—"}`);
+      } else {
+        notify("warning", data?.message || `La placa ${wo.vehicle_plate} no fue encontrada en Infogas.`);
+      }
+    } catch (err) {
+      setConsultInfogasPlate(null);
+      notify("error", "No se pudo conectar con el consultor de Infogas.");
+    }
+  };
 
   const handleOpenEditEntry = (wo: any) => {
     const et = wo.entry_time || "";
@@ -1398,13 +1432,30 @@ export default function WorkshopOperationsPage() {
                               <span>Fechas de Inspección (Quinquenal / Chip)</span>
                             </span>
                             {!isLocked && (
-                              <button
-                                onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
-                                className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                <span>Registrar / Editar</span>
-                              </button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {/* Consultar Infogas: autocompleta Quinquenal y Chip según la placa */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleConsultInfogas(wo)}
+                                  disabled={consultInfogasPlate === (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
+                                  className="px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                                  title="Consultar chip/quinquenal en Infogas por placa y autocompletar"
+                                >
+                                  {consultInfogasPlate === (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : <Search className="w-3 h-3" />}
+                                  <span>{consultInfogasPlate === (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") ? "Consultando..." : "Consultar Infogas"}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
+                                  className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Registrar / Editar</span>
+                                </button>
+                              </div>
                             )}
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1435,14 +1486,6 @@ export default function WorkshopOperationsPage() {
                             >
                               <Cpu className="w-3.5 h-3.5" />
                               <span>Diagnóstico</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
-                              className="py-2 px-2 bg-purple-950/70 hover:bg-purple-900/80 text-purple-300 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-400/40 transition-colors shadow"
-                            >
-                              <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                              <span>Fechas Chip/5ta</span>
                             </button>
 
                             <button
