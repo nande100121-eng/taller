@@ -272,8 +272,23 @@ export default function RecepcionPage() {
   // Personal autorizado como "Responsable de la Atención" (permiso activado en Tabla Maestra)
   const attentionResponsibles = technicians.filter((t) => t.is_active !== false && !!t.is_attention_responsible);
 
-  // Cupos máximos de vehículos por bloque horario (configurable en Configuración; por defecto 3)
+  // Cupos máximos de vehículos por bloque horario para SERVICIOS
+  // (configurable en Configuración; por defecto 3). CERTIFICACIONES: fijo 3/hora.
   const maxVehiclesPerSlot = Math.max(1, Number(correlativeConfig?.maxVehiclesPerSlot) || 3);
+  const MAX_CERTIFICACIONES_PER_SLOT = 3;
+
+  // ¿El tipo de servicio es una CERTIFICACIÓN? (Anual GNV/GLP, Quinquenal, Chip, Hidrostática)
+  const isCertificationService = (st: string) => /certific|anual|quinquenal|chip|cilindro|hidrost/i.test(st || "");
+
+  // Pestaña de disponibilidad del modal NUEVA CITA: "servicio" | "certificacion"
+  const [availTab, setAvailTab] = useState<"servicio" | "certificacion">("servicio");
+  // Al elegir el Tipo de Servicio se activa AUTOMÁTICAMENTE la disponibilidad correspondiente
+  React.useEffect(() => {
+    setAvailTab(isCertificationService(newForm.service_type) ? "certificacion" : "servicio");
+  }, [newForm.service_type]);
+
+  // Pestaña de disponibilidad del modal DISPONIBILIDAD GENERAL (Servicios por defecto)
+  const [availModalTipo, setAvailModalTipo] = useState<"servicio" | "certificacion">("servicio");
 
   // Hora manual para "Disponibilidad de Horarios" (input libre además de los bloques fijos)
   const [manualSlotTime, setManualSlotTime] = useState("");
@@ -313,6 +328,11 @@ export default function RecepcionPage() {
   // Edit appointment modal
   const [editingApp, setEditingApp] = useState<Appointment | null>(null);
   const [editForm, setEditForm] = useState<Appointment | null>(null);
+  // Pestaña de disponibilidad del modal EDITAR CITA (auto según el Tipo de Servicio)
+  const [editAvailTab, setEditAvailTab] = useState<"servicio" | "certificacion">("servicio");
+  React.useEffect(() => {
+    setEditAvailTab(isCertificationService(editForm?.service_type || "") ? "certificacion" : "servicio");
+  }, [editForm?.service_type]);
 
   // Workshop transfer modal
   const [transferApp, setTransferApp] = useState<Appointment | null>(null);
@@ -352,9 +372,9 @@ export default function RecepcionPage() {
     }
     // Validación de disponibilidad: no permitir duplicar en un horario lleno
     if (nDate && nTime) {
-      const occ = getOccupancyForDate(nDate, nTime);
+      const occ = getOccupancyForDate(nDate, nTime, { tipo: isCertificationService(newForm.service_type) ? "certificacion" : "servicio" });
       if (occ.isFull) {
-        notify("warning", "El horario " + nTime + " del " + formatPeruDate(nDate) + " ya está lleno (" + maxVehiclesPerSlot + " vehículos). Elija otro horario disponible.");
+        notify("warning", "El horario " + nTime + " del " + formatPeruDate(nDate) + " ya está lleno (" + occ.capacity + " vehículos). Elija otro horario disponible.");
         return;
       }
     }
@@ -389,9 +409,9 @@ export default function RecepcionPage() {
     }
     // Validación de disponibilidad (excluye la cita en edición para no contarse a sí misma)
     if (eDate && eTime) {
-      const occ = getOccupancyForDate(eDate, eTime, editingApp.id);
+      const occ = getOccupancyForDate(eDate, eTime, { tipo: isCertificationService(editForm.service_type) ? "certificacion" : "servicio", excludeAppId: editingApp.id });
       if (occ.isFull) {
-        notify("warning", "El horario " + eTime + " del " + formatPeruDate(eDate) + " ya está lleno (" + maxVehiclesPerSlot + " vehículos). Elija otro horario disponible.");
+        notify("warning", "El horario " + eTime + " del " + formatPeruDate(eDate) + " ya está lleno (" + occ.capacity + " vehículos). Elija otro horario disponible.");
         return;
       }
     }
@@ -524,16 +544,16 @@ export default function RecepcionPage() {
   const applyManualSlotToNew = () => {
     const t = manualSlotTime;
     if (!t || !newForm.scheduled_date) { notify("warning", "Ingrese una hora manual (HH:MM)."); return; }
-    const occ = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), t);
-    if (occ.isFull) { notify("warning", `El horario ${t} ya está lleno (${maxVehiclesPerSlot} vehículos).`); return; }
+    const occ = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), t, { tipo: availTab });
+    if (occ.isFull) { notify("warning", `El horario ${t} ya está lleno (${occ.capacity} vehículos).`); return; }
     setNewForm({ ...newForm, scheduled_date: `${newForm.scheduled_date.slice(0, 10)}T${t}` });
     showSuccess(`Hora ${t} seleccionada.`);
   };
   const applyManualSlotToEdit = () => {
     const t = manualSlotTime;
     if (!t || !editForm?.scheduled_date) { notify("warning", "Ingrese una hora manual (HH:MM)."); return; }
-    const occ = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), t, editingApp?.id);
-    if (occ.isFull) { notify("warning", `El horario ${t} ya está lleno (${maxVehiclesPerSlot} vehículos).`); return; }
+    const occ = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), t, { tipo: editAvailTab, excludeAppId: editingApp?.id });
+    if (occ.isFull) { notify("warning", `El horario ${t} ya está lleno (${occ.capacity} vehículos).`); return; }
     setEditForm({ ...editForm, scheduled_date: `${editForm.scheduled_date.slice(0, 10)}T${t}` });
     showSuccess(`Hora ${t} seleccionada.`);
   };
@@ -543,11 +563,11 @@ export default function RecepcionPage() {
     if (targetAppointmentForSlot) {
       handleSelectSlot(t);
     } else {
-      const occ = getOccupancyForDate(availabilityDate, t);
+      const occ = getOccupancyForDate(availabilityDate, t, { tipo: availModalTipo });
       notify("success", occ.isFull
-        ? `Hora ${t}: llena (${occ.totalOccupied}/${maxVehiclesPerSlot} vehículos)`
+        ? `Hora ${t}: llena (${occ.totalOccupied}/${occ.capacity} vehículos)`
         : occ.totalOccupied > 0
-          ? `Hora ${t}: ${occ.totalOccupied}/${maxVehiclesPerSlot} cupos ocupados`
+          ? `Hora ${t}: ${occ.totalOccupied}/${occ.capacity} cupos ocupados`
           : `Hora ${t}: disponible`
       );
     }
@@ -756,26 +776,37 @@ export default function RecepcionPage() {
     "17:00",
   ];
 
-  // Ocupación genérica por fecha/hora (reutilizada en Nueva Cita, Editar Cita y Disponibilidad General).
-  // excludeAppId permite que, al editar, la cita en edición no se cuente a sí misma como ocupada.
-  const getOccupancyForDate = (dateStr: string, slotTime: string, excludeAppId?: string) => {
+  // Ocupación por fecha/hora (reutilizada en Nueva Cita, Editar Cita y Disponibilidad General).
+  // Tiene 2 tipos INDEPENDIENTES: "servicio" (capacidad configurable en Configuración) y
+  // "certificacion" (capacidad FIJA de 3 por hora). excludeAppId evita que, al editar,
+  // la cita en edición se cuente a sí misma como ocupada.
+  const getOccupancyForDate = (dateStr: string, slotTime: string, opts?: { tipo?: "servicio" | "certificacion"; excludeAppId?: string }) => {
+    const tipo = opts?.tipo || "servicio";
+    const capacity = tipo === "certificacion" ? MAX_CERTIFICACIONES_PER_SLOT : maxVehiclesPerSlot;
+    const isCert = tipo === "certificacion";
     const slotPrefix = `${dateStr}T${slotTime}`;
     const matchedAppointments = appointments.filter(
-      (a) => a.status !== "cancelado" && a.scheduled_date && a.scheduled_date.startsWith(slotPrefix.slice(0, 13)) && a.id !== excludeAppId
+      (a) =>
+        a.status !== "cancelado" &&
+        a.scheduled_date &&
+        a.scheduled_date.startsWith(slotPrefix.slice(0, 13)) &&
+        a.id !== opts?.excludeAppId &&
+        isCertificationService(a.service_type) === isCert
     );
     const matchedSchedule = (scheduleRecords || []).filter(
-      (s) => (s.scheduled_date && s.scheduled_date.startsWith(slotPrefix.slice(0, 13)))
+      (s) => s.scheduled_date && s.scheduled_date.startsWith(slotPrefix.slice(0, 13)) && isCertificationService((s as any).service_name || "") === isCert
     );
     const totalOccupied = matchedAppointments.length + matchedSchedule.length;
     return {
       totalOccupied,
       appointments: matchedAppointments,
       schedule: matchedSchedule,
-      isFull: totalOccupied >= maxVehiclesPerSlot, // capacidad configurable (Configuración → Vehículos por Horario)
+      capacity,
+      isFull: totalOccupied >= capacity,
     };
   };
 
-  const getSlotOccupancy = (slotTime: string) => getOccupancyForDate(availabilityDate, slotTime);
+  const getSlotOccupancy = (slotTime: string) => getOccupancyForDate(availabilityDate, slotTime, { tipo: availModalTipo });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -1493,11 +1524,38 @@ export default function RecepcionPage() {
                       <Clock className="w-3.5 h-3.5" />
                       <span>Disponibilidad de Horarios — {formatPeruDate(editForm.scheduled_date.slice(0, 10))}</span>
                     </label>
-                    <span className="text-[10px] text-gray-400 shrink-0">Capacidad {maxVehiclesPerSlot} veh./hora</span>
+                    <span className="text-[10px] text-gray-400 shrink-0">
+                      Capacidad {editAvailTab === "certificacion" ? MAX_CERTIFICACIONES_PER_SLOT : maxVehiclesPerSlot} veh./hora
+                    </span>
                   </div>
+
+                  {/* Pestañas independientes: Servicios vs Certificaciones */}
+                  <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setEditAvailTab("servicio")}
+                      className={`px-3 py-1 rounded-lg transition-all ${editAvailTab === "servicio"
+                        ? "bg-blue-600 text-white font-black"
+                        : "text-gray-400 hover:text-white"
+                        }`}
+                    >
+                      🔧 Servicios ({maxVehiclesPerSlot}/hora)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditAvailTab("certificacion")}
+                      className={`px-3 py-1 rounded-lg transition-all ${editAvailTab === "certificacion"
+                        ? "bg-purple-600 text-white font-black"
+                        : "text-gray-400 hover:text-white"
+                        }`}
+                    >
+                      📜 Certificaciones ({MAX_CERTIFICACIONES_PER_SLOT}/hora)
+                    </button>
+                  </div>
+
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                     {WORKSHOP_HOURLY_SLOTS.map((slot) => {
-                      const occ = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), slot, editingApp.id);
+                      const occ = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), slot, { tipo: editAvailTab, excludeAppId: editingApp.id });
                       const selected = editForm.scheduled_date.slice(11, 16) === slot;
                       return (
                         <button
@@ -1513,7 +1571,7 @@ export default function RecepcionPage() {
                                 ? "bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
                                 : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
                             }`}
-                          title={occ.isFull ? `Horario ocupado (${maxVehiclesPerSlot} vehículos)` : occ.totalOccupied > 0 ? `${occ.totalOccupied} cupo(s) ocupado(s) — queda(n) ${maxVehiclesPerSlot - occ.totalOccupied} libre(s)` : "Horario disponible"}
+                          title={occ.isFull ? `Horario ocupado (${occ.capacity} vehículos)` : occ.totalOccupied > 0 ? `${occ.totalOccupied} cupo(s) ocupado(s) — queda(n) ${occ.capacity - occ.totalOccupied} libre(s)` : "Horario disponible"}
                         >
                           {slot}
                         </button>
@@ -1536,10 +1594,10 @@ export default function RecepcionPage() {
                       ✓ Usar esta hora
                     </button>
                     {manualSlotTime && editForm.scheduled_date?.slice(0, 10) && (() => {
-                      const mocc = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), manualSlotTime, editingApp?.id);
+                      const mocc = getOccupancyForDate(editForm.scheduled_date.slice(0, 10), manualSlotTime, { tipo: editAvailTab, excludeAppId: editingApp?.id });
                       return (
                         <span className={`text-[11px] font-bold ${mocc.isFull ? "text-red-400" : mocc.totalOccupied > 0 ? "text-amber-300" : "text-emerald-300"}`}>
-                          {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${maxVehiclesPerSlot})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${maxVehiclesPerSlot} ocupados` : "🟢 Disponible"}
+                          {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${mocc.capacity})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${mocc.capacity} ocupados` : "🟢 Disponible"}
                         </span>
                       );
                     })()}
@@ -1847,11 +1905,38 @@ export default function RecepcionPage() {
                       <Clock className="w-3.5 h-3.5" />
                       <span>Disponibilidad de Horarios — {formatPeruDate(newForm.scheduled_date.slice(0, 10))}</span>
                     </label>
-                    <span className="text-[10px] text-gray-400 shrink-0">Capacidad {maxVehiclesPerSlot} veh./hora</span>
+                    <span className="text-[10px] text-gray-400 shrink-0">
+                      Capacidad {availTab === "certificacion" ? MAX_CERTIFICACIONES_PER_SLOT : maxVehiclesPerSlot} veh./hora
+                    </span>
                   </div>
+
+                  {/* Pestañas independientes: Servicios vs Certificaciones */}
+                  <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setAvailTab("servicio")}
+                      className={`px-3 py-1 rounded-lg transition-all ${availTab === "servicio"
+                        ? "bg-blue-600 text-white font-black"
+                        : "text-gray-400 hover:text-white"
+                        }`}
+                    >
+                      🔧 Servicios ({maxVehiclesPerSlot}/hora)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAvailTab("certificacion")}
+                      className={`px-3 py-1 rounded-lg transition-all ${availTab === "certificacion"
+                        ? "bg-purple-600 text-white font-black"
+                        : "text-gray-400 hover:text-white"
+                        }`}
+                    >
+                      📜 Certificaciones ({MAX_CERTIFICACIONES_PER_SLOT}/hora)
+                    </button>
+                  </div>
+
                   <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                     {WORKSHOP_HOURLY_SLOTS.map((slot) => {
-                      const occ = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), slot);
+                      const occ = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), slot, { tipo: availTab });
                       const selected = newForm.scheduled_date.slice(11, 16) === slot;
                       return (
                         <button
@@ -1867,7 +1952,7 @@ export default function RecepcionPage() {
                                 ? "bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25"
                                 : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
                             }`}
-                          title={occ.isFull ? `Horario ocupado (${maxVehiclesPerSlot} vehículos)` : occ.totalOccupied > 0 ? `${occ.totalOccupied} cupo(s) ocupado(s) — queda(n) ${maxVehiclesPerSlot - occ.totalOccupied} libre(s)` : "Horario disponible"}
+                          title={occ.isFull ? `Horario ocupado (${occ.capacity} vehículos)` : occ.totalOccupied > 0 ? `${occ.totalOccupied} cupo(s) ocupado(s) — queda(n) ${occ.capacity - occ.totalOccupied} libre(s)` : "Horario disponible"}
                         >
                           {slot}
                         </button>
@@ -1890,16 +1975,16 @@ export default function RecepcionPage() {
                       ✓ Usar esta hora
                     </button>
                     {manualSlotTime && (() => {
-                      const mocc = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), manualSlotTime);
+                      const mocc = getOccupancyForDate(newForm.scheduled_date.slice(0, 10), manualSlotTime, { tipo: availTab });
                       return (
                         <span className={`text-[11px] font-bold ${mocc.isFull ? "text-red-400" : mocc.totalOccupied > 0 ? "text-amber-300" : "text-emerald-300"}`}>
-                          {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${maxVehiclesPerSlot})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${maxVehiclesPerSlot} ocupados` : "🟢 Disponible"}
+                          {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${mocc.capacity})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${mocc.capacity} ocupados` : "🟢 Disponible"}
                         </span>
                       );
                     })()}
                   </div>
                   <p className="text-[10px] text-gray-400">
-                    🟢 Libre · 🟡 Parcial · 🔴 Ocupado ({maxVehiclesPerSlot} veh./hora) — Hora seleccionada: <strong className="text-blue-300 font-mono">{newForm.scheduled_date.slice(11, 16) || "-"}</strong>
+                    🟢 Libre · 🟡 Parcial · 🔴 Ocupado ({availTab === "certificacion" ? MAX_CERTIFICACIONES_PER_SLOT : maxVehiclesPerSlot} veh./hora) — Hora seleccionada: <strong className="text-blue-300 font-mono">{newForm.scheduled_date.slice(11, 16) || "-"}</strong>
                   </p>
                 </div>
               )}
@@ -2213,6 +2298,30 @@ export default function RecepcionPage() {
                   ? `Selecciona un horario libre para asignar a la cita del vehículo ${targetAppointmentForSlot.plate}:`
                   : "Consulta en tiempo real de ocupación y cupos por fecha:"}
               </p>
+
+              {/* 2 opciones: Disponibilidad de Servicios (por defecto) / Certificaciones */}
+              <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold mt-2 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setAvailModalTipo("servicio")}
+                  className={`px-3 py-1 rounded-lg transition-all ${availModalTipo === "servicio"
+                    ? "bg-blue-600 text-white font-black"
+                    : "text-gray-400 hover:text-white"
+                    }`}
+                >
+                  🔧 Disponibilidad Servicios ({maxVehiclesPerSlot}/hora)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAvailModalTipo("certificacion")}
+                  className={`px-3 py-1 rounded-lg transition-all ${availModalTipo === "certificacion"
+                    ? "bg-purple-600 text-white font-black"
+                    : "text-gray-400 hover:text-white"
+                    }`}
+                >
+                  📜 Disponibilidad Certificaciones ({MAX_CERTIFICACIONES_PER_SLOT}/hora)
+                </button>
+              </div>
             </div>
 
             {/* Navegador de Fecha Universal (estándar ReyGas) */}
@@ -2260,7 +2369,7 @@ export default function RecepcionPage() {
                             : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                           }`}
                       >
-                        {isFull ? `🔴 Ocupado (${occupancy.totalOccupied}/${maxVehiclesPerSlot})` : occupancy.totalOccupied > 0 ? `🟡 ${occupancy.totalOccupied}/${maxVehiclesPerSlot} Ocupados` : "🟢 Disponible"}
+                        {isFull ? `🔴 Ocupado (${occupancy.totalOccupied}/${occupancy.capacity})` : occupancy.totalOccupied > 0 ? `🟡 ${occupancy.totalOccupied}/${occupancy.capacity} Ocupados` : "🟢 Disponible"}
                       </span>
                     </div>
 
@@ -2318,10 +2427,10 @@ export default function RecepcionPage() {
                 {targetAppointmentForSlot ? "✓ Asignar esta hora" : "Ver esta hora"}
               </button>
               {manualSlotTime && (() => {
-                const mocc = getOccupancyForDate(availabilityDate, manualSlotTime);
+                const mocc = getOccupancyForDate(availabilityDate, manualSlotTime, { tipo: availModalTipo });
                 return (
                   <span className={`text-[11px] font-bold ${mocc.isFull ? "text-red-400" : mocc.totalOccupied > 0 ? "text-amber-300" : "text-emerald-300"}`}>
-                    {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${maxVehiclesPerSlot})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${maxVehiclesPerSlot} ocupados` : "🟢 Disponible"}
+                    {mocc.isFull ? `🔴 Lleno (${mocc.totalOccupied}/${mocc.capacity})` : mocc.totalOccupied > 0 ? `🟡 ${mocc.totalOccupied}/${mocc.capacity} ocupados` : "🟢 Disponible"}
                   </span>
                 );
               })()}
