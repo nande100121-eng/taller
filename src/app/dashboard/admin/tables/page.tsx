@@ -887,6 +887,11 @@ export default function AdminTablesPage() {
     const newDateTimeISO = buildPeruISOString(editingWorkshopOrder.entryDate, editingWorkshopOrder.entryTime || "08:30");
 
     // 1. Update Work Order (including entry_time / hora de ingreso!)
+    // IMPORTANTE: se PRESERVAN los ítems reales de la orden (repuestos/servicios del Taller).
+    // Solo se crea un ítem desde el texto si la orden NO tiene ítems (evita reemplazar y
+    // corromper los totales reales de la card).
+    const currentWo = workOrders.find((o) => o.id === editingWorkshopOrder.orderId);
+    const existingItems = Array.isArray(currentWo?.items) && currentWo.items.length > 0 ? currentWo.items : [];
     updateWorkOrder(editingWorkshopOrder.orderId, {
       entry_time: newDateTimeISO,
       vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
@@ -896,17 +901,19 @@ export default function AdminTablesPage() {
       spare_parts_services: editingWorkshopOrder.sparePartsServices,
       quinquennial_date: editingWorkshopOrder.quinquennialDate,
       chip_expiry_date: editingWorkshopOrder.chipExpiryDate,
-      items: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService
-        ? [
-          {
-            id: `item-${editingWorkshopOrder.orderId}`,
-            description: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService,
-            quantity: 1,
-            unit_price: Number(editingWorkshopOrder.price) || 0,
-            subtotal: Number(editingWorkshopOrder.price) || 0,
-          },
-        ]
-        : [],
+      items: existingItems.length > 0
+        ? existingItems
+        : (editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService
+            ? [
+              {
+                id: `item-${editingWorkshopOrder.orderId}`,
+                description: editingWorkshopOrder.sparePartsServices || editingWorkshopOrder.maintenanceService,
+                quantity: 1,
+                unit_price: Number(editingWorkshopOrder.price) || 0,
+                subtotal: Number(editingWorkshopOrder.price) || 0,
+              },
+            ]
+            : []),
     });
 
     // 2. Update Vehicle
