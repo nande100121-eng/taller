@@ -260,3 +260,43 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     margin: 0;
   }
 }
+
+/* ==========================================================================
+   INFORME DIARIO (DailyWorkshopReportModal): impresión A4 en claro
+   El modal del informe es en sí el documento imprimible (clase
+   .reygas-print-container). Al imprimir se fuerza blanco/negro para que
+   ninguna celda con texto claro o fondo oscuro quede ilegible (los
+   navegadores suelen omitir fondos y el texto blanco se perdería).
+   ========================================================================== */
+@media print {
+  .reygas-print-container,
+  .reygas-print-container * {
+    background-color: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+    border-color: #9ca3af !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* El informe completo debe fluir en varias páginas (sin recorte por scroll) */
+  .reygas-print-container {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+  .reygas-print-container .overflow-x-auto,
+  .reygas-print-container .overflow-hidden {
+    overflow: visible !important;
+  }
+
+  /* Sin saltos de página dentro de filas de tabla */
+  .reygas-print-container table {
+    width: 100% !important;
+    page-break-inside: auto;
+  }
+  .reygas-print-container tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

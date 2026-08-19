@@ -1904,9 +1904,10 @@ export function WorkshopDailyReportView({
     );
   };
 
-  // Print Report Handler
+  // Print Report Handler — según skill de impresión: dar tiempo al navegador
+  // para aplicar los estilos de @media print antes de abrir el diálogo.
   const handlePrint = () => {
-    window.print();
+    setTimeout(() => window.print(), 150);
   };
 
   // Export CSV Handler
@@ -3003,8 +3004,8 @@ export function DailyWorkshopReportModal({
   if (!isOpen) return null;
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static">
-      <div className="relative w-full max-w-7xl bg-reygas-navy border border-white/15 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col h-[92vh] max-h-[92vh] print:h-auto print:max-h-none print:border-none print:shadow-none print:bg-white print:text-black">
+    <div className="reygas-print-container fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 print:p-0 print:bg-white print:static">
+      <div className="relative w-full max-w-7xl bg-reygas-navy border border-white/15 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col h-[92vh] max-h-[92vh] print:h-auto print:max-h-none print:overflow-visible print:border-none print:shadow-none print:bg-white print:text-black">
         <WorkshopDailyReportView
           isModal={true}
           onClose={onClose}
