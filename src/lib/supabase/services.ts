@@ -1868,9 +1868,19 @@ export async function fetchSupabaseErpData() {
               }
             }
 
-            // Reconstruct invoice ONLY if missing from database
+            // Reconstruct invoice ONLY if missing from database.
+            // BUG FIX: las órdenes que AÚN están en el taller (ingresado / diagnóstico /
+            // repuestos / en servicio / en espera) NUNCA reciben una factura fantasma
+            // "pagado": esa reconstrucción era para registros históricos importados.
+            // Si no, una orden nueva con [ERP_META] (ej. "Instalación FISE") se marca
+            // automáticamente como PAGADA sin haberse cobrado en Caja (caso A3Z-187,
+            // CWU-571, ALI-052 del 18/08 que siguen en servicio).
+            // Solo los estados OPERATIVOS actuales del taller (vehículo trabajándose ahora).
+            // "en_espera" queda fuera: es un estado histórico de importación y sus registros
+            // con comprobante sí deben conservar la factura reconstruida (pago histórico).
+            const IN_WORKSHOP_STATUSES = ["ingresado", "en_diagnostico", "esperando_repuestos", "en_servicio"];
             const invKey = o.id;
-            if (!reconstructedInvoicesMap.has(invKey) && !reconstructedInvoicesMap.has(`inv-${o.id}`)) {
+            if (!reconstructedInvoicesMap.has(invKey) && !reconstructedInvoicesMap.has(`inv-${o.id}`) && !IN_WORKSHOP_STATUSES.includes(o.status)) {
               reconstructedInvoicesMap.set(invKey, {
                 id: `inv-${o.id}`,
                 work_order_id: o.id,
