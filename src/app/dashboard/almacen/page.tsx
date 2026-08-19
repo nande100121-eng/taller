@@ -637,6 +637,14 @@ export default function AlmacenPage() {
     return matchesDate && matchesStatus;
   });
 
+  // Ordenar: PRIMERO las cards del vehículo con repuestos PENDIENTES de confirmar
+  // (por entregar en Almacén), y después las que ya fueron atendidas/entregadas.
+  vehiclePartGroups.sort((a: any, b: any) => {
+    const aPending = a.items.some((i: any) => !i.dispatched) ? 0 : 1;
+    const bPending = b.items.some((i: any) => !i.dispatched) ? 0 : 1;
+    return aPending - bPending;
+  });
+
   // Pagination for Pedidos por Vehículo
   const totalPedidosPages = Math.ceil(vehiclePartGroups.length / PEDIDOS_PER_PAGE) || 1;
   const startPedidosIndex = (pedidosPage - 1) * PEDIDOS_PER_PAGE;
