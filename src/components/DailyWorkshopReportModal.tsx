@@ -1720,6 +1720,44 @@ export function WorkshopDailyReportView({
                     </td>
                   </tr>
 
+                  {/* 5. Row TOTAL GENERAL DEL DÍA (pertenece a la tabla YAPES & TRANSFERENCIAS) */}
+                  {(() => {
+                    const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    const isC = Math.abs(g - totals.totalFacturado) < 0.05;
+                    return (
+                      <tr className={`text-xs font-black border-t-2 ${isC
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
+                        : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
+                        }`}>
+                        <td
+                          className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
+                          colSpan={electronicMatrix.yapeStaff.length + 1}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span>TOTAL GENERAL DEL DÍA</span>
+                            {isC ? (
+                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300 text-[10px] font-black flex items-center gap-1 shadow">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                                <span>CUADRADO ✔</span>
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-rose-200 border border-rose-300 text-[10px] font-black flex items-center gap-1 shadow">
+                                <AlertTriangle className="w-3 h-3 text-rose-300" />
+                                <span>VERIFICAR ⚠</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td
+                          className="py-2 px-2 text-right font-mono font-black text-sm text-white"
+                          colSpan={electronicMatrix.transfStaff.length}
+                        >
+                          S/ {formatPEN(g)}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+
                 </tfoot>
               </table>
             </div>
@@ -1744,15 +1782,6 @@ export function WorkshopDailyReportView({
               </div>
               <table className="w-full text-xs text-left border-collapse font-mono">
                 <tbody>
-                  {(() => {
-                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
-                    return (
-                      <tr className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black">
-                        <td className="py-2 px-3 font-black uppercase tracking-wider text-[11px]">TOTAL GENERAL DEL DÍA</td>
-                        <td className="py-2 px-3 text-right font-mono font-black text-sm">S/ {formatPEN(grandCuadre)}</td>
-                      </tr>
-                    );
-                  })()}
                   <tr className="bg-white/[0.04] text-gray-200 font-bold text-xs border-t border-white/10">
                     <td className="py-2 px-3 font-extrabold uppercase tracking-wider text-[11px]">💰 TOTAL EFECTIVO</td>
                     <td className="py-2 px-3 text-right font-mono font-black text-xs text-white">S/ {formatPEN(totals.cobradoEfectivo)}</td>
