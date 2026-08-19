@@ -1,7 +1,8 @@
 ---
 name: reygas-performance-cloud-hardware
 description: >
-  Guía estándar de optimización web, rendimiento extremo, sincronización Cloud-First con Supabase
+  Guía estándar de optimización web, rendimiento extremo, sincronización Cloud-First con Supabase,
+  visualización optimizada para pantallas de 10 pulgadas o más
   y compatibilidad con dispositivos de hardware del taller (Tablet Industrial Chainway P80 y Lector de Códigos SEISA).
   Debe utilizarse para garantizar alta velocidad, respuesta táctil instantánea y persistencia 100% en la nube.
 ---
@@ -14,8 +15,9 @@ Esta skill define las reglas obligatorias de arquitectura, optimización de velo
 
 ## 1. Hardware del Taller: Especificaciones & Compatibilidad
 
-### 1.1 Tablet Industrial Chainway P80
-* **Dispositivo:** Tablet rugerizada de 8 pulgadas Android con procesador móvil Octa-Core.
+### 1.1 Tablet Industrial Chainway P80 (pantalla mínima 10")
+* **Dispositivo:** Tablet rugerizada Android con procesador móvil Octa-Core.
+* **PANTALLA MÍNIMA SOPORTADA: 10 pulgadas.** La web debe verse y operarse correctamente en resoluciones efectivas de diseño de **1280×800 (landscape)** y **800×1280 (portrait)** como mínimo; nunca optimizar por debajo de 10".
 * **Entorno de uso:** En patio y taller por mecánicos, recepcionistas y jefes de taller, frecuentemente operada con una mano o con guantes.
 * **Reglas de Rendimiento para Chainway P80:**
   1. **Touch Targets Grandes:** Todos los botones, checkboxes y enlaces interactivos deben tener un tamaño mínimo de **$44\text{px} \times 44\text{px}$** (`touch-target`, `p-2.5`, `py-2 sm:py-2.5`).
@@ -23,7 +25,18 @@ Esta skill define las reglas obligatorias de arquitectura, optimización de velo
   3. **Búsqueda Diferida (`useDeferredValue`):** Utilizar siempre `React.useDeferredValue` en inputs de búsqueda para que la interfaz no se congele al escribir o escanear códigos de barra.
   4. **Sin Bloqueos por Polling:** Queda **estrictamente prohibido** usar `setInterval` periódicos que refresquen y sobreescriban el estado cada pocos segundos. La sincronización se realiza por eventos Realtime o al ingresar/recargar.
 
-### 1.2 Lector de Códigos de Barra Láser (SEISA YHD-8200L)
+### 1.2 Estándar de Visualización para Pantallas ≥ 10" (OBLIGATORIO)
+Toda página nueva o modificada debe cumplir estas reglas (verificadas en DevTools a 1280×800 y 800×1280):
+
+1. **CERO scroll horizontal de página:** el `body`/`html` usan `overflow-x: clip`; TODA tabla ancha vive en un contenedor con `overflow-x-auto` + scroll táctil (`touch-scroll`). Una tabla que desborda la pantalla NUNCA debe empujar el layout de la página.
+2. **Legibilidad mínima:** texto de cuerpo ≥ **13–14px**; tablas densas pueden usar 10–12px solo para datos secundarios; montos y totales clave ≥ **14px** (`font-black`/`font-mono`). `globals.css` fija `body { font-size: 14px }` y sube `.text-xs` a `0.8rem` en tablets.
+3. **Touch & formularios:** inputs/selects con `min-height: 44px` y `font-size: 15px` (evita auto-zoom Android). Botones de acción siempre `py-2`+ y con texto legible (`btn-full-text` si aplica).
+4. **Grillas responsivas:** en portrait (800px) las grillas de cards usan `grid-cols-1`/`grid-cols-2`; en landscape (1280px) `sm:`/`lg:` suben a 3–4 columnas. Nunca fijar anchos mínimos de página.
+5. **Modales:** `max-height: 92vh` con scroll interno (`custom-scrollbar`), ancho acotado al contenido (`max-w-sm`…`max-w-4xl`), nunca más ancho que el viewport.
+6. **KPI/totales:** las filas de totales (ej. TOTAL GENERAL DEL DÍA) se separan con filas espaciadoras; los egresos (GASTOS) se muestran en rojo con signo negativo y su fila de caja resultante en verde.
+7. **Verificación obligatoria:** antes de desplegar, revisar la página en DevTools a **1280×800** y **800×1280** (simula la tablet 10") y en el navegador de la tablet real. No debe haber desbordes horizontales, textos cortados ni botones menores a 44px.
+
+### 1.3 Lector de Códigos de Barra Láser (SEISA YHD-8200L)
 * Emula teclado físico US en un sistema operativo con configuración en español.
 * Utilizar siempre `normalizeScannerCode()` para corregir apóstrofes (`'`) por guiones (`-`) y duplicaciones de escaneo.
 
@@ -82,6 +95,9 @@ El ERP tiene **41k+ órdenes y 118k+ facturas**. Descargarlas TODAS al navegador
 
 ## 4. Checklist de Optimización & Calidad
 
+- [ ] ¿La página se ve correcta en una pantalla de **10 pulgadas mínimo** (1280×800 y 800×1280, sin scroll horizontal de página)?
+- [ ] ¿Toda tabla ancha usa `overflow-x-auto` y no empuja el layout de la página?
+- [ ] ¿El texto de cuerpo es legible (≥ 13px) y los montos clave destacan (≥ 14px)?
 - [ ] ¿Los botones y campos táctiles son cómodos para operar en la tablet Chainway P80?
 - [ ] ¿Las búsquedas utilizan `useDeferredValue` para evitar tirones de frames?
 - [ ] ¿La tabla está paginada (50 a 250 ítems) con salto directo de página?

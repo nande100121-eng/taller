@@ -1656,6 +1656,11 @@ export function WorkshopDailyReportView({
                     );
                   })()}
 
+                  {/* Espacio separador entre TOTAL GENERAL DEL DÍA y las filas de efectivo */}
+                  <tr aria-hidden="true">
+                    <td colSpan={electronicMatrix.yapeStaff.length + 1 + electronicMatrix.transfStaff.length} className="py-2" />
+                  </tr>
+
                   {/* 6-7-8. Después del TOTAL GENERAL DEL DÍA: Total Efectivo / Gastos / Total en Efectivo (Caja) */}
                   <tr className="bg-white/[0.04] text-gray-200 font-bold text-xs border-t border-white/10">
                     <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>

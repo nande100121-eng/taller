@@ -8,6 +8,14 @@
   --background-end-rgb: 10, 11, 13;
 }
 
+html {
+  /* Sin scroll horizontal global: las tablas anchas viven en contenedores overflow-x-auto */
+  overflow-x: clip;
+  /* Evita el auto-zoom de fuente al enfocar inputs en Android/iOS */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
@@ -17,9 +25,16 @@ body {
     )
     rgb(var(--background-start-rgb));
   min-height: 100vh;
+  overflow-x: clip;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   touch-action: manipulation;
   -webkit-font-smoothing: antialiased;
+  /* Legibilidad base para pantallas táctiles: nunca menos de 13px de cuerpo */
+  font-size: 14px;
+}
+
+#__next {
+  min-height: 100vh;
 }
 
 /* Glassmorphism utility */
@@ -56,7 +71,9 @@ body {
 }
 
 /* ==========================================================================
-   Chainway P80 Tablet & Industrial Workshop Touch Optimizations
+   Pantalla MÍNIMA 10" (Tablet Industrial Chainway P80 y similares)
+   Reglas de visualización obligatorias: resolución efectiva de diseño
+   1280×800 (landscape) y 800×1280 (portrait); nunca inferiores a 10".
    ========================================================================== */
 
 /* Minimum touch target 44px for gloved and fast fingers */
@@ -82,26 +99,28 @@ body {
   overscroll-behavior-x: contain;
 }
 
-/* Chainway P80 Specific Media Query (8-inch 1280x800 / 1920x1200 Display) */
-@media (min-width: 600px) and (max-width: 1280px) {
+/* 10" minimum: media query que cubre portrait y landscape de tablets de 10" en adelante.
+   (Ancho CSS efectivo típico: 800px portrait / 1280px landscape; incluye 1024px.) */
+@media (min-width: 800px) {
   /* Tablet container breathing room */
   .tablet-container {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
 
-  /* Form inputs & selects sized for rugged touchscreen */
+  /* Form inputs & selects sized for rugged touchscreen (evita auto-zoom Android) */
   input[type="text"],
   input[type="number"],
   input[type="tel"],
   input[type="date"],
+  input[type="time"],
   select,
   textarea {
     font-size: 15px !important; /* Prevents auto-zoom on Android Webview */
     min-height: 44px;
   }
 
-  /* Modals on 8" tablet screen: keep within screen viewport with touch scrolling */
+  /* Modals on 10" tablet: keep within screen viewport with touch scrolling */
   .glass-panel {
     max-height: 92vh;
     overflow-y: auto;
@@ -111,6 +130,22 @@ body {
   .text-xs {
     font-size: 0.8rem;
   }
+}
+
+/* Pantallas táctiles pequeñas (teléfonos / tablets < 10"): no dejar que el
+   contenido crítico quede pegado a los bordes */
+@media (max-width: 799px) {
+  .tablet-container {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+
+/* Tablas densas: barras de scroll táctiles visibles y cabeceras legibles */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 /* ==========================================================================
