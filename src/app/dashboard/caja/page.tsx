@@ -87,7 +87,7 @@ export default function CajaPage() {
   const allowEditReceiptNumber = correlativeConfig?.allowEditReceiptNumber !== false;
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
-  const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientes" | "pagados" | "todos">("hoy");
+  const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientesHoy" | "pendientes" | "pagados" | "todos">("hoy");
   const [receiptTypeFilter, setReceiptTypeFilter] = useState<"TODOS" | "Ticket" | "Boleta" | "Factura">("TODOS");
 
   // Search Filters
@@ -635,7 +635,14 @@ export default function CajaPage() {
         const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
         const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
         matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
+      } else if (activeStatusFilter === "pendientesHoy") {
+        // Pendientes del día / hoy: sin pagar y con fecha de ingreso, emisión o pago = hoy
+        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+        matchStatus = !isPaid && (orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate);
       } else if (activeStatusFilter === "pendientes") {
+        // Pendientes totales (histórico): sin pagar en cualquier fecha
         matchStatus = !isPaid;
       } else if (activeStatusFilter === "pagados") {
         matchStatus = isPaid;
@@ -1877,15 +1884,26 @@ export default function CajaPage() {
               <span>📅 Del Día / Hoy ({todayCount})</span>
             </button>
 
-            {/* 2. Pendientes */}
+            {/* 2. Pendientes del Día / Hoy */}
             <button
-              onClick={() => setActiveStatusFilter("pendientes")}
-              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientes"
+              onClick={() => setActiveStatusFilter("pendientesHoy")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientesHoy"
                 ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
                 : "text-gray-400 hover:text-white"
                 }`}
             >
-              <span>⏳ Pendientes ({pendingCount})</span>
+              <span>⏳ Pendientes del Día / Hoy ({pendingCountToday})</span>
+            </button>
+
+            {/* 3. Pendientes Totales */}
+            <button
+              onClick={() => setActiveStatusFilter("pendientes")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientes"
+                ? "bg-amber-600 text-white font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>⏳ Pendientes Totales ({pendingCount})</span>
             </button>
 
             {/* 3. Pagados */}
