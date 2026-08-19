@@ -71,6 +71,7 @@ export default function WorkshopOperationsPage() {
     removeCertificationFromWorkOrder,
     setWorkOrderDiscount,
     deleteWorkOrder,
+    notify,
   } = useAppStore();
 
   // Formatea una duración en ms como "Xh Ym" / "Xd Xh Ym" / "Y min"
@@ -1160,6 +1161,13 @@ export default function WorkshopOperationsPage() {
                             <Clock className="w-3.5 h-3.5" />
                             <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
                           </div>
+                          {/* Aviso: repuestos solicitados sin liberar por Almacén */}
+                          {(wo.items || []).some((it: any) => it.item_type === "repuesto" && it.dispatched !== true) && (
+                            <div className="flex items-center gap-1.5 text-[11px] text-amber-300 font-bold animate-pulse">
+                              <Package className="w-3.5 h-3.5 text-amber-400" />
+                              <span>⏳ Material pendiente de liberación en Almacén</span>
+                            </div>
+                          )}
                           <div className="flex items-center gap-1.5 pt-0.5">
                             <User className="w-3.5 h-3.5 text-gray-400" />
                             <span className="text-gray-200 font-medium">{vehicle?.owner_name || "Cliente Garita"}</span>
@@ -1187,7 +1195,18 @@ export default function WorkshopOperationsPage() {
                                 <button
                                   key={step.status}
                                   disabled={isLocked}
-                                  onClick={() => updateWorkOrderStatus(wo.id, step.status)}
+                                  onClick={() => {
+                                    // NO permitir pasar a POR COBRAR (o estados finales) si hay
+                                    // repuestos solicitados SIN LIBERAR por Almacén (despacho pendiente).
+                                    const target = step.status;
+                                    const isFinishing = target === "por_cobrar" || target === "pendiente_pago" || target === "pagado_autorizado" || target === "finalizado";
+                                    const pendingParts = (wo.items || []).some((it: any) => it.item_type === "repuesto" && it.dispatched !== true);
+                                    if (isFinishing && pendingParts) {
+                                      notify("warning", `⚠️ ${wo.vehicle_plate} tiene repuestos pendientes de liberación en Almacén. Espera la confirmación de entrega del material antes de pasar a Por Cobrar.`);
+                                      return;
+                                    }
+                                    updateWorkOrderStatus(wo.id, step.status);
+                                  }}
                                   className={`py-2 px-1.5 rounded-lg text-[10px] font-extrabold transition-all text-center flex flex-col items-center justify-center gap-1 border ${isCurrent
                                     ? `${step.color} text-black border-white shadow-lg`
                                     : isPassed
