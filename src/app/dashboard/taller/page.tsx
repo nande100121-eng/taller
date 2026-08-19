@@ -133,6 +133,16 @@ export default function WorkshopOperationsPage() {
     subtotal: number;
   }>>([]);
 
+  // Multi-item SERVICES cart in modal (igual que repuestos: permite añadir VARIOS servicios)
+  const [pendingServicesCart, setPendingServicesCart] = useState<Array<{
+    id: string;
+    item_type: "servicio";
+    description: string;
+    quantity: number;
+    unit_price: number;
+    subtotal: number;
+  }>>([]);
+
   // Edit individual item modal state
   const [editingItem, setEditingItem] = useState<{ orderId: string; item: any } | null>(null);
   const [editItemDescription, setEditItemDescription] = useState("");
@@ -362,10 +372,79 @@ export default function WorkshopOperationsPage() {
     );
   };
 
+  // ===== Carrito de SERVICIOS (múltiples servicios en el modal "Agregar Servicio de Taller") =====
+  const handleAddServiceToCart = () => {
+    if (requisitionType === "servicio") {
+      const srv = workshopServices.find((s) => s.id === selectedServiceId);
+      if (!srv) return;
+      const qty = Number(partQty) || 1;
+      const price = Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price) || 0;
+      const existingIdx = pendingServicesCart.findIndex((p) => p.description === srv.name && p.unit_price === price);
+      if (existingIdx >= 0) {
+        setPendingServicesCart((prev) =>
+          prev.map((p, idx) =>
+            idx === existingIdx
+              ? { ...p, quantity: p.quantity + qty, subtotal: Number(((p.quantity + qty) * price).toFixed(2)) }
+              : p
+          )
+        );
+      } else {
+        setPendingServicesCart((prev) => [
+          ...prev,
+          {
+            id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            item_type: "servicio",
+            description: srv.name,
+            quantity: qty,
+            unit_price: price,
+            subtotal: Number((qty * price).toFixed(2)),
+          },
+        ]);
+      }
+    } else {
+      if (!customItemName.trim()) return;
+      const qty = Number(partQty) || 1;
+      const price = Number(customItemPrice) || 0;
+      setPendingServicesCart((prev) => [
+        ...prev,
+        {
+          id: `cart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          item_type: "servicio",
+          description: customItemName.trim(),
+          quantity: qty,
+          unit_price: price,
+          subtotal: Number((qty * price).toFixed(2)),
+        },
+      ]);
+      setCustomItemName("");
+    }
+    setPartQty(1);
+  };
+
+  const handleRemoveServiceFromCart = (cartId: string) => {
+    setPendingServicesCart((prev) => prev.filter((p) => p.id !== cartId));
+  };
+
+  const handleUpdateServiceCartQty = (cartId: string, delta: number) => {
+    setPendingServicesCart((prev) =>
+      prev
+        .map((p) => {
+          if (p.id === cartId) {
+            const nextQty = p.quantity + delta;
+            if (nextQty <= 0) return null;
+            return { ...p, quantity: nextQty, subtotal: Number((nextQty * p.unit_price).toFixed(2)) };
+          }
+          return p;
+        })
+        .filter(Boolean) as typeof prev
+    );
+  };
+
   const handleOpenServices = (orderId: string) => {
     setActiveOrderModal(orderId);
     setModalMode("service");
     setRequisitionType("servicio");
+    setPendingServicesCart([]); // carrito limpio al abrir (no mezclar órdenes)
     const initialSrv = workshopOnlyServices[0] || workshopServices[0];
     setSelectedServiceId(initialSrv?.id || "");
     setCustomItemPrice(initialSrv?.price || 0);
@@ -552,7 +631,26 @@ export default function WorkshopOperationsPage() {
         }
       }
     } else if (modalMode === "service") {
-      if (requisitionType === "servicio") {
+      // Si hay servicios en el carrito, se agregan TODOS a la orden (multi-servicio)
+      if (pendingServicesCart.length > 0) {
+        addMultipleWorkOrderItems(
+          targetOrderId,
+          pendingServicesCart.map((p) => ({
+            item_type: "servicio" as const,
+            description: p.description,
+            quantity: p.quantity,
+            unit_price: p.unit_price,
+          }))
+        );
+        updateWorkOrderStatus(targetOrderId, "en_servicio");
+        setStatusFilter("en_servicio");
+        setPendingServicesCart([]);
+        setWebAlert({
+          open: true,
+          title: "¡Servicios Asignados!",
+          message: `${pendingServicesCart.length} servicio(s) asignados a la orden. La vista se ha trasladado a '4. En Servicio'.`,
+        });
+      } else if (requisitionType === "servicio") {
         const srv = workshopServices.find((s) => s.id === selectedServiceId);
         if (srv) {
           addWorkOrderItem(targetOrderId, {
@@ -2136,23 +2234,102 @@ export default function WorkshopOperationsPage() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={partQty}
-                    onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-300 mb-1">Cantidad</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={partQty}
+                      onChange={(e) => setPartQty(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleAddServiceToCart}
+                      className="w-full py-2.5 px-3 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <ListPlus className="w-4 h-4 text-indigo-400" />
+                      <span>+ Añadir a la Lista</span>
+                    </button>
+                  </div>
                 </div>
+
+                {/* LISTA DE SERVICIOS EN COLA (MULTI-SELECCIÓN) */}
+                {pendingServicesCart.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-black/50 border border-indigo-500/30 space-y-2.5 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                      <span className="text-xs font-black text-indigo-300 uppercase flex items-center gap-1.5">
+                        <ShoppingCart className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Lista de Servicios a Asignar ({pendingServicesCart.length})</span>
+                      </span>
+                      <span className="text-xs font-mono font-bold text-indigo-400">
+                        Total: S/ {pendingServicesCart.reduce((acc, p) => acc + p.subtotal, 0).toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 custom-scrollbar">
+                      {pendingServicesCart.map((cartItem) => (
+                        <div
+                          key={cartItem.id}
+                          className="p-2 rounded-xl bg-reygas-dark/90 border border-white/10 flex items-center justify-between text-xs gap-2"
+                        >
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span className="font-bold text-white block truncate">{cartItem.description}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              P.U: S/ {cartItem.unit_price.toFixed(2)} • Subtotal: <strong className="text-indigo-300">S/ {cartItem.subtotal.toFixed(2)}</strong>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateServiceCartQty(cartItem.id, -1)}
+                              className="p-1 rounded bg-white/5 hover:bg-white/15 text-gray-300 transition-colors"
+                              title="Disminuir cantidad"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono font-bold text-xs min-w-[24px] text-center">
+                              {cartItem.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateServiceCartQty(cartItem.id, 1)}
+                              className="p-1 rounded bg-white/5 hover:bg-white/15 text-gray-300 transition-colors"
+                              title="Aumentar cantidad"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveServiceFromCart(cartItem.id)}
+                              className="p-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-400 ml-1 transition-colors"
+                              title="Quitar de la lista"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <button
                   onClick={handleAddRequisition}
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-black rounded-xl text-sm transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30"
                 >
                   <Wrench className="w-4 h-4" />
-                  <span>+ Agregar Servicio a la Orden</span>
+                  <span>
+                    {pendingServicesCart.length > 0
+                      ? `🛠️ Asignar ${pendingServicesCart.length} Servicios (Total S/ ${pendingServicesCart
+                        .reduce((acc, p) => acc + p.subtotal, 0)
+                        .toFixed(2)})`
+                      : "+ Agregar Servicio a la Orden"}
+                  </span>
                 </button>
               </div>
             )}
