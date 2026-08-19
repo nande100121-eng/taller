@@ -2490,6 +2490,34 @@ export default function CajaPage() {
                           </div>
                         ) : null}
 
+                        {/* Motivo de Ingreso y Observaciones */}
+                        {(wo.problem_description || wo.observations || invoice?.observations) && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {(wo.problem_description || wo.general_maintenance_service) && (
+                              <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-amber-400" />
+                                  Motivo de Ingreso
+                                </span>
+                                <p className="text-xs text-gray-200 mt-1.5 leading-relaxed">
+                                  {wo.problem_description || wo.general_maintenance_service}
+                                </p>
+                              </div>
+                            )}
+                            {(wo.observations || invoice?.observations) && (
+                              <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                                  Observaciones
+                                </span>
+                                <p className="text-xs text-gray-200 mt-1.5 leading-relaxed">
+                                  {wo.observations || invoice?.observations}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {/* Parts and Concept Detail */}
                         <div className="p-3 bg-reygas-dark/60 rounded-xl border border-white/5 space-y-2">
                           <div className="flex items-center justify-between">
