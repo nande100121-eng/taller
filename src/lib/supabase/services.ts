@@ -1,4 +1,5 @@
 import { supabase } from "./client";
+import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 
@@ -672,6 +673,7 @@ export interface DayReportData {
   workOrders: WorkOrder[];
   invoices: Invoice[];
   payments: DayPaymentIncome[];    // Abonos parciales recibidos HOY sobre facturas de días anteriores
+  expenses: DailyExpense[];        // Gastos del día (egresos de caja)
 }
 
 export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReportData | null> {
@@ -686,7 +688,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     next.setUTCDate(next.getUTCDate() + 1);
     const nextDayISO = next.toISOString().slice(0, 10);
 
-    const [ordersRes, invoicesRes, payhistRes] = await Promise.all([
+    const [ordersRes, invoicesRes, payhistRes, dayExpenses] = await Promise.all([
       supabase
         .from("work_orders")
         .select("*")
@@ -706,6 +708,8 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
           .select("key, section_key, value, content")
           .like("key", "inv_payhistory_%")
       ),
+      // Gastos del día (egresos de caja) persistidos en site_content
+      fetchDailyExpenses(cleanDate),
     ]);
 
     if (ordersRes.error) console.warn("Day report work_orders warning:", ordersRes.error.message);
@@ -830,7 +834,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       })
       .filter((p): p is DayPaymentIncome => Boolean(p && p.amount > 0));
 
-    return { workOrders, invoices, payments };
+    return { workOrders, invoices, payments, expenses: dayExpenses || [] };
   } catch (err) {
     console.warn("Day report fetch warning:", err);
     return null;

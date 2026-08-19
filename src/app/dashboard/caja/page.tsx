@@ -13,6 +13,7 @@ import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOStri
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
+import { fetchDailyExpenses, saveDailyExpenses, DailyExpense } from "@/lib/supabase/expenses";
 import {
   CreditCard,
   TrendingUp,
@@ -51,6 +52,8 @@ import {
   Edit3,
   ChevronDown,
   ChevronUp,
+  ReceiptText,
+  Wallet,
 } from "lucide-react";
 
 const ThermalReceiptModal = dynamic(
@@ -207,6 +210,100 @@ export default function CajaPage() {
     debtObservation?: string;  // Observación del saldo pendiente (si condición CREDITO/PENDIENTE)
     debtResponsible?: string;  // Responsable del saldo pendiente (si condición CREDITO/PENDIENTE)
   } | null>(null);
+
+  // Modal de GASTOS del día (egresos de caja)
+  const [expenseModal, setExpenseModal] = useState<{
+    isOpen: boolean;
+    description: string;
+    amount: number;
+    destination: string;
+    deliveredTo: string;
+    date: string;
+  }>({
+    isOpen: false,
+    description: "",
+    amount: 0,
+    destination: "EMPRESA",
+    deliveredTo: "",
+    date: getPeruDateString(),
+  });
+
+  // Gastos registrados para la fecha consultada
+  const [dayExpenses, setDayExpenses] = useState<DailyExpense[]>([]);
+
+  // Cargar gastos de la fecha consultada
+  React.useEffect(() => {
+    let active = true;
+    fetchDailyExpenses(queryDate || getPeruDateString()).then((list) => {
+      if (active) setDayExpenses(list || []);
+    });
+    return () => {
+      active = false;
+    };
+  }, [queryDate]);
+
+  // Personal del ROSTER Y PERMISOS para el campo "Entregado a"
+  const rosterPersonnel = React.useMemo(() => {
+    const list: string[] = [];
+    const seen = new Set<string>();
+    (technicians || [])
+      .filter((t) => t.is_active !== false)
+      .forEach((t) => {
+        const name = ((t.payment_nickname || t.full_name) || "").trim().toUpperCase();
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          list.push(name);
+        }
+      });
+    return list;
+  }, [technicians]);
+
+  const handleSaveExpense = async () => {
+    if (!expenseModal.isOpen) return;
+    const desc = expenseModal.description.trim();
+    const amount = Number(expenseModal.amount) || 0;
+    const dest = (expenseModal.destination || "EMPRESA").trim().toUpperCase();
+    const to = (expenseModal.deliveredTo || "").trim().toUpperCase();
+    const date = (expenseModal.date || getPeruDateString()).slice(0, 10);
+    if (!desc) { notify("error", "Escribe una descripción del gasto"); return; }
+    if (amount <= 0) { notify("error", "El monto del gasto debe ser mayor a 0"); return; }
+    if (!to) { notify("error", "Selecciona a quién se entregó el dinero"); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { notify("error", "Selecciona la fecha del gasto"); return; }
+
+    const newExpense: DailyExpense = {
+      id: `exp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      date,
+      description: desc,
+      amount,
+      destination: dest,
+      delivered_to: to,
+      created_at: new Date().toISOString(),
+    };
+    const existing = await fetchDailyExpenses(date);
+    const ok = await saveDailyExpenses(date, [...existing, newExpense]);
+    if (!ok) {
+      notify("error", "No se pudo guardar el gasto en la nube");
+      return;
+    }
+    notify("success", `Gasto de S/ ${amount.toFixed(2)} registrado (${desc.slice(0, 28)})`);
+    setExpenseModal({ isOpen: false, description: "", amount: 0, destination: "EMPRESA", deliveredTo: "", date });
+    if (date === (queryDate || getPeruDateString()).slice(0, 10)) {
+      setDayExpenses(await fetchDailyExpenses(date));
+    }
+  };
+
+  const handleDeleteExpense = async (expId: string) => {
+    const date = (queryDate || getPeruDateString()).slice(0, 10);
+    const list = await fetchDailyExpenses(date);
+    const next = list.filter((e) => e.id !== expId);
+    const ok = await saveDailyExpenses(date, next);
+    if (ok) {
+      setDayExpenses(next);
+      notify("success", "Gasto eliminado");
+    } else {
+      notify("error", "No se pudo eliminar el gasto");
+    }
+  };
 
   // Modal State for Viewing / Printing Thermal Receipt
   const [activeReceiptModal, setActiveReceiptModal] = useState<{
@@ -1811,12 +1908,12 @@ export default function CajaPage() {
 
           <button
             type="button"
-            onClick={handleOpenManualPaymentModal}
-            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-            title="Registrar una atención directa o manual con todos los datos para la Tabla Registro Taller"
+            onClick={() => setExpenseModal((m) => ({ ...m, isOpen: true, date: queryDate || getPeruDateString(), destination: "EMPRESA" }))}
+            className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs rounded-xl shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+            title="Registrar un gasto del día (egreso de caja)"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ Cobro Manual (Registro Taller)</span>
+            <ReceiptText className="w-4 h-4" />
+            <span>Gastos</span>
           </button>
 
           <div className="relative flex-1 sm:flex-none">
@@ -1835,6 +1932,57 @@ export default function CajaPage() {
             onChange={(newDate) => setQueryDate(newDate)}
           />
         </div>
+      </div>
+
+      {/* Gastos del Día (egresos de caja) */}
+      <div className="space-y-2.5 bg-reygas-dark/80 p-4 rounded-2xl border border-rose-500/20 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400">
+              <ReceiptText className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-white uppercase tracking-wider block">
+                Gastos del Día ({queryDate === getPeruDateString() ? "Hoy" : queryDate})
+              </span>
+              <span className="text-[11px] text-gray-400">
+                Egresos de caja que restan al total general del día en el informe diario.
+              </span>
+            </div>
+          </div>
+          <span className="text-sm font-mono font-black text-rose-300">
+            {dayExpenses.length > 0
+              ? `− S/ ${dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toFixed(2)} (${dayExpenses.length})`
+              : "S/ 0.00"}
+          </span>
+        </div>
+        {dayExpenses.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {dayExpenses.map((e) => (
+              <div key={e.id} className="flex items-start justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white truncate">{e.description}</div>
+                  <div className="text-[10px] text-gray-400 font-mono">
+                    {e.delivered_to} · {e.destination} · {formatPeruDate(e.date)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs font-mono font-black text-rose-300">− S/ {(Number(e.amount) || 0).toFixed(2)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteExpense(e.id)}
+                    className="p-1 rounded-lg text-gray-500 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                    title="Eliminar gasto"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-gray-500 italic">Sin gastos registrados para esta fecha. Usa el botón <strong className="text-rose-300">Gastos</strong> para registrar uno.</p>
+        )}
       </div>
 
       {/* Últimos Correlativos Registrados & Filtro Rápido */}
@@ -3198,6 +3346,132 @@ export default function CajaPage() {
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Confirmar, Cobrar e Imprimir</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL DE GASTOS DEL DÍA (EGRESOS DE CAJA) */}
+      {/* ========================================================================= */}
+      {expenseModal.isOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel w-full max-w-lg max-h-[92vh] flex flex-col rounded-3xl border border-rose-500/30 shadow-2xl bg-[#0d121f]/95 overflow-hidden my-auto animate-fadeIn">
+            {/* Header */}
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-rose-950/40 via-red-950/30 to-reygas-surface">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                  <ReceiptText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Registrar Gasto del Día</h3>
+                  <p className="text-xs text-gray-400">Egreso de caja que resta al TOTAL GENERAL DEL DÍA del informe.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpenseModal((m) => ({ ...m, isOpen: false }))}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveExpense();
+              }}
+              className="p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar text-xs"
+            >
+              {/* Descripción */}
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Descripción del Gasto *</label>
+                <input
+                  type="text"
+                  required
+                  value={expenseModal.description}
+                  onChange={(e) => setExpenseModal((m) => ({ ...m, description: e.target.value }))}
+                  placeholder="Ej: Pasajes, útiles de oficina, recarga..."
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-rose-400"
+                />
+              </div>
+
+              {/* Monto */}
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Monto (S/) *</label>
+                <input
+                  type="number"
+                  required
+                  min="0.01"
+                  step="0.01"
+                  value={expenseModal.amount || ""}
+                  onChange={(e) => setExpenseModal((m) => ({ ...m, amount: parseFloat(e.target.value) || 0 }))}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-rose-400"
+                />
+              </div>
+
+              {/* Destino */}
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Destino *</label>
+                <select
+                  value={expenseModal.destination}
+                  onChange={(e) => setExpenseModal((m) => ({ ...m, destination: e.target.value }))}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-rose-400"
+                >
+                  {eligibleDestinations.map((d) => (
+                    <option key={d} value={d} className="bg-reygas-dark">{d}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-gray-500 mt-1">EMPRESA = fondos de la empresa (opción principal).</p>
+              </div>
+
+              {/* Entregado a */}
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Entregado a (Personal del roster y permisos) *</label>
+                <select
+                  value={expenseModal.deliveredTo}
+                  onChange={(e) => setExpenseModal((m) => ({ ...m, deliveredTo: e.target.value }))}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-rose-400"
+                >
+                  <option value="">— Seleccionar personal —</option>
+                  {rosterPersonnel.map((name) => (
+                    <option key={name} value={name} className="bg-reygas-dark">{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Fecha */}
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Fecha del Gasto *</label>
+                <input
+                  type="date"
+                  required
+                  value={expenseModal.date}
+                  onChange={(e) => setExpenseModal((m) => ({ ...m, date: e.target.value }))}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-rose-400"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setExpenseModal((m) => ({ ...m, isOpen: false }))}
+                  className="px-4 py-2 rounded-xl text-gray-300 hover:text-white hover:bg-white/10 font-bold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-xs shadow-lg shadow-rose-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                >
+                  <Check className="w-4 h-4" />
+                  Guardar Gasto
                 </button>
               </div>
             </form>

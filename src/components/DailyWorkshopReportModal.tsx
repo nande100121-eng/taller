@@ -39,6 +39,7 @@ import {
   Wallet,
   TrendingDown,
   Receipt,
+  ReceiptText,
   User,
 } from "lucide-react";
 
@@ -112,7 +113,7 @@ export function WorkshopDailyReportView({
 
   const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [activeTab, setActiveTab] = useState<ReportTabType>(initialTab);
-  const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[]; payments: any[] } | null>(null);
+  const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[]; payments: any[]; expenses: any[] } | null>(null);
   const [reportLoading, setReportLoading] = useState<boolean>(true);
   const [expandedPlate, setExpandedPlate] = useState<string | null>(null);
   // Concepto expandido en la tabla VENTAS POR CONCEPTO (serv / rep / cert)
@@ -133,7 +134,7 @@ export function WorkshopDailyReportView({
       .then((data) => {
         if (!active) return;
         if (data) {
-          setDayData({ workOrders: data.workOrders, invoices: data.invoices, payments: data.payments || [] });
+          setDayData({ workOrders: data.workOrders, invoices: data.invoices, payments: data.payments || [], expenses: data.expenses || [] });
         } else {
           setDayData(null);
         }
@@ -168,6 +169,13 @@ export function WorkshopDailyReportView({
   const dayInvoices = dayData?.invoices || [];
   const dayOrders = dayData?.workOrders || [];
   const dayPayments = dayData?.payments || [];
+  const dayExpenses = dayData?.expenses || [];
+
+  // Total de GASTOS del día (egresos de caja) — restan al total general
+  const totalGastos = useMemo(
+    () => (dayExpenses || []).reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0),
+    [dayExpenses]
+  );
 
   const invoicesByWorkOrderId = useMemo(() => {
     const map = new Map<string, (typeof dayInvoices)[0]>();
@@ -1604,10 +1612,27 @@ export function WorkshopDailyReportView({
                     </td>
                   </tr>
 
-                  {/* 5. Row Total Validación Cuadre General del Día */}
+                  {/* 5. Row Gastos del Día (egresos de caja) — debajo de TOTAL CULQI / TARJETA */}
+                  {totalGastos > 0 && (
+                    <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
+                      <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                        💸 GASTOS DEL DÍA
+                      </td>
+                      <td
+                        className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
+                        colSpan={electronicMatrix.transfStaff.length}
+                      >
+                        − S/ {formatPEN(totalGastos)}
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* 6. Row Total Validación Cuadre General del Día */}
                   {(() => {
-                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
-                    const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
+                    const ingresosCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    const isCuadrado = Math.abs(ingresosCuadre - totals.totalFacturado) < 0.05;
+                    // TOTAL GENERAL DEL DÍA = ingresos − gastos (egresos de caja)
+                    const grandCuadre = ingresosCuadre - totalGastos;
 
                     return (
                       <tr
@@ -2027,6 +2052,17 @@ export function WorkshopDailyReportView({
               </span>
             </div>
 
+            {/* Card 5: Gastos del Día (egresos de caja) */}
+            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
+              <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
+                <ReceiptText className="w-3 h-3" />
+                <span>Gastos del Día ({dayExpenses.length})</span>
+              </span>
+              <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
+                − S/ {formatPEN(totalGastos)}
+              </span>
+            </div>
+
             {/* Card 6: Total Liquidación (solo ingresos reales del día) */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
               <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
@@ -2037,6 +2073,41 @@ export function WorkshopDailyReportView({
                 S/ {formatPEN(totals.totalLiquidacion)}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Gastos del Día (egresos de caja) — detalle */}
+        {totalGastos > 0 && (
+          <div className="overflow-x-auto rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+            <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+              <div className="flex items-center gap-1.5">
+                <ReceiptText className="w-4 h-4 text-rose-300" />
+                <span>GASTOS DEL DÍA</span>
+              </div>
+              <span className="bg-black/30 text-rose-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                − S/ {formatPEN(totalGastos)}
+              </span>
+            </div>
+            <table className="w-full text-xs text-left border-collapse font-mono">
+              <thead>
+                <tr className="bg-[#fecdd3] text-rose-950 font-extrabold uppercase text-[10px] border-b border-rose-300">
+                  <th className="py-1.5 px-2.5">DESCRIPCIÓN</th>
+                  <th className="py-1.5 px-2 text-center">DESTINO</th>
+                  <th className="py-1.5 px-2 text-center">ENTREGADO A</th>
+                  <th className="py-1.5 px-2 text-right">MONTO (S/)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-[11px]">
+                {dayExpenses.map((e: any, i: number) => (
+                  <tr key={e.id || i} className="hover:bg-white/5 text-gray-200">
+                    <td className="py-2 px-2.5 font-sans font-bold text-rose-200">{e.description}</td>
+                    <td className="py-2 px-2 text-center text-gray-300">{e.destination || "EMPRESA"}</td>
+                    <td className="py-2 px-2 text-center text-gray-300">{e.delivered_to || "—"}</td>
+                    <td className="py-2 px-2 text-right font-black text-rose-300">− S/ {formatPEN(Number(e.amount) || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
