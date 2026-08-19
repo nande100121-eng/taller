@@ -118,6 +118,9 @@ export function WorkshopDailyReportView({
   const [expandedPlate, setExpandedPlate] = useState<string | null>(null);
   // Concepto expandido en la tabla VENTAS POR CONCEPTO (serv / rep / cert)
   const [expandedConcept, setExpandedConcept] = useState<"serv" | "rep" | "cert" | null>(null);
+  // Paneles colapsables del informe: TODO lo colapsable nace COLAPSADO por defecto
+  const [showYapesPanel, setShowYapesPanel] = useState(false);
+  const [showConceptPanel, setShowConceptPanel] = useState(false);
 
   // Sync activeTab when component mounts or initialTab changes
   useEffect(() => {
@@ -909,6 +912,79 @@ export function WorkshopDailyReportView({
     return { series, saldoAnterior, saldoActual, abonosHoy, creditosHoy };
   }, [selectedDate, invoices]);
 
+  // ===== Certificaciones del día (según lo ASIGNADO en la card del Taller) =====
+  const dayCertifications = useMemo(() => {
+    const map = new Map<string, any>();
+    (dayOrders || []).forEach((wo) => {
+      if (!wo.requires_certification) return;
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      map.set(wo.id, {
+        id: wo.id,
+        plate: (wo.vehicle_plate || "S/P").toUpperCase(),
+        client: inv?.client_name || "",
+        certType: wo.certification_type || "Certificación",
+        price: Number(wo.certification_price) || Number((inv as any)?.certification_fee) || 0,
+        status: wo.status || "",
+        issued: !!wo.certification_issued,
+        receipt: inv?.receipt_number ? String(inv.receipt_number) : "",
+      });
+    });
+    (dayInvoices || []).forEach((inv) => {
+      const certFee = Number((inv as any).certification_fee) || 0;
+      if (certFee <= 0) return;
+      if (inv.work_order_id && map.has(inv.work_order_id)) return;
+      map.set(inv.id, {
+        id: inv.id,
+        plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
+        client: inv.client_name || "",
+        certType: "Certificación",
+        price: certFee,
+        status: inv.payment_status || "",
+        issued: false,
+        receipt: inv.receipt_number ? String(inv.receipt_number) : "",
+      });
+    });
+    return Array.from(map.values()).sort((a: any, b: any) => String(a.plate).localeCompare(String(b.plate)));
+  }, [dayOrders, dayInvoices, invoicesByWorkOrderId]);
+  const totalCertDia = useMemo(
+    () => dayCertifications.reduce((s: number, c: any) => s + (Number(c.price) || 0), 0),
+    [dayCertifications]
+  );
+
+  // ===== Vehículos ingresados del día (Portería & Patio) =====
+  const STATUS_LABEL: Record<string, string> = {
+    ingresado: "INGRESADO",
+    en_diagnostico: "EN DIAGNÓSTICO",
+    esperando_repuestos: "ESPERANDO REPUESTOS",
+    en_servicio: "EN SERVICIO",
+    por_cobrar: "POR COBRAR",
+    pendiente_pago: "PENDIENTE PAGO",
+    pagado_autorizado: "PAGADO",
+    finalizado: "FINALIZADO",
+    entregado: "ENTREGADO",
+  };
+  const dayVehicles = useMemo(() => {
+    return [...(dayOrders || [])]
+      .filter((wo) => (wo.vehicle_plate || "").toUpperCase() !== "GASTO")
+      .sort((a, b) => String(a.entry_time || "").localeCompare(String(b.entry_time || "")))
+      .map((wo) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const tech = wo.assigned_technician_id
+          ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name || wo.assigned_technician_id
+          : (wo as any).technician_name || "";
+        return {
+          id: wo.id,
+          plate: (wo.vehicle_plate || "S/P").toUpperCase(),
+          entryTime: wo.entry_time || "",
+          client: inv?.client_name || "",
+          service: wo.general_maintenance_service || wo.problem_description || (wo.items && wo.items[0] ? wo.items[0].description : "") || "",
+          tech: tech || "",
+          status: wo.status || "",
+        };
+      });
+  }, [dayOrders, invoicesByWorkOrderId, technicians]);
+  const totalVehiclesDia = dayVehicles.length;
+
   // Financial Totals
   const totals = useMemo(() => {
     let cobradoEfectivo = 0;
@@ -1315,10 +1391,10 @@ export function WorkshopDailyReportView({
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="space-y-4">
 
-          {/* Main Cash & Workshop Table (8 cols on lg) */}
-          <div className="lg:col-span-8 space-y-2">
+          {/* Main Cash & Workshop Table — ancho completo (antes 8/12 con la matriz al costado) */}
+          <div className="space-y-2">
             <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
 
               {/* Table Title Header Bar in Vibrant Gold */}
@@ -1442,9 +1518,23 @@ export function WorkshopDailyReportView({
             </div>
           </div>
 
-          {/* Side Table: YAPES & TRANSFERENCIAS POR DESTINO (4 cols on lg) */}
-          <div className="lg:col-span-4 space-y-4">
-            <div className="overflow-x-auto rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+          {/* YAPES & TRANSFERENCIAS POR DESTINO — colapsable (colapsado por defecto) */}
+          <div className="overflow-hidden rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+            <button
+              type="button"
+              onClick={() => setShowYapesPanel((p) => !p)}
+              className="w-full bg-[#a21caf] text-white px-4 py-2.5 flex items-center justify-between font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black"
+            >
+              <span className="flex items-center gap-1.5">
+                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showYapesPanel ? "rotate-90" : ""}`} />
+                <Coins className="w-4 h-4" />
+                <span>YAPES & TRANSFERENCIAS POR DESTINO</span>
+              </span>
+              <span className="bg-black/30 text-white px-2 py-0.5 rounded text-[10px] font-bold">
+                TOTAL: S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
+              </span>
+            </button>
+            <div className={`${showYapesPanel ? "" : "hidden print:block"} overflow-x-auto`}>
 
               {/* Header with dual tabs Yape / Transferencia */}
               <div className="bg-[#a21caf] text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
@@ -1615,102 +1705,73 @@ export function WorkshopDailyReportView({
                     </td>
                   </tr>
 
-                  {/* 5. Row Total Validación Cuadre General del Día */}
-                  {(() => {
-                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
-                    const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
-
-                    return (
-                      <tr
-                        className={`text-xs font-black border-t-2 ${isCuadrado
-                          ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400"
-                          : "bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400"
-                          }`}
-                      >
-                        <td
-                          className="py-2 px-2 font-black uppercase tracking-wider text-[11px]"
-                          colSpan={electronicMatrix.yapeStaff.length + 1}
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <span>TOTAL GENERAL DEL DÍA</span>
-                            {isCuadrado ? (
-                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-emerald-200 border border-emerald-300 text-[10px] font-black flex items-center gap-1 shadow">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                                <span>CUADRADO ✔</span>
-                              </span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded bg-black/40 text-rose-200 border border-rose-300 text-[10px] font-black flex items-center gap-1 shadow">
-                                <AlertTriangle className="w-3 h-3 text-rose-300" />
-                                <span>VERIFICAR ⚠</span>
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td
-                          className="py-2 px-2 text-right font-mono font-black text-sm text-white"
-                          colSpan={electronicMatrix.transfStaff.length}
-                        >
-                          S/ {formatPEN(grandCuadre)}
-                        </td>
-                      </tr>
-                    );
-                  })()}
-
-                  {/* Espacio separador entre TOTAL GENERAL DEL DÍA y las filas de efectivo */}
-                  <tr aria-hidden="true">
-                    <td colSpan={electronicMatrix.yapeStaff.length + 1 + electronicMatrix.transfStaff.length} className="py-2" />
-                  </tr>
-
-                  {/* 6-7-8. Después del TOTAL GENERAL DEL DÍA: Total Efectivo / Gastos / Total en Efectivo (Caja) */}
-                  <tr className="bg-white/[0.04] text-gray-200 font-bold text-xs border-t border-white/10">
-                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                      💰 TOTAL EFECTIVO
-                    </td>
-                    <td
-                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-white"
-                      colSpan={electronicMatrix.transfStaff.length}
-                    >
-                      S/ {formatPEN(totals.cobradoEfectivo)}
-                    </td>
-                  </tr>
-                  <tr className="bg-rose-950/40 text-rose-300 font-extrabold text-xs">
-                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                      💸 GASTOS
-                    </td>
-                    <td
-                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
-                      colSpan={electronicMatrix.transfStaff.length}
-                    >
-                      − S/ {formatPEN(totalGastos)}
-                    </td>
-                  </tr>
-                  <tr className="bg-emerald-950/40 text-emerald-300 font-black text-xs border-t border-emerald-500/20">
-                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                      🏦 TOTAL EN EFECTIVO (CAJA)
-                    </td>
-                    <td
-                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-emerald-300"
-                      colSpan={electronicMatrix.transfStaff.length}
-                    >
-                      S/ {formatPEN(totals.cobradoEfectivo - totalGastos)}
-                    </td>
-                  </tr>
                 </tfoot>
               </table>
             </div>
+          </div>
 
-            {/* Concept Breakdown Table: SERVICIOS vs CERTIFICADOS vs ALMACÉN (Only in Caja tab) */}
+            {/* CUADRE / ARQUEO GENERAL DEL DÍA — siempre visible, ancho completo */}
+            <div className="overflow-x-auto rounded-2xl border border-amber-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+              <div className="bg-gradient-to-r from-amber-700 to-yellow-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-amber-200" />
+                  <span>ARQUEO GENERAL DEL DÍA</span>
+                </span>
+                {(() => {
+                  const g = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                  const isC = Math.abs(g - totals.totalFacturado) < 0.05;
+                  return (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black ${isC ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
+                      {isC ? "CUADRADO ✔" : "VERIFICAR ⚠"}
+                    </span>
+                  );
+                })()}
+              </div>
+              <table className="w-full text-xs text-left border-collapse font-mono">
+                <tbody>
+                  {(() => {
+                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    return (
+                      <tr className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black">
+                        <td className="py-2 px-3 font-black uppercase tracking-wider text-[11px]">TOTAL GENERAL DEL DÍA</td>
+                        <td className="py-2 px-3 text-right font-mono font-black text-sm">S/ {formatPEN(grandCuadre)}</td>
+                      </tr>
+                    );
+                  })()}
+                  <tr className="bg-white/[0.04] text-gray-200 font-bold text-xs border-t border-white/10">
+                    <td className="py-2 px-3 font-extrabold uppercase tracking-wider text-[11px]">💰 TOTAL EFECTIVO</td>
+                    <td className="py-2 px-3 text-right font-mono font-black text-xs text-white">S/ {formatPEN(totals.cobradoEfectivo)}</td>
+                  </tr>
+                  <tr className="bg-rose-950/40 text-rose-300 font-extrabold text-xs">
+                    <td className="py-2 px-3 font-extrabold uppercase tracking-wider text-[11px]">💸 GASTOS</td>
+                    <td className="py-2 px-3 text-right font-mono font-black text-xs text-rose-300">− S/ {formatPEN(totalGastos)}</td>
+                  </tr>
+                  <tr className="bg-emerald-950/40 text-emerald-300 font-black text-xs border-t border-emerald-500/20">
+                    <td className="py-2 px-3 font-extrabold uppercase tracking-wider text-[11px]">🏦 TOTAL EN EFECTIVO (CAJA)</td>
+                    <td className="py-2 px-3 text-right font-mono font-black text-xs text-emerald-300">S/ {formatPEN(totals.cobradoEfectivo - totalGastos)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* VENTAS POR CONCEPTO — colapsable (colapsado por defecto) */}
             {showConceptBreakdown && (
-              <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-                <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
-                  <div className="flex items-center gap-1.5">
+              <div className="overflow-hidden rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+                <button
+                  type="button"
+                  onClick={() => setShowConceptPanel((p) => !p)}
+                  className="w-full bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2.5 flex items-center justify-between font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showConceptPanel ? "rotate-90" : ""}`} />
                     <Layers className="w-4 h-4 text-cyan-300" />
                     <span>VENTAS POR CONCEPTO</span>
-                  </div>
+                  </span>
                   <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
                     S/ {formatPEN(categoryBreakdown.grandTotal)}
                   </span>
-                </div>
+                </button>
+                <div className={`${showConceptPanel ? "" : "hidden print:block"} overflow-x-auto`}>
 
                 <table className="w-full text-xs text-left border-collapse font-mono">
                   <thead>
@@ -1835,12 +1896,11 @@ export function WorkshopDailyReportView({
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               </div>
             )}
           </div>
-
         </div>
-      </div>
     );
   };
 
@@ -2703,15 +2763,65 @@ export function WorkshopDailyReportView({
         {/* TAB 5: CERTIFICACIONES GNV / GLP */}
         {/* ========================================================================= */}
         {activeTab === "certificaciones" && (
-          <div className="glass-panel p-5 rounded-3xl border border-cyan-500/30 space-y-3">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Award className="w-4 h-4 text-cyan-400" />
-                <span>Certificaciones GNV / GLP & Pruebas Quinquenales</span>
-              </h3>
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-2xl border border-cyan-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+              <div className="bg-gradient-to-r from-cyan-700 to-sky-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-cyan-300" />
+                  <span>Certificaciones Realizadas el {formatPeruDate(selectedDate)}</span>
+                </div>
+                <span className="bg-black/30 text-cyan-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                  {dayCertifications.length} CERTIFICADOS · S/ {formatPEN(totalCertDia)}
+                </span>
+              </div>
+              {dayCertifications.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 text-sm italic">
+                  No se asignaron certificaciones en las cards del taller para esta fecha.
+                </div>
+              ) : (
+                <table className="w-full text-xs text-left border-collapse font-mono">
+                  <thead>
+                    <tr className="bg-[#cffafe] text-cyan-950 font-extrabold uppercase text-[10px] border-b border-cyan-300">
+                      <th className="py-1.5 px-2.5">PLACA</th>
+                      <th className="py-1.5 px-2">CLIENTE</th>
+                      <th className="py-1.5 px-2">TIPO DE CERTIFICACIÓN</th>
+                      <th className="py-1.5 px-2 text-center">PRECIO (S/)</th>
+                      <th className="py-1.5 px-2 text-center">ESTADO</th>
+                      <th className="py-1.5 px-2 text-center"># COMPROBANTE</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-[11px]">
+                    {dayCertifications.map((c: any) => (
+                      <tr key={c.id} className="hover:bg-white/5 text-gray-200">
+                        <td className="py-2 px-2.5 font-black text-cyan-300">{c.plate}</td>
+                        <td className="py-2 px-2 text-gray-300 truncate max-w-[160px]">{c.client || "—"}</td>
+                        <td className="py-2 px-2 text-purple-300 font-bold">{c.certType}</td>
+                        <td className="py-2 px-2 text-right font-black text-white">S/ {formatPEN(Number(c.price) || 0)}</td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${c.status === "pagado_autorizado" || c.status === "finalizado" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                            {STATUS_LABEL[c.status] || c.status || "—"}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-center text-cyan-200">{c.receipt || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-[#0891b2] text-white font-black text-xs">
+                      <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={3}>
+                        TOTAL CERTIFICACIONES DEL DÍA
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono font-black text-sm">
+                        S/ {formatPEN(totalCertDia)}
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
             </div>
-            <p className="text-xs text-gray-300 leading-relaxed font-sans">
-              Todas las revisiones técnicas, certificados anuales y chips emitidos son registrados e integrados en tiempo real al consolidado de caja e historial vehicular de la nube.
+            <p className="text-[10px] text-gray-500 font-mono">
+              Según lo ASIGNADO en la card del Taller (certificación marcada en la orden): anual GNV/GLP, quinquenal, chip. Se muestran solo las del día seleccionado.
             </p>
           </div>
         )}
@@ -2720,15 +2830,65 @@ export function WorkshopDailyReportView({
         {/* TAB 6: PORTERÍA, PATIO & ESTADÍA VEHICULAR */}
         {/* ========================================================================= */}
         {activeTab === "porteria" && (
-          <div className="glass-panel p-5 rounded-3xl border border-rose-500/30 space-y-3">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-rose-400" />
-                <span>Control de Tránsito Vehicular & Inventario de Patio</span>
-              </h3>
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
+              <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
+                <div className="flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-rose-300" />
+                  <span>Vehículos Ingresados el {formatPeruDate(selectedDate)}</span>
+                </div>
+                <span className="bg-black/30 text-rose-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                  {dayVehicles.length} VEHÍCULOS
+                </span>
+              </div>
+              {dayVehicles.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 text-sm italic">
+                  No se registraron ingresos de vehículos para esta fecha.
+                </div>
+              ) : (
+                <table className="w-full text-xs text-left border-collapse font-mono">
+                  <thead>
+                    <tr className="bg-[#fecdd3] text-rose-950 font-extrabold uppercase text-[10px] border-b border-rose-300">
+                      <th className="py-1.5 px-2.5">N°</th>
+                      <th className="py-1.5 px-2 text-center">HORA INGRESO</th>
+                      <th className="py-1.5 px-2">PLACA</th>
+                      <th className="py-1.5 px-2">CLIENTE</th>
+                      <th className="py-1.5 px-2">SERVICIO / MOTIVO</th>
+                      <th className="py-1.5 px-2 text-center">TÉCNICO</th>
+                      <th className="py-1.5 px-2 text-center">ESTADO</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-[11px]">
+                    {dayVehicles.map((v: any, i: number) => (
+                      <tr key={v.id} className="hover:bg-white/5 text-gray-200">
+                        <td className="py-2 px-2.5 text-center text-gray-400 font-bold">{i + 1}</td>
+                        <td className="py-2 px-2 text-center font-black text-rose-300">{v.entryTime ? v.entryTime.slice(11, 16) : "—"} hrs</td>
+                        <td className="py-2 px-2 font-black text-white">{v.plate}</td>
+                        <td className="py-2 px-2 text-gray-300 truncate max-w-[150px]">{v.client || "—"}</td>
+                        <td className="py-2 px-2 text-gray-300 truncate max-w-[220px]" title={v.service}>{v.service || "—"}</td>
+                        <td className="py-2 px-2 text-center text-indigo-300">{v.tech || "—"}</td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${v.status === "finalizado" || v.status === "entregado" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                            {STATUS_LABEL[v.status] || v.status || "—"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-[#e11d48] text-white font-black text-xs">
+                      <td className="py-2 px-2.5 font-black uppercase tracking-wider" colSpan={4}>
+                        TOTAL VEHÍCULOS INGRESADOS
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono font-black text-sm">{dayVehicles.length}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
             </div>
-            <p className="text-xs text-gray-300 leading-relaxed font-sans">
-              Registro de ingreso y salida vehicular con inspección de cabina, kilometraje y semáforo de tiempo de permanencia en taller.
+            <p className="text-[10px] text-gray-500 font-mono">
+              Registro de ingreso vehicular del día seleccionado (Portería & Patio): placa, hora de ingreso, cliente, servicio asignado y estado en taller.
             </p>
           </div>
         )}
