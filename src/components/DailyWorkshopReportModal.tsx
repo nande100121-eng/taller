@@ -860,8 +860,22 @@ export function WorkshopDailyReportView({
     });
 
     const totalAbonos = abonosDelDia.total;
+
+    // Los ABONOS del día (ingresos sobre facturas de días anteriores) se suman en sus
+    // propios métodos (EFECTIVO/YAPE/...), no solo como monto global: así la columna
+    // EFECTIVO incluye abonos como el ticket TK01-00004588 (S/ 200 Efectivo) y el total
+    // COBRADO coincide con el TOTAL.
+    (dayPayments || []).forEach((p: any) => {
+      const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", Number(p.amount) || 0);
+      cobradoEfectivo += bd.efectivo;
+      cobradoYapes += bd.yape;
+      cobradoTransferencias += bd.transferencia;
+      cobradoCulqi += bd.culqi;
+      totalFacturado += Number(p.amount) || 0;
+    });
+
     const totalLiquidacion =
-      cobradoEfectivo + cobradoYapes + cobradoTransferencias + cobradoCulqi + totalAbonos;
+      cobradoEfectivo + cobradoYapes + cobradoTransferencias + cobradoCulqi;
 
     return {
       cobradoEfectivo,
@@ -874,7 +888,7 @@ export function WorkshopDailyReportView({
       totalLiquidacion,
       totalAbonos,
     };
-  }, [reportableRows, abonosDelDia]);
+  }, [reportableRows, abonosDelDia, dayPayments]);
 
   // Category Breakdown: Servicios vs Repuestos vs Certificaciones
   const categoryBreakdown = useMemo(() => {
@@ -1273,7 +1287,7 @@ export function WorkshopDailyReportView({
                       TOTAL
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={7}>
-                      S/ {formatPEN(totals.totalFacturado)}
+                      S/ {formatPEN(displayedTotalFacturado)}
                     </td>
                   </tr>
                 </tfoot>
