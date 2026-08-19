@@ -1238,7 +1238,7 @@ export default function WorkshopOperationsPage() {
                                 onChange={(e) => {
                                   updateVehicle(wo.vehicle_plate, { fuel_type: e.target.value as any });
                                 }}
-                                className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none ${isLocked
+                                className={`font-extrabold text-xs pl-2.5 pr-6 py-1 rounded-lg border focus:outline-none transition-all shadow-sm appearance-none max-w-[130px] truncate ${isLocked
                                   ? "bg-black/30 border-gray-700 text-gray-400 opacity-60 cursor-not-allowed"
                                   : "bg-black/60 hover:bg-black/90 border-amber-500/40 hover:border-amber-400 text-amber-300 cursor-pointer active:scale-95 shadow-amber-500/10"
                                   }`}
@@ -1248,7 +1248,7 @@ export default function WorkshopOperationsPage() {
                                 <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
                                 <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
                                 <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
-                                <option value="S/N" className="bg-gray-900 text-white font-bold">🔍 S/N (Sin sistema — consulta)</option>
+                                <option value="S/N" className="bg-gray-900 text-white font-bold">🔍 S/N (Sin sistema)</option>
                               </select>
                               <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
                             </div>

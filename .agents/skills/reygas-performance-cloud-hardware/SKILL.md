@@ -31,10 +31,11 @@ Toda página nueva o modificada debe cumplir estas reglas (verificadas en DevToo
 1. **CERO scroll horizontal de página:** el `body`/`html` usan `overflow-x: clip`; TODA tabla ancha vive en un contenedor con `overflow-x-auto` + scroll táctil (`touch-scroll`). Una tabla que desborda la pantalla NUNCA debe empujar el layout de la página.
 2. **Legibilidad mínima:** texto de cuerpo ≥ **13–14px**; tablas densas pueden usar 10–12px solo para datos secundarios; montos y totales clave ≥ **14px** (`font-black`/`font-mono`). `globals.css` fija `body { font-size: 14px }` y sube `.text-xs` a `0.8rem` en tablets.
 3. **Touch & formularios:** inputs/selects con `min-height: 44px` y `font-size: 15px` (evita auto-zoom Android). Botones de acción siempre `py-2`+ y con texto legible (`btn-full-text` si aplica).
-4. **Grillas responsivas:** en portrait (800px) las grillas de cards usan `grid-cols-1`/`grid-cols-2`; en landscape (1280px) `sm:`/`lg:` suben a 3–4 columnas. Nunca fijar anchos mínimos de página.
-5. **Modales:** `max-height: 92vh` con scroll interno (`custom-scrollbar`), ancho acotado al contenido (`max-w-sm`…`max-w-4xl`), nunca más ancho que el viewport.
-6. **KPI/totales:** las filas de totales (ej. TOTAL GENERAL DEL DÍA) se separan con filas espaciadoras; los egresos (GASTOS) se muestran en rojo con signo negativo y su fila de caja resultante en verde.
-7. **Verificación obligatoria:** antes de desplegar, revisar la página en DevTools a **1280×800** y **800×1280** (simula la tablet 10") y en el navegador de la tablet real. No debe haber desbordes horizontales, textos cortados ni botones menores a 44px.
+4. **Selects con opciones de texto LARGO:** si un `<select>` puede mostrar opciones largas (ej. "S/N (Sin sistema)"), **limitar su ancho** con `max-w-[120px–160px]` + `truncate` y etiquetas de opción CORTAS — de lo contrario el select se agranda y se superpone a las cards vecinas en tablet (caso real: selector GNV/GLP del Taller). Nunca dejar que el ancho del select dependa del texto de la opción seleccionada.
+5. **Grillas responsivas:** en portrait (800px) las grillas de cards usan `grid-cols-1`/`grid-cols-2`; en landscape (1280px) `sm:`/`lg:` suben a 3–4 columnas. Nunca fijar anchos mínimos de página.
+6. **Modales:** `max-height: 92vh` con scroll interno (`custom-scrollbar`), ancho acotado al contenido (`max-w-sm`…`max-w-4xl`), nunca más ancho que el viewport.
+7. **KPI/totales:** las filas de totales (ej. TOTAL GENERAL DEL DÍA) se separan con filas espaciadoras; los egresos (GASTOS) se muestran en rojo con signo negativo y su fila de caja resultante en verde.
+8. **Verificación obligatoria:** antes de desplegar, revisar la página en DevTools a **1280×800** y **800×1280** (simula la tablet 10") y en el navegador de la tablet real. No debe haber desbordes horizontales, textos cortados ni botones menores a 44px.
 
 ### 1.3 Lector de Códigos de Barra Láser (SEISA YHD-8200L)
 * Emula teclado físico US en un sistema operativo con configuración en español.
