@@ -393,12 +393,22 @@ export function WorkshopDailyReportView({
       const items = Array.isArray(wo.items) ? wo.items : [];
       let serv = 0;
       let rep = 0;
+      let certFromItems = 0;
       items.forEach((it: any) => {
         const amt = Number(it.subtotal) || Number(it.quantity) * Number(it.unit_price) || 0;
+        const descUp = String(it.description || "").toUpperCase();
+        // Certificación agregada como ÍTEM sin item_type (ej. "CERTIFICACIÓN (Chip por
+        // deterioro)"): se detecta por el texto para clasificarla en CERTIFICADOS.
+        const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+        if (isCertTxt) {
+          certFromItems += amt;
+          return;
+        }
         if (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id) rep += amt;
         else serv += amt;
       });
-      const cert = wo.requires_certification ? Number(wo.certification_price) || 0 : 0;
+      // Certificación marcada en la card (+ Certificación)
+      const cert = certFromItems + (wo.requires_certification ? Number(wo.certification_price) || 0 : 0);
       return { serv, rep, cert, total: serv + rep + cert };
     };
 
