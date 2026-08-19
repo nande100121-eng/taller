@@ -282,7 +282,15 @@ export function WorkshopDailyReportView({
 
     const m = (methodRaw || "").toUpperCase().trim();
     if (m.startsWith("MIXTO (") && m.endsWith(")")) {
-      parseMethodPairs(methodRaw).forEach((p) => addMethod((p.name || "").toUpperCase(), p.amount || 0));
+      const pairs = parseMethodPairs(methodRaw);
+      // Destino mixto separado por "/": cada método corresponde a su PROPIO destino (en orden).
+      // Ej: "Mixto (Efectivo: S/ 100.00, Yape: S/ 260.00)" con destino "CAJA / GIANFRANCO REY..."
+      // -> Efectivo -> CAJA, Yape -> GIANFRANCO REY... (la tabla de yapes muestra solo el suyo).
+      const dests = dest.split("/").map((d) => d.trim()).filter(Boolean);
+      pairs.forEach((p, idx) => {
+        const pDest = dests.length > 1 ? dests[Math.min(idx, dests.length - 1)] : dest;
+        addMethod((p.name || "").toUpperCase(), p.amount || 0, pDest);
+      });
       return res;
     }
     if (m.includes("YAPE") || m.includes("PLIN")) { res.yape = amount; res.yapeDestino = dest; }

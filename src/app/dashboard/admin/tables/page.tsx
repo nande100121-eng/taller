@@ -220,6 +220,7 @@ export default function AdminTablesPage() {
     can_receive_payment: false,
     is_debt_responsible: false,
     is_attention_responsible: false,
+    payment_nickname: "",
   });
 
   // Technician Password Visibility Map on Cards
@@ -243,6 +244,7 @@ export default function AdminTablesPage() {
     can_receive_payment: false,
     is_debt_responsible: false,
     is_attention_responsible: false,
+    payment_nickname: "",
     is_active: true,
   });
 
@@ -272,6 +274,7 @@ export default function AdminTablesPage() {
       can_receive_payment: !!tech.can_receive_payment,
       is_debt_responsible: !!tech.is_debt_responsible,
       is_attention_responsible: !!tech.is_attention_responsible,
+      payment_nickname: tech.payment_nickname || "",
       is_active: tech.is_active !== false,
     });
     setShowEditPassword(false);
@@ -296,6 +299,7 @@ export default function AdminTablesPage() {
       can_receive_payment: techEditForm.can_receive_payment,
       is_debt_responsible: techEditForm.is_debt_responsible,
       is_attention_responsible: techEditForm.is_attention_responsible,
+      payment_nickname: techEditForm.payment_nickname.trim(),
       is_active: techEditForm.is_active,
     });
     setTechEditModalOpen(false);
@@ -558,6 +562,7 @@ export default function AdminTablesPage() {
       can_receive_payment: techForm.can_receive_payment,
       is_debt_responsible: techForm.is_debt_responsible,
       is_attention_responsible: techForm.is_attention_responsible,
+      payment_nickname: techForm.payment_nickname.trim(),
     });
     setTechForm({
       full_name: "",
@@ -568,6 +573,7 @@ export default function AdminTablesPage() {
       can_receive_payment: false,
       is_debt_responsible: false,
       is_attention_responsible: false,
+      payment_nickname: "",
     });
   };
 
@@ -1618,6 +1624,22 @@ export default function AdminTablesPage() {
                 <span>🧑‍🔧 Responsable de Atención (aparece en el selector de Responsable de la Atención de Reservas y Citas)</span>
               </label>
 
+              <div className="p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/40">
+                <label className="block text-[11px] font-bold text-blue-300 mb-1">
+                  🏷️ Sobrenombre para Destino de Pago (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: REY, GIAN, FRANCO"
+                  value={techForm.payment_nickname}
+                  onChange={(e) => setTechForm({ ...techForm, payment_nickname: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs font-mono text-white focus:border-blue-400"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Se usará como opción en el Destino de Pago de Caja (en lugar del nombre completo).
+                </p>
+              </div>
+
               <button
                 type="submit"
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 active:scale-95"
@@ -1663,6 +1685,11 @@ export default function AdminTablesPage() {
                         <div>
                           <div className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
                             <span>{t.full_name}</span>
+                            {t.payment_nickname && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-normal">
+                                🏷️ {t.payment_nickname}
+                              </span>
+                            )}
                             <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/10 text-gray-300 font-normal">
                               {t.specialty}
                             </span>
@@ -2459,6 +2486,19 @@ export default function AdminTablesPage() {
                       className="w-full pl-9 pr-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white focus:border-indigo-400 focus:outline-none"
                     />
                   </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    🏷️ Sobrenombre para Destino de Pago (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: REY, GIAN, FRANCO"
+                    value={techEditForm.payment_nickname}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, payment_nickname: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-mono text-white focus:border-blue-400 focus:outline-none"
+                  />
                 </div>
 
                 <div className="sm:col-span-2">

@@ -273,7 +273,9 @@ export default function CajaPage() {
         return isActive && canReceive;
       })
       .forEach((t) => {
-        const name = (t.full_name || "").trim().toUpperCase();
+        // Si el personal tiene SOBRENOMBRE para Destino de Pago (Tabla Maestra), se usa ese
+        // en lugar del nombre completo como opción del destino.
+        const name = ((t.payment_nickname || t.full_name) || "").trim().toUpperCase();
         if (name && !seen.has(name)) {
           seen.add(name);
           list.push(name);
@@ -306,7 +308,9 @@ export default function CajaPage() {
         return isActive && isDebtResp;
       })
       .forEach((t) => {
-        const name = (t.full_name || "").trim().toUpperCase();
+        // Si el personal tiene SOBRENOMBRE para Destino de Pago (Tabla Maestra), se usa ese
+        // en lugar del nombre completo como opción del destino.
+        const name = ((t.payment_nickname || t.full_name) || "").trim().toUpperCase();
         if (name && !seen.has(name)) {
           seen.add(name);
           list.push(name);
