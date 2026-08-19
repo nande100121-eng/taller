@@ -2647,7 +2647,7 @@ export default function CajaPage() {
                               DEUDA CANCELADA ✓
                             </span>
                           </div>
-                        ) : (settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0) ? (
+                        ) : (!isPaid && (settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0)) ? (
                           <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
                             <div className="flex items-center gap-2">
                               <span className="text-lg">🏦</span>
