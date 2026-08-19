@@ -643,6 +643,7 @@ interface AppState {
   toggleOrderPayment: (orderId: string, invoiceId?: string) => void;
   undoLastPayment: (invoiceId: string) => void;
   deletePaymentRecord: (invoiceId: string, recordId: string) => void;
+  updatePaymentRecord: (invoiceId: string, recordId: string, updates: Partial<PaymentRecord>) => void;
   clearInvoicePayments: (invoiceId: string) => void;
   confirmInvoicePayment: (params: {
     invoiceId?: string;
@@ -2564,6 +2565,61 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           const u = {
             ...o,
             status: (isFullyPaid ? ("pagado_autorizado" as WorkOrderStatus) : (remaining.length > 0 ? ("pendiente_pago" as WorkOrderStatus) : ("por_cobrar" as WorkOrderStatus))),
+          };
+          saveSupabaseWorkOrder(u);
+          return u;
+        }
+        return o;
+      });
+      return { invoices: updatedInvoices, workOrders: updatedOrders };
+    });
+  },
+
+  // Edita UN registro del historial de pagos (monto, método, fecha, comprobante) y recalcula
+  // el estado de la factura igual que al eliminar: saldo, estado y método/destino/desglose.
+  updatePaymentRecord: (invoiceId, recordId, updates) => {
+    set((state) => {
+      const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
+      if (!targetInvoice || !recordId) return state;
+      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+        ? [...targetInvoice.payment_history]
+        : [];
+      const idx = history.findIndex((p) => p.id === recordId);
+      if (idx < 0) return state;
+      const current = history[idx];
+      history[idx] = {
+        ...current,
+        ...updates,
+        id: current.id,
+        date: updates.date || current.date,
+      };
+      const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const totalDue = Number(targetInvoice.grand_total) || 0;
+      const balance = Math.max(0, totalDue - prevPaid);
+      const isFullyPaid = history.length > 0 && balance <= 0.01;
+      const lastRec = history.length > 0 ? history[history.length - 1] : undefined;
+      const updated: Invoice = {
+        ...targetInvoice,
+        payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
+        payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
+        credit_amount: isFullyPaid ? 0 : balance,
+        payment_history: history,
+        payment_method: rebuildMethodFromHistory(history),
+        payment_destination: rebuildDestFromHistory(history),
+        payment_breakdown: history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined,
+        receipt_number: history.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
+        receipt_type: history.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
+        paid_at: history.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,
+        debt_observation: history.length > 0 ? targetInvoice.debt_observation : undefined,
+        debt_responsible: history.length > 0 ? targetInvoice.debt_responsible : undefined,
+      };
+      saveSupabaseInvoice(updated);
+      const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === targetInvoice.work_order_id) {
+          const u = {
+            ...o,
+            status: (isFullyPaid ? ("pagado_autorizado" as WorkOrderStatus) : (history.length > 0 ? ("pendiente_pago" as WorkOrderStatus) : ("por_cobrar" as WorkOrderStatus))),
           };
           saveSupabaseWorkOrder(u);
           return u;

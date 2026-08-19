@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
-import { useAppStore, PaymentSplit } from "@/lib/store/app-store";
+import { useAppStore, PaymentSplit, PaymentRecord } from "@/lib/store/app-store";
 import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
@@ -11,7 +11,7 @@ import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lo
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
-import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
+import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import {
   CreditCard,
@@ -48,6 +48,7 @@ import {
   Trash2,
   Split,
   Check,
+  Edit3,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -76,6 +77,7 @@ export default function CajaPage() {
     toggleOrderPayment,
     undoLastPayment,
     deletePaymentRecord,
+    updatePaymentRecord,
     clearInvoicePayments,
     confirmInvoicePayment,
     registerDirectWorkshopPayment,
@@ -100,6 +102,17 @@ export default function CajaPage() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
+
+  // Modal de EDICIÓN de un pago del historial (monto, método, fecha, comprobante, observación)
+  const [editPaymentModal, setEditPaymentModal] = useState<{ invoiceId: string; record: PaymentRecord } | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    amount: 0,
+    paymentDate: getPeruDateString(),
+    method: "Efectivo",
+    receiptType: "",
+    receiptNumber: "",
+    observation: "",
+  });
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
       const next = new Set(prev);
@@ -1312,6 +1325,43 @@ export default function CajaPage() {
     setPartialPaymentModal(null);
   };
 
+  // Abrir modal de edición de un pago del historial
+  const handleOpenEditPaymentRecord = (rec: PaymentRecord, invoiceId?: string) => {
+    if (!invoiceId || !rec) return;
+    setEditPaymentModal({ invoiceId, record: rec });
+    setEditPaymentForm({
+      amount: Number(rec.amount) || 0,
+      paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
+      method: (rec.method || "").trim() === "Sin Método" ? "" : (rec.method || "Efectivo"),
+      receiptType: rec.receipt_type || "",
+      receiptNumber: rec.receipt_number || "",
+      observation: rec.observation || "",
+    });
+  };
+
+  // Guardar edición del pago del historial (saldo y estado se recalculan)
+  const handleSavePaymentRecordEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPaymentModal) return;
+    const amount = Number(editPaymentForm.amount) || 0;
+    if (amount <= 0) {
+      notify("warning", "El monto del pago debe ser mayor a cero.");
+      return;
+    }
+    const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const dateISO = buildPeruISOString(editPaymentForm.paymentDate || getPeruDateString(), payTimeNow);
+    updatePaymentRecord(editPaymentModal.invoiceId, editPaymentModal.record.id, {
+      amount,
+      date: dateISO,
+      method: sanitizeMethod(editPaymentForm.method, amount) || "Efectivo",
+      receipt_type: editPaymentForm.receiptType || undefined,
+      receipt_number: editPaymentForm.receiptNumber || undefined,
+      observation: editPaymentForm.observation || undefined,
+    });
+    notify("success", "Pago del historial actualizado. Saldo recalculado.");
+    setEditPaymentModal(null);
+  };
+
   // Open Manual / Direct Payment Modal for Workshop Registration
   const handleOpenManualPaymentModal = () => {
     const now = new Date();
@@ -2238,6 +2288,14 @@ export default function CajaPage() {
                                   </span>
                                   <span className="flex items-center gap-1.5">
                                     <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditPaymentRecord(rec, invoice?.id)}
+                                      className="p-0.5 rounded bg-amber-500/10 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 transition-colors"
+                                      title="Editar este pago del historial (monto, método, fecha, comprobante)"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -4526,6 +4584,115 @@ export default function CajaPage() {
                       ? "Confirmar Abono Total"
                       : "Confirmar Abono Parcial"}
                   </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL EDITAR PAGO DEL HISTORIAL */}
+      {/* ========================================================================= */}
+      {editPaymentModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel w-full max-w-md max-h-[92vh] flex flex-col rounded-3xl border border-white/20 shadow-2xl bg-[#0d121f]/95 overflow-hidden my-auto animate-fadeIn">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-reygas-surface">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Editar Pago del Historial</h3>
+                  <p className="text-xs text-gray-400">Modifique monto, método, fecha o comprobante del abono.</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setEditPaymentModal(null)} className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePaymentRecordEdit} className="p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar text-xs">
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Monto (S/) *</label>
+                <input
+                  type="number" step="0.01" min="0.01" required
+                  value={editPaymentForm.amount || ""}
+                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, amount: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">📅 Fecha de Pago</label>
+                <MiniDatePicker
+                  value={editPaymentForm.paymentDate}
+                  onChange={(d) => setEditPaymentForm({ ...editPaymentForm, paymentDate: d || getPeruDateString() })}
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Método de Pago</label>
+                <select
+                  value={editPaymentForm.method}
+                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, method: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                >
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Yape">Yape</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Culqi">Culqi</option>
+                  <option value="">Sin Método</option>
+                  {(editPaymentModal.record.method || "").trim().startsWith("Mixto") && (
+                    <option value={editPaymentModal.record.method}>Mixto (desglose actual)</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-300 block mb-1 font-bold">Comprobante</label>
+                  <select
+                    value={editPaymentForm.receiptType}
+                    onChange={(e) => setEditPaymentForm({ ...editPaymentForm, receiptType: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                  >
+                    <option value="">Sin comprobante</option>
+                    <option value="Ticket">Ticket</option>
+                    <option value="Boleta">Boleta</option>
+                    <option value="Factura">Factura</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-gray-300 block mb-1 font-bold">N° Comprobante</label>
+                  <input
+                    type="text"
+                    value={editPaymentForm.receiptNumber}
+                    onChange={(e) => setEditPaymentForm({ ...editPaymentForm, receiptNumber: e.target.value })}
+                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
+                    placeholder="TK01-00000001"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-gray-300 block mb-1 font-bold">Observación</label>
+                <input
+                  type="text"
+                  value={editPaymentForm.observation}
+                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, observation: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
+                  placeholder="Nota del abono"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditPaymentModal(null)} className="flex-1 py-2.5 bg-reygas-surface hover:bg-white/10 text-gray-300 hover:text-white font-bold rounded-xl text-xs border border-white/10">
+                  Cancelar
+                </button>
+                <button type="submit" className="flex-1 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-black rounded-xl text-xs shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 transition-transform hover:scale-105">
+                  <Check className="w-4 h-4" />
+                  Guardar Cambios
                 </button>
               </div>
             </form>
