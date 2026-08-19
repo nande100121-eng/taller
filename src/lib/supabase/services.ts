@@ -1016,6 +1016,32 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
       if (invRes.data) invoices = invRes.data as Invoice[];
     }
 
+    // Fusionar el DESGLOSE de pagos (inv_breakdown_*) desde site_content: la tabla invoices
+    // no tiene esa columna. Así cada comprobante (ticket/boleta/factura) de un pago mixto
+    // se puede mostrar en su propia fila en la Tabla Maestra.
+    if (invoices.length > 0) {
+      try {
+        const bdKeys = invoices.map((i) => `inv_breakdown_${i.id}`);
+        const bdRes = await supabase.from("site_content").select("key, value").in("key", bdKeys);
+        const bdMap = new Map<string, any[]>();
+        (bdRes.data || []).forEach((row: any) => {
+          const k = row.key || row.section_key;
+          if (!k || !k.startsWith("inv_breakdown_")) return;
+          let val: any = row.value;
+          if (typeof val === "string") {
+            try { val = JSON.parse(val); } catch { val = undefined; }
+          }
+          if (Array.isArray(val)) bdMap.set(k.replace("inv_breakdown_", ""), val);
+        });
+        invoices = invoices.map((i: any) => ({
+          ...i,
+          payment_breakdown: bdMap.get(i.id) || (Array.isArray(i.payment_breakdown) ? i.payment_breakdown : undefined),
+        }));
+      } catch (err) {
+        console.warn("Master table breakdown merge warning:", err);
+      }
+    }
+
     return { rows, total, vehicles, invoices };
   } catch (err) {
     console.warn("Master table page fetch warning:", err);

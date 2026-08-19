@@ -1280,7 +1280,9 @@ export default function AdminTablesPage() {
                     </td>
                   </tr>
                 ) : (
-                  paginatedOrders.map((wo, index) => {
+                  (() => {
+                    let rowCounter = startIndex;
+                    return paginatedOrders.map((wo, index) => {
                     const veh = vehiclesByPlate.get(wo.vehicle_plate);
                     const inv = invoicesByWorkOrderId.get(wo.id);
                     const isSelected = selectedIds.includes(wo.id);
@@ -1313,68 +1315,118 @@ export default function AdminTablesPage() {
                     // Método limpio: nunca "Mixto (Mixto (...))" ni rastros de abonos borrados
                     const methodClean = inv ? (cleanMethodDisplay(inv.payment_method, montoNum > 0 ? montoNum : undefined) || inv.payment_method || "") : "";
 
-                    return (
-                      <tr
-                        key={wo.id}
-                        className={`hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/40" : ""
-                          }`}
-                      >
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleSelectRow(wo.id)}
-                            className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="p-3 font-mono font-bold text-gray-400">#{startIndex + index + 1}</td>
-                        <td className="p-3 font-mono text-purple-300">
-                          <div className="font-bold">{wo.entry_time ? (wo.entry_time.includes("T") ? formatPeruDate(wo.entry_time) : wo.entry_time) : ""}</div>
-                          {wo.entry_time && wo.entry_time.includes("T") && (
-                            <div className="text-[10px] text-cyan-300 font-semibold">{wo.entry_time.slice(11, 16)} hrs</div>
-                          )}
-                        </td>
-                        <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
-                        <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>
-                        <td className="p-3 text-cyan-300 font-semibold">{wo.vehicle_type || veh?.vehicle_type || ""}</td>
-                        <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || ""}</td>
-                        <td className="p-3 text-gray-200">{veh?.brand || ""}</td>
-                        <td className="p-3 font-mono">{veh?.current_mileage && veh.current_mileage > 0 ? `${veh.current_mileage}` : ""}</td>
-                        <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">{wo.vehicle_plate}</td>
-                        <td className="p-3 font-mono text-white">{inv?.receipt_number || ""}</td>
-                        <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || ""}</td>
-                        <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || ""}</td>
-                        <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || ""}</td>
-                        <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
-                        <td className="p-3 font-mono font-bold text-white">{montoVal}</td>
-                        <td className="p-3 font-mono text-gray-400">{discountVal}</td>
-                        <td className="p-3 font-mono text-amber-400 font-bold">{saldoVal}</td>
-                        <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || ""}</td>
-                        <td className="p-3 text-emerald-300 font-bold">{methodClean}</td>
-                        <td className="p-3 text-purple-300">{inv?.payment_destination || ""}</td>
-                        <td className="p-3 font-bold text-cyan-300">{inv?.receipt_type || ""}</td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => handleOpenEditWorkshopOrder(wo)}
-                              className="p-1.5 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 rounded-lg transition-colors"
-                              title="Modificar fecha, hora y datos del registro"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
-                              className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
-                              title="Eliminar esta fila"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                    // Comprobantes con N° propio (pago mixto multi-ticket): cada método con su
+                    // ticket/boleta/factura se muestra en SU PROPIA fila de la Tabla Maestra.
+                    const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
+                    const comprobantes = bdSplits.filter(
+                      (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
                     );
-                  })
+                    const expandComprobantes = comprobantes.length > 1;
+
+                    const renderMasterRow = (opts: {
+                      key: string;
+                      rowNumber: number;
+                      showActions: boolean;
+                      isFirst: boolean;
+                      receiptNumber: string;
+                      receiptType: string;
+                      method: string;
+                      destination: string;
+                      monto: string;
+                    }) => {
+                      const { key, rowNumber, showActions, isFirst, receiptNumber, receiptType, method, destination, monto } = opts;
+                      return (
+                        <tr key={key} className={`hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/40" : ""}`}>
+                          <td className="p-3 text-center">
+                            {showActions ? (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectRow(wo.id)}
+                                className="rounded border-gray-600 text-indigo-500 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            ) : null}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-gray-400">#{rowNumber}</td>
+                          <td className="p-3 font-mono text-purple-300">
+                            <div className="font-bold">{wo.entry_time ? (wo.entry_time.includes("T") ? formatPeruDate(wo.entry_time) : wo.entry_time) : ""}</div>
+                            {wo.entry_time && wo.entry_time.includes("T") && (
+                              <div className="text-[10px] text-cyan-300 font-semibold">{wo.entry_time.slice(11, 16)} hrs</div>
+                            )}
+                          </td>
+                          <td className="p-3 font-mono text-purple-400 font-bold">{wo.quinquennial_date || ""}</td>
+                          <td className="p-3 font-mono text-cyan-400 font-bold">{wo.chip_expiry_date || ""}</td>
+                          <td className="p-3 text-cyan-300 font-semibold">{wo.vehicle_type || veh?.vehicle_type || ""}</td>
+                          <td className="p-3 text-amber-300 font-bold">{veh?.fuel_type || ""}</td>
+                          <td className="p-3 text-gray-200">{veh?.brand || ""}</td>
+                          <td className="p-3 font-mono">{veh?.current_mileage && veh.current_mileage > 0 ? `${veh.current_mileage}` : ""}</td>
+                          <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">{wo.vehicle_plate}</td>
+                          <td className="p-3 font-mono text-white">{receiptNumber}</td>
+                          <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || ""}</td>
+                          <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || ""}</td>
+                          <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
+                          <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || ""}</td>
+                          <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
+                          <td className="p-3 font-mono font-bold text-white">{monto}</td>
+                          <td className="p-3 font-mono text-gray-400">{isFirst ? discountVal : ""}</td>
+                          <td className="p-3 font-mono text-amber-400 font-bold">{isFirst ? saldoVal : ""}</td>
+                          <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || ""}</td>
+                          <td className="p-3 text-emerald-300 font-bold">{method}</td>
+                          <td className="p-3 text-purple-300">{destination}</td>
+                          <td className="p-3 font-bold text-cyan-300">{receiptType}</td>
+                          <td className="p-3 text-center">
+                            {showActions ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenEditWorkshopOrder(wo)}
+                                  className="p-1.5 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 rounded-lg transition-colors"
+                                  title="Modificar fecha, hora y datos del registro"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => triggerDeleteSingle(wo.id, wo.vehicle_plate)}
+                                  className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                                  title="Eliminar esta fila"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    };
+
+                    if (expandComprobantes) {
+                      return comprobantes.map((split, si) => {
+                        const splitAmount = Number(split.amount) || 0;
+                        return renderMasterRow({
+                          key: `${wo.id}-comp-${si}`,
+                          rowNumber: ++rowCounter,
+                          showActions: si === 0,
+                          isFirst: si === 0,
+                          receiptNumber: String(split.receipt_number || ""),
+                          receiptType: split.receipt_type || inv?.receipt_type || "",
+                          method: cleanMethodDisplay(split.method, splitAmount) || split.method || "",
+                          destination: split.destination || inv?.payment_destination || "",
+                          monto: splitAmount > 0 ? `S/ ${splitAmount.toFixed(2)}` : "",
+                        });
+                      });
+                    }
+                    return renderMasterRow({
+                      key: wo.id,
+                      rowNumber: ++rowCounter,
+                      showActions: true,
+                      isFirst: true,
+                      receiptNumber: String(inv?.receipt_number || ""),
+                      receiptType: inv?.receipt_type || "",
+                      method: methodClean,
+                      destination: inv?.payment_destination || "",
+                      monto: montoVal,
+                    });
+                  });
+                  })()
                 )}
               </tbody>
             </table>
