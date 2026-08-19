@@ -2962,17 +2962,48 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const recNum = receiptNumber !== undefined ? receiptNumber : (targetInvoice?.receipt_number || "");
       const recType = receiptType !== undefined ? receiptType : (targetInvoice?.receipt_type || "");
 
-      const newRecord: PaymentRecord = {
-        id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        date: nowISO,
-        amount: payAmount,
-        method: methodStr,
-        destination: destStr,
-        receipt_number: recNum || undefined,
-        receipt_type: recType || undefined,
-        observation: observation || undefined,
-        responsible: responsible || undefined,
-      };
+      // ===== PAGO MIXTO MULTI-COMPROBANTE =====
+      // Si el desglose trae cada parte con SU PROPIO N° de comprobante (correlativos
+      // DIFERENTES), se registra UNA fila de historial POR COMPROBANTE (cada monto
+      // con su boleta/ticket/factura). Así el detalle de la card y la Tabla Maestra
+      // muestran cada boleta por separado. Si todas las partes comparten el MISMO
+      // correlativo (o no hay desglose), se guarda UN solo registro mixto.
+      const bdSplits: any[] = Array.isArray(paymentBreakdown) ? paymentBreakdown : [];
+      const splitsWithReceipt = bdSplits.filter(
+        (s) => s && s.receipt_number && String(s.receipt_number).trim() && String(s.receipt_number) !== "0"
+      );
+      const distinctReceipts = Array.from(new Set(splitsWithReceipt.map((s) => String(s.receipt_number).trim())));
+      const multiReceipt = splitsWithReceipt.length > 1 && distinctReceipts.length > 1;
+
+      const recordsToAdd: PaymentRecord[] = multiReceipt
+        ? bdSplits.map((s, idx) => {
+            const splitAmount = Math.max(0, Number(s.amount) || 0);
+            const splitMethod = sanitizeMethod(s.method || "", splitAmount) || "Efectivo";
+            return {
+              id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}-${idx}`,
+              date: nowISO,
+              amount: splitAmount,
+              method: splitMethod,
+              destination: s.destination || destStr,
+              receipt_number: s.receipt_number ? String(s.receipt_number) : undefined,
+              receipt_type: s.receipt_type || recType || undefined,
+              observation: observation || undefined,
+              responsible: responsible || undefined,
+            } as PaymentRecord;
+          })
+        : [
+            {
+              id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+              date: nowISO,
+              amount: payAmount,
+              method: methodStr,
+              destination: destStr,
+              receipt_number: recNum || undefined,
+              receipt_type: recType || undefined,
+              observation: observation || undefined,
+              responsible: responsible || undefined,
+            } as PaymentRecord,
+          ];
 
       let updatedInvoices = [...state.invoices];
       // Pago completo: se usa para el estado de la orden (pagado_autorizado vs pendiente_pago)
@@ -2982,7 +3013,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
           ? [...targetInvoice.payment_history]
           : [];
-        history.push(newRecord);
+        history.push(...recordsToAdd);
 
         const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
         const totalDue = Number(targetInvoice.grand_total) || 0;
@@ -3036,7 +3067,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_number: recNum,
           receipt_type: recType,
           payment_breakdown: paymentBreakdown,
-          payment_history: [newRecord],
+          payment_history: recordsToAdd,
           debt_observation: isFullyPaid ? undefined : observation,
           debt_responsible: isFullyPaid ? undefined : responsible,
           issued_at: targetOrder.entry_time || nowISO,
