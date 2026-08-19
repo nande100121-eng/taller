@@ -1615,27 +1615,10 @@ export function WorkshopDailyReportView({
                     </td>
                   </tr>
 
-                  {/* 5. Row Gastos del Día (egresos de caja) — debajo de TOTAL CULQI / TARJETA */}
-                  {totalGastos > 0 && (
-                    <tr className="bg-rose-950/70 text-rose-300 font-extrabold text-xs border-t border-rose-500/20">
-                      <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
-                        💸 GASTOS DEL DÍA
-                      </td>
-                      <td
-                        className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
-                        colSpan={electronicMatrix.transfStaff.length}
-                      >
-                        − S/ {formatPEN(totalGastos)}
-                      </td>
-                    </tr>
-                  )}
-
-                  {/* 6. Row Total Validación Cuadre General del Día */}
+                  {/* 5. Row Total Validación Cuadre General del Día */}
                   {(() => {
-                    const ingresosCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
-                    const isCuadrado = Math.abs(ingresosCuadre - totals.totalFacturado) < 0.05;
-                    // TOTAL GENERAL DEL DÍA = ingresos − gastos (egresos de caja)
-                    const grandCuadre = ingresosCuadre - totalGastos;
+                    const grandCuadre = electronicMatrix.grandElectronicTotal + totals.cobradoEfectivo + totals.totalPendiente + totals.totalTrunco + totals.cobradoCulqi;
+                    const isCuadrado = Math.abs(grandCuadre - totals.totalFacturado) < 0.05;
 
                     return (
                       <tr
@@ -1672,6 +1655,41 @@ export function WorkshopDailyReportView({
                       </tr>
                     );
                   })()}
+
+                  {/* 6-7-8. Después del TOTAL GENERAL DEL DÍA: Total Efectivo / Gastos / Total en Efectivo (Caja) */}
+                  <tr className="bg-white/[0.04] text-gray-200 font-bold text-xs border-t border-white/10">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      💰 TOTAL EFECTIVO
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-white"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(totals.cobradoEfectivo)}
+                    </td>
+                  </tr>
+                  <tr className="bg-rose-950/40 text-rose-300 font-extrabold text-xs">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      💸 GASTOS
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-rose-300"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      − S/ {formatPEN(totalGastos)}
+                    </td>
+                  </tr>
+                  <tr className="bg-emerald-950/40 text-emerald-300 font-black text-xs border-t border-emerald-500/20">
+                    <td className="py-1.5 px-2 font-extrabold uppercase tracking-wider text-[11px]" colSpan={electronicMatrix.yapeStaff.length + 1}>
+                      🏦 TOTAL EN EFECTIVO (CAJA)
+                    </td>
+                    <td
+                      className="py-1.5 px-2 text-right font-mono font-black text-xs text-emerald-300"
+                      colSpan={electronicMatrix.transfStaff.length}
+                    >
+                      S/ {formatPEN(totals.cobradoEfectivo - totalGastos)}
+                    </td>
+                  </tr>
                 </tfoot>
               </table>
             </div>
@@ -2079,8 +2097,8 @@ export function WorkshopDailyReportView({
           </div>
         )}
 
-        {/* Gastos del Día (egresos de caja) — detalle */}
-        {totalGastos > 0 && (
+        {/* Gastos del Día (egresos de caja) — detalle (solo en tab Caja, NO en Saldos Pendientes) */}
+        {activeTab === "caja" && totalGastos > 0 && (
           <div className="overflow-x-auto rounded-2xl border border-rose-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
             <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
               <div className="flex items-center gap-1.5">
