@@ -431,10 +431,11 @@ export default function CajaPage() {
   const pendingCountToday = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
+      // Pendientes del DÍA = registrados HOY (fecha de ingreso al taller), sin pagar.
+      // NO se cruza con la fecha de emisión de la factura: una orden registrada el 13/08
+      // facturada hoy NO es un pendiente del día de hoy.
       const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-      const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate;
-      return matchesDate && !isOrderPaid(wo, inv);
+      return orderDateStr === queryDate && !isOrderPaid(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
 
@@ -636,11 +637,10 @@ export default function CajaPage() {
         const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
         matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
       } else if (activeStatusFilter === "pendientesHoy") {
-        // Pendientes del día / hoy: sin pagar y con fecha de ingreso, emisión o pago = hoy
+        // Pendientes del día / hoy: sin pagar y con fecha de REGISTRO (ingreso al taller) = hoy.
+        // Las órdenes registradas en días anteriores (aunque se facturen hoy) NO entran aquí.
         const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
-        matchStatus = !isPaid && (orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate);
+        matchStatus = !isPaid && orderDateStr === targetDate;
       } else if (activeStatusFilter === "pendientes") {
         // Pendientes totales (histórico): sin pagar en cualquier fecha
         matchStatus = !isPaid;
