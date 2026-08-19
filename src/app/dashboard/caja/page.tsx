@@ -1136,6 +1136,60 @@ export default function CajaPage() {
 
   // Desmarcar pago de una card: si hay abonos registrados se limpian (para que al
   // re-confirmar NO se duplique el historial); si no hay historial, solo revierte el estado.
+  // Confirmación DIRECTA de pago (botones "Confirmar Pago" / "Confirmar Abono Parcial"):
+  // registra el saldo pendiente con el método/comprobante de la factura, bloquea la card y
+  // NO abre el modal de abono. Si el pago ya está registrado no duplica (solo actualiza si
+  // cambió el método o comprobante).
+  const handleQuickConfirmPayment = (wo: any, inv?: any) => {
+    if (!inv?.id) {
+      notify("warning", "Esta orden aún no tiene factura para confirmar el pago.");
+      return;
+    }
+    const totalDue = Number(inv.grand_total) || 0;
+    const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+    const paidSoFar = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+    const pending = Math.max(0, totalDue - paidSoFar);
+
+    const methodClean = defaultMethodFrom(inv.payment_method) || "Efectivo";
+    const dest = inv.payment_destination || "EMPRESA";
+    const receiptType = (inv.receipt_type === "Boleta" || inv.receipt_type === "Factura" ? inv.receipt_type : "Ticket") as "Ticket" | "Boleta" | "Factura";
+    const receiptNumber = (inv.receipt_number && inv.receipt_number !== "0" ? inv.receipt_number : "") || getAndIncrementReceiptNumber(receiptType, queryDate || getPeruDateString());
+
+    if (pending <= 0.01) {
+      // Ya pagado: NO duplicar. Si cambió el método/comprobante, actualizar el último registro.
+      const lastRec = history[history.length - 1];
+      if (lastRec && lastRec.id) {
+        const lastMethod = cleanMethodDisplay(lastRec.method, Number(lastRec.amount) || 0) || lastRec.method || "";
+        if (lastMethod.toUpperCase() !== methodClean.toUpperCase()) {
+          updatePaymentRecord(inv.id, lastRec.id, {
+            method: sanitizeMethod(methodClean, Number(lastRec.amount) || 0) || "Efectivo",
+            receipt_number: receiptNumber || lastRec.receipt_number || undefined,
+            receipt_type: receiptType || lastRec.receipt_type || undefined,
+          });
+          notify("success", "El pago ya estaba registrado — método/comprobante actualizado.");
+        } else {
+          notify("success", "El pago ya está confirmado y registrado (no se duplicó).");
+        }
+      } else {
+        notify("success", "El pago ya está confirmado y registrado.");
+      }
+      return;
+    }
+
+    // Registrar el saldo pendiente como pago directo (método y comprobante de la factura)
+    registerInvoicePayment({
+      invoiceId: inv.id,
+      workOrderId: wo.id,
+      amount: Number(pending.toFixed(2)),
+      paymentMethod: sanitizeMethod(methodClean) || "Efectivo",
+      paymentDestination: dest,
+      receiptNumber,
+      receiptType,
+      paidAt: new Date().toISOString(),
+    });
+    notify("success", `Pago de S/ ${pending.toFixed(2)} confirmado y registrado para ${wo.vehicle_plate}. Card bloqueada.`);
+  };
+
   const handleDesmarcarPago = (wo: any, invoice?: any) => {
     const hasHistory = Array.isArray(invoice?.payment_history) && invoice.payment_history.length > 0;
     if (hasHistory && invoice?.id) {
@@ -2393,18 +2447,18 @@ export default function CajaPage() {
 
                               {partialHistory.length > 0 ? (
                                 <button
-                                  onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
+                                  onClick={() => handleQuickConfirmPayment(wo, invoice)}
                                   className="px-5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 font-extrabold text-xs rounded-xl border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center gap-2 transition-all cursor-pointer"
-                                  title="Registrar solo este abono parcial sin duplicar el historial"
+                                  title="Confirmar y registrar el abono pendiente con el método/comprobante de la factura (sin abrir el modal; no duplica)"
                                 >
                                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                                   <span>Confirmar Abono Parcial</span>
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
+                                  onClick={() => handleQuickConfirmPayment(wo, invoice)}
                                   className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                                  title="Registrar el pago completo (100% seguro) — tras confirmar queda bloqueado a modificaciones"
+                                  title="Confirmar y registrar el pago completo con el método/comprobante de la factura (sin abrir el modal; no duplica)"
                                 >
                                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                                   <span>Confirmar Pago</span>
