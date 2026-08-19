@@ -907,7 +907,9 @@ export function WorkshopDailyReportView({
     let certTotal = 0;
     let certCount = 0;
 
-    consolidatedRows.forEach((r) => {
+    // VENTAS POR CONCEPTO debe coincidir con el COBRADO del día: usa las mismas filas de la
+    // liquidación (ingresos reales: facturas cobradas + abonos del día), no todas las filas.
+    liquidacionRows.forEach((r) => {
       const desc = r.description.toUpperCase();
       const isCert = desc.includes("CERTIFIC") || desc.includes("ANUAL") || desc.includes("QUINQUENAL") || desc.includes("CHIP") || desc.includes("CILINDRO") || desc.includes("CONVERSI");
       const isRep = desc.includes("BUJIA") || desc.includes("BOBINA") || desc.includes("FILTRO") || desc.includes("CABLE") || desc.includes("VALVULA") || desc.includes("MEMBRANA") || desc.includes("RED") || desc.includes("INYECT") || desc.includes("EMULADOR") || desc.includes("VARIADOR") || desc.includes("KIT") || desc.includes("REPUESTO");
@@ -924,7 +926,7 @@ export function WorkshopDailyReportView({
       }
     });
 
-    const grandTotal = servTotal + repTotal + certTotal || totals.totalFacturado || 1;
+    const grandTotal = servTotal + repTotal + certTotal || totals.totalLiquidacion || 1;
 
     return {
       servTotal,
@@ -938,7 +940,7 @@ export function WorkshopDailyReportView({
       certPercent: (certTotal / grandTotal) * 100,
       grandTotal: servTotal + repTotal + certTotal,
     };
-  }, [consolidatedRows, totals.totalFacturado]);
+  }, [liquidacionRows, totals.totalLiquidacion]);
 
   // Electronic Destinations Matrix: Separating Yapes from Transferencias
   const electronicMatrix = useMemo(() => {
