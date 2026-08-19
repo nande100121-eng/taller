@@ -1243,6 +1243,17 @@ export default function AlmacenPage() {
                                     </span>
                                   )}
                                 </div>
+
+                                {/* OBSERVACIÓN / DETALLE DEL PRODUCTO indicada por el técnico */}
+                                {item.observation && (
+                                  <div className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded-lg px-2 py-1.5">
+                                    <span className="shrink-0">📝</span>
+                                    <span>
+                                      <strong className="text-amber-300">Observación del Técnico:</strong>{" "}
+                                      {item.observation}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="shrink-0">

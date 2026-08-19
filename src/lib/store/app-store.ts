@@ -326,6 +326,7 @@ export interface WorkOrderItem {
   quantity: number;
   unit_price: number;
   subtotal: number;
+  observation?: string; // OBSERVACIÓN / DETALLE DEL TÉCNICO (se muestra en Almacén)
   dispatched?: boolean;
   requested_at?: string;
   dispatched_at?: string;
