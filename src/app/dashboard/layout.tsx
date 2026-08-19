@@ -35,8 +35,21 @@ export default function DashboardLayout({
   const router = useRouter();
   const { currentUser, userRole, logout, isVisualEditing, toggleVisualEditing } = useAppStore();
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // En TABLET (<1280px) el panel izquierdo nace SIEMPRE COLAPSADO (también al
+  // recargar la web) para dejar el mayor espacio al contenido.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth < 1280;
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Al cambiar de pestaña (ruta) en tablet, el panel izquierdo siempre vuelve
+  // a estar colapsado (por defecto colapsado, sin importar lo que se haya hecho).
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1280) {
+      setSidebarCollapsed(true);
+    }
+  }, [pathname]);
 
   const sidebarItems = [
     {
