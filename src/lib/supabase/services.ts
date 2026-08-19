@@ -713,8 +713,32 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     // Reutiliza el mismo formateo del sync global (parseo de items,
     // ERP_META, ALLOW_MOD, etc.) para que el reporte muestre datos idénticos.
     const workOrders = (ordersRes.data || []).map((o: any) => formatWorkOrderTableRow(o));
-    const invoices = (invoicesRes.data || []).map((inv: any) => {
-      let paymentBreakdown: any = inv.payment_breakdown;
+    const rawInvoices = (invoicesRes.data || []) as any[];
+
+    // Fusionar el DESGLOSE de pagos (inv_breakdown_*) desde site_content: la tabla invoices
+    // no tiene esa columna. Sin esto el informe diario no vería cada comprobante de un pago
+    // mixto multi-ticket (ej. ticket 4585 / TK01-00004585 de BVZ-412).
+    const bdMap = new Map<string, any[]>();
+    if (rawInvoices.length > 0) {
+      try {
+        const bdKeys = rawInvoices.map((i: any) => `inv_breakdown_${i.id}`);
+        const bdRes = await supabase.from("site_content").select("key, value").in("key", bdKeys);
+        (bdRes.data || []).forEach((row: any) => {
+          const k = row.key || row.section_key;
+          if (!k || !k.startsWith("inv_breakdown_")) return;
+          let val: any = row.value;
+          if (typeof val === "string") {
+            try { val = JSON.parse(val); } catch { val = undefined; }
+          }
+          if (Array.isArray(val)) bdMap.set(k.replace("inv_breakdown_", ""), val);
+        });
+      } catch (err) {
+        console.warn("Day report breakdown merge warning:", err);
+      }
+    }
+
+    const invoices = rawInvoices.map((inv: any) => {
+      let paymentBreakdown: any = bdMap.get(inv.id) || inv.payment_breakdown;
       if (typeof paymentBreakdown === "string") {
         try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = undefined; }
       }
