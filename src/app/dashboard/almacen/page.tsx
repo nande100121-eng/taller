@@ -1208,6 +1208,20 @@ export default function AlmacenPage() {
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-400 pt-0.5">
+                                  {/* Marca y Serie del producto desde el catálogo de Almacén */}
+                                  {(() => {
+                                    const invItem = inventoryItems.find((i: any) => i.id === item.inventory_item_id);
+                                    return (
+                                      <>
+                                        {invItem?.brand && (
+                                          <span>🏷️ <strong>Marca:</strong> <span className="text-gray-200 font-bold">{invItem.brand}</span></span>
+                                        )}
+                                        {invItem?.serial_number && (
+                                          <span>🔢 <strong>Serie:</strong> <span className="text-gray-200 font-bold font-mono">{invItem.serial_number}</span></span>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
                                   <span>
                                     📅 <strong>Solicitado:</strong>{" "}
                                     {item.requested_at
