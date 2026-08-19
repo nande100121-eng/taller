@@ -1404,7 +1404,7 @@ export default function AdminTablesPage() {
                         return renderMasterRow({
                           key: `${wo.id}-comp-${si}`,
                           rowNumber: ++rowCounter,
-                          showActions: si === 0,
+                          showActions: true,
                           isFirst: si === 0,
                           receiptNumber: String(split.receipt_number || ""),
                           receiptType: split.receipt_type || inv?.receipt_type || "",
