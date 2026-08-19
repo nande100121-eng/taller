@@ -849,7 +849,15 @@ export default function WorkshopOperationsPage() {
         const matchStatus = statusFilter === "todos" ? true : wo.status === statusFilter;
         return matchPlate && matchStatus;
       })
-      .sort((a, b) => new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime());
+      .sort((a, b) => {
+        // PRIMERO las tarjetas que NO estén en "pagado_autorizado" (trabajo activo),
+        // y al final las ya autorizadas/pagadas. Dentro de cada grupo se mantiene
+        // el orden por hora de ingreso (más reciente primero).
+        const aPaid = a.status === "pagado_autorizado" ? 1 : 0;
+        const bPaid = b.status === "pagado_autorizado" ? 1 : 0;
+        if (aPaid !== bPaid) return aPaid - bPaid;
+        return new Date(b.entry_time).getTime() - new Date(a.entry_time).getTime();
+      });
   }, [dateScopedOrders, searchPlate, statusFilter]);
 
   const displayedOrders = filteredOrders.slice(0, visibleLimit);
