@@ -490,27 +490,67 @@ export function WorkshopDailyReportView({
         ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
         : (wo as any).technician_name || csvRec?.technician;
 
-      rows.push({
-        id: wo.id,
-        itemNumber: count++,
-        plate: (wo.vehicle_plate || "S/P").toUpperCase(),
-        description: desc,
-        total: totalAmount,
-        isPending,
-        payState,
-        pendingAmount,
-        isTrunco,
-        efectivo: breakdown.efectivo,
-        yape: breakdown.yape,
-        transferencia: breakdown.transferencia,
-        culqi: breakdown.culqi,
-        responsable: (techAssigned || "Taller").split(" ")[0].toUpperCase(),
-        yapeDestino: yDest,
-        transfDestino: tDest,
-        isInvoice: Boolean(inv?.id),
-        orderStatus: wo.status,
-        receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
-      });
+      // Comprobantes con N° propio (pago mixto multi-ticket): UNA fila por cada
+      // ticket/boleta/factura, con sus propios datos (método, monto, destino).
+      const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
+      const comprobantes = bdSplits.filter(
+        (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
+      );
+
+      if (comprobantes.length > 1) {
+        comprobantes.forEach((split, si) => {
+          const splitAmount = Number(split.amount) || 0;
+          const subBd = breakdownFromSources(
+            split.method || "Efectivo",
+            undefined,
+            split.destination || (inv as any)?.payment_destination || "EMPRESA",
+            splitAmount
+          );
+          rows.push({
+            id: `${wo.id}-comp-${si}`,
+            itemNumber: count++,
+            plate: (wo.vehicle_plate || "S/P").toUpperCase(),
+            description: desc,
+            total: splitAmount,
+            isPending: false,
+            payState: "pagado",
+            pendingAmount: 0,
+            isTrunco: false,
+            efectivo: subBd.efectivo,
+            yape: subBd.yape,
+            transferencia: subBd.transferencia,
+            culqi: subBd.culqi,
+            responsable: (techAssigned || "Taller").split(" ")[0].toUpperCase(),
+            yapeDestino: subBd.yapeDestino || yDest,
+            transfDestino: subBd.transfDestino || tDest,
+            isInvoice: true,
+            orderStatus: "finalizado",
+            receiptNumber: String(split.receipt_number || ""),
+          });
+        });
+      } else {
+        rows.push({
+          id: wo.id,
+          itemNumber: count++,
+          plate: (wo.vehicle_plate || "S/P").toUpperCase(),
+          description: desc,
+          total: totalAmount,
+          isPending,
+          payState,
+          pendingAmount,
+          isTrunco,
+          efectivo: breakdown.efectivo,
+          yape: breakdown.yape,
+          transferencia: breakdown.transferencia,
+          culqi: breakdown.culqi,
+          responsable: (techAssigned || "Taller").split(" ")[0].toUpperCase(),
+          yapeDestino: yDest,
+          transfDestino: tDest,
+          isInvoice: Boolean(inv?.id),
+          orderStatus: wo.status,
+          receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
+        });
+      }
     });
 
     // 3. Map Direct Invoices not linked to day's work orders
@@ -572,27 +612,66 @@ export function WorkshopDailyReportView({
       let yDest = breakdown.yapeDestino || "EMPRESA";
       let tDest = breakdown.transfDestino || "EMPRESA";
 
-      rows.push({
-        id: inv.id,
-        itemNumber: count++,
-        plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
-        description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
-        total: totalAmount,
-        isPending,
-        payState,
-        pendingAmount,
-        isTrunco,
-        efectivo: breakdown.efectivo,
-        yape: breakdown.yape,
-        transferencia: breakdown.transferencia,
-        culqi: breakdown.culqi,
-        responsable: "CAJA",
-        yapeDestino: yDest,
-        transfDestino: tDest,
-        isInvoice: true,
-        orderStatus: isPending ? "pendiente" : "finalizado",
-        receiptNumber: (inv.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || "",
-      });
+      // Pago mixto multi-ticket: UNA fila por cada comprobante (mismo criterio que la Tabla Maestra)
+      const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
+      const comprobantes = bdSplits.filter(
+        (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
+      );
+
+      if (comprobantes.length > 1 && !isPending) {
+        comprobantes.forEach((split, si) => {
+          const splitAmount = Number(split.amount) || 0;
+          const subBd = breakdownFromSources(
+            split.method || "Efectivo",
+            undefined,
+            split.destination || (inv as any).payment_destination || "EMPRESA",
+            splitAmount
+          );
+          rows.push({
+            id: `${inv.id}-comp-${si}`,
+            itemNumber: count++,
+            plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
+            description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
+            total: splitAmount,
+            isPending: false,
+            payState: "pagado",
+            pendingAmount: 0,
+            isTrunco: false,
+            efectivo: subBd.efectivo,
+            yape: subBd.yape,
+            transferencia: subBd.transferencia,
+            culqi: subBd.culqi,
+            responsable: "CAJA",
+            yapeDestino: subBd.yapeDestino || yDest,
+            transfDestino: subBd.transfDestino || tDest,
+            isInvoice: true,
+            orderStatus: "finalizado",
+            receiptNumber: String(split.receipt_number || ""),
+          });
+        });
+      } else {
+        rows.push({
+          id: inv.id,
+          itemNumber: count++,
+          plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
+          description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
+          total: totalAmount,
+          isPending,
+          payState,
+          pendingAmount,
+          isTrunco,
+          efectivo: breakdown.efectivo,
+          yape: breakdown.yape,
+          transferencia: breakdown.transferencia,
+          culqi: breakdown.culqi,
+          responsable: "CAJA",
+          yapeDestino: yDest,
+          transfDestino: tDest,
+          isInvoice: true,
+          orderStatus: isPending ? "pendiente" : "finalizado",
+          receiptNumber: (inv.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || "",
+        });
+      }
     });
 
     return rows;
