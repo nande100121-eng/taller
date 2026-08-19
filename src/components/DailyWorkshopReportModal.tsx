@@ -1161,8 +1161,17 @@ export function WorkshopDailyReportView({
   // Electronic Destinations Matrix: Separating Yapes from Transferencias
   const electronicMatrix = useMemo(() => {
     // Columnas = DESTINO DE PAGO real de la Tabla Maestra (destinos presentes en los datos del día)
-    const yapeRows = reportableRows.filter((r) => r.yape > 0);
-    const transfRows = reportableRows.filter((r) => r.transferencia > 0);
+    const yapeRows: any[] = reportableRows.filter((r) => r.yape > 0).map((r) => ({ ...r }));
+    const transfRows: any[] = reportableRows.filter((r) => r.transferencia > 0).map((r) => ({ ...r }));
+
+    // ABONOS del día (pagos sobre facturas de otros días): también se distribuyen
+    // por destino en la matriz electrónica (igual que el Reporte del Día y los totales).
+    (dayPayments || []).forEach((p: any) => {
+      const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", Number(p.amount) || 0);
+      const dest = (p.destination || "EMPRESA").toUpperCase();
+      if (bd.yape > 0) yapeRows.push({ yape: bd.yape, yapeDestino: bd.yapeDestino || dest });
+      if (bd.transferencia > 0) transfRows.push({ transferencia: bd.transferencia, transfDestino: bd.transfDestino || dest });
+    });
     const sortDests = (a: string, b: string) => (a === "EMPRESA" ? -1 : b === "EMPRESA" ? 1 : a.localeCompare(b));
     let yapeStaff = Array.from(new Set(yapeRows.map((r) => r.yapeDestino || "EMPRESA"))).sort(sortDests);
     let transfStaff = Array.from(new Set(transfRows.map((r) => r.transfDestino || "EMPRESA"))).sort(sortDests);
@@ -1223,7 +1232,7 @@ export function WorkshopDailyReportView({
       totalTransf,
       grandElectronicTotal,
     };
-  }, [reportableRows]);
+  }, [reportableRows, dayPayments]);
 
   // Technician Productivity Metrics
   const techPerformance = useMemo(() => {

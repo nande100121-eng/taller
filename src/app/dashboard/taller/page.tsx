@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
-import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDateTime, buildPeruISOString } from "@/lib/utils/date-utils";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
 import { capitalizeFirst } from "@/lib/utils/text-format";
 
@@ -93,6 +93,32 @@ export default function WorkshopOperationsPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
+
+  // Editar FECHA/HORA DE INGRESO de la OT (corrección de errores)
+  const [editEntryOrder, setEditEntryOrder] = useState<{ id: string; plate: string; entryTime: string } | null>(null);
+  const [editEntryDate, setEditEntryDate] = useState<string>("");
+  const [editEntryTime, setEditEntryTime] = useState<string>("");
+
+  const handleOpenEditEntry = (wo: any) => {
+    const et = wo.entry_time || "";
+    setEditEntryOrder({ id: wo.id, plate: wo.vehicle_plate || "S/P", entryTime: et });
+    setEditEntryDate(et ? et.slice(0, 10) : getPeruDateString());
+    setEditEntryTime(et ? et.slice(11, 16) : "08:00");
+  };
+
+  const handleSaveEditEntry = () => {
+    if (!editEntryOrder) return;
+    const date = (editEntryDate || "").slice(0, 10);
+    const time = editEntryTime || "08:00";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      notify("warning", "Seleccione una fecha válida para el ingreso.");
+      return;
+    }
+    const newISO = buildPeruISOString(date, time);
+    updateWorkOrder(editEntryOrder.id, { entry_time: newISO });
+    setEditEntryOrder(null);
+    notify("success", `Fecha/hora de ingreso de ${editEntryOrder.plate} actualizada a ${date} ${time}.`);
+  };
   // Cards de placas colapsadas POR DEFECTO: se guardan los ids EXPANDIDOS (vacío = todas colapsadas)
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
@@ -1188,9 +1214,19 @@ export default function WorkshopOperationsPage() {
                         </div>
 
                         <div className="p-2 rounded-lg bg-reygas-dark/90 border border-white/5 space-y-1 text-xs text-gray-300">
-                          <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
+                          <div className="flex items-center justify-between gap-1.5 text-amber-400 font-bold text-[11px]">
+                            <div className="flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Llegada: {formatPeruDateTime(wo.entry_time)}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditEntry(wo)}
+                              className="p-1 rounded bg-white/5 hover:bg-amber-500/20 text-gray-400 hover:text-amber-300 transition-colors"
+                              title="Modificar fecha/hora de ingreso (corregir error)"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
                           </div>
                           {/* Aviso: repuestos solicitados sin liberar por Almacén */}
                           {(wo.items || []).some((it: any) => it.item_type === "repuesto" && it.dispatched !== true) && (
@@ -2425,6 +2461,76 @@ export default function WorkshopOperationsPage() {
                 className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-xl text-xs shadow-lg shadow-cyan-600/30 transition-transform hover:scale-105"
               >
                 Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDITAR FECHA/HORA DE INGRESO DE LA OT */}
+      {editEntryOrder && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-amber-500/40 max-w-md w-full space-y-6 shadow-2xl bg-reygas-dark">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-white">Modificar Fecha de Ingreso</h3>
+                  <p className="text-xs text-gray-400">OT #{editEntryOrder.id} · Placa: <strong className="text-amber-300 font-mono">{editEntryOrder.plate}</strong></p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditEntryOrder(null)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <p className="text-gray-300 leading-relaxed font-sans">
+                Corrige la fecha y hora de ingreso si hubo un error al registrar el vehículo.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Fecha de Ingreso *</label>
+                <input
+                  type="date"
+                  value={editEntryDate}
+                  onChange={(e) => setEditEntryDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">Hora de Ingreso *</label>
+                <input
+                  type="time"
+                  value={editEntryTime}
+                  onChange={(e) => setEditEntryTime(e.target.value)}
+                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setEditEntryOrder(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditEntry}
+                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/30 flex items-center gap-2 transition-transform hover:scale-105"
+              >
+                <Check className="w-4 h-4" />
+                <span>Guardar Fecha/Hora</span>
               </button>
             </div>
           </div>
