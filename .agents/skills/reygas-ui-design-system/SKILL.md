@@ -207,3 +207,52 @@ Toda tabla o listado paginado debe incluir la barra de control de páginas idén
 - **Badge de Alerta / Stock Negativo**: `px-2.5 py-0.5 rounded-full bg-red-600/20 text-red-300 border border-red-500/40 text-[10px] font-black`.
 - **Badge de Pendiente**: `px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black`.
 - **Badge de Atendido / Éxito**: `px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black`.
+
+---
+
+## 6. Cards Expandibles / Colapsables (Regla del Chevron al Extremo Derecho)
+
+**Regla Estricta (OBLIGATORIA)**: en TODA card/panel con opción expandir/colapsar (Portería, Caja, Taller, Consultas, Recepción/Citas, Informes diarios, Saldos Pendientes, etc.), el **botón de expandir/colapsar debe estar SIEMPRE en el extremo final derecho** de la cabecera de la card, con el mismo diseño estándar. Nunca al inicio/izquierda, y nunca dentro de otro botón.
+
+**Estructura de cabecera estándar (dos botones hermanos, NUNCA anidados):**
+
+```tsx
+<div className="flex items-center justify-between gap-3 ...cabecera...">
+  {/* 1. Título clicable (icono + título + subtítulo) — ocupa la izquierda */}
+  <button
+    type="button"
+    onClick={() => toggleCard(id)}
+    className="flex items-center gap-2 flex-1 text-left"
+  >
+    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+      <MiIcono className="w-5 h-5" />
+    </div>
+    <div>
+      <h2 className="text-lg font-black text-white">Título de la Card</h2>
+      <p className="text-[11px] text-gray-400">Subtítulo / resumen.</p>
+    </div>
+  </button>
+
+  {/* 2. Controles extra (filtros, búsqueda, badges) — SIEMPRE ANTES del chevron */}
+
+  {/* 3. Botón expandir/colapsar — SIEMPRE al EXTREMO DERECHO */}
+  <button
+    type="button"
+    onClick={() => toggleCard(id)}
+    className={isExpanded
+      ? "p-1.5 rounded-lg border transition-all shrink-0 bg-amber-600/20 text-amber-300 border-amber-500/40"
+      : "p-1.5 rounded-lg border transition-all shrink-0 bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"}
+    title={isExpanded ? "Contraer tarjeta" : "Expandir tarjeta"}
+  >
+    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+  </button>
+</div>
+```
+
+**Reglas de uso:**
+1. **Posición**: el botón del chevron es SIEMPRE el último elemento de la fila de cabecera (extremo derecho); los controles extra (filtros, buscadores, totales) van a su izquierda.
+2. **Diseño estándar**: `p-1.5 rounded-lg border transition-all shrink-0`; activo = ámbar (`bg-amber-600/20 text-amber-300 border-amber-500/40`), inactivo = neutro (`bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30`). El color activo puede seguir el acento de la card (ej. rojo en Portería ingreso, azul en Recepción) pero el ESTILO de borde/padding/icono es idéntico.
+3. **Iconos**: `ChevronUp` cuando está expandida, `ChevronDown` cuando está colapsada (NUNCA ChevronRight/izquierda como indicador en cards).
+4. **Sin anidar botones**: si el título también es clicable, el chevron es un botón HERMANO (no hijo) del botón de título.
+5. **Estado por defecto**: todo lo colapsable nace COLAPSADO, salvo la acción principal de la página (ej. formulario de Registro en Portería) que nace expandida.
+6. **Paneles con cabecera de color** (ej. YAPES / VENTAS POR CONCEPTO en el Informe Diario): misma regla — el chevron va al extremo derecho con su botón estándar.

@@ -1523,20 +1523,32 @@ export function WorkshopDailyReportView({
 
           {/* YAPES & TRANSFERENCIAS POR DESTINO — colapsable (colapsado por defecto) */}
           <div className="overflow-hidden rounded-2xl border border-purple-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-            <button
-              type="button"
-              onClick={() => setShowYapesPanel((p) => !p)}
-              className="w-full bg-[#a21caf] text-white px-4 py-2.5 flex items-center justify-between font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black"
-            >
-              <span className="flex items-center gap-1.5">
-                <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showYapesPanel ? "rotate-90" : ""}`} />
+            <div className="w-full bg-[#a21caf] text-white px-4 py-2.5 flex items-center justify-between gap-2 font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black">
+              <button
+                type="button"
+                onClick={() => setShowYapesPanel((p) => !p)}
+                className="flex items-center gap-1.5 text-left flex-1"
+                title="Expandir / Contraer panel"
+              >
                 <Coins className="w-4 h-4" />
                 <span>YAPES & TRANSFERENCIAS POR DESTINO</span>
-              </span>
+              </button>
               <span className="bg-black/30 text-white px-2 py-0.5 rounded text-[10px] font-bold">
                 TOTAL: S/ {formatPEN(electronicMatrix.grandElectronicTotal)}
               </span>
-            </button>
+              {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
+              <button
+                type="button"
+                onClick={() => setShowYapesPanel((p) => !p)}
+                className={`p-1 rounded-lg border transition-all shrink-0 ${showYapesPanel
+                  ? "bg-white/20 text-white border-white/40"
+                  : "bg-black/20 text-gray-200 border-white/20 hover:bg-black/40"
+                  }`}
+                title={showYapesPanel ? "Contraer panel" : "Expandir panel"}
+              >
+                {showYapesPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
             <div className={`${showYapesPanel ? "" : "hidden print:block"} overflow-x-auto`}>
 
               {/* Header with dual tabs Yape / Transferencia */}
@@ -1760,20 +1772,32 @@ export function WorkshopDailyReportView({
             {/* VENTAS POR CONCEPTO — colapsable (colapsado por defecto) */}
             {showConceptBreakdown && (
               <div className="overflow-hidden rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
-                <button
-                  type="button"
-                  onClick={() => setShowConceptPanel((p) => !p)}
-                  className="w-full bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2.5 flex items-center justify-between font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showConceptPanel ? "rotate-90" : ""}`} />
+                <div className="w-full bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2.5 flex items-center justify-between gap-2 font-black text-xs uppercase tracking-wider print:bg-gray-200 print:text-black">
+                  <button
+                    type="button"
+                    onClick={() => setShowConceptPanel((p) => !p)}
+                    className="flex items-center gap-1.5 text-left flex-1"
+                    title="Expandir / Contraer panel"
+                  >
                     <Layers className="w-4 h-4 text-cyan-300" />
                     <span>VENTAS POR CONCEPTO</span>
-                  </span>
+                  </button>
                   <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
                     S/ {formatPEN(categoryBreakdown.grandTotal)}
                   </span>
-                </button>
+                  {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
+                  <button
+                    type="button"
+                    onClick={() => setShowConceptPanel((p) => !p)}
+                    className={`p-1 rounded-lg border transition-all shrink-0 ${showConceptPanel
+                      ? "bg-white/20 text-white border-white/40"
+                      : "bg-black/20 text-gray-200 border-white/20 hover:bg-black/40"
+                      }`}
+                    title={showConceptPanel ? "Contraer panel" : "Expandir panel"}
+                  >
+                    {showConceptPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                </div>
                 <div className={`${showConceptPanel ? "" : "hidden print:block"} overflow-x-auto`}>
 
                 <table className="w-full text-xs text-left border-collapse font-mono">

@@ -771,16 +771,16 @@ export default function PorteriaPage() {
 
         {/* 1. Registrar Ingreso de Vehículo — card colapsable */}
         <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => togglePorteriaCard("ingreso")}
-            className="w-full flex items-center justify-between gap-3 p-6 pb-4 hover:bg-white/[0.03] transition-colors"
-          >
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3 p-6 pb-4">
+            <button
+              type="button"
+              onClick={() => togglePorteriaCard("ingreso")}
+              className="flex items-center gap-2 flex-1 text-left"
+            >
               <div className={`p-2 rounded-xl ${isVentaDirecta ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
                 {isVentaDirecta ? <ShoppingBag className="w-5 h-5" /> : <Car className="w-5 h-5" />}
               </div>
-              <div className="text-left">
+              <div>
                 <h2 className="text-lg font-black text-white">
                   {isVentaDirecta ? "Registrar Venta de Repuesto" : "Registrar Ingreso de Vehículo"}
                 </h2>
@@ -792,13 +792,21 @@ export default function PorteriaPage() {
                 }`}>
                 {isVentaDirecta ? "Venta Mostrador" : "Búsqueda Auto"}
               </span>
-            </div>
-            {porteriaCards.ingreso ? (
-              <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
-            ) : (
-              <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
-            )}
-          </button>
+            </button>
+
+            {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
+            <button
+              type="button"
+              onClick={() => togglePorteriaCard("ingreso")}
+              className={`p-1.5 rounded-lg border transition-all shrink-0 ${porteriaCards.ingreso
+                ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
+                : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                }`}
+              title={porteriaCards.ingreso ? "Contraer tarjeta" : "Expandir tarjeta"}
+            >
+              {porteriaCards.ingreso ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
 
           {porteriaCards.ingreso && (
           <div className="px-6 pb-6 space-y-5">
@@ -1103,34 +1111,44 @@ export default function PorteriaPage() {
                   <h2 className="text-lg font-black text-white">Citas & Reservas Programadas</h2>
                   <p className="text-[11px] text-gray-400">Confirmación de llegada de clientes agendados.</p>
                 </div>
-                {porteriaCards.citas ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
-                )}
               </button>
 
-              {/* Filter mode toggle */}
-              <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Filter mode toggle */}
+                <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setDateFilterMode("dia")}
+                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "dia"
+                      ? "bg-amber-500 text-black font-black"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    Del Día ({filteredAppointments.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilterMode("todos")}
+                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "todos"
+                      ? "bg-amber-500 text-black font-black"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    Todas las Pendientes
+                  </button>
+                </div>
+
+                {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
                 <button
                   type="button"
-                  onClick={() => setDateFilterMode("dia")}
-                  className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "dia"
-                    ? "bg-amber-500 text-black font-black"
-                    : "text-gray-400 hover:text-white"
+                  onClick={() => togglePorteriaCard("citas")}
+                  className={`p-1.5 rounded-lg border transition-all shrink-0 ${porteriaCards.citas
+                    ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
+                    : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
                     }`}
+                  title={porteriaCards.citas ? "Contraer tarjeta" : "Expandir tarjeta"}
                 >
-                  Del Día ({filteredAppointments.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDateFilterMode("todos")}
-                  className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "todos"
-                    ? "bg-amber-500 text-black font-black"
-                    : "text-gray-400 hover:text-white"
-                    }`}
-                >
-                  Todas las Pendientes
+                  {porteriaCards.citas ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -1215,22 +1233,32 @@ export default function PorteriaPage() {
                   <h2 className="text-lg font-black text-white">Semáforo de Salida e Inspección de Garita</h2>
                   <p className="text-[11px] text-gray-400">Control de pagos y autorización de salida del taller.</p>
                 </div>
-                {porteriaCards.semaforo ? (
-                  <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
-                )}
               </button>
 
-              <div className="relative w-full sm:w-56">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Buscar por placa..."
-                  value={searchPlate}
-                  onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
-                  className="w-full pl-9 pr-3 py-1.5 bg-black/40 border border-white/15 rounded-xl text-xs text-white uppercase font-mono font-bold focus:border-amber-400 focus:outline-none"
-                />
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="relative w-full sm:w-56">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por placa..."
+                    value={searchPlate}
+                    onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
+                    className="w-full pl-9 pr-3 py-1.5 bg-black/40 border border-white/15 rounded-xl text-xs text-white uppercase font-mono font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+
+                {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
+                <button
+                  type="button"
+                  onClick={() => togglePorteriaCard("semaforo")}
+                  className={`p-1.5 rounded-lg border transition-all shrink-0 ${porteriaCards.semaforo
+                    ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
+                    : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                    }`}
+                  title={porteriaCards.semaforo ? "Contraer tarjeta" : "Expandir tarjeta"}
+                >
+                  {porteriaCards.semaforo ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
