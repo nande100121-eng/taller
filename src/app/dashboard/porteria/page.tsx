@@ -29,6 +29,8 @@ import {
   Edit3,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Filter,
   Gauge,
   HelpCircle,
@@ -68,6 +70,16 @@ export default function PorteriaPage() {
   // Universal Date Filter (Peru Timezone)
   const [selectedDate, setSelectedDate] = useState<string>(getPeruDateString());
   const [dateFilterMode, setDateFilterMode] = useState<"dia" | "todos">("dia");
+
+  // Cards colapsables de Portería (Registrar Ingreso / Citas / Semáforo de Salida).
+  // El formulario de ingreso nace ABIERTO (acción principal); las demás colapsadas.
+  const [porteriaCards, setPorteriaCards] = useState<{ ingreso: boolean; citas: boolean; semaforo: boolean }>({
+    ingreso: true,
+    citas: false,
+    semaforo: false,
+  });
+  const togglePorteriaCard = (key: "ingreso" | "citas" | "semaforo") =>
+    setPorteriaCards((prev) => ({ ...prev, [key]: !prev[key] }));
 
   // Search & Camera/OCR
   const [searchPlate, setSearchPlate] = useState("");
@@ -754,17 +766,21 @@ export default function PorteriaPage() {
         </div>
       </div>
 
-      {/* Main Grid: Form + Appointments & Semaphore */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Cards apiladas de Portería (cada una debajo de la otra, expandibles/colapsables) */}
+      <div className="space-y-6">
 
-        {/* Entry Registration Form (5 cols) */}
-        <div className="lg:col-span-5 glass-panel p-6 rounded-3xl border border-white/10 space-y-5 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+        {/* 1. Registrar Ingreso de Vehículo — card colapsable */}
+        <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => togglePorteriaCard("ingreso")}
+            className="w-full flex items-center justify-between gap-3 p-6 pb-4 hover:bg-white/[0.03] transition-colors"
+          >
             <div className="flex items-center gap-2">
               <div className={`p-2 rounded-xl ${isVentaDirecta ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
                 {isVentaDirecta ? <ShoppingBag className="w-5 h-5" /> : <Car className="w-5 h-5" />}
               </div>
-              <div>
+              <div className="text-left">
                 <h2 className="text-lg font-black text-white">
                   {isVentaDirecta ? "Registrar Venta de Repuesto" : "Registrar Ingreso de Vehículo"}
                 </h2>
@@ -772,13 +788,20 @@ export default function PorteriaPage() {
                   {isVentaDirecta ? "Apertura de OT para venta directa al mostrador / recomendado." : "Apertura inmediata de orden de trabajo en Taller."}
                 </p>
               </div>
+              <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-bold border ${isVentaDirecta ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-gray-300 border-white/10"
+                }`}>
+                {isVentaDirecta ? "Venta Mostrador" : "Búsqueda Auto"}
+              </span>
             </div>
-            <span className={`text-[10px] px-2.5 py-1 rounded-full font-mono font-bold border ${isVentaDirecta ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" : "bg-white/5 text-gray-300 border-white/10"
-              }`}>
-              {isVentaDirecta ? "Venta Mostrador" : "Búsqueda Auto"}
-            </span>
-          </div>
+            {porteriaCards.ingreso ? (
+              <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
+            )}
+          </button>
 
+          {porteriaCards.ingreso && (
+          <div className="px-6 pb-6 space-y-5">
           {/* Toggle Tipo de Registro: Vehículo vs Venta Directa */}
           <div className="grid grid-cols-2 p-1 bg-black/60 rounded-2xl border border-white/15 text-xs font-black">
             <button
@@ -1058,15 +1081,21 @@ export default function PorteriaPage() {
               )}
             </button>
           </form>
+          </div>
+          )}
         </div>
 
-        {/* Scheduled Appointments & Exit Semaphore (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        {/* 2 y 3. Citas & Reservas Programadas + Semáforo de Salida e Inspección de Garita */}
+        <div className="space-y-6">
 
-          {/* Citas & Reservas Programadas */}
-          <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4 shadow-2xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
+          {/* 2. Citas & Reservas Programadas — card colapsable */}
+          <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => togglePorteriaCard("citas")}
+                className="flex items-center gap-2 flex-1 text-left"
+              >
                 <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
                   <Calendar className="w-5 h-5" />
                 </div>
@@ -1074,7 +1103,12 @@ export default function PorteriaPage() {
                   <h2 className="text-lg font-black text-white">Citas & Reservas Programadas</h2>
                   <p className="text-[11px] text-gray-400">Confirmación de llegada de clientes agendados.</p>
                 </div>
-              </div>
+                {porteriaCards.citas ? (
+                  <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
+                )}
+              </button>
 
               {/* Filter mode toggle */}
               <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
@@ -1101,6 +1135,8 @@ export default function PorteriaPage() {
               </div>
             </div>
 
+            {porteriaCards.citas && (
+            <div className="p-6 pt-4">
             {/* Appointments List */}
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
               {filteredAppointments.length === 0 ? (
@@ -1160,12 +1196,18 @@ export default function PorteriaPage() {
                 ))
               )}
             </div>
+            </div>
+            )}
           </div>
 
-          {/* Exit Semaphore & Active Gate Traffic */}
-          <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-4 shadow-2xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
+          {/* 3. Semáforo de Salida e Inspección de Garita — card colapsable */}
+          <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => togglePorteriaCard("semaforo")}
+                className="flex items-center gap-2 flex-1 text-left"
+              >
                 <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
                   <ShieldAlert className="w-5 h-5" />
                 </div>
@@ -1173,7 +1215,12 @@ export default function PorteriaPage() {
                   <h2 className="text-lg font-black text-white">Semáforo de Salida e Inspección de Garita</h2>
                   <p className="text-[11px] text-gray-400">Control de pagos y autorización de salida del taller.</p>
                 </div>
-              </div>
+                {porteriaCards.semaforo ? (
+                  <ChevronUp className="w-5 h-5 text-gray-400 shrink-0" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
+                )}
+              </button>
 
               <div className="relative w-full sm:w-56">
                 <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1187,6 +1234,8 @@ export default function PorteriaPage() {
               </div>
             </div>
 
+            {porteriaCards.semaforo && (
+            <div className="p-6 pt-4">
             {/* List of Active Vehicles */}
             <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
               {filteredWorkOrders.length === 0 ? (
@@ -1262,6 +1311,8 @@ export default function PorteriaPage() {
                 })
               )}
             </div>
+            </div>
+            )}
           </div>
 
         </div>
