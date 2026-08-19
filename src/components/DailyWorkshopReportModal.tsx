@@ -1115,14 +1115,14 @@ export function WorkshopDailyReportView({
                         </span>
                       </td>
                     </tr>
-                  ) : consolidatedRows.length === 0 ? (
+                  ) : tableRows.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="py-12 text-center text-gray-400 italic">
                         No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
                       </td>
                     </tr>
                   ) : (
-                    consolidatedRows.map((r, idx) => (
+                    tableRows.map((r, idx) => (
                       <tr
                         key={r.id + idx}
                         className="hover:bg-white/5 transition-colors text-white"
