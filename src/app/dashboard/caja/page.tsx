@@ -3474,7 +3474,7 @@ export default function CajaPage() {
                               <option value="Culqi">💳 Culqi (Tarjeta)</option>
                               <option value="Yape">📱 Yape</option>
                               <option value="Plin">📱 Plin</option>
-                              <option value="Transferencia">🏦 Transferencia BCP</option>
+                              <option value="Transferencia">🏦 Transferencia</option>
                             </select>
                           </div>
 
@@ -4432,7 +4432,7 @@ export default function CajaPage() {
                                 <option value="Culqi">💳 Culqi (Tarjeta)</option>
                                 <option value="Yape">📱 Yape</option>
                                 <option value="Plin">📱 Plin</option>
-                                <option value="Transferencia">🏦 Transferencia BCP</option>
+                                <option value="Transferencia">🏦 Transferencia</option>
                               </select>
                             </div>
 
@@ -5032,7 +5032,7 @@ export default function CajaPage() {
                               <option value="Culqi">💳 Culqi (Tarjeta)</option>
                               <option value="Yape">📱 Yape</option>
                               <option value="Plin">📱 Plin</option>
-                              <option value="Transferencia">🏦 Transferencia BCP</option>
+                              <option value="Transferencia">🏦 Transferencia</option>
                             </select>
                           </div>
 
