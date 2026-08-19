@@ -2349,10 +2349,25 @@ export default function CajaPage() {
                 const effectiveMethod = cleanMethodDisplay(invoice?.payment_method) || csvRec?.method || "Efectivo";
                 const effectiveDestination = invoice?.payment_destination || csvRec?.destination || "EMPRESA";
 
+                // COMPROBANTES de pago de la factura: si hay VARIOS, la card muestra
+                // SIEMPRE el ÚLTIMO y la cantidad entre paréntesis (ej. "B001-276 · 2").
+                const cardComprobantes = (Array.isArray(invoice?.payment_history) ? invoice.payment_history : [])
+                  .filter((r: any) => r && r.receipt_number && String(r.receipt_number).trim() && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n");
+                const comprobanteCount = cardComprobantes.length;
+                const lastComp = comprobanteCount > 1 ? cardComprobantes[cardComprobantes.length - 1] : null;
+                const displayReceiptNum = lastComp?.receipt_number ? String(lastComp.receipt_number) : effectiveReceiptNum;
+                const displayReceiptType = lastComp?.receipt_type
+                  ? (String(lastComp.receipt_type).toUpperCase().includes("FACTURA")
+                      ? "Factura"
+                      : String(lastComp.receipt_type).toUpperCase().includes("BOLETA")
+                        ? "Boleta"
+                        : "Ticket")
+                  : effectiveReceiptType;
+
                 const buttonReceiptLabel = isSinComp
                   ? "Sin Comp."
-                  : effectiveReceiptNum && effectiveReceiptNum !== "0"
-                    ? (effectiveReceiptType === "Factura" ? `F001-${effectiveReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : effectiveReceiptNum)
+                  : displayReceiptNum && displayReceiptNum !== "0"
+                    ? (displayReceiptType === "Factura" ? `F001-${displayReceiptNum.replace(/[^0-9]/g, "").padStart(8, "0")}` : displayReceiptNum) + (comprobanteCount > 1 ? ` · ${comprobanteCount}` : "")
                     : "S/N";
 
                 return (
@@ -2577,8 +2592,8 @@ export default function CajaPage() {
                               <span>💳 <strong>Método:</strong> {effectiveMethod}</span>
                             )}
                             <span>🏢 <strong>Destino:</strong> <strong className="text-amber-300">{effectiveDestination}</strong></span>
-                            {effectiveReceiptNum && (
-                              <span>🧾 <strong>Recibo/Comp:</strong> {effectiveReceiptNum} ({effectiveReceiptType})</span>
+                            {displayReceiptNum && (
+                              <span>🧾 <strong>Recibo/Comp:</strong> {displayReceiptNum} ({displayReceiptType}){comprobanteCount > 1 ? ` · ${comprobanteCount} comprobantes` : ""}</span>
                             )}
                           </div>
 

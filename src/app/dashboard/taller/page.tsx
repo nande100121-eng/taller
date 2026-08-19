@@ -1108,16 +1108,14 @@ export default function WorkshopOperationsPage() {
                             <span className="font-mono font-black text-2xl text-white tracking-widest bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
                               {wo.vehicle_plate}
                             </span>
-                            {!isPaid && (
-                              <button
-                                type="button"
-                                onClick={() => setDeleteModalOrder({ id: wo.id, plate: wo.vehicle_plate, entryTime: wo.entry_time })}
-                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all cursor-pointer shadow"
-                                title="Borrar registro de ingreso erróneo (Placa / Fecha equivocada)"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteModalOrder({ id: wo.id, plate: wo.vehicle_plate, entryTime: wo.entry_time })}
+                              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/25 text-gray-400 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all cursor-pointer shadow"
+                              title="Borrar registro de ingreso (placa/fecha equivocada) — se elimina la OT y su factura"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                           <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
                             OT #{wo.id}
