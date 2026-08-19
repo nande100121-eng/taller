@@ -15,6 +15,7 @@ export interface DailyExpense {
   destination: string;   // Destino: EMPRESA | CAJA | personal...
   delivered_to: string;  // Entregado a (personal del roster y permisos)
   created_at: string;    // ISO timestamp de registro
+  wo_id?: string;        // Work Order "GASTO" creada en la Tabla Maestra (Registro del Taller)
 }
 
 export const expenseStorageKey = (date: string) =>

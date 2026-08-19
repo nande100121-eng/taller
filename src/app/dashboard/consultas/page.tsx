@@ -246,6 +246,8 @@ export default function ConsultasPage() {
 
     // 1. Filter matching records
     const filtered = workOrders.filter((wo) => {
+      // Las filas "GASTO" (egresos de caja) solo viven en la Tabla Maestra, no en Consultas.
+      if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
       const inv = invoicesByWorkOrderId.get(wo.id);
       const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
       const isPaid = settledInfo?.isSettled || wo.status === "pagado_autorizado" || inv?.payment_status === "pagado";

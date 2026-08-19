@@ -86,6 +86,8 @@ export default function CajaPage() {
     registerDirectWorkshopPayment,
     registerInvoicePayment,
     toggleAllowModificationsInWorkshop,
+    createWorkOrder,
+    deleteWorkOrder,
   } = useAppStore();
 
   // Configuración: si está permitido editar el N° de ticket/boleta/factura al confirmar el pago
@@ -270,14 +272,52 @@ export default function CajaPage() {
     if (!to) { notify("error", "Selecciona a quién se entregó el dinero"); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { notify("error", "Selecciona la fecha del gasto"); return; }
 
+    const expId = `exp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+    // Registro en la TABLA MAESTRA (Registro del Taller): se crea una Work Order
+    // con placa "GASTO" para que el egreso aparezca en el registro del taller
+    // (misma mecánica que el Cobro Manual). La placa "GASTO" se filtra de las
+    // vistas operativas (Caja/Taller/Consultas) y solo se muestra en Tabla Maestra
+    // y en el informe diario (como egreso).
+    const woId = `gasto-${date}-${expId}`;
+    const gastoItem = {
+      id: `item-${expId}`,
+      item_type: "servicio" as const,
+      description: desc,
+      quantity: 1,
+      unit_price: amount,
+      subtotal: amount,
+    };
+    const gastoDate = new Date(date + "T12:00:00");
+    const entryISO = date === getPeruDateString()
+      ? new Date().toISOString()
+      : gastoDate.toISOString();
+    createWorkOrder({
+      id: woId,
+      vehicle_plate: "GASTO",
+      status: "finalizado",
+      problem_description: `GASTO: ${desc}`,
+      general_maintenance_service: `GASTO: ${desc}`,
+      spare_parts_services: `Destino: ${dest} · Entregado a: ${to}`,
+      assigned_technician_id: to,
+      entry_time: entryISO,
+      completion_time: entryISO,
+      items: [gastoItem],
+      observations: `Gasto de caja · Destino: ${dest} · Entregado a: ${to} · S/ ${amount.toFixed(2)}`,
+      requires_certification: false,
+      certification_price: 0,
+      allow_modifications: true,
+    });
+
     const newExpense: DailyExpense = {
-      id: `exp-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: expId,
       date,
       description: desc,
       amount,
       destination: dest,
       delivered_to: to,
       created_at: new Date().toISOString(),
+      wo_id: woId,
     };
     const existing = await fetchDailyExpenses(date);
     const ok = await saveDailyExpenses(date, [...existing, newExpense]);
@@ -285,7 +325,7 @@ export default function CajaPage() {
       notify("error", "No se pudo guardar el gasto en la nube");
       return;
     }
-    notify("success", `Gasto de S/ ${amount.toFixed(2)} registrado (${desc.slice(0, 28)})`);
+    notify("success", `Gasto de S/ ${amount.toFixed(2)} registrado en la Tabla Maestra (${desc.slice(0, 24)})`);
     setExpenseModal({ isOpen: false, description: "", amount: 0, destination: "EMPRESA", deliveredTo: "", date });
     if (date === (queryDate || getPeruDateString()).slice(0, 10)) {
       setDayExpenses(await fetchDailyExpenses(date));
@@ -295,9 +335,18 @@ export default function CajaPage() {
   const handleDeleteExpense = async (expId: string) => {
     const date = (queryDate || getPeruDateString()).slice(0, 10);
     const list = await fetchDailyExpenses(date);
+    const target = list.find((e) => e.id === expId);
     const next = list.filter((e) => e.id !== expId);
     const ok = await saveDailyExpenses(date, next);
     if (ok) {
+      // Si el gasto estaba registrado en la Tabla Maestra, eliminar también su fila "GASTO"
+      if (target?.wo_id) {
+        try {
+          deleteWorkOrder(target.wo_id);
+        } catch {
+          // el borrado de la work order ya se propaga vía realtime/delete
+        }
+      }
       setDayExpenses(next);
       notify("success", "Gasto eliminado");
     } else {
@@ -495,6 +544,9 @@ export default function CajaPage() {
   // Orders that reached billing or have an invoice registered
   const allBillingWorkOrders = React.useMemo(() => {
     return workOrders.filter((wo) => {
+      // Las filas "GASTO" (egresos de caja) se registran en la Tabla Maestra,
+      // pero NO se muestran como cards de cobro en Caja (se ven en el panel Gastos).
+      if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
       const inv = invoicesByWorkOrderId.get(wo.id);
       const total = computeOrderNetTotal(wo, inv);
       const hasItems = (wo.items || []).length > 0;

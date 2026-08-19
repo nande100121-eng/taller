@@ -1315,9 +1315,14 @@ export default function AdminTablesPage() {
                     const montoNum = inv
                       ? (creditNum > 0 ? Math.max(0, totalNum - creditNum) : (isPaidRow ? totalNum : 0))
                       : 0;
-                    const montoVal = montoNum > 0
-                      ? `S/ ${montoNum.toFixed(2)}`
-                      : (inv ? "" : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : ""));
+                    // Filas "GASTO" (egresos de caja registrados en la Tabla Maestra):
+                    // se muestran con monto NEGATIVO y estilo distintivo.
+                    const isGasto = (wo.vehicle_plate || "").toUpperCase() === "GASTO";
+                    const montoVal = isGasto
+                      ? `− S/ ${((wo.items && wo.items[0] && Number(wo.items[0].subtotal)) || 0).toFixed(2)}`
+                      : (montoNum > 0
+                          ? `S/ ${montoNum.toFixed(2)}`
+                          : (inv ? "" : (wo.items.length > 0 && wo.items[0].subtotal > 0 ? `S/ ${wo.items[0].subtotal.toFixed(2)}` : "")));
 
                     const discountVal = inv?.discounts !== undefined && inv.discounts !== ""
                       ? String(inv.discounts)
@@ -1346,10 +1351,11 @@ export default function AdminTablesPage() {
                       method: string;
                       destination: string;
                       monto: string;
+                      isGasto?: boolean;
                     }) => {
-                      const { key, rowNumber, showActions, isFirst, receiptNumber, receiptType, method, destination, monto } = opts;
+                      const { key, rowNumber, showActions, isFirst, receiptNumber, receiptType, method, destination, monto, isGasto } = opts;
                       return (
-                        <tr key={key} className={`hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/40" : ""}`}>
+                        <tr key={key} className={`${isGasto ? "bg-rose-950/30" : ""} hover:bg-white/5 transition-colors ${isSelected ? "bg-indigo-950/40" : ""}`}>
                           <td className="p-3 text-center">
                             {showActions ? (
                               <input
@@ -1380,7 +1386,7 @@ export default function AdminTablesPage() {
                           <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
                           <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || ""}</td>
                           <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
-                          <td className="p-3 font-mono font-bold text-white">{monto}</td>
+                          <td className={`p-3 font-mono font-bold ${isGasto ? "text-rose-300" : "text-white"}`}>{monto}</td>
                           <td className="p-3 font-mono text-gray-400">{isFirst ? discountVal : ""}</td>
                           <td className="p-3 font-mono text-amber-400 font-bold">{isFirst ? saldoVal : ""}</td>
                           <td className="p-3 font-bold text-gray-200">{inv?.payment_condition || ""}</td>
@@ -1424,6 +1430,7 @@ export default function AdminTablesPage() {
                           method: cleanMethodDisplay(rec.method, recAmount) || rec.method || "",
                           destination: rec.destination || inv?.payment_destination || "",
                           monto: recAmount > 0 ? `S/ ${recAmount.toFixed(2)}` : "",
+                          isGasto,
                         });
                       });
                     }
@@ -1437,6 +1444,7 @@ export default function AdminTablesPage() {
                       method: methodClean,
                       destination: inv?.payment_destination || "",
                       monto: montoVal,
+                      isGasto,
                     });
                   });
                   })()

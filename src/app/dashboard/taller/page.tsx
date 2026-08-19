@@ -591,6 +591,8 @@ export default function WorkshopOperationsPage() {
   // Orders filtered by date
   const dateScopedOrders = React.useMemo(() => {
     return workOrders.filter((wo) => {
+      // Las filas "GASTO" (egresos de caja) solo viven en la Tabla Maestra, no en el Taller.
+      if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
       if (timeFilter === "todos") return true;
       const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
       return orderDateStr === queryDate;

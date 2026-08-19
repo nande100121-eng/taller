@@ -461,6 +461,9 @@ export function WorkshopDailyReportView({
 
     // 2. Map in-app Work Orders for this day (adds any new order created dynamically that isn't in CSV)
     dayOrders.forEach((wo) => {
+      // Las filas "GASTO" (egresos de caja) no son atenciones: se muestran en la
+      // sección GASTOS DEL DÍA del informe, no en las tablas de liquidación.
+      if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return;
       const plateKey = (wo.vehicle_plate || "").toUpperCase().trim();
       if (csvDayRecords.length > 0 && processedKeys.has(plateKey)) return;
 
