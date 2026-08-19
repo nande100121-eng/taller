@@ -145,6 +145,7 @@ export default function CajaPage() {
     totalDue: number;            // Saldo total pendiente de la factura
     paidSoFar: number;           // Monto ya abonado (historial)
     amount: number;              // Abono de este pago (total o parcial)
+    paymentDate: string;         // Fecha del pago/abono (por defecto hoy, editable)
     paymentMethod: string;
     paymentDestination: string;
     isSplitPayment?: boolean;
@@ -1152,6 +1153,7 @@ export default function CajaPage() {
       totalDue,
       paidSoFar,
       amount: balance, // Por defecto: abonar el saldo total
+      paymentDate: getPeruDateString(), // Fecha del pago: hoy por defecto, editable
       // Método limpio (nunca "Mixto (Mixto (...))" anidado) para no re-guardar basura
       paymentMethod: defaultMethodFrom(inv?.payment_method),
       paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
@@ -1257,6 +1259,11 @@ export default function CajaPage() {
           : partialPaymentModal.receiptType);
     const isFullyPaid = Math.abs(balance - amount) <= 0.01;
 
+    // Fecha real del pago (por defecto hoy; editable en el modal). El abono se registra
+    // en la fecha elegida (afecta al reporte diario de ese día).
+    const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const paymentDateTime = buildPeruISOString(partialPaymentModal.paymentDate || getPeruDateString(), payTimeNow);
+
     registerInvoicePayment({
       invoiceId: partialPaymentModal.invoice?.id,
       workOrderId: partialPaymentModal.workOrder?.id,
@@ -1268,6 +1275,7 @@ export default function CajaPage() {
       paymentBreakdown: paymentBreakdown,
       observation: partialPaymentModal.observation,
       responsible: partialPaymentModal.responsible,
+      paidAt: paymentDateTime,
     });
 
     notify("success", isFullyPaid
@@ -1297,7 +1305,7 @@ export default function CajaPage() {
           montoActual: amount,
           montoPagadoAcumulado: Math.max(0, (Number(partialPaymentModal.totalDue) || 0) - balance) + amount,
         },
-        issuedAt: new Date().toISOString(),
+        issuedAt: paymentDateTime,
       });
     }
 
@@ -4010,6 +4018,17 @@ export default function CajaPage() {
                       50% (S/ {Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2))).toFixed(2)})
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-gray-300 block mb-1.5 font-bold">📅 Fecha de Pago</label>
+                  <MiniDatePicker
+                    value={partialPaymentModal.paymentDate || getPeruDateString()}
+                    onChange={(d) => setPartialPaymentModal((prev) => (prev ? { ...prev, paymentDate: d || getPeruDateString() } : prev))}
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Por defecto hoy; puede registrar el abono con la fecha real del pago (afecta al informe diario de esa fecha).
+                  </p>
                 </div>
               </div>
 
