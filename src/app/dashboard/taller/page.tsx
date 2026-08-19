@@ -100,7 +100,9 @@ export default function WorkshopOperationsPage() {
   const [editEntryDate, setEditEntryDate] = useState<string>("");
   const [editEntryTime, setEditEntryTime] = useState<string>("");
 
-  // Consulta a INFOGAS (chip/quinquenal por placa) vía proxy /api/infogas
+  // Consulta a INFOGAS (chip/quinquenal por placa). El API es público y permite
+  // CORS (*), así que se llama DIRECTO desde el navegador (el proxy serverless de
+  // Vercel no alcanza el API por bloqueo de IPs de datacenter). Placa SIN guion.
   const [consultInfogasPlate, setConsultInfogasPlate] = useState<string | null>(null);
   const handleConsultInfogas = async (wo: any) => {
     const plate = (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -110,7 +112,13 @@ export default function WorkshopOperationsPage() {
     }
     setConsultInfogasPlate(plate);
     try {
-      const res = await fetch(`/api/infogas?plate=${encodeURIComponent(plate)}`);
+      const form = new URLSearchParams();
+      form.append("plate", plate);
+      const res = await fetch("https://apivh.infogas.com.pe/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: form.toString(),
+      });
       const data = await res.json();
       setConsultInfogasPlate(null);
       if (data?.status === "Success" && data.data) {
