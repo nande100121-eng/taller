@@ -562,6 +562,15 @@ export default function CajaPage() {
     });
   }, [workOrders, invoicesByWorkOrderId, isOrderPaid, computeOrderNetTotal]);
 
+  // ¿La factura tiene un pago (historial) registrado en la fecha indicada?
+  // Se usa en lugar de paid_at: el paid_at de muchas facturas históricas fue
+  // sobrescrito en bloque (18/08) y ya no es confiable para filtrar por día.
+  const hasPaymentOnDate = React.useCallback((inv: any, date: string) => {
+    if (!inv || !date) return false;
+    const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+    return history.some((p: any) => (p.date || "").slice(0, 10) === date);
+  }, []);
+
   // Daily cash closure calculation for selected date
   const totalPaidToday = React.useMemo(() => {
     return allBillingWorkOrders
@@ -617,11 +626,15 @@ export default function CajaPage() {
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
   const paidCount = React.useMemo(() => {
+    const targetDate = queryDate || getPeruDateString();
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      return isOrderPaid(wo, inv);
+      if (!isOrderPaid(wo, inv)) return false;
+      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      return orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
     }).length;
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, hasPaymentOnDate]);
 
   const todayCount = React.useMemo(() => {
     const targetDate = queryDate || getPeruDateString();
@@ -629,10 +642,9 @@ export default function CajaPage() {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
       const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-      const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
-      return orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
+      return orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
     }).length;
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, hasPaymentOnDate]);
 
   // Saldos pendientes por placa: monto total, ya abonado (historial) y saldo restante.
   // Es la fuente para el cobro de saldo total / pago parcial buscando por placa.
@@ -802,10 +814,11 @@ export default function CajaPage() {
 
       let matchStatus = true;
       if (activeStatusFilter === "hoy") {
+        // Del Día / Hoy: con actividad REAL en la fecha (ingreso, emisión o pago del
+        // historial). NO se usa paid_at: fue sobrescrito en bloque en muchas facturas.
         const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
         const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
-        matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || paidDateStr === targetDate;
+        matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
       } else if (activeStatusFilter === "pendientesHoy") {
         // Pendientes del día / hoy: sin pagar y con fecha de REGISTRO (ingreso al taller) = hoy.
         // Las órdenes registradas en días anteriores (aunque se facturen hoy) NO entran aquí.
@@ -815,7 +828,10 @@ export default function CajaPage() {
         // Pendientes totales (histórico): sin pagar en cualquier fecha
         matchStatus = !isPaid;
       } else if (activeStatusFilter === "pagados") {
-        matchStatus = isPaid;
+        // Pagados de la fecha seleccionada (ingreso/emisión/pago real de ese día)
+        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        matchStatus = isPaid && (orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate));
       } else {
         matchStatus = true;
       }
