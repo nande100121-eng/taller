@@ -114,6 +114,8 @@ export function WorkshopDailyReportView({
   const [dayData, setDayData] = useState<{ workOrders: WorkOrder[]; invoices: any[]; payments: any[] } | null>(null);
   const [reportLoading, setReportLoading] = useState<boolean>(true);
   const [expandedPlate, setExpandedPlate] = useState<string | null>(null);
+  // Concepto expandido en la tabla VENTAS POR CONCEPTO (serv / rep / cert)
+  const [expandedConcept, setExpandedConcept] = useState<"serv" | "rep" | "cert" | null>(null);
 
   // Sync activeTab when component mounts or initialTab changes
   useEffect(() => {
@@ -909,20 +911,29 @@ export function WorkshopDailyReportView({
 
     // VENTAS POR CONCEPTO debe coincidir con el COBRADO del día: usa las mismas filas de la
     // liquidación (ingresos reales: facturas cobradas + abonos del día), no todas las filas.
+    // También guarda los ITEMS de cada concepto (descripción, monto y N° de boleta) para
+    // poder expandir la tabla VENTAS POR CONCEPTO y ver qué compone cada total.
+    const servItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
+    const repItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
+    const certItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
     liquidacionRows.forEach((r) => {
       const desc = r.description.toUpperCase();
       const isCert = desc.includes("CERTIFIC") || desc.includes("ANUAL") || desc.includes("QUINQUENAL") || desc.includes("CHIP") || desc.includes("CILINDRO") || desc.includes("CONVERSI");
       const isRep = desc.includes("BUJIA") || desc.includes("BOBINA") || desc.includes("FILTRO") || desc.includes("CABLE") || desc.includes("VALVULA") || desc.includes("MEMBRANA") || desc.includes("RED") || desc.includes("INYECT") || desc.includes("EMULADOR") || desc.includes("VARIADOR") || desc.includes("KIT") || desc.includes("REPUESTO");
+      const item = { description: r.description, total: Number(r.total) || 0, receiptNumber: r.receiptNumber || "", plate: r.plate };
 
       if (isCert) {
         certTotal += r.total;
         certCount += 1;
+        certItems.push(item);
       } else if (isRep) {
         repTotal += r.total;
         repCount += 1;
+        repItems.push(item);
       } else {
         servTotal += r.total;
         servCount += 1;
+        servItems.push(item);
       }
     });
 
@@ -939,6 +950,9 @@ export function WorkshopDailyReportView({
       certCount,
       certPercent: (certTotal / grandTotal) * 100,
       grandTotal: servTotal + repTotal + certTotal,
+      servItems,
+      repItems,
+      certItems,
     };
   }, [liquidacionRows, totals.totalLiquidacion]);
 
@@ -1546,8 +1560,9 @@ export function WorkshopDailyReportView({
                   </thead>
                   <tbody className="divide-y divide-white/5 text-[11px]">
                     {/* 1. Servicios */}
-                    <tr className="hover:bg-white/5 text-white">
+                    <tr className="hover:bg-white/5 text-white cursor-pointer" onClick={() => setExpandedConcept(expandedConcept === "serv" ? null : "serv")}>
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "serv" ? "rotate-90" : ""}`} />
                         <span>🔧</span>
                         <span>Servicios & Mano de Obra</span>
                       </td>
@@ -1561,10 +1576,26 @@ export function WorkshopDailyReportView({
                         {categoryBreakdown.servPercent.toFixed(1)}%
                       </td>
                     </tr>
+                    {expandedConcept === "serv" && categoryBreakdown.servItems.length > 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-2 bg-teal-950/20 border-t border-teal-500/20">
+                          <div className="space-y-1">
+                            {categoryBreakdown.servItems.map((it, i) => (
+                              <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
+                                <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
+                                <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
+                                <span className="font-black text-teal-300">S/ {Number(it.total).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
 
                     {/* 2. Repuestos */}
-                    <tr className="hover:bg-white/5 text-white">
+                    <tr className="hover:bg-white/5 text-white cursor-pointer" onClick={() => setExpandedConcept(expandedConcept === "rep" ? null : "rep")}>
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "rep" ? "rotate-90" : ""}`} />
                         <span>📦</span>
                         <span>Repuestos & Autopartes</span>
                       </td>
@@ -1578,10 +1609,26 @@ export function WorkshopDailyReportView({
                         {categoryBreakdown.repPercent.toFixed(1)}%
                       </td>
                     </tr>
+                    {expandedConcept === "rep" && categoryBreakdown.repItems.length > 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-2 bg-emerald-950/20 border-t border-emerald-500/20">
+                          <div className="space-y-1">
+                            {categoryBreakdown.repItems.map((it, i) => (
+                              <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
+                                <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
+                                <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
+                                <span className="font-black text-emerald-300">S/ {Number(it.total).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
 
                     {/* 3. Certificaciones */}
-                    <tr className="hover:bg-white/5 text-white">
+                    <tr className="hover:bg-white/5 text-white cursor-pointer" onClick={() => setExpandedConcept(expandedConcept === "cert" ? null : "cert")}>
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "cert" ? "rotate-90" : ""}`} />
                         <span>📜</span>
                         <span>Certificaciones GNV / GLP</span>
                       </td>
@@ -1595,6 +1642,21 @@ export function WorkshopDailyReportView({
                         {categoryBreakdown.certPercent.toFixed(1)}%
                       </td>
                     </tr>
+                    {expandedConcept === "cert" && categoryBreakdown.certItems.length > 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-2 bg-purple-950/20 border-t border-purple-500/20">
+                          <div className="space-y-1">
+                            {categoryBreakdown.certItems.map((it, i) => (
+                              <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
+                                <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
+                                <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
+                                <span className="font-black text-purple-300">S/ {Number(it.total).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-[#f59e0b] text-black font-black text-xs">
