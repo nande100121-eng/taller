@@ -1156,7 +1156,12 @@ export default function CajaPage() {
     const receiptNumber = (inv.receipt_number && inv.receipt_number !== "0" ? inv.receipt_number : "") || getAndIncrementReceiptNumber(receiptType, queryDate || getPeruDateString());
 
     if (pending <= 0.01) {
-      // Ya pagado: NO duplicar. Si cambió el método/comprobante, actualizar el último registro.
+      // El historial ya cubre el total: NO duplicar. Re-bloquear la card a PAGADO
+      // (por si se había desmarcado) y actualizar método/comprobante si hubo cambio.
+      const wasPaid = inv.payment_status === "pagado" || String(inv.payment_condition || "").toUpperCase().includes("PAGADO") || wo.status === "pagado_autorizado" || wo.status === "finalizado";
+      if (!wasPaid) {
+        toggleOrderPayment(wo.id, inv.id);
+      }
       const lastRec = history[history.length - 1];
       if (lastRec && lastRec.id) {
         const lastMethod = cleanMethodDisplay(lastRec.method, Number(lastRec.amount) || 0) || lastRec.method || "";
@@ -1166,12 +1171,12 @@ export default function CajaPage() {
             receipt_number: receiptNumber || lastRec.receipt_number || undefined,
             receipt_type: receiptType || lastRec.receipt_type || undefined,
           });
-          notify("success", "El pago ya estaba registrado — método/comprobante actualizado.");
+          notify("success", "Pago re-confirmado (sin duplicar) — método/comprobante actualizado.");
         } else {
-          notify("success", "El pago ya está confirmado y registrado (no se duplicó).");
+          notify("success", "Pago re-confirmado y registrado (no se duplicó el historial).");
         }
       } else {
-        notify("success", "El pago ya está confirmado y registrado.");
+        notify("success", "Pago re-confirmado y registrado.");
       }
       return;
     }
@@ -1191,13 +1196,11 @@ export default function CajaPage() {
   };
 
   const handleDesmarcarPago = (wo: any, invoice?: any) => {
-    const hasHistory = Array.isArray(invoice?.payment_history) && invoice.payment_history.length > 0;
-    if (hasHistory && invoice?.id) {
-      clearInvoicePayments(invoice.id);
-    } else {
-      toggleOrderPayment(wo.id, invoice?.id);
-    }
-    notify("warning", "Pago de " + wo.vehicle_plate + " desmarcado (Estado: Pendiente de Cobro).");
+    // Desmarcar pago = revertir a Pendiente de Cobro SIN borrar el historial de pagos:
+    // los abonos registrados se conservan (la card queda editable y al re-confirmar
+    // no se duplica el historial).
+    toggleOrderPayment(wo.id, invoice?.id);
+    notify("warning", "Pago de " + wo.vehicle_plate + " desmarcado (Pendiente de Cobro). El historial de pagos se conserva.");
   };
 
   // Open Partial / Installment Payment Modal (Abono sobre saldo pendiente por placa)
