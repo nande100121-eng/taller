@@ -1248,6 +1248,7 @@ export default function WorkshopOperationsPage() {
                                 <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
                                 <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
                                 <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
+                                <option value="S/N" className="bg-gray-900 text-white font-bold">🔍 S/N (Sin sistema — consulta)</option>
                               </select>
                               <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
                             </div>

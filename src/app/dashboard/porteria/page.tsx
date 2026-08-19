@@ -940,6 +940,7 @@ export default function PorteriaPage() {
                       <option value="GLP">GLP</option>
                       <option value="Gasolina">Gasolina</option>
                       <option value="Bifuel">Bifuel</option>
+                      <option value="S/N">🔍 S/N (Sin sistema — consulta)</option>
                     </select>
                   </div>
                 </div>
