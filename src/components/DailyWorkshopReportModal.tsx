@@ -7,6 +7,7 @@ import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
+import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import {
@@ -948,7 +949,33 @@ export function WorkshopDailyReportView({
     const repItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
     const certItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
     liquidacionRows.forEach((r) => {
-      // Clasificación AUTORITATIVA: si la fila trae el desglose de la card del Taller
+      // 1) Reparto MANUAL por N° de comprobante: SOLO para registros históricos de la
+      // Tabla Maestra (sin item_type). Los montos los definió el usuario y suman
+      // exactamente el total de cada boleta. Los comprobantes de la card NO están aquí.
+      const manualKey = normalizeReceiptKey(r.receiptNumber || "");
+      // El reparto manual solo aplica al día definido por el usuario (17/08/2026):
+      // así no choca con comprobantes del mismo número en otros días.
+      const manual = selectedDate === "2026-08-17" && manualKey ? MANUAL_CONCEPT_SPLIT_BY_RECEIPT[manualKey] : undefined;
+      if (manual) {
+        if (manual.serv > 0) {
+          servTotal += manual.serv;
+          servCount += 1;
+          servItems.push({ description: r.description, total: manual.serv, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        if (manual.rep > 0) {
+          repTotal += manual.rep;
+          repCount += 1;
+          repItems.push({ description: r.description, total: manual.rep, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        if (manual.cert > 0) {
+          certTotal += manual.cert;
+          certCount += 1;
+          certItems.push({ description: r.description, total: manual.cert, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        return;
+      }
+
+      // 2) Clasificación por la card del Taller: si la fila trae el desglose
       // (catServ/catRep/catCert), se reparte según lo ASIGNADO en la card, NO por keywords.
       // Una misma fila puede aportar a varios conceptos (ej: mantenimiento + repuestos + certificación).
       const catServ = Number(r.catServ) || 0;
@@ -973,7 +1000,7 @@ export function WorkshopDailyReportView({
         return;
       }
 
-      // Fallback por texto (ventas directas / abonos / CSV sin desglose de card).
+      // 3) Fallback por texto (ventas directas / abonos / CSV sin desglose de card).
       // Normaliza acentos: "BUJÍAS" -> "BUJIAS" para que las keywords matcheen.
       const desc = r.description.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const isCert = desc.includes("CERTIFIC") || desc.includes("ANUAL") || desc.includes("QUINQUENAL") || desc.includes("CHIP") || desc.includes("CILINDRO") || desc.includes("CONVERSI");
