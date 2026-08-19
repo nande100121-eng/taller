@@ -1545,6 +1545,7 @@ export async function fetchSupabaseErpData() {
     let fallbackAttendanceLogs: AttendanceLog[] = [];
     const fallbackTechs: any[] = [];
     const invBreakdownsMap = new Map<string, any[]>();
+    const invPayhistoryMap = new Map<string, any[]>();
     const invFullMap = new Map<string, any>();
     const woModMap = new Map<string, any>();
 
@@ -1644,6 +1645,12 @@ export async function fetchSupabaseErpData() {
             if (Array.isArray(bd)) {
               invBreakdownsMap.set(invKey, bd);
             }
+          } catch { }
+        } else if (k && k.startsWith("inv_payhistory_")) {
+          const invKey = k.replace("inv_payhistory_", "");
+          try {
+            const hist = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            if (Array.isArray(hist)) invPayhistoryMap.set(invKey, hist);
           } catch { }
         } else if (k && k.startsWith("inv_full_")) {
           const invKey = k.replace("inv_full_", "");
@@ -1868,7 +1875,9 @@ export async function fetchSupabaseErpData() {
       }
       const rawHistory = Array.isArray(inv.payment_history)
         ? inv.payment_history
-        : (Array.isArray(invFull.payment_history) ? invFull.payment_history : []);
+        : (Array.isArray(invFull.payment_history) && invFull.payment_history.length > 0
+          ? invFull.payment_history
+          : (invPayhistoryMap.get(inv.id) || (inv.work_order_id ? invPayhistoryMap.get(inv.work_order_id) : undefined) || []));
       const historyAmount = rawHistory.reduce((s: number, rr: any) => s + (Number(rr.amount) || 0), 0);
       // Limpia el método de pago: desanida "Mixto (Mixto (...))" obsoleto para que los
       // abonos borrados NO aparezcan en el método mostrado en caja/tablas/reportes.
