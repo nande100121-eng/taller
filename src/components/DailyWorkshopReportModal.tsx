@@ -360,10 +360,32 @@ export function WorkshopDailyReportView({
       isInvoice: boolean;
       orderStatus: string;
       receiptNumber: string;
+      // Desglose por concepto según la card del Taller (item_type + certificación):
+      // cada fila reparte su monto en Servicios / Almacén (repuestos) / Certificados.
+      catServ?: number;
+      catRep?: number;
+      catCert?: number;
     }> = [];
 
     let count = 1;
     const processedKeys = new Set<string>();
+
+    // Reparto de una Orden de Taller en conceptos según lo ASIGNADO en la card:
+    //  - item_type "servicio" (botón servicios)          -> Servicios
+    //  - item_type "repuesto" (botón repuestos/Almacén)  -> Almacén
+    //  - requires_certification                          -> Certificados
+    const orderCategorySplit = (wo: any) => {
+      const items = Array.isArray(wo.items) ? wo.items : [];
+      let serv = 0;
+      let rep = 0;
+      items.forEach((it: any) => {
+        const amt = Number(it.subtotal) || Number(it.quantity) * Number(it.unit_price) || 0;
+        if (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id) rep += amt;
+        else serv += amt;
+      });
+      const cert = wo.requires_certification ? Number(wo.certification_price) || 0 : 0;
+      return { serv, rep, cert, total: serv + rep + cert };
+    };
 
     // 1. First Priority: Load exact day records from workshop CSV lookup (e.g. 14/08/2026, 15/08/2026, etc.)
     const csvDayRecords = getWorkshopDayRecords(selectedDate);
@@ -445,6 +467,9 @@ export function WorkshopDailyReportView({
       if (totalAmount === 0 && csvRec) {
         totalAmount = csvRec.price || csvRec.credit || 0;
       }
+
+      // Reparto por concepto según la card (item_type + certificación)
+      const catSplit = orderCategorySplit(wo);
 
       let payState: "pagado" | "pendiente" | "parcial" | "trunco";
       let pendingAmount = 0;
@@ -536,6 +561,9 @@ export function WorkshopDailyReportView({
             isInvoice: true,
             orderStatus: "finalizado",
             receiptNumber: String(rec.receipt_number || ""),
+            catServ: catSplit.total > 0 ? recAmount * (catSplit.serv / catSplit.total) : recAmount,
+            catRep: catSplit.total > 0 ? recAmount * (catSplit.rep / catSplit.total) : 0,
+            catCert: catSplit.total > 0 ? recAmount * (catSplit.cert / catSplit.total) : 0,
           });
         });
       } else {
@@ -559,6 +587,9 @@ export function WorkshopDailyReportView({
           isInvoice: Boolean(inv?.id),
           orderStatus: wo.status,
           receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
+          catServ: catSplit.total > 0 ? totalAmount * (catSplit.serv / catSplit.total) : totalAmount,
+          catRep: catSplit.total > 0 ? totalAmount * (catSplit.rep / catSplit.total) : 0,
+          catCert: catSplit.total > 0 ? totalAmount * (catSplit.cert / catSplit.total) : 0,
         });
       }
     });
@@ -917,7 +948,34 @@ export function WorkshopDailyReportView({
     const repItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
     const certItems: Array<{ description: string; total: number; receiptNumber: string; plate: string }> = [];
     liquidacionRows.forEach((r) => {
-      const desc = r.description.toUpperCase();
+      // Clasificación AUTORITATIVA: si la fila trae el desglose de la card del Taller
+      // (catServ/catRep/catCert), se reparte según lo ASIGNADO en la card, NO por keywords.
+      // Una misma fila puede aportar a varios conceptos (ej: mantenimiento + repuestos + certificación).
+      const catServ = Number(r.catServ) || 0;
+      const catRep = Number(r.catRep) || 0;
+      const catCert = Number(r.catCert) || 0;
+      if (typeof r.catServ === "number" && typeof r.catRep === "number" && typeof r.catCert === "number") {
+        if (catServ > 0) {
+          servTotal += catServ;
+          servCount += 1;
+          servItems.push({ description: r.description, total: catServ, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        if (catRep > 0) {
+          repTotal += catRep;
+          repCount += 1;
+          repItems.push({ description: r.description, total: catRep, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        if (catCert > 0) {
+          certTotal += catCert;
+          certCount += 1;
+          certItems.push({ description: r.description, total: catCert, receiptNumber: r.receiptNumber || "", plate: r.plate });
+        }
+        return;
+      }
+
+      // Fallback por texto (ventas directas / abonos / CSV sin desglose de card).
+      // Normaliza acentos: "BUJÍAS" -> "BUJIAS" para que las keywords matcheen.
+      const desc = r.description.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const isCert = desc.includes("CERTIFIC") || desc.includes("ANUAL") || desc.includes("QUINQUENAL") || desc.includes("CHIP") || desc.includes("CILINDRO") || desc.includes("CONVERSI");
       const isRep = desc.includes("BUJIA") || desc.includes("BOBINA") || desc.includes("FILTRO") || desc.includes("CABLE") || desc.includes("VALVULA") || desc.includes("MEMBRANA") || desc.includes("RED") || desc.includes("INYECT") || desc.includes("EMULADOR") || desc.includes("VARIADOR") || desc.includes("KIT") || desc.includes("REPUESTO");
       const item = { description: r.description, total: Number(r.total) || 0, receiptNumber: r.receiptNumber || "", plate: r.plate };
@@ -1536,7 +1594,7 @@ export function WorkshopDailyReportView({
               </table>
             </div>
 
-            {/* Concept Breakdown Table: SERVICIOS vs REPUESTOS vs CERTIFICACIONES (Only in Caja tab) */}
+            {/* Concept Breakdown Table: SERVICIOS vs CERTIFICADOS vs ALMACÉN (Only in Caja tab) */}
             {showConceptBreakdown && (
               <div className="overflow-x-auto rounded-2xl border border-teal-500/30 bg-black/40 shadow-xl print:border-black print:rounded-none">
                 <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white px-4 py-2 flex items-center justify-between font-black text-xs uppercase tracking-wider">
@@ -1564,7 +1622,7 @@ export function WorkshopDailyReportView({
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-teal-300">
                         <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "serv" ? "rotate-90" : ""}`} />
                         <span>🔧</span>
-                        <span>Servicios & Mano de Obra</span>
+                        <span>Servicios</span>
                       </td>
                       <td className="py-2 px-2 text-center text-gray-300 font-bold">
                         {categoryBreakdown.servCount}
@@ -1592,12 +1650,12 @@ export function WorkshopDailyReportView({
                       </tr>
                     )}
 
-                    {/* 2. Repuestos */}
+                    {/* 2. Almacén (repuestos asignados) */}
                     <tr className="hover:bg-white/5 text-white cursor-pointer" onClick={() => setExpandedConcept(expandedConcept === "rep" ? null : "rep")}>
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-emerald-300">
                         <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "rep" ? "rotate-90" : ""}`} />
                         <span>📦</span>
-                        <span>Repuestos & Autopartes</span>
+                        <span>Almacén</span>
                       </td>
                       <td className="py-2 px-2 text-center text-gray-300 font-bold">
                         {categoryBreakdown.repCount}
@@ -1630,7 +1688,7 @@ export function WorkshopDailyReportView({
                       <td className="py-2 px-2.5 font-sans font-bold flex items-center gap-1.5 text-purple-300">
                         <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedConcept === "cert" ? "rotate-90" : ""}`} />
                         <span>📜</span>
-                        <span>Certificaciones GNV / GLP</span>
+                        <span>Certificados</span>
                       </td>
                       <td className="py-2 px-2 text-center text-gray-300 font-bold">
                         {categoryBreakdown.certCount}
