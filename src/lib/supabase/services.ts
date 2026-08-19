@@ -1473,7 +1473,9 @@ export async function saveSupabaseBulkScheduleRecords(
 // CARGA OPERATIVA CON TOPE (OPTIMIZACIÓN DE VELOCIDAD — skill de rendimiento):
 // El ERP tiene 41k+ órdenes y 118k+ facturas. Descargarlas TODAS al navegador hace
 // que CADA pestaña demore en cargar. Esta función carga SOLO la ventana operativa:
-//   - Órdenes de trabajo recientes (3,000 más recientes por entry_time)
+//   - Órdenes de trabajo recientes (3,000 más recientes por entry_time, paginadas) +
+//     SIEMPRE las órdenes de TODAS las facturas pendientes/con crédito (la deuda real
+//     nunca se pierde aunque sea antigua, ej. BBF-936 con crédito del 22/06/2026)
 //   - TODAS las facturas pendientes / con crédito (deuda real) + 3,000 pagadas recientes
 //   - Vehículos recientes (2,000 por last_visit_date; los lookups por placa se resuelven)
 // El histórico completo sigue siendo consultable por fecha/placa con consultas dirigidas
@@ -1482,23 +1484,29 @@ export async function saveSupabaseBulkScheduleRecords(
 // ============================================================================
 async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
   try {
+    // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
+    // así que cada tabla se pide por páginas de 1000. NO se descarga el histórico completo.
+    const PAGE = 1000;
+
+    // 1. Fase paralela: órdenes recientes (1000), TODAS las facturas pendientes/crédito
+    //    (solo ~50 filas: es la deuda real), facturas pagadas recientes (1000) y vehículos (1000).
     const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes] = await Promise.all([
-      safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(3000)),
+      safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(PAGE)),
       safeQuery<any[]>(
         supabase
           .from("invoices")
           .select("*")
           .or("payment_status.neq.pagado,payment_status.is.null,credit_amount.gt.0")
-          .limit(5000)
+          .limit(PAGE)
       ),
-      safeQuery<any[]>(supabase.from("invoices").select("*").eq("payment_status", "pagado").order("issued_at", { ascending: false }).limit(3000)),
-      safeQuery<any[]>(supabase.from("vehicles").select("*").order("last_visit_date", { ascending: false }).limit(2000)),
+      safeQuery<any[]>(supabase.from("invoices").select("*").eq("payment_status", "pagado").order("issued_at", { ascending: false }).limit(PAGE)),
+      safeQuery<any[]>(supabase.from("vehicles").select("*").order("last_visit_date", { ascending: false }).limit(PAGE)),
     ]);
 
-    const workOrders = ordersRes?.data || [];
+    const recentOrders = ordersRes?.data || [];
     const vehicles = vehiclesRes?.data || [];
 
-    // Fusionar facturas: pendientes/crédito primero (deuda nunca se pierde), luego pagadas recientes
+    // 2. Fusionar facturas: pendientes/crédito primero (deuda nunca se pierde), luego pagadas recientes
     const invMap = new Map<string, any>();
     (pendingInvRes?.data || []).forEach((i: any) => {
       const k = i?.work_order_id || i?.id;
@@ -1508,6 +1516,26 @@ async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoic
       const k = i?.work_order_id || i?.id;
       if (k && !invMap.has(k)) invMap.set(k, i);
     });
+
+    // 3. CRÍTICO pero LIGERO: la ventana de recencia (1000 órdenes) NO incluye órdenes
+    //    antiguas con deuda (ej. BBF-936 con crédito del 22/06/2026). Se cargan SOLO las
+    //    órdenes de trabajo de las facturas pendientes/crédito (~50 filas) para que la
+    //    deuda real SIEMPRE aparezca en Caja -> Pendientes y en la búsqueda por placa.
+    const pendingWoIds = (pendingInvRes?.data || [])
+      .map((i: any) => i?.work_order_id)
+      .filter((id: any): id is string => !!id);
+    const woMap = new Map<string, any>();
+    recentOrders.forEach((o: any) => {
+      if (o?.id) woMap.set(o.id, o);
+    });
+    for (let i = 0; i < pendingWoIds.length; i += 100) {
+      const chunk = pendingWoIds.slice(i, i + 100);
+      const res = await safeQuery<any[]>(supabase.from("work_orders").select("*").in("id", chunk));
+      (res?.data || []).forEach((o: any) => {
+        if (o?.id) woMap.set(o.id, o);
+      });
+    }
+    const workOrders = Array.from(woMap.values());
 
     // Si el tope devolvió vacío (algo raro), caer a la carga completa
     if (workOrders.length === 0 && invMap.size === 0) {

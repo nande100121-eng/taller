@@ -15,6 +15,7 @@ import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import { fetchDailyExpenses, saveDailyExpenses, DailyExpense } from "@/lib/supabase/expenses";
+import { supabase } from "@/lib/supabase/client";
 import {
   CreditCard,
   TrendingUp,
@@ -830,11 +831,13 @@ export default function CajaPage() {
       } else if (activeStatusFilter === "pendientesHoy") {
         // Pendientes del día / hoy: sin pagar y con fecha de REGISTRO (ingreso al taller) = hoy.
         // Las órdenes registradas en días anteriores (aunque se facturen hoy) NO entran aquí.
+        // Se excluyen los vehículos que AÚN están en taller (no son crédito).
         const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        matchStatus = !isPaid && orderDateStr === targetDate;
+        matchStatus = !isPaid && orderDateStr === targetDate && !isInWorkshopNotCredit(wo, inv);
       } else if (activeStatusFilter === "pendientes") {
-        // Pendientes totales (histórico): sin pagar en cualquier fecha
-        matchStatus = !isPaid;
+        // Pendientes totales (histórico): cuentas por cobrar reales (sin pagar en cualquier
+        // fecha), excluyendo vehículos que aún están en taller (no son crédito).
+        matchStatus = !isPaid && !isInWorkshopNotCredit(wo, inv);
       } else if (activeStatusFilter === "pagados") {
         // Pagados de la fecha seleccionada (ingreso/emisión/pago real de ese día)
         const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
@@ -875,6 +878,106 @@ export default function CajaPage() {
       return timeB.localeCompare(timeA);
     });
   }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, receiptTypeFilter, isOrderPaid, queryDate]);
+
+  // =========================================================================
+  // BÚSQUEDA BAJO DEMANDA EN TODA LA BASE (historial completo por placa)
+  // Mantiene la web RÁPIDA: NO se descarga el histórico completo (41k+ órdenes).
+  // Cuando el usuario escribe una placa que NO está en la ventana cargada, se
+  // consulta Supabase directamente por esa placa (órdenes + facturas) y se
+  // muestran al inicio de la lista con una etiqueta de "historial completo".
+  // =========================================================================
+  const normalizeRemoteWorkOrder = (w: any) => {
+    let items: any[] = [];
+    try {
+      items = typeof w.items === "string" ? JSON.parse(w.items || "[]") : (w.items || []);
+    } catch {
+      items = [];
+    }
+    return { ...w, items };
+  };
+
+  const [remoteSearch, setRemoteSearch] = useState<{
+    loading: boolean;
+    results: any[];
+    invoices: any[];
+  }>({ loading: false, results: [], invoices: [] });
+
+  React.useEffect(() => {
+    const term = (searchPlate || "").trim().toUpperCase();
+    // Solo en el filtro "Todos": en Pendientes la deuda real ya está cargada localmente.
+    if (term.length < 3 || activeStatusFilter !== "todos") {
+      setRemoteSearch((s) =>
+        s.loading || s.results.length > 0 ? { loading: false, results: [], invoices: [] } : s
+      );
+      return;
+    }
+    const localHits = allBillingWorkOrders.some(
+      (wo) => wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)
+    );
+    if (localHits) {
+      setRemoteSearch((s) =>
+        s.loading || s.results.length > 0 ? { loading: false, results: [], invoices: [] } : s
+      );
+      return;
+    }
+    let cancelled = false;
+    setRemoteSearch((s) => ({ ...s, loading: true }));
+    const timer = setTimeout(async () => {
+      try {
+        const { data: wos } = await supabase
+          .from("work_orders")
+          .select("*")
+          .ilike("vehicle_plate", "%" + term + "%")
+          .order("entry_time", { ascending: false })
+          .limit(40);
+        const woIds = (wos || []).map((w: any) => w.id);
+        let invs: any[] = [];
+        if (woIds.length > 0) {
+          const { data: invData } = await supabase
+            .from("invoices")
+            .select("*")
+            .in("work_order_id", woIds)
+            .limit(200);
+          invs = invData || [];
+        }
+        if (cancelled) return;
+        setRemoteSearch({
+          loading: false,
+          results: (wos || []).map(normalizeRemoteWorkOrder),
+          invoices: invs,
+        });
+      } catch {
+        if (!cancelled) setRemoteSearch({ loading: false, results: [], invoices: [] });
+      }
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchPlate, activeStatusFilter, allBillingWorkOrders]);
+
+  const remoteInvByWo = React.useMemo(() => {
+    const m = new Map<string, any>();
+    remoteSearch.invoices.forEach((i: any) => {
+      const k = i?.work_order_id || i?.id;
+      if (k) m.set(k, i);
+    });
+    return m;
+  }, [remoteSearch.invoices]);
+
+  const combinedInvoicesByWoId = React.useMemo(() => {
+    const m = new Map(invoicesByWorkOrderId);
+    remoteInvByWo.forEach((v, k) => m.set(k, v));
+    return m;
+  }, [invoicesByWorkOrderId, remoteInvByWo]);
+
+  const effectiveOrders = React.useMemo(() => {
+    if (remoteSearch.results.length === 0) return filteredCajaOrders;
+    const seen = new Set(filteredCajaOrders.map((w) => w.id));
+    const extra = remoteSearch.results.filter((w) => !seen.has(w.id));
+    return [...extra, ...filteredCajaOrders];
+  }, [filteredCajaOrders, remoteSearch.results]);
 
   // Filtered orders for Consultas (Historical Query by Selected Date) Tab
   const filteredConsultasOrders = React.useMemo(() => {
@@ -2299,20 +2402,32 @@ export default function CajaPage() {
           </div>
         </div>
 
-        {filteredCajaOrders.length === 0 ? (
+        {effectiveOrders.length === 0 ? (
           <div className="text-center py-12 space-y-3">
             <Receipt className="w-12 h-12 text-gray-500 mx-auto" />
             <p className="text-sm font-bold text-gray-400">
-              No hay vehículos en Caja con los filtros seleccionados.
+              {remoteSearch.loading
+                ? "Buscando en todo el historial de la base de datos..."
+                : "No hay vehículos en Caja con los filtros seleccionados."}
             </p>
+            {remoteSearch.loading && <Loader2 className="w-6 h-6 text-amber-400 mx-auto animate-spin" />}
           </div>
         ) : (
           <>
+            {/* Etiqueta de resultados del historial completo (búsqueda bajo demanda por placa) */}
+            {remoteSearch.results.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-cyan-950/40 border border-cyan-500/40 text-[11px] text-cyan-200 font-bold">
+                <SearchCheck className="w-4 h-4 text-cyan-300 shrink-0" />
+                <span>
+                  {remoteSearch.results.length} resultado(s) del HISTORIAL COMPLETO (búsqueda directa en la base de datos por la placa)
+                </span>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4">
-              {filteredCajaOrders.slice(0, visibleLimit).map((wo) => {
+              {effectiveOrders.slice(0, visibleLimit).map((wo) => {
                 const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
                 const tech = wo.assigned_technician_id ? techniciansById.get(wo.assigned_technician_id) : undefined;
-                const invoice = invoicesByWorkOrderId.get(wo.id);
+                const invoice = combinedInvoicesByWoId.get(wo.id);
                 const settledInfo = creditSettlementMap.settledOrdersMap.get(wo.id);
                 const cancellationInfo = creditSettlementMap.cancellationsMap.get(wo.id);
                 const partsTotal = (wo.items || []).reduce((sum: number, item: any) => sum + (item.subtotal || 0), 0);
@@ -2818,7 +2933,7 @@ export default function CajaPage() {
               })}
             </div>
 
-            {filteredCajaOrders.length > visibleLimit && (
+            {effectiveOrders.length > visibleLimit && (
               <div className="pt-4 text-center">
                 <button
                   onClick={() => setVisibleLimit((prev) => prev + 30)}
@@ -2826,7 +2941,7 @@ export default function CajaPage() {
                 >
                   <span>Mostrar más comprobantes (+30)</span>
                   <span className="text-xs text-gray-400 font-mono">
-                    (Mostrando {visibleLimit} de {filteredCajaOrders.length})
+                    (Mostrando {visibleLimit} de {effectiveOrders.length})
                   </span>
                 </button>
               </div>
