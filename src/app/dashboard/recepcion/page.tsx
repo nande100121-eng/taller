@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { getPeruDateTimeLocal, formatPeruDateTime, getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import ReactDOM from "react-dom";
@@ -932,27 +933,20 @@ export default function RecepcionPage() {
 
             {/* Filtro por FECHA: muestra las cards de citas del día seleccionado */}
             <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/10">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-gray-400 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                  Filtrar por fecha:
-                </span>
-                <input
-                  type="date"
-                  value={citasDateFilter}
-                  onChange={(e) => setCitasDateFilter(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg bg-reygas-dark border border-white/10 text-xs text-white font-mono focus:border-blue-400"
-                />
-                {citasDateFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setCitasDateFilter("")}
-                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-blue-600 text-white border border-blue-400 shadow-md shadow-blue-600/30 flex items-center gap-1"
-                  >
-                    📅 {citasDateFilter.slice(8)}/{citasDateFilter.slice(5, 7)}/{citasDateFilter.slice(0, 4)} ✕
-                  </button>
-                )}
-              </div>
+              <DateNavigator
+                value={citasDateFilter || getPeruDateString()}
+                onChange={(d) => setCitasDateFilter(d)}
+                label="Filtrar por fecha:"
+              />
+              {citasDateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setCitasDateFilter("")}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-blue-600 text-white border border-blue-400 shadow-md shadow-blue-600/30 flex items-center gap-1"
+                >
+                  📅 {citasDateFilter.slice(8)}/{citasDateFilter.slice(5, 7)}/{citasDateFilter.slice(0, 4)} ✕ Quitar filtro
+                </button>
+              )}
               <span className="text-[10px] text-gray-500">
                 {citasDateFilter
                   ? `Mostrando solo las cards de citas del día ${citasDateFilter.slice(8)}/${citasDateFilter.slice(5, 7)}/${citasDateFilter.slice(0, 4)} (${filteredAppointments.length}).`
@@ -2221,9 +2215,9 @@ export default function RecepcionPage() {
               </p>
             </div>
 
-            {/* Date Selector Filter with unified MiniDatePicker */}
+            {/* Navegador de Fecha Universal (estándar ReyGas) */}
             <div className="flex items-center gap-3 p-3 bg-reygas-dark rounded-xl border border-white/10 flex-wrap">
-              <MiniDatePicker
+              <DateNavigator
                 value={availabilityDate}
                 onChange={(d) => setAvailabilityDate(d)}
                 label="Fecha a Consultar:"

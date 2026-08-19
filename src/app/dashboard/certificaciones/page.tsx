@@ -21,6 +21,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase } from "@/lib/utils/text-format";
@@ -641,7 +642,7 @@ export default function CertificacionesPage() {
             )}
 
             {activeTab === "hoy" && (
-              <MiniDatePicker
+              <DateNavigator
                 value={queryDate}
                 onChange={(newDate) => {
                   setQueryDate(newDate);

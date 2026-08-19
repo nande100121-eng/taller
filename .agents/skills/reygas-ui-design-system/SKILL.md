@@ -92,52 +92,43 @@ Todas las ventanas modales emergentes o flotantes deben seguir esta estructura v
 
 ---
 
-## 3. Calendario y Selector de Fecha Unificado
+## 3. Calendario y Selector de Fecha Unificado (DateNavigator)
 
-**Regla Estricta**: En cualquier pestaña donde se requiera selección de fechas, se debe utilizar el componente de barra con flechas, ícono de calendario y botón "Hoy", calculando siempre la hora local de Perú (`America/Lima`).
+**Regla Estricta**: En TODA sección de la web donde aparezca un calendario/filtro de fecha (Caja, Taller, Almacén, Portería, Certificaciones, Recepción/Citas, Tabla Maestra, Informes diarios, etc.), se debe usar el componente **`DateNavigator`** con el patrón EXACTO de Portería & Patio:
+
+```
+[ < Día Anterior ]  [ fecha a seleccionar (MiniDatePicker) ]  [ Día Siguiente > ]  [ Hoy ]
+```
+
+**Uso obligatorio** (el componente ya existe en `src/components/ui/date-navigator.tsx`):
 
 ```tsx
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
-import { getPeruDateString } from "@/lib/utils/date-utils";
+import DateNavigator from "@/components/ui/date-navigator";
 
-{/* Barra de Navegación de Calendario Estándar */}
-<div className="flex flex-wrap items-center gap-3">
-  <div className="flex items-center bg-reygas-surface rounded-xl border border-white/10 p-1">
-    <button
-      onClick={() => changeDateByDays(-1)}
-      className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-      title="Día Anterior"
-    >
-      <ChevronLeft className="w-4 h-4" />
-    </button>
-
-    <div className="flex items-center gap-2 px-2">
-      <Calendar className="w-4 h-4 text-amber-400" />
-      <input
-        type="date"
-        value={selectedDate}
-        onChange={(e) => setSelectedDate(e.target.value)}
-        className="bg-transparent text-white font-mono text-xs font-bold focus:outline-none cursor-pointer"
-      />
-    </div>
-
-    <button
-      onClick={() => changeDateByDays(1)}
-      className="p-2 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-      title="Día Siguiente"
-    >
-      <ChevronRight className="w-4 h-4" />
-    </button>
-  </div>
-
-  <button
-    onClick={() => setSelectedDate(getPeruDateString())}
-    className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold border border-white/10 transition-colors"
-  >
-    Hoy
-  </button>
-</div>
+{/* Filtro/navegación por fecha — SIEMPRE así, en cualquier sección */}
+<DateNavigator
+  value={selectedDate}              // YYYY-MM-DD (hora local Perú)
+  onChange={setSelectedDate}        // (dateStr: string) => void
+  label="Fecha:"                    // opcional
+  variant="default" | "compact"     // opcional (default)
+/>
 ```
+
+**Estructura visual del DateNavigator (NO modificar):**
+
+| Elemento | Clases Tailwind |
+| :--- | :--- |
+| Contenedor | `flex flex-wrap items-center gap-1.5 p-1 bg-black/60 rounded-2xl border border-white/15 shadow-inner` |
+| Botón Día Anterior | `px-3 py-2 bg-reygas-surface hover:bg-gray-700 text-white rounded-xl text-xs font-bold border border-white/10 flex items-center gap-1 active:scale-95 shadow-md` + `ChevronLeft` ámbar + "Día Anterior" |
+| Selector de fecha | `MiniDatePicker` (calendario desplegable unificado) |
+| Botón Día Siguiente | mismo estilo que Anterior + "Día Siguiente" + `ChevronRight` ámbar |
+| Botón Hoy | `px-3 py-2 rounded-xl text-xs font-black`; ámbar (`bg-amber-500 text-black`) cuando NO es hoy; gris apagado cuando ya es hoy |
+
+**Reglas de uso:**
+1. **Filtros de fecha / navegación de día** → SIEMPRE `<DateNavigator>` (día anterior + fecha + día siguiente + Hoy).
+2. **Campos de formulario** (ej. fecha de una cita, fecha de pago, fecha de ingreso de una orden) → usar `MiniDatePicker` o `input type="date"` SOLO, sin botones de navegación (no tienen sentido para un dato puntual).
+3. **No duplicar la barra**: si una sección ya usa `DateNavigator`, no agregar otro calendario al lado.
+4. Todas las fechas se calculan con hora local de Perú (`America/Lima`) vía `getPeruDateString()`.
 
 ---
 

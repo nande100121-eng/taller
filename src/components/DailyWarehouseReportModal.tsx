@@ -5,6 +5,7 @@ import ReactDOM from "react-dom";
 import { useAppStore } from "@/lib/store/app-store";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import {
   FileText,
   Calendar,
@@ -273,39 +274,8 @@ export function DailyWarehouseReportModal({ isOpen, onClose }: DailyWarehouseRep
 
             {/* Date Navigator + Action Buttons */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Date navigator */}
-              <div className="flex items-center bg-black/60 rounded-xl border border-white/15 p-1">
-                <button
-                  type="button"
-                  onClick={() => changeDate(-1)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-                  title="Día anterior"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <MiniDatePicker
-                  value={selectedDate}
-                  onChange={setSelectedDate}
-                  variant="compact"
-                />
-                <button
-                  type="button"
-                  onClick={() => changeDate(1)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-                  title="Día siguiente"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-                {!isToday && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDate(getPeruDateString())}
-                    className="ml-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-lg text-[10px] font-black border border-amber-500/30 transition-all"
-                  >
-                    Hoy
-                  </button>
-                )}
-              </div>
+              {/* Navegador de Fecha Universal (estándar ReyGas): Día Anterior | fecha | Día Siguiente | Hoy */}
+              <DateNavigator value={selectedDate} onChange={setSelectedDate} />
 
               {/* Print Button */}
               <button

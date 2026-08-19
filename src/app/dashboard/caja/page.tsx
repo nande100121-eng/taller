@@ -9,6 +9,7 @@ import {
 } from "@/lib/utils/credit-tracker";
 import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
@@ -1979,10 +1980,7 @@ export default function CajaPage() {
             />
           </div>
 
-          <MiniDatePicker
-            value={queryDate}
-            onChange={(newDate) => setQueryDate(newDate)}
-          />
+          <DateNavigator value={queryDate} onChange={setQueryDate} />
         </div>
       </div>
 

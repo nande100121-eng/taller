@@ -42,6 +42,7 @@ import {
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 
 const BarcodePrintModal = dynamic(
@@ -1020,9 +1021,9 @@ export default function AlmacenPage() {
                 </p>
               </div>
 
-              {/* DATE PICKER (UNIFIED MINI-DATE-PICKER STANDARD) */}
+              {/* NAVEGADOR DE FECHA UNIVERSAL (estándar ReyGas): Día Anterior | fecha | Día Siguiente | Hoy */}
               <div className="flex flex-wrap items-center gap-3">
-                <MiniDatePicker
+                <DateNavigator
                   value={pedidosDate}
                   onChange={(newDate) => {
                     setPedidosDate(newDate);

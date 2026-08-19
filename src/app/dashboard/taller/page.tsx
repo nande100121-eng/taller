@@ -39,6 +39,7 @@ import {
   Percent,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime } from "@/lib/utils/date-utils";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
 import { capitalizeFirst } from "@/lib/utils/text-format";
@@ -705,8 +706,8 @@ export default function WorkshopOperationsPage() {
             </button>
           </div>
 
-          {/* Date picker */}
-          <MiniDatePicker
+          {/* Navegador de Fecha Universal (estándar ReyGas): Día Anterior | fecha | Día Siguiente | Hoy */}
+          <DateNavigator
             value={queryDate}
             onChange={(newDate) => {
               setQueryDate(newDate);

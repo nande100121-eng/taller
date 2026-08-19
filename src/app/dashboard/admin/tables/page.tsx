@@ -5,6 +5,7 @@ import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, ge
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate, getPeruDateString, buildPeruISOString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { formatPlate, titleCase } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
 
@@ -1131,12 +1132,7 @@ export default function AdminTablesPage() {
                 {timeFilter === "fecha" && (
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-gray-400 font-bold">Fecha:</label>
-                    <input
-                      type="date"
-                      value={queryDate}
-                      onChange={(e) => setQueryDate(e.target.value)}
-                      className="px-3 py-1.5 bg-reygas-surface border border-white/15 rounded-xl text-xs font-bold text-white focus:border-indigo-400"
-                    />
+                    <DateNavigator value={queryDate} onChange={setQueryDate} />
                   </div>
                 )}
 

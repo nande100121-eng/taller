@@ -9,6 +9,7 @@ import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
+import DateNavigator from "@/components/ui/date-navigator";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import {
   FileText,
@@ -1971,42 +1972,8 @@ export function WorkshopDailyReportView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Standard Date Navigator */}
-          <div className="flex items-center bg-black/60 rounded-xl border border-white/15 p-1 shrink-0">
-            <button
-              type="button"
-              onClick={() => changeDate(-1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día anterior"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <MiniDatePicker
-              value={selectedDate}
-              onChange={setSelectedDate}
-              variant="compact"
-            />
-
-            <button
-              type="button"
-              onClick={() => changeDate(1)}
-              className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 hover:text-white transition-colors"
-              title="Día siguiente"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            {!isToday && (
-              <button
-                type="button"
-                onClick={() => setSelectedDate(getPeruDateString())}
-                className="px-2 py-1 ml-1 text-[11px] font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 rounded-md transition-colors"
-              >
-                Hoy
-              </button>
-            )}
-          </div>
+          {/* Navegador de Fecha Universal (estándar ReyGas): Día Anterior | fecha | Día Siguiente | Hoy */}
+          <DateNavigator value={selectedDate} onChange={setSelectedDate} />
 
           {/* Export CSV Button */}
           <button
