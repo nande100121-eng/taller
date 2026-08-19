@@ -79,6 +79,8 @@ export default function CajaPage() {
     createInvoiceForOrder,
     togglePayInvoice,
     toggleOrderPayment,
+    updateInvoice,
+    updateWorkOrderStatus,
     undoLastPayment,
     deletePaymentRecord,
     updatePaymentRecord,
@@ -1291,11 +1293,37 @@ export default function CajaPage() {
   // NO abre el modal de abono. Si el pago ya está registrado no duplica (solo actualiza si
   // cambió el método o comprobante).
   const handleQuickConfirmPayment = (wo: any, inv?: any) => {
+    const totalDue = Number(inv?.grand_total) || 0;
+    const woItemsTotal = (wo.items || []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
+    const certFee = wo.requires_certification ? (Number(wo.certification_price) || 0) : 0;
+    const isZeroAmount = totalDue <= 0.01 && (woItemsTotal + certFee) <= 0.01;
+
+    // Card de MONTO 0 (consulta / revisión sin costo / sin ítems cobrables):
+    // confirmar DIRECTAMENTE sin comprobante y sin método de pago.
+    if (isZeroAmount) {
+      if (inv?.id) {
+        updateInvoice(inv.id, {
+          payment_status: "pagado",
+          payment_condition: "PAGADO",
+          paid_at: new Date().toISOString(),
+          payment_method: "",
+          receipt_type: "Sin Comprobante",
+          receipt_number: "",
+        });
+        updateWorkOrderStatus(wo.id, "pagado_autorizado");
+      } else {
+        // Crea factura de monto 0 sin método ni comprobante y la marca PAGADA
+        createInvoiceForOrder(wo.id, 0, certFee, "");
+        toggleOrderPayment(wo.id);
+      }
+      notify("success", `Atención sin costo de ${wo.vehicle_plate} confirmada como PAGADA (sin comprobante ni método).`);
+      return;
+    }
+
     if (!inv?.id) {
       notify("warning", "Esta orden aún no tiene factura para confirmar el pago.");
       return;
     }
-    const totalDue = Number(inv.grand_total) || 0;
     const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
     const paidSoFar = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
     const pending = Math.max(0, totalDue - paidSoFar);
@@ -2632,14 +2660,17 @@ export default function CajaPage() {
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
-                          <button
-                            onClick={() => handleOpenReceiptViewer(wo, invoice, grandTotal)}
-                            className="px-3.5 py-2 rounded-xl bg-blue-950/60 text-blue-300 hover:bg-blue-900/80 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all shadow hover:scale-105"
-                            title="Visualizar o Imprimir Comprobante Térmico / PDF"
-                          >
-                            <Eye className="w-4 h-4 text-blue-400" />
-                            <span>Ver Comprobante ({buttonReceiptLabel})</span>
-                          </button>
+                          {/* Monto 0 (consulta/revisión sin costo): no hay comprobante que ver */}
+                          {grandTotal > 0 && (
+                            <button
+                              onClick={() => handleOpenReceiptViewer(wo, invoice, grandTotal)}
+                              className="px-3.5 py-2 rounded-xl bg-blue-950/60 text-blue-300 hover:bg-blue-900/80 border border-blue-500/40 text-xs font-black flex items-center gap-1.5 transition-all shadow hover:scale-105"
+                              title="Visualizar o Imprimir Comprobante Térmico / PDF"
+                            >
+                              <Eye className="w-4 h-4 text-blue-400" />
+                              <span>Ver Comprobante ({buttonReceiptLabel})</span>
+                            </button>
+                          )}
 
                           {isPaid ? (
                             <>
@@ -2654,14 +2685,17 @@ export default function CajaPage() {
                             </>
                           ) : (
                             <>
-                              <button
-                                onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
-                                className="px-4 py-2.5 bg-cyan-600/80 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-600/20 flex items-center gap-2 transition-transform hover:scale-105"
-                                title="Abonar el saldo pendiente total o hacer un pago parcial (métodos, destinos y comprobante)"
-                              >
-                                <History className="w-4 h-4 stroke-[2.5]" />
-                                <span>Abonar Total o Saldo</span>
-                              </button>
+                              {/* Monto 0: NO se permite abonar (no hay saldo); solo confirmar directo */}
+                              {grandTotal > 0 && (
+                                <button
+                                  onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
+                                  className="px-4 py-2.5 bg-cyan-600/80 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl border border-cyan-400/40 shadow-lg shadow-cyan-600/20 flex items-center gap-2 transition-transform hover:scale-105"
+                                  title="Abonar el saldo pendiente total o hacer un pago parcial (métodos, destinos y comprobante)"
+                                >
+                                  <History className="w-4 h-4 stroke-[2.5]" />
+                                  <span>Abonar Total o Saldo</span>
+                                </button>
+                              )}
 
                               {partialHistory.length > 0 ? (
                                 <button
@@ -2676,10 +2710,10 @@ export default function CajaPage() {
                                 <button
                                   onClick={() => handleQuickConfirmPayment(wo, invoice)}
                                   className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                                  title="Confirmar y registrar el pago completo con el método/comprobante de la factura (sin abrir el modal; no duplica)"
+                                  title={grandTotal <= 0 ? "Confirmar atención sin costo — sin comprobante y sin método de pago" : "Confirmar y registrar el pago completo con el método/comprobante de la factura (sin abrir el modal; no duplica)"}
                                 >
                                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                                  <span>Confirmar Pago</span>
+                                  <span>{grandTotal <= 0 ? "Confirmar (Sin Costo)" : "Confirmar Pago"}</span>
                                 </button>
                               )}
 
