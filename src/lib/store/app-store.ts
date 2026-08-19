@@ -2763,6 +2763,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           discounts: discountVal,
           grand_total: computedGrandTotal,
           payment_status: "pagado" as const,
+          payment_condition: "PAGADO" as const,
+          credit_amount: 0,
           payment_method: sanitizeMethod(paymentMethod || targetInvoice.payment_method || "Efectivo"),
           payment_destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
           receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || ""),
@@ -3015,10 +3017,36 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
           ? [...targetInvoice.payment_history]
           : [];
+        const totalDue = Number(targetInvoice.grand_total) || 0;
+        const prevCredit = Number(targetInvoice.credit_amount) || 0;
+
+        // BUG FIX: en facturas con crédito el adelanto ya pagado puede estar IMPLÍCITO
+        // (total - crédito) aunque el historial esté vacío (adelantos históricos desde
+        // CSV/Tabla Maestra). Si el historial no registra ese pago previo, se respalda
+        // con un registro "adelanto previo" ANTES del abono actual; así al pagar el saldo
+        // el total pagado = adelanto + abono y el crédito queda en 0 (antes quedaba el
+        // total - abono como falso saldo, ej. BBF-936: 450 - 50 = "pendiente 400").
+        const historyPaidBefore = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const implicitPaidBefore = prevCredit > 0
+          ? Math.max(0, totalDue - prevCredit - historyPaidBefore)
+          : 0;
+        if (implicitPaidBefore > 0.01) {
+          history.unshift({
+            id: `pay-${Date.now()}-legacy-${Math.floor(Math.random() * 1000)}`,
+            date: targetInvoice.issued_at || targetInvoice.paid_at || nowISO,
+            amount: implicitPaidBefore,
+            method: sanitizeMethod(targetInvoice.payment_method || "", implicitPaidBefore) || "Efectivo",
+            destination: targetInvoice.payment_destination || "EMPRESA",
+            receipt_number: targetInvoice.receipt_number || undefined,
+            receipt_type: targetInvoice.receipt_type || undefined,
+            observation: "Adelanto previo (historial respaldado)",
+            responsible: targetInvoice.debt_responsible || undefined,
+          } as PaymentRecord);
+        }
+
         history.push(...recordsToAdd);
 
         const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        const totalDue = Number(targetInvoice.grand_total) || 0;
         const balance = Math.max(0, totalDue - prevPaid);
 
         isFullyPaid = balance <= 0.01;
@@ -3029,8 +3057,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           credit_amount: isFullyPaid ? 0 : balance,
           payment_method: methodStr,
           payment_destination: destStr,
-          receipt_number: recNum || targetInvoice.receipt_number,
-          receipt_type: recType || targetInvoice.receipt_type,
+          // El comprobante ORIGINAL de la factura se conserva (ej. boleta 3570 de BBF-936):
+          // el comprobante del abono (nuevo ticket) queda en el registro del historial.
+          receipt_number: targetInvoice.receipt_number || recNum,
+          receipt_type: targetInvoice.receipt_type || recType,
           payment_breakdown: paymentBreakdown !== undefined
             ? paymentBreakdown
             : (history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined),

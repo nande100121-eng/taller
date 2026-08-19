@@ -537,6 +537,20 @@ export default function CajaPage() {
     return false;
   }, [creditSettlementMap]);
 
+  // Total REAL ya pagado de una factura: el historial de pagos, o si está vacío/incompleto
+  // el pago implícito (total - crédito). Evita que un abono "borre" el adelanto previo
+  // (ej. BBF-936: total 450, crédito 50 => ya pagado 400 aunque el historial esté vacío).
+  const invoicePaidSoFar = React.useCallback((inv?: any) => {
+    const grand = Number(inv?.grand_total) || 0;
+    const credit = Number(inv?.credit_amount) || 0;
+    const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
+    const histSum = hist.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+    // Solo con crédito (saldo pendiente) el "total - crédito" representa un pago previo
+    // (adelanto) aunque el historial esté vacío. Sin crédito, el pagado es el historial.
+    if (credit > 0) return Math.max(histSum, grand - credit);
+    return histSum;
+  }, []);
+
   // Helper to compute correct Net Total considering Taller discount_amount and Invoice
   const computeOrderNetTotal = React.useCallback((wo: any, inv?: any) => {
     const partsSum = (wo.items || []).reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
@@ -1452,7 +1466,7 @@ export default function CajaPage() {
       return;
     }
     const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
-    const paidSoFar = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+    const paidSoFar = invoicePaidSoFar(inv);
     const pending = Math.max(0, totalDue - paidSoFar);
 
     const methodClean = defaultMethodFrom(inv.payment_method) || "Efectivo";
@@ -1512,10 +1526,7 @@ export default function CajaPage() {
   const handleOpenPartialPaymentModal = (wo: any, inv?: any) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
     const totalDue = computeOrderNetTotal(wo, inv);
-    const history: Array<{ amount?: number }> = Array.isArray(inv?.payment_history)
-      ? inv.payment_history
-      : [];
-    const paidSoFar = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const paidSoFar = invoicePaidSoFar(inv);
     const balance = (inv?.credit_amount && inv.credit_amount > 0)
       ? Number(inv.credit_amount)
       : Math.max(0, totalDue - paidSoFar);
@@ -1561,7 +1572,11 @@ export default function CajaPage() {
     if (!partialPaymentModal) return;
 
     const amount = Number(partialPaymentModal.amount) || 0;
-    const balance = Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar);
+    // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
+    // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
+    const invForBalance = partialPaymentModal.invoice;
+    const paidSoFarReal = invoicePaidSoFar(invForBalance);
+    const balance = Math.max(0, partialPaymentModal.totalDue - paidSoFarReal);
     if (amount <= 0) {
       notify("warning", "Ingrese un monto de abono mayor a cero.");
       return;
