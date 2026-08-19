@@ -498,28 +498,28 @@ export function WorkshopDailyReportView({
         ? technicians.find((t) => t.id === wo.assigned_technician_id)?.full_name
         : (wo as any).technician_name || csvRec?.technician;
 
-      // Comprobantes con N° propio (pago mixto multi-ticket): UNA fila por cada
-      // ticket/boleta/factura, con sus propios datos (método, monto, destino).
-      const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
-      const comprobantes = bdSplits.filter(
-        (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
+      // Cada PAGO del historial con su N° de Ticket/Boleta/Factura se muestra en SU PROPIA
+      // fila del informe (igual que el historial de la card de Caja).
+      const histRecs = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+      const comprobantes = histRecs.filter(
+        (r) => r && r.receipt_number && String(r.receipt_number).trim() !== "" && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n"
       );
 
       if (comprobantes.length > 1) {
-        comprobantes.forEach((split, si) => {
-          const splitAmount = Number(split.amount) || 0;
+        comprobantes.forEach((rec, si) => {
+          const recAmount = Number(rec.amount) || 0;
           const subBd = breakdownFromSources(
-            split.method || "Efectivo",
+            rec.method || "Efectivo",
             undefined,
-            split.destination || (inv as any)?.payment_destination || "EMPRESA",
-            splitAmount
+            rec.destination || (inv as any)?.payment_destination || "EMPRESA",
+            recAmount
           );
           rows.push({
-            id: `${wo.id}-comp-${si}`,
+            id: `${wo.id}-pay-${si}`,
             itemNumber: count++,
             plate: (wo.vehicle_plate || "S/P").toUpperCase(),
             description: desc,
-            total: splitAmount,
+            total: recAmount,
             isPending: false,
             payState: "pagado",
             pendingAmount: 0,
@@ -533,7 +533,7 @@ export function WorkshopDailyReportView({
             transfDestino: subBd.transfDestino || tDest,
             isInvoice: true,
             orderStatus: "finalizado",
-            receiptNumber: String(split.receipt_number || ""),
+            receiptNumber: String(rec.receipt_number || ""),
           });
         });
       } else {
@@ -620,27 +620,27 @@ export function WorkshopDailyReportView({
       let yDest = breakdown.yapeDestino || "EMPRESA";
       let tDest = breakdown.transfDestino || "EMPRESA";
 
-      // Pago mixto multi-ticket: UNA fila por cada comprobante (mismo criterio que la Tabla Maestra)
-      const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
-      const comprobantes = bdSplits.filter(
-        (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
+      // Cada PAGO del historial con su N° de Ticket/Boleta/Factura se muestra en SU PROPIA fila.
+      const histRecs = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+      const comprobantes = histRecs.filter(
+        (r) => r && r.receipt_number && String(r.receipt_number).trim() !== "" && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n"
       );
 
       if (comprobantes.length > 1 && !isPending) {
-        comprobantes.forEach((split, si) => {
-          const splitAmount = Number(split.amount) || 0;
+        comprobantes.forEach((rec, si) => {
+          const recAmount = Number(rec.amount) || 0;
           const subBd = breakdownFromSources(
-            split.method || "Efectivo",
+            rec.method || "Efectivo",
             undefined,
-            split.destination || (inv as any).payment_destination || "EMPRESA",
-            splitAmount
+            rec.destination || (inv as any).payment_destination || "EMPRESA",
+            recAmount
           );
           rows.push({
-            id: `${inv.id}-comp-${si}`,
+            id: `${inv.id}-pay-${si}`,
             itemNumber: count++,
             plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
             description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
-            total: splitAmount,
+            total: recAmount,
             isPending: false,
             payState: "pagado",
             pendingAmount: 0,
@@ -654,7 +654,7 @@ export function WorkshopDailyReportView({
             transfDestino: subBd.transfDestino || tDest,
             isInvoice: true,
             orderStatus: "finalizado",
-            receiptNumber: String(split.receipt_number || ""),
+            receiptNumber: String(rec.receipt_number || ""),
           });
         });
       } else {

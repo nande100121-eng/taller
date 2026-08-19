@@ -1328,11 +1328,11 @@ export default function AdminTablesPage() {
                     // Método limpio: nunca "Mixto (Mixto (...))" ni rastros de abonos borrados
                     const methodClean = inv ? (cleanMethodDisplay(inv.payment_method, montoNum > 0 ? montoNum : undefined) || inv.payment_method || "") : "";
 
-                    // Comprobantes con N° propio (pago mixto multi-ticket): cada método con su
-                    // ticket/boleta/factura se muestra en SU PROPIA fila de la Tabla Maestra.
-                    const bdSplits = Array.isArray(inv?.payment_breakdown) ? (inv.payment_breakdown as any[]) : [];
-                    const comprobantes = bdSplits.filter(
-                      (s) => s && s.receipt_number && String(s.receipt_number).trim() !== "" && String(s.receipt_number) !== "0" && String(s.receipt_number).toLowerCase() !== "s/n"
+                    // Cada PAGO del historial con su propio N° de Ticket/Boleta/Factura se muestra
+                    // en SU PROPIA fila de la Tabla Maestra (igual que el historial de la card de Caja).
+                    const histRecs = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+                    const comprobantes = histRecs.filter(
+                      (r) => r && r.receipt_number && String(r.receipt_number).trim() !== "" && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n"
                     );
                     const expandComprobantes = comprobantes.length > 1;
 
@@ -1412,18 +1412,18 @@ export default function AdminTablesPage() {
                     };
 
                     if (expandComprobantes) {
-                      return comprobantes.map((split, si) => {
-                        const splitAmount = Number(split.amount) || 0;
+                      return comprobantes.map((rec, si) => {
+                        const recAmount = Number(rec.amount) || 0;
                         return renderMasterRow({
-                          key: `${wo.id}-comp-${si}`,
+                          key: `${wo.id}-pay-${si}`,
                           rowNumber: ++rowCounter,
                           showActions: true,
                           isFirst: si === 0,
-                          receiptNumber: String(split.receipt_number || ""),
-                          receiptType: split.receipt_type || inv?.receipt_type || "",
-                          method: cleanMethodDisplay(split.method, splitAmount) || split.method || "",
-                          destination: split.destination || inv?.payment_destination || "",
-                          monto: splitAmount > 0 ? `S/ ${splitAmount.toFixed(2)}` : "",
+                          receiptNumber: String(rec.receipt_number || ""),
+                          receiptType: rec.receipt_type || inv?.receipt_type || "",
+                          method: cleanMethodDisplay(rec.method, recAmount) || rec.method || "",
+                          destination: rec.destination || inv?.payment_destination || "",
+                          monto: recAmount > 0 ? `S/ ${recAmount.toFixed(2)}` : "",
                         });
                       });
                     }

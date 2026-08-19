@@ -720,21 +720,25 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     // no tiene esa columna. Sin esto el informe diario no vería cada comprobante de un pago
     // mixto multi-ticket (ej. ticket 4585 / TK01-00004585 de BVZ-412).
     const bdMap = new Map<string, any[]>();
+    const phMap = new Map<string, any[]>();
     if (rawInvoices.length > 0) {
       try {
         const bdKeys = rawInvoices.map((i: any) => `inv_breakdown_${i.id}`);
-        const bdRes = await supabase.from("site_content").select("key, value").in("key", bdKeys);
+        const phKeys = rawInvoices.map((i: any) => `inv_payhistory_${i.id}`);
+        const bdRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys]);
         (bdRes.data || []).forEach((row: any) => {
           const k = row.key || row.section_key;
-          if (!k || !k.startsWith("inv_breakdown_")) return;
+          if (!k) return;
           let val: any = row.value;
           if (typeof val === "string") {
             try { val = JSON.parse(val); } catch { val = undefined; }
           }
-          if (Array.isArray(val)) bdMap.set(k.replace("inv_breakdown_", ""), val);
+          if (!Array.isArray(val)) return;
+          if (k.startsWith("inv_breakdown_")) bdMap.set(k.replace("inv_breakdown_", ""), val);
+          else if (k.startsWith("inv_payhistory_")) phMap.set(k.replace("inv_payhistory_", ""), val);
         });
       } catch (err) {
-        console.warn("Day report breakdown merge warning:", err);
+        console.warn("Day report breakdown/payhistory merge warning:", err);
       }
     }
 
@@ -743,9 +747,13 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       if (typeof paymentBreakdown === "string") {
         try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = undefined; }
       }
+      const payHistory = phMap.get(inv.id) || (Array.isArray(inv.payment_history) ? inv.payment_history : undefined);
       return {
         ...inv,
         payment_method: cleanMethodDisplay(inv.payment_method),
+        payment_history: Array.isArray(payHistory)
+          ? payHistory.map((r: any) => ({ ...r, method: cleanMethodDisplay(r.method, Number(r.amount) || 0) }))
+          : payHistory,
         payment_breakdown: Array.isArray(paymentBreakdown)
           ? paymentBreakdown.map((s: any) => ({ ...s, method: cleanMethodDisplay(s.method, Number(s.amount) || 0) }))
           : paymentBreakdown,
@@ -1047,20 +1055,25 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
     if (invoices.length > 0) {
       try {
         const bdKeys = invoices.map((i) => `inv_breakdown_${i.id}`);
-        const bdRes = await supabase.from("site_content").select("key, value").in("key", bdKeys);
+        const phKeys = invoices.map((i) => `inv_payhistory_${i.id}`);
+        const scRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys]);
         const bdMap = new Map<string, any[]>();
-        (bdRes.data || []).forEach((row: any) => {
+        const phMap = new Map<string, any[]>();
+        (scRes.data || []).forEach((row: any) => {
           const k = row.key || row.section_key;
-          if (!k || !k.startsWith("inv_breakdown_")) return;
+          if (!k) return;
           let val: any = row.value;
           if (typeof val === "string") {
             try { val = JSON.parse(val); } catch { val = undefined; }
           }
-          if (Array.isArray(val)) bdMap.set(k.replace("inv_breakdown_", ""), val);
+          if (!Array.isArray(val)) return;
+          if (k.startsWith("inv_breakdown_")) bdMap.set(k.replace("inv_breakdown_", ""), val);
+          else if (k.startsWith("inv_payhistory_")) phMap.set(k.replace("inv_payhistory_", ""), val);
         });
         invoices = invoices.map((i: any) => ({
           ...i,
           payment_breakdown: bdMap.get(i.id) || (Array.isArray(i.payment_breakdown) ? i.payment_breakdown : undefined),
+          payment_history: phMap.get(i.id) || undefined,
         }));
       } catch (err) {
         console.warn("Master table breakdown merge warning:", err);
