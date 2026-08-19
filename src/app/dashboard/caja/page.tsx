@@ -955,6 +955,28 @@ export default function CajaPage() {
             .in("work_order_id", woIds)
             .limit(200);
           invs = invData || [];
+          // Adjuntar el HISTORIAL DE PAGOS (snapshots inv_payhistory_<id>) a las facturas
+          // del historial completo: así la card muestra los abonos aunque venga de la
+          // consulta directa (ej. BBF-936 con adelanto 400 + abono 50).
+          if (invs.length > 0) {
+            const invIds = new Set(invs.map((i: any) => i.id));
+            const { data: phSnaps } = await supabase
+              .from("site_content")
+              .select("key, value")
+              .like("key", "inv_payhistory_%");
+            const phMap = new Map<string, any[]>();
+            (phSnaps || []).forEach((s: any) => {
+              const idKey = (s.key || "").replace("inv_payhistory_", "");
+              try {
+                const val = typeof s.value === "string" ? JSON.parse(s.value) : s.value;
+                if (Array.isArray(val)) phMap.set(idKey, val);
+              } catch { /* ignore */ }
+            });
+            invs = invs.map((i: any) => {
+              const hist = phMap.get(i.id);
+              return hist ? { ...i, payment_history: hist } : i;
+            });
+          }
         }
         if (cancelled) return;
         setRemoteSearch({
