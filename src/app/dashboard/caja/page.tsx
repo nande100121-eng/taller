@@ -485,6 +485,13 @@ export default function CajaPage() {
     return buildVehicleCreditSettlementMap(workOrders, invoicesByWorkOrderId);
   }, [workOrders, invoicesByWorkOrderId]);
 
+  // Vehículos que AÚN están en taller (no han culminado el trabajo): NO son crédito.
+  // No deben contarse como "pendientes de cobro" (solo órdenes terminadas con saldo
+  // deudor o crédito real son cuentas por cobrar). Ej.: H2W-236 esperando repuestos.
+  const inWorkshopStatuses = new Set(["ingresado", "en_diagnostico", "esperando_repuestos", "en_servicio"]);
+  const isInWorkshopNotCredit = (wo: any, inv?: any) =>
+    inWorkshopStatuses.has(wo?.status) && !((inv?.credit_amount || 0) > 0);
+
   // Comprehensive, real-time function to determine if order is paid or pending credit
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
     if (!wo && !inv) return false;
@@ -596,7 +603,7 @@ export default function CajaPage() {
         const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
         const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
         const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate;
-        return matchesDate && !isOrderPaid(wo, inv);
+        return matchesDate && !isOrderPaid(wo, inv) && !isInWorkshopNotCredit(wo, inv);
       })
       .reduce((sum, wo) => {
         const inv = invoicesByWorkOrderId.get(wo.id);
@@ -614,14 +621,14 @@ export default function CajaPage() {
       // NO se cruza con la fecha de emisión de la factura: una orden registrada el 13/08
       // facturada hoy NO es un pendiente del día de hoy.
       const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-      return orderDateStr === queryDate && !isOrderPaid(wo, inv);
+      return orderDateStr === queryDate && !isOrderPaid(wo, inv) && !isInWorkshopNotCredit(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
 
   const pendingCount = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      return !isOrderPaid(wo, inv);
+      return !isOrderPaid(wo, inv) && !isInWorkshopNotCredit(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid]);
 
@@ -659,6 +666,7 @@ export default function CajaPage() {
     allBillingWorkOrders.forEach((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       if (isOrderPaid(wo, inv)) return;
+      if (isInWorkshopNotCredit(wo, inv)) return;
       const totalDue = computeOrderNetTotal(wo, inv);
       const history: Array<{ amount?: number }> = Array.isArray(inv?.payment_history)
         ? inv.payment_history

@@ -8,6 +8,7 @@ import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
+import { matchDebtCsvByInvoice } from "@/lib/deuda-csv";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
@@ -819,7 +820,10 @@ export function WorkshopDailyReportView({
       const balance = Math.max(0, grand - paid);
       if (balance <= 0.01) return;
 
-      const plate = (inv.vehicle_plate || "S/P").toUpperCase().trim();
+      // La deuda oficial de la empresa vive en DEUDA 17.08.26.csv: se corrige la placa
+      // y el nº de boleta con esa fuente (ej. 2035 -> D9B-201, B0Q-614 -> boleta 4469).
+      const debtCsv = matchDebtCsvByInvoice(inv, balance);
+      const plate = debtCsv ? debtCsv.placa.toUpperCase().trim() : (inv.vehicle_plate || "S/P").toUpperCase().trim();
       const entry: PendingPlateEntry = byPlate.get(plate) || {
         plate,
         client: inv.client_name || "",
@@ -834,12 +838,12 @@ export function WorkshopDailyReportView({
         invoice_id: inv.id,
         work_order_id: inv.work_order_id,
         issued_at: inv.issued_at || "",
-        receipt_number: inv.receipt_number,
+        receipt_number: debtCsv ? debtCsv.boleta : inv.receipt_number,
         receipt_type: inv.receipt_type,
         grand_total: grand,
         paid: Math.min(grand, paid),
         balance,
-        description: inv.observations || inv.notes || (inv.receipt_number ? `Factura ${inv.receipt_number}` : "Factura pendiente"),
+        description: inv.observations || inv.notes || ((debtCsv ? debtCsv.boleta : inv.receipt_number) ? `Factura ${debtCsv ? debtCsv.boleta : inv.receipt_number}` : "Factura pendiente"),
         debt_observation: inv.debt_observation || "",
         debt_responsible: inv.debt_responsible || "",
         payments: history.map((p: any) => ({
