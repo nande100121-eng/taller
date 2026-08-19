@@ -120,6 +120,9 @@ export default function WorkshopOperationsPage() {
   const [selectedServiceId, setSelectedServiceId] = useState(workshopServices[0]?.id || "");
   const [customItemName, setCustomItemName] = useState("");
   const [customItemPrice, setCustomItemPrice] = useState<number>(0);
+  // Texto editable del precio unitario: permite VACIAR el campo por completo
+  // (antes no dejaba borrar todos los dígitos). Se valida al agregar/guardar.
+  const [customItemPriceStr, setCustomItemPriceStr] = useState<string>("");
   const [partQty, setPartQty] = useState(1);
   const [partsSearchQuery, setPartsSearchQuery] = useState("");
 
@@ -149,6 +152,7 @@ export default function WorkshopOperationsPage() {
   const [editItemDescription, setEditItemDescription] = useState("");
   const [editItemQty, setEditItemQty] = useState(1);
   const [editItemPrice, setEditItemPrice] = useState(0);
+  const [editItemPriceStr, setEditItemPriceStr] = useState<string>("");
 
   const filteredInventoryItems = React.useMemo(() => {
     if (!partsSearchQuery.trim()) return inventoryItems;
@@ -296,12 +300,17 @@ export default function WorkshopOperationsPage() {
     setPartsSearchQuery("");
     setSelectedInventoryId(inventoryItems[0]?.id || "");
     setCustomItemPrice(inventoryItems[0]?.unit_price || 0);
+    setCustomItemPriceStr(inventoryItems[0]?.unit_price != null ? String(inventoryItems[0].unit_price) : "");
     setCustomItemName("");
     setPartQty(1);
     setPendingPartsCart([]);
   };
 
   const handleAddToCart = () => {
+    if (customItemPriceStr.trim() === "") {
+      notify("warning", "Ingrese un precio unitario válido antes de añadir el repuesto a la lista.");
+      return;
+    }
     if (requisitionType === "repuesto") {
       const item = inventoryItems.find((i) => i.id === selectedInventoryId);
       if (!item) return;
@@ -375,6 +384,10 @@ export default function WorkshopOperationsPage() {
 
   // ===== Carrito de SERVICIOS (múltiples servicios en el modal "Agregar Servicio de Taller") =====
   const handleAddServiceToCart = () => {
+    if (customItemPriceStr.trim() === "") {
+      notify("warning", "Ingrese un precio unitario válido antes de añadir el servicio a la lista.");
+      return;
+    }
     if (requisitionType === "servicio") {
       const srv = workshopServices.find((s) => s.id === selectedServiceId);
       if (!srv) return;
@@ -449,6 +462,7 @@ export default function WorkshopOperationsPage() {
     const initialSrv = workshopOnlyServices[0] || workshopServices[0];
     setSelectedServiceId(initialSrv?.id || "");
     setCustomItemPrice(initialSrv?.price || 0);
+    setCustomItemPriceStr(initialSrv?.price != null ? String(initialSrv.price) : "");
     setCustomItemName("");
     setPartQty(1);
   };
@@ -500,10 +514,15 @@ export default function WorkshopOperationsPage() {
     setEditItemDescription(item.description || "");
     setEditItemQty(item.quantity || 1);
     setEditItemPrice(item.unit_price || 0);
+    setEditItemPriceStr(item.unit_price != null ? String(item.unit_price) : "");
   };
 
   const handleSaveEditItem = () => {
     if (!editingItem) return;
+    if (editItemPriceStr.trim() === "") {
+      notify("warning", "Ingrese un precio unitario válido antes de guardar el ítem.");
+      return;
+    }
     updateWorkOrderItem(editingItem.orderId, editingItem.item.id, {
       description: editItemDescription.trim() || editingItem.item.description,
       quantity: Number(editItemQty) || 1,
@@ -596,6 +615,10 @@ export default function WorkshopOperationsPage() {
         });
       } else {
         // Fallback for single direct item if user did not press "Añadir a la lista"
+        if (customItemPriceStr.trim() === "") {
+          notify("warning", "Ingrese un precio unitario válido antes de agregar el repuesto a la orden.");
+          return;
+        }
         if (requisitionType === "repuesto") {
           const item = inventoryItems.find((i) => i.id === selectedInventoryId);
           if (item) {
@@ -652,6 +675,10 @@ export default function WorkshopOperationsPage() {
           message: `${pendingServicesCart.length} servicio(s) asignados a la orden. La vista se ha trasladado a '4. En Servicio'.`,
         });
       } else if (requisitionType === "servicio") {
+        if (customItemPriceStr.trim() === "") {
+          notify("warning", "Ingrese un precio unitario válido antes de agregar el servicio a la orden.");
+          return;
+        }
         const srv = workshopServices.find((s) => s.id === selectedServiceId);
         if (srv) {
           addWorkOrderItem(targetOrderId, {
@@ -670,6 +697,10 @@ export default function WorkshopOperationsPage() {
         }
       } else {
         if (!customItemName.trim()) return;
+        if (customItemPriceStr.trim() === "") {
+          notify("warning", "Ingrese un precio unitario válido antes de agregar el servicio a la orden.");
+          return;
+        }
         addWorkOrderItem(targetOrderId, {
           item_type: "servicio",
           description: customItemName.trim(),
@@ -1938,6 +1969,7 @@ export default function WorkshopOperationsPage() {
                                 onClick={() => {
                                   setSelectedInventoryId(item.id);
                                   setCustomItemPrice(item.unit_price || 0);
+                                  setCustomItemPriceStr(item.unit_price != null ? String(item.unit_price) : "");
                                 }}
                                 className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between border ${isSelected
                                   ? "bg-amber-500/20 border-amber-400 text-white font-bold ring-1 ring-amber-400 shadow-md scale-[1.01]"
@@ -2017,8 +2049,11 @@ export default function WorkshopOperationsPage() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={customItemPrice}
-                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        value={customItemPriceStr}
+                        onChange={(e) => {
+                          setCustomItemPriceStr(e.target.value);
+                          setCustomItemPrice(e.target.value === "" ? 0 : (parseFloat(e.target.value) || 0));
+                        }}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
                       />
                     </div>
@@ -2044,8 +2079,11 @@ export default function WorkshopOperationsPage() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={customItemPrice}
-                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        value={customItemPriceStr}
+                        onChange={(e) => {
+                          setCustomItemPriceStr(e.target.value);
+                          setCustomItemPrice(e.target.value === "" ? 0 : (parseFloat(e.target.value) || 0));
+                        }}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-amber-400 font-bold"
                       />
                     </div>
@@ -2191,7 +2229,10 @@ export default function WorkshopOperationsPage() {
                         onChange={(e) => {
                           const srv = workshopServices.find((s) => s.id === e.target.value);
                           setSelectedServiceId(e.target.value);
-                          if (srv) setCustomItemPrice(srv.price);
+                          if (srv) {
+                            setCustomItemPrice(srv.price);
+                            setCustomItemPriceStr(String(srv.price));
+                          }
                         }}
                         className="w-full px-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-indigo-400 font-bold"
                       >
@@ -2211,8 +2252,11 @@ export default function WorkshopOperationsPage() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={customItemPrice}
-                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        value={customItemPriceStr}
+                        onChange={(e) => {
+                          setCustomItemPriceStr(e.target.value);
+                          setCustomItemPrice(e.target.value === "" ? 0 : (parseFloat(e.target.value) || 0));
+                        }}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
                       />
                       <p className="text-[11px] text-gray-400 mt-1">
@@ -2243,8 +2287,11 @@ export default function WorkshopOperationsPage() {
                         type="number"
                         min="0"
                         step="0.1"
-                        value={customItemPrice}
-                        onChange={(e) => setCustomItemPrice(parseFloat(e.target.value) || 0)}
+                        value={customItemPriceStr}
+                        onChange={(e) => {
+                          setCustomItemPriceStr(e.target.value);
+                          setCustomItemPrice(e.target.value === "" ? 0 : (parseFloat(e.target.value) || 0));
+                        }}
                         className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white font-mono focus:border-indigo-400 font-bold"
                       />
                     </div>
@@ -2499,8 +2546,11 @@ export default function WorkshopOperationsPage() {
                     type="number"
                     min="0"
                     step="0.1"
-                    value={editItemPrice}
-                    onChange={(e) => setEditItemPrice(parseFloat(e.target.value) || 0)}
+                    value={editItemPriceStr}
+                    onChange={(e) => {
+                      setEditItemPriceStr(e.target.value);
+                      setEditItemPrice(e.target.value === "" ? 0 : (parseFloat(e.target.value) || 0));
+                    }}
                     className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-mono font-bold focus:border-amber-400 focus:outline-none"
                   />
                 </div>
