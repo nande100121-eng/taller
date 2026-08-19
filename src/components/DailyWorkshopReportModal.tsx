@@ -830,45 +830,72 @@ export function WorkshopDailyReportView({
     return Array.from(byPlate.values()).sort((a, b) => b.totalDebt - a.totalDebt);
   }, [invoices]);
 
-  const totalGlobalPendiente = useMemo(
-    () => pendingByPlate.reduce((s, p) => s + p.totalDebt, 0),
-    [pendingByPlate]
-  );
+  // Deuda pendiente por día (SEMANA de la fecha seleccionada) para el gráfico de curvas.
+  // debt(día) = Σ de facturas emitidas hasta ese día de (total - pagado hasta ese día).
+  // Incluye TODAS las facturas con monto (aunque hoy estén pagadas) para que la curva
+  // SUBE cuando se registran créditos y BAJA cuando llegan abonos, fiel a lo registrado.
+  const debtWeek = useMemo(() => {
+    const paidUpToDate = (inv: any, day: string): number => {
+      const grand = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
+      const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
+      if (history.length > 0) {
+        return history.reduce((s: number, p: any) => {
+          return s + ((p.date || "").slice(0, 10) <= day ? Number(p.amount) || 0 : 0);
+        }, 0);
+      }
+      // Sin historial fechado: si fue pagada por desglose/estado, se considera pagada desde su emisión.
+      const breakdownPaid = Array.isArray(inv.payment_breakdown)
+        ? (inv.payment_breakdown as any[]).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+        : 0;
+      const statusPaid = inv.payment_status === "pagado" ? grand : 0;
+      const credit = Number(inv.credit_amount) || 0;
+      const totalPaid = Math.max(breakdownPaid, statusPaid, credit > 0 ? grand - credit : 0);
+      return (inv.issued_at || "").slice(0, 10) <= day ? totalPaid : 0;
+    };
 
-  // Serie diaria (últimos 30 días) de la deuda pendiente total, para el gráfico de
-  // línea que muestra cómo el saldo por cobrar sube o baja cada día.
-  const debtSeries = useMemo(() => {
+    const debtAt = (day: string): number => {
+      let debt = 0;
+      (invoices || []).forEach((inv: any) => {
+        const grand = Number(inv.grand_total) || Number((inv as any).total_amount) || 0;
+        if (grand <= 0) return;
+        const issuedDay = (inv.issued_at || "").slice(0, 10);
+        if (issuedDay > day) return;
+        debt += Math.max(0, grand - paidUpToDate(inv, day));
+      });
+      return debt;
+    };
+
+    // Ventana de 7 días: la semana que termina en la fecha seleccionada.
     const days: string[] = [];
-    for (let i = 29; i >= 0; i--) {
+    for (let i = 6; i >= 0; i--) {
       const d = new Date(selectedDate + "T12:00:00");
       d.setDate(d.getDate() - i);
       days.push(getPeruDateString(d));
     }
-    const relevant = (invoices || []).filter((inv: any) => {
-      const grand = Number(inv.grand_total) || 0;
-      if (grand <= 0) return false;
-      const credit = Number(inv.credit_amount) || 0;
-      const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
-      const paid = history.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
-      const balance = Math.max(0, grand - Math.max(paid, credit > 0 ? grand - credit : 0));
-      return balance > 0.01;
-    });
+    const series = days.map((day) => ({ day, debt: debtAt(day) }));
 
-    return days.map((day) => {
-      let debt = 0;
-      relevant.forEach((inv: any) => {
-        const grand = Number(inv.grand_total) || 0;
-        const issuedDay = (inv.issued_at || "").slice(0, 10);
-        if (issuedDay > day) return;
-        const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
-        const paidUpTo = history.reduce((s: number, p: any) => {
-          const pDay = (p.date || "").slice(0, 10);
-          return s + (pDay <= day ? Number(p.amount) || 0 : 0);
-        }, 0);
-        debt += Math.max(0, grand - paidUpTo);
+    // Abonos registrados HOY: pagos con fecha = selectedDate, deduplicados por id
+    // (el mismo pago puede estar en el snapshot de la factura y del work_order).
+    const abonoById = new Map<string, number>();
+    (invoices || []).forEach((inv: any) => {
+      (Array.isArray(inv.payment_history) ? inv.payment_history : []).forEach((p: any) => {
+        if ((p.date || "").slice(0, 10) !== selectedDate) return;
+        const amt = Number(p.amount) || 0;
+        if (amt <= 0) return;
+        const k = p.id
+          ? String(p.id)
+          : `noid|${inv.id}|${(p.date || "").slice(0, 10)}|${p.receipt_number || ""}|${amt}`;
+        if (!abonoById.has(k)) abonoById.set(k, amt);
       });
-      return { day, debt };
     });
+    const abonosHoy = Array.from(abonoById.values()).reduce((s, a) => s + a, 0);
+
+    const saldoActual = series[series.length - 1]?.debt || 0;
+    const saldoAnterior = series.length > 1 ? series[series.length - 2].debt : saldoActual;
+    // Identidad: actual = anterior + créditos del día - abonos del día
+    const creditosHoy = Math.max(0, saldoActual - saldoAnterior + abonosHoy);
+
+    return { series, saldoAnterior, saldoActual, abonosHoy, creditosHoy };
   }, [selectedDate, invoices]);
 
   // Financial Totals
@@ -2000,17 +2027,6 @@ export function WorkshopDailyReportView({
               </span>
             </div>
 
-            {/* Card 5: Abonos del Día (ingresos sobre facturas de días anteriores) */}
-            <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
-                <Wallet className="w-3 h-3" />
-                <span>Abonos del Día ({abonosDelDia.count})</span>
-              </span>
-              <span className="text-lg sm:text-xl font-mono font-black text-cyan-300 mt-1">
-                S/ {formatPEN(abonosDelDia.total)}
-              </span>
-            </div>
-
             {/* Card 6: Total Liquidación (solo ingresos reales del día) */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-amber-500/20 to-indigo-500/20 border border-amber-500/40 flex flex-col justify-between shadow-lg shadow-amber-500/10">
               <span className="text-[10px] font-black uppercase text-amber-300 tracking-wider flex items-center gap-1">
@@ -2034,34 +2050,48 @@ export function WorkshopDailyReportView({
         {/* ========================================================================= */}
         {activeTab === "pendientes" && (
           <div className="space-y-6">
-            {/* KPI row del sub-informe de cuentas por cobrar */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {/* KPI row del sub-informe de cuentas por cobrar: evolución del saldo en la fecha seleccionada */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30 flex flex-col justify-between">
                 <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" />
-                  <span>Total Deuda Pendiente</span>
+                  <Clock className="w-3 h-3" />
+                  <span>Saldo Anterior</span>
                 </span>
                 <span className="text-lg sm:text-xl font-mono font-black text-rose-300 mt-1">
-                  S/ {formatPEN(totalGlobalPendiente)}
-                </span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col justify-between">
-                <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
-                  <Car className="w-3 h-3" />
-                  <span>Placas con Saldo</span>
-                </span>
-                <span className="text-lg sm:text-xl font-mono font-black text-cyan-300 mt-1">
-                  {pendingByPlate.length}
+                  S/ {formatPEN(debtWeek.saldoAnterior)}
                 </span>
               </div>
               <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col justify-between">
                 <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
-                  <Wallet className="w-3 h-3" />
-                  <span>Abonos Registrados Hoy</span>
+                  <TrendingUp className="w-3 h-3" />
+                  <span>Créditos del Día</span>
                 </span>
                 <span className="text-lg sm:text-xl font-mono font-black text-amber-300 mt-1">
-                  {abonosDelDia.count} ({formatPEN(abonosDelDia.total)})
+                  + S/ {formatPEN(debtWeek.creditosHoy)}
                 </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 flex flex-col justify-between">
+                <span className="text-[10px] font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
+                  <Wallet className="w-3 h-3" />
+                  <span>Abonos del Día</span>
+                </span>
+                <span className="text-lg sm:text-xl font-mono font-black text-cyan-300 mt-1">
+                  − S/ {formatPEN(debtWeek.abonosHoy)}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-rose-500/25 to-black/40 border border-rose-400/40 flex flex-col justify-between shadow-lg shadow-rose-500/10">
+                <span className="text-[10px] font-black uppercase text-rose-300 tracking-wider flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  <span>Saldo Pendiente Actual</span>
+                </span>
+                <div className="mt-1">
+                  <span className="text-lg sm:text-xl font-mono font-black text-rose-200">
+                    S/ {formatPEN(debtWeek.saldoActual)}
+                  </span>
+                  <span className="block text-[10px] font-mono text-gray-400 font-bold">
+                    {pendingByPlate.length} placas con saldo
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2072,8 +2102,12 @@ export function WorkshopDailyReportView({
                 <span>Sub-Informe Gerencial: Cuentas por Cobrar</span>
               </div>
               <p className="text-xs sm:text-sm text-gray-200 leading-relaxed font-medium">
-                Al corte del día <strong>{formatPeruDate(selectedDate)}</strong> existen <strong>{pendingByPlate.length} placas</strong> con
-                un saldo pendiente total de <strong>S/ {formatPEN(totalGlobalPendiente)}</strong>. Esta información NO forma parte
+                Al inicio del día <strong>{formatPeruDate(selectedDate)}</strong> el saldo pendiente era de{" "}
+                <strong>S/ {formatPEN(debtWeek.saldoAnterior)}</strong>. Durante el día se registraron{" "}
+                <strong>S/ {formatPEN(debtWeek.creditosHoy)} en nuevos créditos</strong> y{" "}
+                <strong>S/ {formatPEN(debtWeek.abonosHoy)} en abonos</strong>, quedando un saldo pendiente actual de{" "}
+                <strong>S/ {formatPEN(debtWeek.saldoActual)}</strong> en <strong>{pendingByPlate.length} placas</strong>.
+                Si hubo abonos el saldo disminuye; si se registraron créditos, aumenta. Esta información NO forma parte
                 de la liquidación de caja del día (ahí solo se reportan los ingresos reales recibidos); sirve para el seguimiento
                 y cobranza de deudas. Expandir cada placa muestra el detalle de sus facturas y el historial de abonos.
               </p>
@@ -2084,15 +2118,15 @@ export function WorkshopDailyReportView({
               <div className="flex items-center justify-between flex-wrap gap-2 border-b border-white/10 pb-2">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <TrendingDown className="w-4 h-4 text-rose-400" />
-                  <span>Evolución Diaria de la Deuda Pendiente (Últimos 30 días)</span>
+                  <span>Evolución Semanal de la Deuda Pendiente</span>
                 </h3>
                 <span className="text-[10px] font-mono text-gray-400 font-bold">
-                  S/ {formatPEN(totalGlobalPendiente)} ACTUAL
+                  Semana del {formatPeruDate(debtWeek.series[0]?.day || selectedDate)} · S/ {formatPEN(debtWeek.saldoActual)} ACTUAL
                 </span>
               </div>
 
               {(() => {
-                const points = debtSeries;
+                const points = debtWeek.series;
                 const W = 860;
                 const H = 220;
                 const padL = 64;
@@ -2131,14 +2165,21 @@ export function WorkshopDailyReportView({
                           </text>
                         </g>
                       ))}
-                      {/* Eje X labels (cada 5 días) */}
-                      {coords.map((c, i) =>
-                        i % 5 === 0 ? (
-                          <text key={i} x={c.x} y={H - padB + 16} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="monospace">
-                            {c.day.slice(5)}
-                          </text>
-                        ) : null
-                      )}
+                      {/* Eje X labels (cada día de la semana de la fecha seleccionada) */}
+                      {coords.map((c, i) => (
+                        <text
+                          key={i}
+                          x={c.x}
+                          y={H - padB + 16}
+                          textAnchor="middle"
+                          fontSize="9"
+                          fill={i === coords.length - 1 ? "#fda4af" : "#9ca3af"}
+                          fontFamily="monospace"
+                          fontWeight={i === coords.length - 1 ? "bold" : "normal"}
+                        >
+                          {c.day.slice(8)}/{c.day.slice(5, 7)}
+                        </text>
+                      ))}
                       {/* Área de relleno */}
                       {areaPath && <path d={areaPath} fill="rgba(244,63,94,0.12)" />}
                       {/* Línea principal */}
@@ -2158,7 +2199,8 @@ export function WorkshopDailyReportView({
                 );
               })()}
               <p className="text-[10px] text-gray-500 font-mono text-right">
-                Incluye facturas con saldo mayor a cero y sus abonos; si la línea sube, la deuda aumentó; si baja, se está cobrando.
+                Semana de la fecha seleccionada ({formatPeruDate(debtWeek.series[0]?.day || selectedDate)} → {formatPeruDate(selectedDate)}).
+                La curva sube cuando se registran créditos y baja cuando llegan abonos, según lo registrado en el día.
               </p>
             </div>
 
