@@ -5,6 +5,7 @@ import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
@@ -184,15 +185,6 @@ export function WorkshopDailyReportView({
     return map;
   }, [dayInvoices, selectedDate]);
 
-  // Authorized staff for payment destination columns
-  const authorizedStaff = useMemo(() => {
-    const list = technicians.filter((t) => t.is_active && t.can_receive_payment).map((t) => t.full_name.toUpperCase());
-    const defaults = ["JAIME", "ISABEL", "FRANCO"];
-    defaults.forEach((d) => {
-      if (!list.includes(d)) list.push(d);
-    });
-    return list;
-  }, [technicians]);
 
   // Split payment parser
   const parsePaymentBreakdown = (
@@ -260,6 +252,50 @@ export function WorkshopDailyReportView({
     return result;
   };
 
+  // Desglose AUTORITATIVO: usa el desglose (payment_breakdown) y destino de pago de la
+  // Tabla Maestra cuando existen; si no, el método único; SOLO como último recurso parsea
+  // la cadena. Corrige casos donde el parseo de letras (C/Y/E/T) inventaba montos en Culqi
+  // cuando en la tabla maestra el pago era Yape a EMPRESA.
+  const breakdownFromSources = (
+    methodRaw: string,
+    paymentBreakdown: any[] | undefined,
+    destination: string,
+    amount: number
+  ) => {
+    const res = { efectivo: 0, yape: 0, transferencia: 0, culqi: 0, yapeDestino: "", transfDestino: "" };
+    const dest = (destination || "EMPRESA").toUpperCase().trim() || "EMPRESA";
+    const addMethod = (sm: string, a: number, sDest?: string) => {
+      if (a <= 0) return;
+      const d = (sDest || dest || "EMPRESA").toUpperCase().trim() || "EMPRESA";
+      if (sm.includes("YAPE") || sm.includes("PLIN")) { res.yape += a; res.yapeDestino = d; }
+      else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) { res.transferencia += a; res.transfDestino = d; }
+      else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS") || sm.includes("CARD")) { res.culqi += a; }
+      else { res.efectivo += a; }
+    };
+
+    if (Array.isArray(paymentBreakdown) && paymentBreakdown.length > 0) {
+      (paymentBreakdown as any[]).forEach((s: any) => {
+        addMethod((s.method || "").toUpperCase(), Number(s.amount) || 0, s.destination || dest);
+      });
+      return res;
+    }
+
+    const m = (methodRaw || "").toUpperCase().trim();
+    if (m.startsWith("MIXTO (") && m.endsWith(")")) {
+      parseMethodPairs(methodRaw).forEach((p) => addMethod((p.name || "").toUpperCase(), p.amount || 0));
+      return res;
+    }
+    if (m.includes("YAPE") || m.includes("PLIN")) { res.yape = amount; res.yapeDestino = dest; }
+    else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) { res.transferencia = amount; res.transfDestino = dest; }
+    else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS") || m.includes("CARD")) { res.culqi = amount; }
+    else if (m.includes("EFECTIVO") || m.includes("CASH") || m === "PENDIENTE" || m === "" || m === "SIN MÉTODO") { res.efectivo = amount; }
+    else {
+      const parsed = parsePaymentBreakdown(methodRaw, "", "", amount, amount <= 0);
+      return { ...parsed, yapeDestino: dest, transfDestino: dest };
+    }
+    return res;
+  };
+
   // Abonos del día: pagos parciales recibidos HOY sobre facturas de días anteriores.
   // Son ingresos reales de la jornada aunque la factura se haya emitido antes.
   const abonosDelDia = useMemo(() => {
@@ -313,6 +349,7 @@ export function WorkshopDailyReportView({
       transfDestino: string;
       isInvoice: boolean;
       orderStatus: string;
+      receiptNumber: string;
     }> = [];
 
     let count = 1;
@@ -347,16 +384,10 @@ export function WorkshopDailyReportView({
         const isTrunco = false;
         const paymentMethod = rec.method || (isPending ? "PENDIENTE" : "EFECTIVO");
 
-        const breakdown = parsePaymentBreakdown(
-          paymentMethod,
-          rec.discounts || "",
-          (rec.service || "") + " " + (rec.parts || ""),
-          paidAmount,
-          paidAmount <= 0
-        );
+        const breakdown = breakdownFromSources(paymentMethod, undefined, rec.destination || "EMPRESA", paidAmount);
 
-        const yDest = rec.destination ? rec.destination.toUpperCase() : "EMPRESA";
-        const tDest = rec.destination ? rec.destination.toUpperCase() : "EMPRESA";
+        const yDest = breakdown.yapeDestino || (rec.destination ? rec.destination.toUpperCase() : "EMPRESA");
+        const tDest = breakdown.transfDestino || (rec.destination ? rec.destination.toUpperCase() : "EMPRESA");
 
         const desc = [rec.service, rec.parts].filter(Boolean).join(" - ") || "Servicio de Taller";
         const techName = rec.technician || "Taller";
@@ -380,6 +411,7 @@ export function WorkshopDailyReportView({
           transfDestino: tDest,
           isInvoice: Boolean(rec.receiptNumber && rec.receiptNumber !== "0"),
           orderStatus: isPending ? "pendiente" : "finalizado",
+          receiptNumber: (rec.receiptNumber && rec.receiptNumber !== "0" ? rec.receiptNumber : "") || "",
         });
       });
     }
@@ -438,26 +470,16 @@ export function WorkshopDailyReportView({
 
       const paymentMethod = inv?.payment_method || (csvRec?.method) || (isPending ? "PENDIENTE" : "EFECTIVO");
 
-      const breakdown = parsePaymentBreakdown(
+      // Desglose y destino AUTORITATIVOS de la Tabla Maestra (payment_breakdown + payment_destination)
+      const breakdown = breakdownFromSources(
         paymentMethod,
-        (inv as any)?.discounts || csvRec?.discounts || "",
-        (wo as any)?.diagnostic_notes || (inv as any)?.notes || (csvRec?.parts) || "",
-        paidAmount,
-        paidAmount <= 0
+        (inv as any)?.payment_breakdown,
+        (inv as any)?.payment_destination || csvRec?.destination || "EMPRESA",
+        paidAmount
       );
 
-      // Determine payment destination
-      const notesLower = ((wo as any)?.diagnostic_notes || (inv as any)?.notes || (csvRec?.destination) || "").toLowerCase();
-      let yDest = csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA";
-      let tDest = csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA";
-
-      for (const st of authorizedStaff) {
-        if (notesLower.includes(st.toLowerCase())) {
-          if (breakdown.yape > 0) yDest = st;
-          if (breakdown.transferencia > 0) tDest = st;
-          break;
-        }
-      }
+      let yDest = breakdown.yapeDestino || (csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA");
+      let tDest = breakdown.transfDestino || (csvRec?.destination ? csvRec.destination.toUpperCase() : "EMPRESA");
 
       const desc =
         wo.items && wo.items.length > 0
@@ -487,6 +509,7 @@ export function WorkshopDailyReportView({
         transfDestino: tDest,
         isInvoice: Boolean(inv?.id),
         orderStatus: wo.status,
+        receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
       });
     });
 
@@ -539,25 +562,15 @@ export function WorkshopDailyReportView({
       }
       const isPending = payState === "pendiente" || payState === "parcial";
       const isTrunco = false;
-      const breakdown = parsePaymentBreakdown(
+      const breakdown = breakdownFromSources(
         inv.payment_method || "EFECTIVO",
-        (inv as any).discounts || "",
-        (inv as any).notes || "",
-        paidAmount,
-        paidAmount <= 0
+        (inv as any).payment_breakdown,
+        (inv as any).payment_destination || "EMPRESA",
+        paidAmount
       );
 
-      const notesLower = ((inv as any).notes || "").toLowerCase();
-      let yDest = "EMPRESA";
-      let tDest = "EMPRESA";
-
-      for (const st of authorizedStaff) {
-        if (notesLower.includes(st.toLowerCase())) {
-          if (breakdown.yape > 0) yDest = st;
-          if (breakdown.transferencia > 0) tDest = st;
-          break;
-        }
-      }
+      let yDest = breakdown.yapeDestino || "EMPRESA";
+      let tDest = breakdown.transfDestino || "EMPRESA";
 
       rows.push({
         id: inv.id,
@@ -578,42 +591,35 @@ export function WorkshopDailyReportView({
         transfDestino: tDest,
         isInvoice: true,
         orderStatus: isPending ? "pendiente" : "finalizado",
+        receiptNumber: (inv.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || "",
       });
     });
 
     return rows;
-  }, [selectedDate, dayOrders, dayInvoices, invoicesByWorkOrderId, authorizedStaff, technicians]);
+  }, [selectedDate, dayOrders, dayInvoices, invoicesByWorkOrderId, technicians]);
+
+  // Filas reportables: SOLO servicios/repuestos con MONTO > 0 Y número de comprobante
+  // (boleta/ticket/factura). Sin comprobante o sin monto NO se muestran en el informe.
+  const hasComprobante = (r: any) => {
+    const n = String(r.receiptNumber || "").trim();
+    return n !== "" && n !== "0" && n.toLowerCase() !== "s/n";
+  };
+  const reportableRows = useMemo(() => consolidatedRows.filter((r) => Number(r.total) > 0 && hasComprobante(r)), [consolidatedRows]);
 
   // Liquidación del día: SOLO ingresos reales (facturas cobradas + abonos recibidos hoy).
   // Excluye pendientes/crédito y montos truncos (esos van a la pestaña Saldos Pendientes).
   const liquidacionRows = useMemo(() => {
-    const rows = consolidatedRows
+    const rows = reportableRows
       .filter((r) => !r.isPending && !r.isTrunco)
       .map((r) => ({ ...r }));
 
     (dayPayments || []).forEach((p: any) => {
       const amt = Number(p.amount) || 0;
-      const bd = Array.isArray(p.payment_breakdown) ? p.payment_breakdown : [];
-      let ef = 0;
-      let ya = 0;
-      let tr = 0;
-      let cu = 0;
-      if (bd.length > 0) {
-        (bd as any[]).forEach((s: any) => {
-          const sm = (s.method || "").toUpperCase();
-          const a = Number(s.amount) || 0;
-          if (sm.includes("YAPE") || sm.includes("PLIN")) ya += a;
-          else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) tr += a;
-          else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS")) cu += a;
-          else ef += a;
-        });
-      } else {
-        const m = (p.method || "EFECTIVO").toUpperCase();
-        if (m.includes("YAPE") || m.includes("PLIN")) ya = amt;
-        else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) tr = amt;
-        else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS")) cu = amt;
-        else ef = amt;
-      }
+      const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", amt);
+      const ef = bd.efectivo;
+      const ya = bd.yape;
+      const tr = bd.transferencia;
+      const cu = bd.culqi;
       const dest = (p.destination || "EMPRESA").toUpperCase();
       rows.push({
         id: "abono_" + p.id,
@@ -632,10 +638,11 @@ export function WorkshopDailyReportView({
         transferencia: tr,
         culqi: cu,
         responsable: "ABONO",
-        yapeDestino: dest,
-        transfDestino: dest,
+        yapeDestino: bd.yapeDestino || dest,
+        transfDestino: bd.transfDestino || dest,
         isInvoice: true,
         orderStatus: "finalizado",
+        receiptNumber: (p.receipt_number && String(p.receipt_number) !== "0" ? String(p.receipt_number) : "") || "",
       });
     });
 
@@ -643,7 +650,7 @@ export function WorkshopDailyReportView({
       r.itemNumber = i + 1;
     });
     return rows;
-  }, [consolidatedRows, dayPayments]);
+  }, [reportableRows, dayPayments]);
 
   // Saldos pendientes por placa: agrupa facturas con saldo > 0 y su historial de
   // pagos (abonos) para el sub-informe gerencial de cuentas por cobrar.
@@ -753,7 +760,7 @@ export function WorkshopDailyReportView({
     let totalTrunco = 0;
     let totalFacturado = 0;
 
-    consolidatedRows.forEach((r) => {
+    reportableRows.forEach((r) => {
       totalFacturado += r.total;
       if (r.payState === "trunco") {
         totalTrunco += r.total;
@@ -788,7 +795,7 @@ export function WorkshopDailyReportView({
       totalLiquidacion,
       totalAbonos,
     };
-  }, [consolidatedRows, abonosDelDia]);
+  }, [reportableRows, abonosDelDia]);
 
   // Category Breakdown: Servicios vs Repuestos vs Certificaciones
   const categoryBreakdown = useMemo(() => {
@@ -834,11 +841,14 @@ export function WorkshopDailyReportView({
 
   // Electronic Destinations Matrix: Separating Yapes from Transferencias
   const electronicMatrix = useMemo(() => {
-    const yapeStaff = ["JAIME", "ISABEL", "FRANCO", "EMPRESA"];
-    const transfStaff = ["EMPRESA"];
-
-    const yapeRows = consolidatedRows.filter((r) => r.yape > 0);
-    const transfRows = consolidatedRows.filter((r) => r.transferencia > 0);
+    // Columnas = DESTINO DE PAGO real de la Tabla Maestra (destinos presentes en los datos del día)
+    const yapeRows = reportableRows.filter((r) => r.yape > 0);
+    const transfRows = reportableRows.filter((r) => r.transferencia > 0);
+    const sortDests = (a: string, b: string) => (a === "EMPRESA" ? -1 : b === "EMPRESA" ? 1 : a.localeCompare(b));
+    let yapeStaff = Array.from(new Set(yapeRows.map((r) => r.yapeDestino || "EMPRESA"))).sort(sortDests);
+    let transfStaff = Array.from(new Set(transfRows.map((r) => r.transfDestino || "EMPRESA"))).sort(sortDests);
+    if (yapeStaff.length === 0) yapeStaff = ["EMPRESA"];
+    if (transfStaff.length === 0) transfStaff = ["EMPRESA"];
 
     const maxRows = Math.max(17, yapeRows.length, transfRows.length);
     const matrixRows: Array<{
@@ -894,7 +904,7 @@ export function WorkshopDailyReportView({
       totalTransf,
       grandElectronicTotal,
     };
-  }, [consolidatedRows]);
+  }, [reportableRows]);
 
   // Technician Productivity Metrics
   const techPerformance = useMemo(() => {
@@ -979,7 +989,7 @@ export function WorkshopDailyReportView({
   // En modo liquidación (pestaña Caja) solo se listan ingresos REALES del día
   // (facturas cobradas + abonos recibidos hoy); pendientes y truncos se omiten.
   const renderMainReportAndMatrix = (showConceptBreakdown: boolean, liquidacionOnly: boolean = false) => {
-    const tableRows = liquidacionOnly ? liquidacionRows : consolidatedRows;
+    const tableRows = (liquidacionOnly ? liquidacionRows : reportableRows).filter((r) => Number(r.total) > 0 && hasComprobante(r));
     const displayedTotalFacturado = liquidacionOnly ? totals.totalLiquidacion : totals.totalFacturado;
     const displayedCount = tableRows.length;
 
@@ -1087,12 +1097,7 @@ export function WorkshopDailyReportView({
                     <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20">TOTAL</th>
                     <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#aee2ff]">PLACA</th>
                     <th className="py-2 px-3 border-r border-amber-600/20 bg-[#d5cbfd]">SERVICIO O REPUESTO</th>
-                    {!liquidacionOnly && (
-                      <>
-                        <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#f43f5e] text-white">PENDIENTE</th>
-                        <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#fb923c] text-black">EN TALLER (TRUNCO)</th>
-                      </>
-                    )}
+                    <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#a5f3fc] text-black" title="N° de Ticket / Boleta / Factura"># BOLETA</th>
                     <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#10b981] text-white">EFECTIVO</th>
                     <th className="py-2 px-2 text-center w-20 border-r border-amber-600/20 bg-[#c026d3] text-white">YAPE</th>
                     <th className="py-2 px-2 text-center w-24 border-r border-amber-600/20 bg-[#2563eb] text-white">TRANSFERENCIA</th>
@@ -1103,7 +1108,7 @@ export function WorkshopDailyReportView({
                 <tbody className="divide-y divide-white/5 font-mono text-[11px]">
                   {reportLoading ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-gray-400">
+                      <td colSpan={10} className="py-12 text-center text-gray-400">
                         <span className="inline-flex items-center gap-2.5">
                           <span className="w-4 h-4 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin" />
                           Consultando el día {formatPeruDate(selectedDate)} en la nube...
@@ -1112,7 +1117,7 @@ export function WorkshopDailyReportView({
                     </tr>
                   ) : consolidatedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-gray-400 italic">
+                      <td colSpan={10} className="py-12 text-center text-gray-400 italic">
                         No hay movimientos registrados para la fecha {formatPeruDate(selectedDate)}.
                       </td>
                     </tr>
@@ -1134,11 +1139,8 @@ export function WorkshopDailyReportView({
                         <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
                           {r.description}
                         </td>
-                        <td className="py-2 px-2 text-right font-bold text-rose-400 bg-rose-950/10 border-r border-white/5">
-                          {r.payState === "pendiente" || r.payState === "parcial" ? formatPEN(r.pendingAmount) : "-"}
-                        </td>
-                        <td className="py-2 px-2 text-right font-bold text-orange-400 bg-orange-950/10 border-r border-white/5">
-                          {r.isTrunco ? formatPEN(r.total) : "-"}
+                        <td className="py-2 px-2 text-center font-mono font-black text-cyan-200 bg-cyan-950/20 border-r border-white/5" title="N° de Ticket / Boleta / Factura">
+                          {r.receiptNumber || "-"}
                         </td>
                         <td className="py-2 px-2 text-right font-bold text-emerald-400 bg-emerald-950/10 border-r border-white/5">
                           {r.efectivo > 0 ? formatPEN(r.efectivo) : "-"}
@@ -1168,11 +1170,8 @@ export function WorkshopDailyReportView({
                     <td className="py-2 px-3 text-right font-mono font-black text-emerald-400 border-r border-white/10">
                       S/ {formatPEN(totals.totalLiquidacion)}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono font-black text-rose-400 bg-rose-950/40 border-r border-white/10">
-                      S/ {formatPEN(totals.totalPendiente)}
-                    </td>
-                    <td className="py-2 px-2 text-right font-mono font-black text-orange-400 bg-orange-950/40 border-r border-white/10">
-                      S/ {formatPEN(totals.totalTrunco)}
+                    <td className="py-2 px-2 text-right font-mono font-black text-cyan-300 bg-cyan-950/40 border-r border-white/10">
+                      —
                     </td>
                     <td className="py-2 px-2 text-right font-mono font-black text-emerald-400 bg-emerald-950/40 border-r border-white/10">
                       S/ {formatPEN(totals.cobradoEfectivo)}
@@ -1194,7 +1193,7 @@ export function WorkshopDailyReportView({
                     <td className="py-3 px-4 font-black uppercase tracking-wider" colSpan={3}>
                       TOTAL
                     </td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={8}>
+                    <td className="py-3 px-4 text-right font-mono font-black text-base" colSpan={7}>
                       S/ {formatPEN(totals.totalFacturado)}
                     </td>
                   </tr>
@@ -1526,13 +1525,13 @@ export function WorkshopDailyReportView({
   const handleExportCSV = () => {
     let csv = `REPORTE DE TALLER & CAJA - REYGAS AUTOGAS EQUIPMENT\n`;
     csv += `Fecha: ${selectedDate}\n\n`;
-    csv += `ITEM,PLACA,SERVICIO / REPUESTO,TOTAL,PENDIENTE,EN TALLER (TRUNCO),EFECTIVO,YAPE,TRANSFERENCIA,CULQI,RESPONSABLE\n`;
+    csv += `ITEM,PLACA,SERVICIO / REPUESTO,# BOLETA,EFECTIVO,YAPE,TRANSFERENCIA,CULQI,RESPONSABLE\n`;
 
-    consolidatedRows.forEach((r) => {
-      csv += `"${r.itemNumber}","${r.plate}","${r.description.replace(/"/g, '""')}","${r.total.toFixed(2)}","${r.payState === "pendiente" || r.payState === "parcial" ? r.pendingAmount.toFixed(2) : "0.00"}","${r.isTrunco ? r.total.toFixed(2) : "0.00"}","${r.efectivo.toFixed(2)}","${r.yape.toFixed(2)}","${r.transferencia.toFixed(2)}","${r.culqi.toFixed(2)}","${r.responsable}"\n`;
+    reportableRows.forEach((r) => {
+      csv += `"${r.itemNumber}","${r.plate}","${r.description.replace(/"/g, '""')}","${r.receiptNumber || ""}","${r.efectivo.toFixed(2)}","${r.yape.toFixed(2)}","${r.transferencia.toFixed(2)}","${r.culqi.toFixed(2)}","${r.responsable}"\n`;
     });
 
-    csv += `\nTOTALES,,,${totals.totalFacturado.toFixed(2)},${totals.totalPendiente.toFixed(2)},${totals.totalTrunco.toFixed(2)},${totals.cobradoEfectivo.toFixed(2)},${totals.cobradoYapes.toFixed(2)},${totals.cobradoTransferencias.toFixed(2)},${totals.cobradoCulqi.toFixed(2)}\n`;
+    csv += `\nTOTALES,,,${totals.totalFacturado.toFixed(2)},${totals.cobradoEfectivo.toFixed(2)},${totals.cobradoYapes.toFixed(2)},${totals.cobradoTransferencias.toFixed(2)},${totals.cobradoCulqi.toFixed(2)}\n`;
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
