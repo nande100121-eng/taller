@@ -163,8 +163,12 @@ export default function ConsultasPage() {
       // 3. Check credit amount in invoice
       let credit = invoice?.credit_amount || 0;
 
-      // 4. Check credit embedded in diagnostic_notes
-      if (credit === 0 && wo.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:")) {
+      // 3b. Una factura PAGADA no tiene crédito: se ignoran las etiquetas históricas
+      // [CREDITO]: X en diagnostic_notes (caso BBF-936 ya saldada pero con tag viejo).
+      const isPaidInvoice = !!invoice && (invoice.payment_status === "pagado" || String(invoice.payment_condition || "").toUpperCase().includes("PAGADO"));
+
+      // 4. Check credit embedded in diagnostic_notes (solo si la factura NO está pagada)
+      if (!isPaidInvoice && credit === 0 && wo.diagnostic_notes && wo.diagnostic_notes.includes("[CREDITO]:")) {
         const match = wo.diagnostic_notes.match(/\[CREDITO\]:\s*([0-9.]+)/);
         if (match && match[1]) {
           credit = parseFloat(match[1]) || 0;
@@ -215,9 +219,9 @@ export default function ConsultasPage() {
         }
       }
 
-      // If this order is on credit:
+      // If this order is on credit (facturas pagadas nunca son crédito)
       const conditionUpper = (invoice?.payment_condition || "").toUpperCase();
-      const isCredit = credit > 0 || conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE");
+      const isCredit = credit > 0 || (!isPaidInvoice && (conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE")));
 
       // Original base list price before discount:
       const originalSubtotal = discount > 0 ? finalAmount + discount : finalAmount;

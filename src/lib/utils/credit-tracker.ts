@@ -171,18 +171,23 @@ export function buildVehicleCreditSettlementMap(
       const desc = `${wo.problem_description || ""} ${wo.spare_parts_services || ""} ${(wo.items || []).map((it) => it.description).join(" ")} ${wo.diagnostic_notes || ""}`.toUpperCase();
 
       let credit = inv?.credit_amount || 0;
+      // Una factura PAGADA no tiene crédito pendiente: se ignoran las etiquetas
+      // históricas ([CREDITO]: X en diagnostic_notes) que quedaron de cuando la deuda
+      // existía, para que la card NO muestre "CRÉDITO PENDIENTE POR COBRAR" sobre un
+      // pago ya completado (caso BBF-936 con [CREDITO]:150 pero factura PAGADA).
+      const paidInvoice = !!inv && (inv.payment_status === "pagado" || String(inv.payment_condition || "").toUpperCase().includes("PAGADO"));
       const diag = `${wo.diagnostic_notes || ""} ${wo.observations || ""}`.toUpperCase();
-      if (credit === 0 && diag.includes("[CREDITO]:")) {
+      if (!paidInvoice && credit === 0 && diag.includes("[CREDITO]:")) {
         const m = diag.match(/\[CREDITO\]:\s*([0-9.]+)/i);
         if (m) credit = parseFloat(m[1]) || 0;
       }
-      if (credit === 0) {
+      if (!paidInvoice && credit === 0) {
         const pendMatch = desc.match(/PENDIENTE\s+([0-9]+(?:\.[0-9]+)?)/i);
         if (pendMatch) credit = parseFloat(pendMatch[1]) || 0;
       }
 
       const conditionUpper = (inv?.payment_condition || "").toUpperCase();
-      const isCreditCondition = conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE") || diag.includes("[CONDICION]: PENDIENTE");
+      const isCreditCondition = !paidInvoice && (conditionUpper.includes("CREDIT") || conditionUpper.includes("PENDIENTE") || diag.includes("[CONDICION]: PENDIENTE"));
 
       if (credit > 0 || isCreditCondition) {
         const paidAmount = inv?.grand_total || (wo.items || []).reduce((s, it) => s + (it.subtotal || 0), 0);
