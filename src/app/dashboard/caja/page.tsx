@@ -2225,16 +2225,33 @@ export default function CajaPage() {
                               DEUDA CANCELADA ✓
                             </span>
                           </div>
-                        ) : settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || (!isPaid && grandTotal > 0) ? (
+                        ) : (settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0) ? (
                           <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
                             <div className="flex items-center gap-2">
                               <span className="text-lg">🏦</span>
                               <div>
                                 <span className="font-black text-amber-300 text-xs block">
-                                  CRÉDITO PENDIENTE POR COBRAR: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || grandTotal).toFixed(2)}
+                                  CRÉDITO PENDIENTE POR COBRAR: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || 0).toFixed(2)}
                                 </span>
                                 <span className="text-[11px] text-gray-300">
                                   Atención registrada con saldo deudor pendiente de cobro.
+                                </span>
+                              </div>
+                            </div>
+                            <span className="px-3 py-1 bg-amber-500/20 text-amber-300 font-extrabold text-xs rounded-lg border border-amber-500/40 shrink-0 animate-pulse self-start sm:self-auto">
+                              PENDIENTE DE PAGO ⏳
+                            </span>
+                          </div>
+                        ) : (!isPaid && grandTotal > 0) ? (
+                          <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">⏳</span>
+                              <div>
+                                <span className="font-black text-amber-300 text-xs block">
+                                  PENDIENTE DE PAGO: S/ {grandTotal.toFixed(2)}
+                                </span>
+                                <span className="text-[11px] text-gray-300">
+                                  Atención registrada pendiente de cobro (sin saldo deudor).
                                 </span>
                               </div>
                             </div>
