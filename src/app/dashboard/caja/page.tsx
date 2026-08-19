@@ -2564,6 +2564,13 @@ export default function CajaPage() {
                             <span className="font-mono font-black text-xl text-white tracking-wider bg-reygas-surface px-3 py-1 rounded-lg border border-white/10 shadow">
                               {wo.vehicle_plate}
                             </span>
+                            {/* N° de Orden de Trabajo: permite detectar placas DUPLICADAS con OTs distintas */}
+                            <span
+                              className="text-[11px] font-mono text-cyan-300 bg-cyan-950/60 px-2 py-1 rounded-lg border border-cyan-500/30"
+                              title={"OT completa: " + wo.id}
+                            >
+                              OT: <strong>{wo.id.slice(0, 8)}</strong>
+                            </span>
                             <div>
                               <span className="text-sm font-bold text-white block">
                                 {effectiveBrand} {vehicle?.model || ""} ({vehicle?.year || 2023}) - {vehicle?.color || "Color"}
