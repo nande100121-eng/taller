@@ -1204,6 +1204,33 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               mergedInvoices.set(k, local ? { ...local, ...inv } : inv);
             }
           });
+
+          // Limpieza de FACTURAS FANTASMA del caché local (reconstrucción antigua):
+          // id "inv-<woId>", monto 0, status "pagado" y sin historial, cuya orden SIGUE
+          // en el taller (ingresado/diagnóstico/repuestos/en servicio). Estas no son
+          // cobros reales: eliminar la factura evita que la card se vea PAGADA sin haberse
+          // cobrado en Caja (caso A3Z-187 / CWU-571 / ALI-052 creadas en Taller).
+          if (Array.isArray(updates.workOrders)) {
+            const woStatus = new Map<string, string>();
+            updates.workOrders.forEach((w: any) => {
+              if (w && w.id) woStatus.set(w.id, String(w.status || ""));
+            });
+            const phantomKeys: string[] = [];
+            mergedInvoices.forEach((inv: any, k: string) => {
+              const woId = inv?.work_order_id;
+              if (!woId || inv?.id !== `inv-${woId}`) return;
+              if (Number(inv?.grand_total) > 0) return;
+              if (inv?.payment_status !== "pagado") return;
+              const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
+              if (hist.length > 0) return;
+              const st = woStatus.get(woId);
+              if (st && ["ingresado", "en_diagnostico", "esperando_repuestos", "en_servicio"].includes(st)) {
+                phantomKeys.push(k);
+              }
+            });
+            phantomKeys.forEach((k) => mergedInvoices.delete(k));
+          }
+
           updates.invoices = Array.from(mergedInvoices.values());
         }
         if (Array.isArray(erpData?.appointments)) {
