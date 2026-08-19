@@ -221,6 +221,7 @@ export default function AdminTablesPage() {
     can_receive_payment: false,
     is_debt_responsible: false,
     is_attention_responsible: false,
+    is_mechanic_responsible: false,
     payment_nickname: "",
   });
 
@@ -245,6 +246,7 @@ export default function AdminTablesPage() {
     can_receive_payment: false,
     is_debt_responsible: false,
     is_attention_responsible: false,
+    is_mechanic_responsible: false,
     payment_nickname: "",
     is_active: true,
   });
@@ -275,6 +277,7 @@ export default function AdminTablesPage() {
       can_receive_payment: !!tech.can_receive_payment,
       is_debt_responsible: !!tech.is_debt_responsible,
       is_attention_responsible: !!tech.is_attention_responsible,
+      is_mechanic_responsible: !!tech.is_mechanic_responsible,
       payment_nickname: tech.payment_nickname || "",
       is_active: tech.is_active !== false,
     });
@@ -300,6 +303,7 @@ export default function AdminTablesPage() {
       can_receive_payment: techEditForm.can_receive_payment,
       is_debt_responsible: techEditForm.is_debt_responsible,
       is_attention_responsible: techEditForm.is_attention_responsible,
+      is_mechanic_responsible: techEditForm.is_mechanic_responsible,
       payment_nickname: techEditForm.payment_nickname.trim(),
       is_active: techEditForm.is_active,
     });
@@ -563,6 +567,7 @@ export default function AdminTablesPage() {
       can_receive_payment: techForm.can_receive_payment,
       is_debt_responsible: techForm.is_debt_responsible,
       is_attention_responsible: techForm.is_attention_responsible,
+      is_mechanic_responsible: techForm.is_mechanic_responsible,
       payment_nickname: techForm.payment_nickname.trim(),
     });
     setTechForm({
@@ -574,6 +579,7 @@ export default function AdminTablesPage() {
       can_receive_payment: false,
       is_debt_responsible: false,
       is_attention_responsible: false,
+      is_mechanic_responsible: false,
       payment_nickname: "",
     });
   };
@@ -1635,6 +1641,16 @@ export default function AdminTablesPage() {
                 <span>🧑‍🔧 Responsable de Atención (aparece en el selector de Responsable de la Atención de Reservas y Citas)</span>
               </label>
 
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer hover:bg-amber-950/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={techForm.is_mechanic_responsible}
+                  onChange={(e) => setTechForm({ ...techForm, is_mechanic_responsible: e.target.checked })}
+                  className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                />
+                <span>👨‍🔧 Mecánico Asignado Responsable (aparece en el selector de Mecánico de Taller)</span>
+              </label>
+
               <div className="p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/40">
                 <label className="block text-[11px] font-bold text-blue-300 mb-1">
                   🏷️ Sobrenombre para Destino de Pago (opcional)
@@ -1771,6 +1787,19 @@ export default function AdminTablesPage() {
                             title="Habilitado como Responsable de la Atención (selector de citas)"
                           />
                           <span>🧑‍🔧 Resp. Atención</span>
+                        </label>
+
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs font-bold cursor-pointer hover:bg-amber-950/70 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!t.is_mechanic_responsible}
+                            onChange={(e) => {
+                              updateTechnician(t.id, { is_mechanic_responsible: e.target.checked });
+                            }}
+                            className="rounded border-amber-500 text-amber-600 focus:ring-amber-500"
+                            title="Habilitado como Mecánico Asignado Responsable (selector de Taller)"
+                          />
+                          <span>👨‍🔧 Resp. Mecánico</span>
                         </label>
 
                         <button
@@ -2612,6 +2641,16 @@ export default function AdminTablesPage() {
                     className="rounded border-cyan-500 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
                   />
                   <span>🧑‍🔧 Responsable de Atención (citas)</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs font-bold cursor-pointer hover:bg-amber-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={!!techEditForm.is_mechanic_responsible}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, is_mechanic_responsible: e.target.checked })}
+                    className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <span>👨‍🔧 Mecánico Asignado Responsable (selector de Taller)</span>
                 </label>
 
                 <label className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-indigo-200 text-xs font-bold cursor-pointer hover:bg-indigo-950/60 transition-colors">

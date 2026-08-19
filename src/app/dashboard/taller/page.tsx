@@ -241,7 +241,7 @@ export default function WorkshopOperationsPage() {
 
   // Workshop personnel assignable to work orders: Technicians, Technical Support, Supervisors, and Certifiers
   const assignableTechnicians = React.useMemo(() => {
-    return technicians.filter((t) => {
+    const result = technicians.filter((t) => {
       if (t.is_active === false) return false;
       const spec = (t.specialty || "").toLowerCase().trim();
       const name = (t.full_name || "").toLowerCase().trim();
@@ -289,6 +289,13 @@ export default function WorkshopOperationsPage() {
 
       return isWorkshopRole || isKnownStaff;
     });
+
+    // Prioridad: los técnicos con el permiso "Mecánico Asignado Responsable"
+    // (Roster & Permisos) son los únicos que deben aparecer en el selector.
+    // Si todavía ninguno tiene el check, se mantiene la lista por especialidad
+    // (para no dejar el selector vacío durante la configuración).
+    const responsible = technicians.filter((t) => t.is_active !== false && !!t.is_mechanic_responsible);
+    return responsible.length > 0 ? responsible : result;
   }, [technicians]);
 
   // Pipeline Status Steps configuration

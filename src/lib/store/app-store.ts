@@ -289,6 +289,7 @@ export interface Technician {
   can_receive_payment?: boolean; // Habilitado como destino de pago (personal / empresa)
   is_debt_responsible?: boolean; // Habilitado como RESPONSABLE del saldo pendiente (aparece en selectores de deuda)
   is_attention_responsible?: boolean; // Habilitado como RESPONSABLE DE LA ATENCIÓN (aparece en el selector de citas de Recepción)
+  is_mechanic_responsible?: boolean; // Habilitado como MECÁNICO ASIGNADO RESPONSABLE (aparece en el selector de Taller)
   payment_nickname?: string; // SOBRENOMBRE usado como Destino de Pago (Tabla Maestra → Roster y Permisos)
 }
 
