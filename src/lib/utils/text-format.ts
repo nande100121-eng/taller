@@ -8,16 +8,17 @@
 
 export function capitalizeFirst(raw: string): string {
     if (!raw) return raw;
-    const str = raw.trim();
-    if (!str) return str;
-    return str.charAt(0).toUpperCase() + str.slice(1);
+    // NO hacer trim(): preserva los espacios tal como se escriben (incluido el
+    // espacio final). Un trim() aquí elimina el espacio en cada tecla y hace
+    // que la barra espaciadora parezca "no funcionar" (se escribe todo junto).
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 export function titleCase(raw: string): string {
     if (!raw) return raw;
+    // Se conservan los espacios exactos del usuario (sin trim ni colapso);
+    // solo se capitaliza la primera letra de cada palabra.
     return raw
-        .replace(/\s+/g, " ")
-        .trim()
         .split(" ")
         .map((word) => {
             if (!word) return word;
