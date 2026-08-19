@@ -2,6 +2,7 @@ import { supabase } from "./client";
 import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
+import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
 
 // Unique browser session ID to prevent self-broadcast reload loops
 export const CLIENT_SESSION_ID =
@@ -1490,7 +1491,7 @@ async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoic
 
     // 1. Fase paralela: órdenes recientes (1000), TODAS las facturas pendientes/crédito
     //    (solo ~50 filas: es la deuda real), facturas pagadas recientes (1000) y vehículos (1000).
-    const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes] = await Promise.all([
+    const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes, csvInvRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(PAGE)),
       safeQuery<any[]>(
         supabase
@@ -1499,8 +1500,19 @@ async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoic
           .or("payment_status.neq.pagado,payment_status.is.null,credit_amount.gt.0")
           .limit(PAGE)
       ),
-      safeQuery<any[]>(supabase.from("invoices").select("*").eq("payment_status", "pagado").order("issued_at", { ascending: false }).limit(PAGE)),
+      // Pagadas RECIENTEMENTE (por paid_at): una factura recién saldada (deuda cancelada)
+      // permanece visible en la ventana operativa y corrige el caché local obsoleto.
+      safeQuery<any[]>(supabase.from("invoices").select("*").eq("payment_status", "pagado").order("paid_at", { ascending: false }).limit(PAGE)),
       safeQuery<any[]>(supabase.from("vehicles").select("*").order("last_visit_date", { ascending: false }).limit(PAGE)),
+      // Deuda OFICIAL (DEUDA 17.08.26.csv): estas facturas SIEMPRE se cargan (estén o no
+      // pagadas), para que su card muestre el estado real (saldo 0 si se saldaron) y su
+      // historial completo, aunque queden fuera de las ventanas de recencia (caso BBF-936).
+      safeQuery<any[]>(
+        supabase
+          .from("invoices")
+          .select("*")
+          .in("receipt_number", Object.keys(DEBT_CSV_BY_RECEIPT))
+      ),
     ]);
 
     const recentOrders = ordersRes?.data || [];
@@ -1516,25 +1528,40 @@ async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoic
       const k = i?.work_order_id || i?.id;
       if (k && !invMap.has(k)) invMap.set(k, i);
     });
+    (csvInvRes?.data || []).forEach((i: any) => {
+      const k = i?.work_order_id || i?.id;
+      if (k && !invMap.has(k)) invMap.set(k, i);
+    });
 
     // 3. CRÍTICO pero LIGERO: la ventana de recencia (1000 órdenes) NO incluye órdenes
-    //    antiguas con deuda (ej. BBF-936 con crédito del 22/06/2026). Se cargan SOLO las
-    //    órdenes de trabajo de las facturas pendientes/crédito (~50 filas) para que la
-    //    deuda real SIEMPRE aparezca en Caja -> Pendientes y en la búsqueda por placa.
-    const pendingWoIds = (pendingInvRes?.data || [])
-      .map((i: any) => i?.work_order_id)
-      .filter((id: any): id is string => !!id);
+    //    antiguas (ej. BBF-936 del 22/06/2026). Se cargan EXPLÍCITAMENTE las órdenes de
+    //    trabajo de TODAS las facturas pendientes/crédito (~50) Y de las pagadas recientes
+    //    (las que acaban de saldar su deuda), para que la deuda y su cancelación SIEMPRE
+    //    aparezcan en Caja -> Pendientes / card de la placa (evita el caché local obsoleto).
+    const relatedWoIds = Array.from(
+      new Set(
+        [
+          ...(pendingInvRes?.data || []).map((i: any) => i?.work_order_id),
+          ...(paidInvRes?.data || []).map((i: any) => i?.work_order_id),
+          ...(csvInvRes?.data || []).map((i: any) => i?.work_order_id),
+        ].filter((id: any): id is string => !!id)
+      )
+    );
     const woMap = new Map<string, any>();
     recentOrders.forEach((o: any) => {
       if (o?.id) woMap.set(o.id, o);
     });
-    for (let i = 0; i < pendingWoIds.length; i += 100) {
-      const chunk = pendingWoIds.slice(i, i + 100);
-      const res = await safeQuery<any[]>(supabase.from("work_orders").select("*").in("id", chunk));
-      (res?.data || []).forEach((o: any) => {
-        if (o?.id) woMap.set(o.id, o);
-      });
-    }
+    await Promise.all(
+      Array.from({ length: Math.ceil(relatedWoIds.length / 100) }, (_, i) => {
+        const chunk = relatedWoIds.slice(i * 100, i * 100 + 100);
+        if (chunk.length === 0) return Promise.resolve();
+        return safeQuery<any[]>(supabase.from("work_orders").select("*").in("id", chunk)).then((res) => {
+          (res?.data || []).forEach((o: any) => {
+            if (o?.id) woMap.set(o.id, o);
+          });
+        });
+      })
+    );
     const workOrders = Array.from(woMap.values());
 
     // Si el tope devolvió vacío (algo raro), caer a la carga completa

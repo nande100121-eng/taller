@@ -497,13 +497,15 @@ export default function CajaPage() {
   const isOrderPaid = React.useCallback((wo: any, inv?: any) => {
     if (!wo && !inv) return false;
 
-    // 0. Explicit payment status flags have HIGHEST priority (user action)
-    if (inv?.payment_status === "pendiente" || wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") {
-      return false;
-    }
-
+    // 0. Explicit payment status flags have HIGHEST priority (user action).
+    // La factura PAGADA manda: si una OT quedó con estado viejo (por_cobrar/pendiente_pago)
+    // tras un bug o una reparación, una factura en "pagado" se lee como PAGADA (saldo 0).
     if (inv?.payment_status === "pagado" || wo?.status === "pagado_autorizado" || wo?.status === "finalizado") {
       return true;
+    }
+
+    if (inv?.payment_status === "pendiente" || wo?.status === "por_cobrar" || wo?.status === "pendiente_pago") {
+      return false;
     }
 
     // 1. If credit was settled/paid in a subsequent debt cancellation visit -> Paid!
