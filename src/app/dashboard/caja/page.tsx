@@ -2063,13 +2063,23 @@ export default function CajaPage() {
     // aparecen marcados con su monto; los demás quedan visibles para poder añadirlos.
     const recRes: any[] = Array.isArray(rec.resources) ? rec.resources : [];
     const resList: Array<{ key: string; description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number; pendingAmount: number; payAmount: number; selected: boolean }> = [];
+    // DEDUP por descripción normalizada: evita que la CERTIFICACIÓN aparezca dos veces
+    // cuando la OT tiene el ítem "CERTIFICACIÓN..." en items Y además requires_certification
+    // (bug D1O-690: el recurso se duplicaba en el modal de edición).
+    const seenResDesc = new Set<string>();
     (Array.isArray(woEdit.items) ? woEdit.items : []).forEach((it: any, ri: number) => {
       const amt = Number(it.subtotal) || 0;
       if (amt <= 0) return;
       const descUp = String(it.description || "").toUpperCase();
       const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+      // Si el ítem es la certificación y ya se agregará desde requires_certification,
+      // se omite AQUÍ para no duplicarla.
+      if (isCertTxt && woEdit.requires_certification && Number(woEdit.certification_price) > 0) return;
+      const norm = String(it.description || "").trim().toLowerCase();
+      if (seenResDesc.has(norm)) return;
+      seenResDesc.add(norm);
       const cat = isCertTxt ? ("certificado" as const) : (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id ? ("repuesto" as const) : ("servicio" as const));
-      const prev = recRes.find((x: any) => String(x.description || "") === String(it.description || ""));
+      const prev = recRes.find((x: any) => String(x.description || "").trim().toLowerCase() === norm);
       resList.push({
         key: `edit-res-${ri}-${String(it.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
         description: it.description,
@@ -2082,16 +2092,23 @@ export default function CajaPage() {
     });
     if (woEdit.requires_certification && Number(woEdit.certification_price) > 0) {
       const descCert = `CERTIFICACIÓN (${woEdit.certification_type || "GNV/GLP"})`;
-      const prevCert = recRes.find((x: any) => String(x.description || "") === String(descCert || ""));
-      resList.push({
-        key: `edit-res-cert-${String(descCert).slice(0, 20).replace(/\s+/g, "-")}`,
-        description: descCert,
-        category: "certificado" as const,
-        fullAmount: Number(woEdit.certification_price) || 0,
-        pendingAmount: Number(woEdit.certification_price) || 0,
-        payAmount: prevCert ? (Number(prevCert.amount) || 0) : 0,
-        selected: prevCert ? (Number(prevCert.amount) || 0) > 0 : false,
-      });
+      const normCert = descCert.trim().toLowerCase();
+      // Dedup: si un ítem de la OT ya cubre la certificación con la misma descripción,
+      // no volver a agregarla.
+      const already = Array.isArray(woEdit.items) ? (woEdit.items as any[]).some((it: any) => String(it.description || "").trim().toLowerCase() === normCert) : false;
+      if (!already && !seenResDesc.has(normCert)) {
+        seenResDesc.add(normCert);
+        const prevCert = recRes.find((x: any) => String(x.description || "").trim().toLowerCase() === normCert);
+        resList.push({
+          key: `edit-res-cert-${String(descCert).slice(0, 20).replace(/\s+/g, "-")}`,
+          description: descCert,
+          category: "certificado" as const,
+          fullAmount: Number(woEdit.certification_price) || 0,
+          pendingAmount: Number(woEdit.certification_price) || 0,
+          payAmount: prevCert ? (Number(prevCert.amount) || 0) : 0,
+          selected: prevCert ? (Number(prevCert.amount) || 0) > 0 : false,
+        });
+      }
     }
     setPartialPaymentModal({
       isOpen: true,
@@ -5545,6 +5562,24 @@ export default function CajaPage() {
                                         className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-purple-400"
                                       />
                                     )}
+                                    {/* Eliminar ESTE recurso del comprobante (quita la fila; el
+                                        Monto Total y el monto global se recalculan) */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const next = (split as any).splitResources.filter((r2: any) => r2.key !== rs.key);
+                                        const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
+                                        const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                          i === idx ? { ...p, splitResources: next.length > 0 ? next : undefined, amount: newAmount } : p
+                                        );
+                                        const totalGlobal = Number(updated.reduce((acc: number, sp: any) => acc + (Array.isArray(sp.splitResources) ? sp.splitResources.filter((r3: any) => r3.selected).reduce((s3: number, r3: any) => s3 + (Number(r3.payAmount) || 0), 0) : 0), 0).toFixed(2));
+                                        setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated, amount: totalGlobal > 0 ? totalGlobal : partialPaymentModal.amount });
+                                      }}
+                                      className="p-1 bg-rose-950/40 hover:bg-rose-900/70 text-rose-400 rounded-md transition-colors shrink-0"
+                                      title="Eliminar este recurso del comprobante"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
                                   </div>
                                 );
                               })}
