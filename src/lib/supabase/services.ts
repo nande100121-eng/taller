@@ -837,6 +837,11 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     const payments: DayPaymentIncome[] = dayRecs
       .map(({ rec, invKey }): DayPaymentIncome | null => {
         const inv = invoiceLookup.get(invKey) || {};
+        // BUG FIX: si la factura ya NO existe en la base (fue eliminada), su snapshot
+        // de historial quedó huérfano y NO es un ingreso real del día (caso AUH-440:
+        // la OT/factura viejas se eliminaron pero su inv_payhistory_ seguía sumando
+        // un "abono de 270" fantasma en el informe del 18/08).
+        if (!inv || !inv.id) return null;
         const issuedDay = (inv.issued_at || "").slice(0, 10);
         // Si la factura fue emitida HOY, su cobro ya está contado en `invoices`
         // del día: se excluye para evitar doble conteo en la liquidación.
