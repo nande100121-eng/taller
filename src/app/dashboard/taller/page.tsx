@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
-import { getPeruDateString, formatPeruDateTime, buildPeruISOString } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDateTime, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
 import { capitalizeFirst } from "@/lib/utils/text-format";
 
@@ -815,7 +815,8 @@ export default function WorkshopOperationsPage() {
       // Las filas "GASTO" (egresos de caja) solo viven en la Tabla Maestra, no en el Taller.
       if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
       if (timeFilter === "todos") return true;
-      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      // Fecha de PERÚ: convierte el timestamp (aunque venga en UTC crudo) al día real
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
       return orderDateStr === queryDate;
     });
   }, [workOrders, timeFilter, queryDate]);
@@ -824,7 +825,7 @@ export default function WorkshopOperationsPage() {
   const counts = React.useMemo(() => {
     const todayTarget = queryDate || getPeruDateString();
     const todayOrders = workOrders.filter((wo) => {
-      const d = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const d = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
       return d === todayTarget;
     });
 

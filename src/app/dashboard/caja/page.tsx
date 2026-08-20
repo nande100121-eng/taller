@@ -10,7 +10,7 @@ import {
 import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
-import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
@@ -592,7 +592,7 @@ export default function CajaPage() {
   const hasPaymentOnDate = React.useCallback((inv: any, date: string) => {
     if (!inv || !date) return false;
     const history: any[] = Array.isArray(inv.payment_history) ? inv.payment_history : [];
-    return history.some((p: any) => (p.date || "").slice(0, 10) === date);
+    return history.some((p: any) => toPeruDateKey(p.date) === date);
   }, []);
 
   // Daily cash closure calculation for selected date
@@ -600,9 +600,9 @@ export default function CajaPage() {
     return allBillingWorkOrders
       .filter((wo) => {
         const inv = invoicesByWorkOrderId.get(wo.id);
-        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-        const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+        const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
+        const paidDateStr = inv?.paid_at ? toPeruDateKey(inv.paid_at) : "";
         const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate || paidDateStr === queryDate;
         return matchesDate && isOrderPaid(wo, inv);
       })
@@ -617,8 +617,8 @@ export default function CajaPage() {
     return allBillingWorkOrders
       .filter((wo) => {
         const inv = invoicesByWorkOrderId.get(wo.id);
-        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+        const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
         const matchesDate = orderDateStr === queryDate || invoiceDateStr === queryDate;
         return matchesDate && !isOrderPaid(wo, inv) && !isInWorkshopNotCredit(wo, inv);
       })
@@ -637,7 +637,7 @@ export default function CajaPage() {
       // Pendientes del DÍA = registrados HOY (fecha de ingreso al taller), sin pagar.
       // NO se cruza con la fecha de emisión de la factura: una orden registrada el 13/08
       // facturada hoy NO es un pendiente del día de hoy.
-      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
       return orderDateStr === queryDate && !isOrderPaid(wo, inv) && !isInWorkshopNotCredit(wo, inv);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
@@ -654,8 +654,8 @@ export default function CajaPage() {
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
       if (!isOrderPaid(wo, inv)) return false;
-      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+      const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
       return orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, hasPaymentOnDate]);
@@ -664,8 +664,8 @@ export default function CajaPage() {
     const targetDate = queryDate || getPeruDateString();
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+      const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
       return orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, hasPaymentOnDate]);
@@ -841,14 +841,14 @@ export default function CajaPage() {
       if (activeStatusFilter === "hoy") {
         // Del Día / Hoy: con actividad REAL en la fecha (ingreso, emisión o pago del
         // historial). NO se usa paid_at: fue sobrescrito en bloque en muchas facturas.
-        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+        const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
         matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
       } else if (activeStatusFilter === "pendientesHoy") {
         // Pendientes del día / hoy: sin pagar y con fecha de REGISTRO (ingreso al taller) = hoy.
         // Las órdenes registradas en días anteriores (aunque se facturen hoy) NO entran aquí.
         // Se excluyen los vehículos que AÚN están en taller (no son crédito).
-        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
         matchStatus = !isPaid && orderDateStr === targetDate && !isInWorkshopNotCredit(wo, inv);
       } else if (activeStatusFilter === "pendientes") {
         // Pendientes totales (histórico): cuentas por cobrar reales (sin pagar en cualquier
@@ -856,8 +856,8 @@ export default function CajaPage() {
         matchStatus = !isPaid && !isInWorkshopNotCredit(wo, inv);
       } else if (activeStatusFilter === "pagados") {
         // Pagados de la fecha seleccionada (ingreso/emisión/pago real de ese día)
-        const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-        const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+        const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
         matchStatus = isPaid && (orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate));
       } else {
         matchStatus = true;
@@ -1026,9 +1026,9 @@ export default function CajaPage() {
       const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
 
       // Compare date with entry_time or invoice issued_at / paid_at
-      const orderDateStr = wo.entry_time ? wo.entry_time.slice(0, 10) : "";
-      const invoiceDateStr = inv?.issued_at ? inv.issued_at.slice(0, 10) : "";
-      const paidDateStr = inv?.paid_at ? inv.paid_at.slice(0, 10) : "";
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+      const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
+      const paidDateStr = inv?.paid_at ? toPeruDateKey(inv.paid_at) : "";
 
       const matchDate =
         !queryDate ||
