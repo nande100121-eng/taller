@@ -16,6 +16,7 @@ import {
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
   fetchSupabaseErpData,
+  fetchCappedOperationalData,
   deleteSupabaseInventoryItem,
   deleteMultipleSupabaseInventoryItems,
   clearSupabaseInventory,
@@ -62,6 +63,11 @@ import { WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 // completo como máximo cada 30 segundos.
 let lastFullSyncAt = 0;
 const FULL_SYNC_MIN_INTERVAL = 30000;
+// Sync operativo LIGERO (solo workOrders/invoices/vehicles) con throttle corto:
+// alimenta el realtime entre pestañas (BroadcastChannel nativo) SIN descargar
+// catálogos completos cada vez. El sync completo de 30s queda para el arranque.
+let lastOperationalSyncAt = 0;
+const OPERATIONAL_SYNC_MIN_INTERVAL = 2000;
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -585,6 +591,7 @@ interface AppState {
   isSyncing: boolean;
   hasSyncedOnce: boolean;
   syncFromSupabase: () => Promise<void>;
+  syncOperationalOnly: () => Promise<void>;
   syncServicesOnly: () => Promise<void>;
   syncCertificationsOnly: () => Promise<void>;
   syncInventoryOnly: () => Promise<void>;
@@ -1311,6 +1318,96 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       console.warn("Supabase sync warning:", err);
     } finally {
       set({ isSyncing: false });
+    }
+  },
+
+  // SYNC OPERATIVO LIGERO (realtime entre pestañas): recarga SOLO workOrders,
+  // invoices y vehicles (fetchCappedOperationalData, ventana operativa) con un
+  // throttle corto de 2s. NO re-descarga catálogos/CMS completos (eso queda para
+  // syncFromSupabase cada 30s). Lo dispara el BroadcastChannel nativo cuando otra
+  // pestaña del mismo navegador guarda algo (Portería->Taller->Almacén->Caja).
+  syncOperationalOnly: async () => {
+    if (get().isSyncing) return;
+    const now = Date.now();
+    if (now - lastOperationalSyncAt < OPERATIONAL_SYNC_MIN_INTERVAL) return;
+    lastOperationalSyncAt = now;
+    try {
+      const capped = await fetchCappedOperationalData();
+      if (!capped) return;
+      const state = get();
+      const updates: Partial<AppState> = {};
+
+      // Merge por id (mismo patrón que syncFromSupabase): conserva OT locales recién creadas
+      if (Array.isArray(capped.workOrders)) {
+        const remoteOrders = capped.workOrders;
+        const localOrders = state.workOrders;
+        const mergedOrders = new Map<string, any>();
+        localOrders.forEach((wo) => mergedOrders.set(wo.id, wo));
+        remoteOrders.forEach((wo) => {
+          if (wo && wo.id) {
+            const local = mergedOrders.get(wo.id);
+            if (local) {
+              const localItems: any[] = Array.isArray(local.items) ? local.items : [];
+              const remoteItems: any[] = Array.isArray(wo.items) ? wo.items : [];
+              const itemsMap = new Map<string, any>();
+              const itemKey = (it: any) =>
+                it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+              localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
+              remoteItems.forEach((it: any) => {
+                if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
+              });
+              mergedOrders.set(wo.id, { ...local, ...wo, items: Array.from(itemsMap.values()) });
+            } else {
+              mergedOrders.set(wo.id, wo);
+            }
+          }
+        });
+        updates.workOrders = Array.from(mergedOrders.values());
+      }
+
+      // Merge de facturas por work_order_id / id
+      if (Array.isArray(capped.invoices)) {
+        const remoteInvoices = capped.invoices;
+        const localInvoices = state.invoices;
+        const mergedInvoices = new Map<string, any>();
+        localInvoices.forEach((inv) => {
+          const k = inv.work_order_id || inv.id;
+          if (k) mergedInvoices.set(k, inv);
+        });
+        remoteInvoices.forEach((inv) => {
+          const k = inv.work_order_id || inv.id;
+          if (k) {
+            const local = mergedInvoices.get(k);
+            mergedInvoices.set(k, local ? { ...local, ...inv } : inv);
+          }
+        });
+        updates.invoices = Array.from(mergedInvoices.values());
+      }
+
+      // Merge de vehículos por placa
+      if (Array.isArray(capped.vehicles)) {
+        const remoteVehicles = capped.vehicles;
+        const localVehicles = state.vehicles;
+        const mergedVehicles = new Map<string, any>();
+        localVehicles.forEach((v) => mergedVehicles.set(String(v.plate).toUpperCase(), v));
+        remoteVehicles.forEach((v) => {
+          if (v && v.plate) {
+            const key = String(v.plate).toUpperCase();
+            const local = mergedVehicles.get(key);
+            mergedVehicles.set(key, local ? { ...local, ...v } : v);
+          }
+        });
+        updates.vehicles = Array.from(mergedVehicles.values());
+      }
+
+      set(updates);
+      logSystemEvent("info", "sync.operational", {
+        orders: capped.workOrders?.length || 0,
+        invoices: capped.invoices?.length || 0,
+        vehicles: capped.vehicles?.length || 0,
+      });
+    } catch (err) {
+      console.warn("Supabase operational sync warning:", err);
     }
   },
 

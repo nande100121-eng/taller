@@ -12,6 +12,7 @@ import {
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
+  const syncOperationalOnly = useAppStore((state) => state.syncOperationalOnly);
   const syncServicesOnly = useAppStore((state) => state.syncServicesOnly);
   const syncCertificationsOnly = useAppStore((state) => state.syncCertificationsOnly);
   const syncInventoryOnly = useAppStore((state) => state.syncInventoryOnly);
@@ -19,6 +20,16 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncScheduleOnly = useAppStore((state) => state.syncScheduleOnly);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounce corto para el sync operativo ligero (realtime entre pestañas)
+  const opTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const debouncedOperationalSync = () => {
+    if (opTimerRef.current) clearTimeout(opTimerRef.current);
+    opTimerRef.current = setTimeout(() => {
+      if (Date.now() - getLastLocalMutationTime() < 800) return;
+      syncOperationalOnly();
+    }, 120);
+  };
 
   // Apply a single site_content section into the store without a full refetch
   const applySiteContentSection = (section: string, row: any) => {
@@ -61,16 +72,19 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     syncScheduleOnly();
     syncFromSupabase();
 
-    // 2. Window focus sync with 15s throttle protection (prevents request storms on tablet tab switching)
+    // 2. Window focus sync with 2s throttle protection: al volver a una pestaña se
+    //    recarga el sync OPERATIVO ligero de inmediato (la card debe aparecer ya).
+    //    El sync completo de 30s no debe bloquear la card visible (bug realtime).
     let lastFocusTime = 0;
     const handleFocus = () => {
       const now = Date.now();
-      if (now - lastFocusTime > 15000) {
+      if (now - lastFocusTime > 2000) {
         lastFocusTime = now;
-        debouncedFullSync();
+        debouncedOperationalSync();
       }
     };
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
 
     // 4. Supabase Realtime Broadcast channel listener (instant push across all devices/tablets)
     const broadcastChannel = getSharedRealtimeChannel();
@@ -95,9 +109,34 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } else if (eventType.includes("attendance")) {
         debouncedFullSync();
       } else {
-        debouncedFullSync();
+        // Operativo (work_orders/invoices/vehicles): sync ligero inmediato
+        debouncedOperationalSync();
       }
     });
+
+    // 4b. BroadcastChannel NATIVO del navegador (pestañas del mismo navegador):
+    //     no se suspende con el tab-throttling como el WebSocket de Supabase, así
+    //     Portería->Taller->Almacén->Caja reflejan los cambios al instante.
+    let localBC: BroadcastChannel | null = null;
+    try {
+      localBC = (window as any).__REYGAS_TAB_BC ||
+        ((window as any).__REYGAS_TAB_BC = new BroadcastChannel("reygas-tab-sync"));
+      const bcInstance = localBC as BroadcastChannel;
+      bcInstance.onmessage = (e: MessageEvent) => {
+        const msg = e.data || {};
+        if (msg.senderId === CLIENT_SESSION_ID) return;
+        if (Date.now() - getLastLocalMutationTime() < 800) return;
+        const et = String(msg.eventType || "");
+        if (et.includes("service")) syncServicesOnly();
+        else if (et.includes("cert")) syncCertificationsOnly();
+        else if (et.includes("inventory")) syncInventoryOnly();
+        else if (et.includes("technician")) syncTechniciansOnly();
+        else if (et.includes("schedule")) syncScheduleOnly();
+        else debouncedOperationalSync();
+      };
+    } catch {
+      // BroadcastChannel no disponible: sigue el canal Realtime de Supabase
+    }
 
     // 5. Supabase Postgres changes listener on site_content and core tables (ultra-fast targeted handlers)
     const dbChannel = supabase
@@ -140,17 +179,17 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedWorkOrderLocal(oldId);
         }
-        debouncedFullSync();
+        debouncedOperationalSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
-        debouncedFullSync();
+        debouncedOperationalSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, (payload: any) => {
         if (payload?.eventType === "DELETE") {
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedInvoiceLocal(oldId);
         }
-        debouncedFullSync();
+        debouncedOperationalSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "tool_loans" }, () => {
         if (hasRecentLocalMutation("toolLoans")) return;
@@ -173,11 +212,13 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     return () => {
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
       clearInterval(interval);
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (opTimerRef.current) clearTimeout(opTimerRef.current);
       supabase.removeChannel(dbChannel);
     };
-  }, [syncFromSupabase, syncServicesOnly, syncCertificationsOnly, syncInventoryOnly, syncTechniciansOnly, syncScheduleOnly]);
+  }, [syncFromSupabase, syncOperationalOnly, syncServicesOnly, syncCertificationsOnly, syncInventoryOnly, syncTechniciansOnly, syncScheduleOnly]);
 
   return <>{children}</>;
 };

@@ -1455,11 +1455,20 @@ async function queryAppointmentsWithMissingGuard(): Promise<{ data: any[] | null
 export async function broadcastRealtimeChange(eventType: string = "db_update") {
   try {
     markLocalMutation();
-    const channel = getSharedRealtimeChannel();
     const payload = { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() };
-    // Si el WebSocket ya está unido, usar el canal Realtime (latencia <50ms).
-    // Si aún no está listo (arranque o red intermitente de tablet), usar httpSend()
-    // explícito en vez del fallback implícito deprecado de send().
+    // 1) BroadcastChannel NATIVO del navegador (pestañas del MISMO navegador): es
+    //    instantáneo (~1ms) y NO se suspende con el tab-throttling del navegador,
+    //    que sí congela el WebSocket de Supabase en pestañas de segundo plano
+    //    (demora reportada: Portería->Taller->Almacén tardaba en reflejar cambios).
+    try {
+      const localBC = (window as any).__REYGAS_TAB_BC ||
+        ((window as any).__REYGAS_TAB_BC = new BroadcastChannel("reygas-tab-sync"));
+      localBC.postMessage({ ...payload, local: true });
+    } catch {
+      // BroadcastChannel no disponible (navegador viejo): se omite, el canal Realtime sigue
+    }
+    // 2) Canal Realtime de Supabase (otras tablets / otros dispositivos), <50ms.
+    const channel = getSharedRealtimeChannel();
     if ((channel as any).state === "joined") {
       await channel.send({ type: "broadcast", event: "db_update", payload });
     } else {
@@ -1851,7 +1860,7 @@ export async function saveSupabaseBulkScheduleRecords(
 // (fetchSupabaseConsultasRealtime / fetchSupabaseDayReport) sin descargar todo.
 // Si el tope falla, se hace fallback a la carga completa (nunca dejar sin datos).
 // ============================================================================
-async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
+export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
   try {
     // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
     // así que cada tabla se pide por páginas de 1000. NO se descarga el histórico completo.
