@@ -1753,7 +1753,63 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         }
         return o;
       });
-      return { workOrders: updatedOrders };
+
+      // FIX (VENTA / pagado sin factura): cuando la OT pasa a PAGADO (o se finaliza)
+      // y aún NO tiene factura (ej. venta de repuesto creada en Portería, o pagada
+      // directo desde Taller), se crea la factura automáticamente CON su pago: así la
+      // card de Caja muestra historial/edición y el reporte diario la incluye (el
+      // reporte filtra filas sin comprobante). Antes quedaba pagada SIN factura y no
+      // aparecía ni en Caja ni en Reportes.
+      let invoices = [...state.invoices];
+      const isPaidStatus = status === "pagado_autorizado" || status === "finalizado";
+      if (isPaidStatus) {
+        const targetOrder = state.workOrders.find((o) => o.id === id);
+        const hasInvoice = invoices.some((i) => i.work_order_id === id);
+        if (targetOrder && !hasInvoice && targetOrder.items && targetOrder.items.length > 0) {
+          const partsTotal = targetOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+          const certFee = targetOrder.requires_certification ? (Number(targetOrder.certification_price) || 0) : 0;
+          const discount = Number(targetOrder.discount_amount) || 0;
+          const grandTotal = Math.max(0, partsTotal + certFee - discount);
+          const paidAtISO = targetOrder.completion_time || new Date().toISOString();
+          if (grandTotal > 0) {
+            const vehicle = state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate);
+            const newInvoice: Invoice = {
+              id: generateUUID(),
+              work_order_id: id,
+              vehicle_plate: targetOrder.vehicle_plate,
+              client_name: vehicle?.owner_name || "Cliente Taller",
+              customer_doc: "",
+              customer_address: "",
+              labor_fee: 0,
+              parts_total: partsTotal,
+              certification_fee: certFee,
+              discounts: discount > 0 ? discount : "0",
+              grand_total: grandTotal,
+              payment_status: "pagado",
+              payment_condition: "PAGADO",
+              credit_amount: 0,
+              payment_method: "Efectivo",
+              payment_destination: "EMPRESA",
+              issued_at: targetOrder.entry_time || paidAtISO,
+              paid_at: paidAtISO,
+              // Asigna número de Ticket para que el reporte diario (que exige comprobante)
+              // incluya la venta: sin número la fila era filtrada por hasComprobante.
+              receipt_number: get().getAndIncrementReceiptNumber("Ticket", getPeruDateString()),
+              receipt_type: "Ticket" as const,
+              payment_history: [{
+                id: "pay-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+                date: paidAtISO,
+                amount: grandTotal,
+                method: "Efectivo",
+                destination: "EMPRESA",
+              }],
+            };
+            saveSupabaseInvoice(newInvoice);
+            invoices = [...invoices, newInvoice];
+          }
+        }
+      }
+      return { workOrders: updatedOrders, invoices };
     });
   },
 
