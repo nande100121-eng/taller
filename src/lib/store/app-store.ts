@@ -1378,7 +1378,29 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           const k = inv.work_order_id || inv.id;
           if (k) {
             const local = mergedInvoices.get(k);
-            mergedInvoices.set(k, local ? { ...local, ...inv } : inv);
+            if (!local) {
+              mergedInvoices.set(k, inv);
+              return;
+            }
+            // BUG FIX (C8Q-096 20/08 21:1x): la tabla invoices guarda payment_history como
+            // NULL (el historial vive en snapshots inv_payhistory_*). fetchCappedOperationalData
+            // trae la factura SIN historial y el merge { ...local, ...inv } pisaba el historial
+            // local con null -> la card perdía el historial y editar fecha "no guardaba" (early
+            // return en updatePaymentRecord sin persistir). Se conservan los campos locales de
+            // historial/desglose/recursos cuando el remoto viene vacío.
+            mergedInvoices.set(k, {
+              ...local,
+              ...inv,
+              payment_history: (Array.isArray(inv.payment_history) && inv.payment_history.length > 0)
+                ? inv.payment_history
+                : (Array.isArray(local.payment_history) && local.payment_history.length > 0 ? local.payment_history : inv.payment_history),
+              payment_breakdown: (Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0)
+                ? inv.payment_breakdown
+                : (Array.isArray(local.payment_breakdown) && local.payment_breakdown.length > 0 ? local.payment_breakdown : inv.payment_breakdown),
+              resource_payments: (Array.isArray(inv.resource_payments) && inv.resource_payments.length > 0)
+                ? inv.resource_payments
+                : (Array.isArray(local.resource_payments) && local.resource_payments.length > 0 ? local.resource_payments : inv.resource_payments),
+            });
           }
         });
         updates.invoices = Array.from(mergedInvoices.values());
@@ -2898,6 +2920,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         debt_responsible: fullyUnpaid ? undefined : targetInvoice.debt_responsible,
       };
       saveSupabaseInvoice(updated);
+      logSystemEvent("info", "payment.undo_last.ok", {
+        invoiceId: String(targetInvoice.id).slice(0, 26),
+        woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+        removedAmount: removed.amount,
+        remainingHistory: history.length,
+        fullyUnpaid,
+      });
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -2945,6 +2974,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         debt_responsible: remaining.length > 0 ? targetInvoice.debt_responsible : undefined,
       };
       saveSupabaseInvoice(updated);
+      logSystemEvent("info", "payment.record_delete.ok", {
+        invoiceId: String(targetInvoice.id).slice(0, 26),
+        woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+        recordId: String(recordId).slice(0, 20),
+        remaining: remaining.length,
+        isFullyPaid,
+        balance,
+      });
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -2966,12 +3003,36 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   updatePaymentRecord: (invoiceId, recordId, updates) => {
     set((state) => {
       const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
-      if (!targetInvoice || !recordId) return state;
+      if (!targetInvoice || !recordId) {
+        logSystemEvent("warn", "payment.record_update.skip_no_invoice", {
+          invoiceId: invoiceId ? String(invoiceId).slice(0, 26) : null,
+          recordId: recordId ? String(recordId).slice(0, 20) : null,
+        });
+        return state;
+      }
       const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
         ? [...targetInvoice.payment_history]
         : [];
       const idx = history.findIndex((p) => p.id === recordId);
-      if (idx < 0) return state;
+      if (idx < 0) {
+        logSystemEvent("warn", "payment.record_update.skip_record_not_found", {
+          invoiceId: String(targetInvoice.id).slice(0, 26),
+          woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+          recordId: String(recordId).slice(0, 20),
+          historyCount: history.length,
+          dateRequested: updates.date || "",
+        });
+        return state;
+      }
+      logSystemEvent("info", "payment.record_update.start", {
+        invoiceId: String(targetInvoice.id).slice(0, 26),
+        woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+        recordId: String(recordId).slice(0, 20),
+        oldDate: history[idx].date || "",
+        newDate: updates.date || "",
+        oldAmount: history[idx].amount,
+        newAmount: updates.amount !== undefined ? updates.amount : history[idx].amount,
+      });
       const current = history[idx];
       history[idx] = {
         ...current,
@@ -3004,6 +3065,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         debt_responsible: history.length > 0 ? targetInvoice.debt_responsible : undefined,
       };
       saveSupabaseInvoice(updated);
+      logSystemEvent("info", "payment.record_update.ok", {
+        invoiceId: String(targetInvoice.id).slice(0, 26),
+        woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+        recordId: String(recordId).slice(0, 20),
+        newDate: history[idx].date || "",
+        amount: history[idx].amount,
+        historyCount: history.length,
+        isFullyPaid,
+      });
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -3047,6 +3117,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         debt_responsible: undefined,
       };
       saveSupabaseInvoice(updated);
+      logSystemEvent("info", "payment.clear_all.ok", {
+        invoiceId: String(targetInvoice.id).slice(0, 26),
+        woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+        clearedRecords: history.length,
+      });
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {

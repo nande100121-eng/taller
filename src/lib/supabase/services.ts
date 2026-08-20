@@ -478,8 +478,19 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     }, "work_orders", false);
 
     broadcastRealtimeChange("work_order_updated");
+    logSystemEvent("info", "workorder.save.ok", {
+      woId: String(order.id || "").slice(0, 8),
+      status: order.status || "",
+      plate: order.vehicle_plate || "",
+      itemCount: Array.isArray(order.items) ? order.items.length : 0,
+      total: (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0),
+    });
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
+    logSystemEvent("error", "workorder.save.exception", {
+      woId: String(order.id || "").slice(0, 8),
+      err: err instanceof Error ? err.message : String(err),
+    });
     console.warn("Supabase work order deferred:", err);
   }
 }
