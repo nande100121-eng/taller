@@ -56,6 +56,7 @@ import {
   ChevronUp,
   ReceiptText,
   Wallet,
+  Link2,
 } from "lucide-react";
 
 const ThermalReceiptModal = dynamic(
@@ -112,26 +113,6 @@ export default function CajaPage() {
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
 
-  // Modal de EDICIÓN de un pago del historial (monto, método, fecha, comprobante, observación)
-  const [editPaymentModal, setEditPaymentModal] = useState<{ invoiceId: string; record: PaymentRecord } | null>(null);
-  const [editPaymentForm, setEditPaymentForm] = useState({
-    amount: 0,
-    paymentDate: getPeruDateString(),
-    method: "Efectivo",
-    receiptType: "",
-    receiptNumber: "",
-    observation: "",
-  });
-  // Vínculo recurso -> pago al editar un pago del historial (marcar qué recursos
-  // cubre este pago y cuánto de cada uno; guarda el cambio en la Tabla Maestra).
-  const [editPaymentResources, setEditPaymentResources] = useState<Array<{
-    key: string;
-    description: string;
-    category: "servicio" | "repuesto" | "certificado";
-    fullAmount: number;
-    payAmount: number;
-    selected: boolean;
-  }>>([]);
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
       const next = new Set(prev);
@@ -214,6 +195,10 @@ export default function CajaPage() {
       payAmount: number;
       selected: boolean;
     }>;
+    // Modo EDICIÓN de un comprobante existente (abierto desde el historial de la card):
+    // el mismo modal sirve para crear y para editar (guarda en el mismo registro).
+    editingRecordId?: string;
+    editingRecordAmount?: number; // Monto original del registro al abrir en edición
   } | null>(null);
 
   // Modal State for Manual / Direct Payment Confirmation (Registro Taller)
@@ -1813,14 +1798,19 @@ export default function CajaPage() {
     e.preventDefault();
     if (!partialPaymentModal) return;
 
-    const amount = Number(partialPaymentModal.amount) || 0;
+    // El monto del abono se DERIVA de la suma de recursos marcados (el campo
+    // "Monto a Abonar Ahora" ya no existe): si no hay recursos, usa el monto del estado.
+    const selectedSum = (partialPaymentModal.resourceSelection || [])
+      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+      .reduce((s, r) => s + (Number(r.payAmount) || 0), 0);
+    const amount = selectedSum > 0 ? Number(selectedSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0);
     // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
     const invForBalance = partialPaymentModal.invoice;
     const paidSoFarReal = invoicePaidSoFar(invForBalance);
     const balance = Math.max(0, partialPaymentModal.totalDue - paidSoFarReal);
     if (amount <= 0) {
-      notify("warning", "Ingrese un monto de abono mayor a cero.");
+      notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
     }
     if (amount > balance + 0.01) {
@@ -1923,6 +1913,25 @@ export default function CajaPage() {
     const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
     const paymentDateTime = buildPeruISOString(partialPaymentModal.paymentDate || getPeruDateString(), payTimeNow);
 
+    // MODO EDICIÓN (comprobante existente desde el historial): actualiza el registro,
+    // no crea uno nuevo ni reimprime comprobante.
+    if (partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id) {
+      updatePaymentRecord(partialPaymentModal.invoice.id, partialPaymentModal.editingRecordId, {
+        amount,
+        date: paymentDateTime,
+        method: sanitizeMethod(finalMethod, amount) || "Efectivo",
+        destination: finalDest || "EMPRESA",
+        receipt_type: finalReceiptType || undefined,
+        receipt_number: assignedReceiptNum || undefined,
+        observation: partialPaymentModal.observation || undefined,
+        responsible: partialPaymentModal.responsible || undefined,
+        resources: abonoResources.length > 0 ? abonoResources : undefined,
+      });
+      notify("success", `Comprobante de ${partialPaymentModal.workOrder?.vehicle_plate} actualizado (S/ ${amount.toFixed(2)}). Recursos y saldos recalculados.`);
+      setPartialPaymentModal(null);
+      return;
+    }
+
     registerInvoicePayment({
       invoiceId: partialPaymentModal.invoice?.id,
       workOrderId: partialPaymentModal.workOrder?.id,
@@ -1972,98 +1981,73 @@ export default function CajaPage() {
     setPartialPaymentModal(null);
   };
 
-  // Abrir modal de edición de un pago del historial
+  // Abrir modal de edición de un pago del historial (mismo modal de abono en modo
+  // EDICIÓN: fecha, comprobante, método y recursos precargados del registro).
   const handleOpenEditPaymentRecord = (rec: PaymentRecord, invoiceId?: string) => {
     if (!invoiceId || !rec) return;
-    setEditPaymentModal({ invoiceId, record: rec });
-    setEditPaymentForm({
-      amount: Number(rec.amount) || 0,
-      paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
-      method: (rec.method || "").trim() === "Sin Método" ? "" : (rec.method || "Efectivo"),
-      receiptType: rec.receipt_type || "",
-      receiptNumber: rec.receipt_number || "",
-      observation: rec.observation || "",
-    });
-    // Precargar el vínculo recurso->pago desde el historial (o la factura) para
-    // poder ver y editar QUÉ recursos cubre este pago y CUÁNTO de cada uno.
-    // SOLO a partir del 17/08/2026: los pagos anteriores no muestran vinculación.
-    const invForEdit = (invoices || []).find((i: any) => i.id === invoiceId) || invoicesByWorkOrderId.get(invoiceId || "");
-    const linkDateKeyEdit = toPeruDateKey((invForEdit as any)?.issued_at || (rec as any).date || "");
-    const canLinkResourcesEdit = linkDateKeyEdit >= "2026-08-17";
-    const woForEdit = workOrders.find((o) => o.id === (invForEdit?.work_order_id || ""));
-    if (!canLinkResourcesEdit) {
-      setEditPaymentResources([]);
-      return;
-    }
-    const recResources: any[] = Array.isArray(rec.resources) ? rec.resources : [];
-    const invResources: any[] = Array.isArray((invForEdit as any)?.resource_payments) ? (invForEdit as any).resource_payments : [];
-    const srcResources = recResources.length > 0 ? recResources : invResources;
-    const woItems = Array.isArray(woForEdit?.items) ? woForEdit.items : [];
-    const resourcesList: Array<{ description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number }> = [];
-    woItems.forEach((it: any) => {
+    const invEdit = (invoices || []).find((i: any) => i.id === invoiceId) || invoicesByWorkOrderId.get(invoiceId || "");
+    const woEdit = workOrders.find((o) => o.id === (invEdit?.work_order_id || ""));
+    if (!invEdit || !woEdit) return;
+    // Reconstruye la selección de recursos del registro: los que ya estaban vinculados
+    // aparecen marcados con su monto; los demás quedan visibles para poder añadirlos.
+    const recRes: any[] = Array.isArray(rec.resources) ? rec.resources : [];
+    const resList: Array<{ key: string; description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number; pendingAmount: number; payAmount: number; selected: boolean }> = [];
+    (Array.isArray(woEdit.items) ? woEdit.items : []).forEach((it: any, ri: number) => {
       const amt = Number(it.subtotal) || 0;
       if (amt <= 0) return;
       const descUp = String(it.description || "").toUpperCase();
       const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
       const cat = isCertTxt ? ("certificado" as const) : (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id ? ("repuesto" as const) : ("servicio" as const));
-      resourcesList.push({ description: it.description, category: cat, fullAmount: amt });
+      const prev = recRes.find((x: any) => String(x.description || "") === String(it.description || ""));
+      resList.push({
+        key: `edit-res-${ri}-${String(it.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
+        description: it.description,
+        category: cat,
+        fullAmount: amt,
+        pendingAmount: amt,
+        payAmount: prev ? (Number(prev.amount) || 0) : 0,
+        selected: prev ? (Number(prev.amount) || 0) > 0 : false,
+      });
     });
-    if (woForEdit?.requires_certification && Number(woForEdit.certification_price) > 0) {
-      resourcesList.push({
-        description: `CERTIFICACIÓN (${woForEdit.certification_type || "GNV/GLP"})`,
+    if (woEdit.requires_certification && Number(woEdit.certification_price) > 0) {
+      const descCert = `CERTIFICACIÓN (${woEdit.certification_type || "GNV/GLP"})`;
+      const prevCert = recRes.find((x: any) => String(x.description || "") === String(descCert || ""));
+      resList.push({
+        key: `edit-res-cert-${String(descCert).slice(0, 20).replace(/\s+/g, "-")}`,
+        description: descCert,
         category: "certificado" as const,
-        fullAmount: Number(woForEdit.certification_price) || 0,
+        fullAmount: Number(woEdit.certification_price) || 0,
+        pendingAmount: Number(woEdit.certification_price) || 0,
+        payAmount: prevCert ? (Number(prevCert.amount) || 0) : 0,
+        selected: prevCert ? (Number(prevCert.amount) || 0) > 0 : false,
       });
     }
-    setEditPaymentResources(resourcesList.map((rs, ri) => {
-      const prev = srcResources.find((x: any) => String(x.description || "") === String(rs.description || ""));
-      return {
-        key: `eres-${ri}-${String(rs.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
-        description: rs.description,
-        category: rs.category,
-        fullAmount: rs.fullAmount,
-        payAmount: prev ? (Number(prev.amount) || 0) : 0,
-        selected: prev ? (Number(prev.amount) > 0) : false,
-      };
-    }));
+    setPartialPaymentModal({
+      isOpen: true,
+      workOrder: woEdit,
+      invoice: invEdit,
+      totalDue: Number(invEdit.grand_total) || 0,
+      paidSoFar: invoicePaidSoFar(invEdit),
+      amount: Number(rec.amount) || 0,
+      paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
+      paymentMethod: (rec.method || "").trim() === "Sin Método" ? "" : defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
+      paymentDestination: rec.destination || invEdit.payment_destination || "EMPRESA",
+      isSplitPayment: false,
+      paymentSplits: [{ id: `split-1`, method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"), destination: rec.destination || invEdit.payment_destination || "EMPRESA", amount: Number(rec.amount) || 0 }],
+      receiptNumber: rec.receipt_number || invEdit.receipt_number || "",
+      receiptType: (rec.receipt_type === "Boleta" || rec.receipt_type === "Factura" ? rec.receipt_type : (rec.receipt_type === "Sin Comprobante" ? "Sin Comprobante" : "Ticket")) as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante",
+      customerDoc: invEdit.customer_doc || "",
+      customerName: invEdit.client_name || "CLIENTES VARIOS",
+      customerAddress: invEdit.customer_address || "-",
+      observation: rec.observation || invEdit.debt_observation || "",
+      responsible: rec.responsible || invEdit.debt_responsible || "",
+      resourceSelection: resList.length > 0 ? resList : undefined,
+      editingRecordId: rec.id,
+      editingRecordAmount: Number(rec.amount) || 0,
+    });
   };
 
-  // Guardar edición del pago del historial (saldo y estado se recalculan)
-  const handleSavePaymentRecordEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editPaymentModal) return;
-    const amount = Number(editPaymentForm.amount) || 0;
-    if (amount <= 0) {
-      notify("warning", "El monto del pago debe ser mayor a cero.");
-      return;
-    }
-    const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
-    const dateISO = buildPeruISOString(editPaymentForm.paymentDate || getPeruDateString(), payTimeNow);
-    // Solo se vincula recursos si este pago aplica (desde 17/08/2026); en pagos
-    // anteriores editPaymentResources queda vacío y no se toca el vínculo.
-    const linkedResources = editPaymentResources.length > 0
-      ? editPaymentResources
-          .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
-          .map((r) => ({
-            description: r.description,
-            category: r.category,
-            amount: Number(r.payAmount) || 0,
-            receipt_number: editPaymentForm.receiptNumber || undefined,
-            receipt_type: editPaymentForm.receiptType || undefined,
-          }))
-      : undefined;
-    updatePaymentRecord(editPaymentModal.invoiceId, editPaymentModal.record.id, {
-      amount,
-      date: dateISO,
-      method: sanitizeMethod(editPaymentForm.method, amount) || "Efectivo",
-      receipt_type: editPaymentForm.receiptType || undefined,
-      receipt_number: editPaymentForm.receiptNumber || undefined,
-      observation: editPaymentForm.observation || undefined,
-      resources: linkedResources && linkedResources.length > 0 ? linkedResources : undefined,
-    });
-    notify("success", "Pago del historial actualizado. Saldo y VENTAS POR CONCEPTO recalculados.");
-    setEditPaymentModal(null);
-  };
+
 
   // Open Manual / Direct Payment Modal for Workshop Registration
   const handleOpenManualPaymentModal = () => {
@@ -3172,11 +3156,9 @@ export default function CajaPage() {
                                     <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
                                     <button
                                       type="button"
-                                      onClick={() => (rec as any).isReconstructed
-                                        ? handleOpenPaymentModal(wo, invoice, grandTotal, true)
-                                        : handleOpenEditPaymentRecord(rec, invoice?.id)}
+                                      onClick={() => handleOpenEditPaymentRecord(rec, invoice?.id)}
                                       className="p-0.5 rounded bg-amber-500/10 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 transition-colors"
-                                      title={(rec as any).isReconstructed ? "Vincular recursos a este pago (abre el cobro con selección de recursos)" : "Editar este pago del historial (monto, método, fecha, comprobante, recursos)"}
+                                      title="Editar este comprobante (fecha, método, N° de comprobante y recursos vinculados)"
                                     >
                                       <Edit3 className="w-3 h-3" />
                                     </button>
@@ -5013,13 +4995,18 @@ export default function CajaPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white flex items-center gap-2">
-                    <span>Abonar Saldo Pendiente</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
-                      Total / Parcial
+                    <span>{partialPaymentModal.editingRecordId ? "Editar Comprobante de Pago" : "Abonar Saldo Pendiente"}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase border ${partialPaymentModal.editingRecordId
+                      ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                      : "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                      }`}>
+                      {partialPaymentModal.editingRecordId ? "Edición" : "Total / Parcial"}
                     </span>
                   </h3>
                   <p className="text-xs text-gray-400">
-                    Registra un abono sobre el saldo pendiente de la placa. El abono figurará como ingreso del día actual y reducirá la deuda.
+                    {partialPaymentModal.editingRecordId
+                      ? "Modifique fecha, comprobante, método o los recursos vinculados de este pago. Los saldos se recalculan al guardar."
+                      : "Registra un abono sobre el saldo pendiente de la placa. El abono figurará como ingreso del día actual y reducirá la deuda."}
                   </p>
                 </div>
               </div>
@@ -5034,11 +5021,11 @@ export default function CajaPage() {
 
             {/* Form Body */}
             <form onSubmit={handleConfirmPartialPaymentSubmit} className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar text-xs">
-              {/* Sección 1: Resumen de Deuda del Vehículo */}
+              {/* Sección 1: Resumen de Deuda y Fecha de Pago (fecha PRIMERO) */}
               <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
                 <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Car className="w-3.5 h-3.5" />
-                  <span>1. Resumen de Deuda por Placa</span>
+                  <span>1. Resumen de Deuda y Fecha de Pago</span>
                 </h4>
 
                 <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/20">
@@ -5074,144 +5061,7 @@ export default function CajaPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-gray-300 block mb-1.5 font-bold">Monto a Abonar Ahora (S/) *</label>
-                  <div className="relative">
-                    <span className="text-cyan-400 font-black text-sm absolute left-3 top-1/2 -translate-y-1/2">S/</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max={Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar)}
-                      required
-                      onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                      value={partialPaymentModal.amount || ""}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        const balNow = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
-                        const fullNow = balNow <= 0 || val >= balNow - 0.01;
-                        setPartialPaymentModal((prev) => {
-                          if (!prev) return prev;
-                          const splits = Array.isArray(prev.paymentSplits) ? [...prev.paymentSplits] : [];
-                          // Pago único: si hay un solo método, su Monto se completa con el monto a abonar (el usuario puede modificarlo)
-                          const synced = splits.length === 1 ? splits.map((s, i) => (i === 0 ? { ...s, amount: val } : s)) : splits;
-                          // Al cambiar el monto del abono, la selección de recursos se
-                          // redistribuye automáticamente entre los recursos pendientes
-                          // (un abono menor cubre solo parte del recurso y el resto
-                          // queda pendiente para el próximo abono).
-                          const redistributed = prev.resourceSelection && prev.resourceSelection.length > 0
-                            ? buildAbonoResourceSelection(prev.workOrder, prev.invoice, val)
-                            : prev.resourceSelection;
-                          return {
-                            ...prev,
-                            amount: val,
-                            // Abono menor al 100% -> solo Pago Mixto / Parcial
-                            isSplitPayment: !fullNow ? true : prev.isSplitPayment,
-                            paymentSplits: synced,
-                            resourceSelection: redistributed !== undefined ? redistributed : prev.resourceSelection,
-                          };
-                        });
-                      }}
-                      className="w-full pl-9 pr-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-base focus:border-cyan-400"
-                    />
-                  </div>
-
-                  {/* Vínculo recurso -> pago en ABONOS (solo desde 17/08/2026): el
-                      cajero marca qué recursos cubre este abono y cuánto de cada uno. */}
-                  {partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && (
-                    <div className="mt-3 p-3 bg-black/30 rounded-xl border border-white/10 space-y-2">
-                      <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[10px] font-bold text-cyan-400 uppercase">
-                        <span>Recursos que cubre este abono (vínculo VENTAS POR CONCEPTO)</span>
-                        <span className="font-mono text-gray-400">S/ {partialPaymentModal.resourceSelection.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}</span>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1 custom-scrollbar">
-                        {partialPaymentModal.resourceSelection.map((rs) => (
-                          <div key={rs.key} className="flex items-center gap-2 text-xs pt-1">
-                            <button
-                              type="button"
-                              onClick={() => setPartialPaymentModal((prev) => prev ? {
-                                ...prev,
-                                resourceSelection: prev.resourceSelection?.map((r) =>
-                                  r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? Math.min(r.fullAmount, Number(prev.amount) || 0) : r.payAmount } : r
-                                ),
-                              } : prev)}
-                              className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
-                                ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
-                                : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
-                                }`}
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-                            <span className={`flex-1 truncate ${rs.selected ? "text-white" : "text-gray-500 line-through"}`}>
-                              {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
-                              {rs.description}
-                              <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
-                              {typeof rs.pendingAmount === "number" && Math.abs(rs.pendingAmount - rs.fullAmount) > 0.01 && (
-                                <span className="ml-1 text-[9px] text-amber-300 font-bold">pendiente S/ {rs.pendingAmount.toFixed(2)}</span>
-                              )}
-                            </span>
-                            {rs.selected && (
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount}
-                                value={rs.payAmount || ""}
-                                onChange={(e) => {
-                                  const cap = typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount;
-                                  const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
-                                  setPartialPaymentModal((prev) => prev ? {
-                                    ...prev,
-                                    resourceSelection: prev.resourceSelection?.map((r) =>
-                                      r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
-                                    ),
-                                  } : prev);
-                                }}
-                                className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-cyan-400"
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const bal = Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar);
-                        setPartialPaymentModal({
-                          ...partialPaymentModal,
-                          amount: Number(bal.toFixed(2)),
-                          isSplitPayment: false,
-                          paymentSplits: [{ id: "split-1", method: "Efectivo", destination: eligibleDestinations[0] || "EMPRESA", amount: Number(bal.toFixed(2)) }],
-                        });
-                      }}
-                      className="px-3 py-1.5 bg-rose-600/80 hover:bg-rose-500 text-white text-[11px] font-black rounded-lg flex items-center gap-1.5 transition-all shadow"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Saldo Total (S/ {Math.max(0, partialPaymentModal.totalDue - partialPaymentModal.paidSoFar).toFixed(2)})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const quickVal = Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2)));
-                        // 50% siempre es un abono parcial -> se fuerza Pago Mixto / Parcial
-                        setPartialPaymentModal((prev) => {
-                          if (!prev) return prev;
-                          const splits = Array.isArray(prev.paymentSplits) && prev.paymentSplits.length > 0
-                            ? prev.paymentSplits.map((s, i) => (i === 0 ? { ...s, amount: quickVal } : s))
-                            : [{ id: "split-1", method: prev.paymentMethod || "Efectivo", destination: eligibleDestinations[0] || "EMPRESA", amount: quickVal }];
-                          return { ...prev, amount: quickVal, isSplitPayment: true, paymentSplits: splits };
-                        });
-                      }}
-                      className="px-3 py-1.5 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[11px] font-bold rounded-lg transition-all shadow"
-                    >
-                      50% (S/ {Math.max(0, Number(((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) / 2).toFixed(2))).toFixed(2)})
-                    </button>
-                  </div>
-                </div>
-
+                {/* FECHA DE PAGO — primero, como pidió el usuario */}
                 <div>
                   <label className="text-gray-300 block mb-1.5 font-bold">📅 Fecha de Pago</label>
                   <MiniDatePicker
@@ -5648,6 +5498,80 @@ export default function CajaPage() {
                 )}
               </div>
 
+              {/* Sección 3b: RECURSOS a vincular a este comprobante (monto total y monto a pagar) */}
+              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+                <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>3. Recursos Vinculados a este Comprobante</span>
+                </h4>
+                <p className="text-[11px] text-gray-400">
+                  Aparecen TODOS los recursos de la orden: marque los que este comprobante cubre, desmarque los que NO van vinculados y edite el monto a pagar de cada uno.
+                </p>
+                {partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 ? (
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 divide-y divide-white/5 pr-1 custom-scrollbar">
+                    {partialPaymentModal.resourceSelection.map((rs) => (
+                      <div key={rs.key} className="flex items-center gap-2 text-xs pt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPartialPaymentModal((prev) => prev ? {
+                            ...prev,
+                            resourceSelection: prev.resourceSelection?.map((r) =>
+                              r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? Math.min(r.fullAmount, Number(prev.amount) || 0) : r.payAmount } : r
+                            ),
+                          } : prev)}
+                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
+                            ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                            : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
+                            }`}
+                          title={rs.selected ? "Quitar recurso de este comprobante" : "Vincular recurso a este comprobante"}
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <span className={`flex-1 truncate ${rs.selected ? "text-white" : "text-gray-500 line-through"}`}>
+                          {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
+                          {rs.description}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] text-gray-500">total S/ {rs.fullAmount.toFixed(2)}</span>
+                          {rs.selected && (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount}
+                              value={rs.payAmount || ""}
+                              onChange={(e) => {
+                                const cap = typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount;
+                                const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
+                                setPartialPaymentModal((prev) => prev ? {
+                                  ...prev,
+                                  amount: Number(((prev.resourceSelection || []).filter((rr) => rr.selected).reduce((s, rr) => s + (Number(rr.payAmount) || 0), 0)).toFixed(2)),
+                                  resourceSelection: prev.resourceSelection?.map((r) =>
+                                    r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                                  ),
+                                } : prev);
+                              }}
+                              className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-cyan-400"
+                              title="Monto a pagar de este recurso (puede ser parcial)"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-500 italic">Este abono no tiene recursos vinculables (factura anterior al 17/08/2026 o sin ítems).</p>
+                )}
+
+                {/* Total del comprobante = suma de los recursos marcados */}
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-xs font-bold">
+                  <span className="text-emerald-300">TOTAL A PAGAR CON ESTE COMPROBANTE:</span>
+                  <span className="font-mono font-black text-emerald-300">
+                    S/ {(partialPaymentModal.resourceSelection || []).filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
               {/* Sección 4: Observación y Responsable del Saldo Pendiente */}
               <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
                 <h4 className="text-[11px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -5707,16 +5631,17 @@ export default function CajaPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                  title={Math.abs((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) - (Number(partialPaymentModal.amount) || 0)) <= 0.01
-                    ? "Abonar y cancelar el saldo pendiente completo"
-                    : "Registrar solo este abono parcial (sin duplicar el historial)"}
+                  className={`px-6 py-2.5 rounded-xl text-white font-black text-xs shadow-lg flex items-center gap-2 transition-transform hover:scale-105 ${partialPaymentModal.editingRecordId
+                    ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-600/30"
+                    : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/30"
+                    }`}
+                  title={partialPaymentModal.editingRecordId
+                    ? "Guardar los cambios de este comprobante (recalcula saldos y VENTAS POR CONCEPTO)"
+                    : "Registrar el abono y vincular los recursos marcados"}
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>
-                    {Math.abs((partialPaymentModal.totalDue - partialPaymentModal.paidSoFar) - (Number(partialPaymentModal.amount) || 0)) <= 0.01
-                      ? "Confirmar Abono Total"
-                      : "Confirmar Abono Parcial"}
+                    {partialPaymentModal.editingRecordId ? "Guardar Cambios del Comprobante" : "Confirmar Abono"}
                   </span>
                 </button>
               </div>
@@ -5726,169 +5651,7 @@ export default function CajaPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL EDITAR PAGO DEL HISTORIAL */}
-      {/* ========================================================================= */}
-      {editPaymentModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className="glass-panel w-full max-w-md max-h-[92vh] flex flex-col rounded-3xl border border-white/20 shadow-2xl bg-[#0d121f]/95 overflow-hidden my-auto animate-fadeIn">
-            <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-reygas-surface">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  <Edit3 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-white">Editar Pago del Historial</h3>
-                  <p className="text-xs text-gray-400">Modifique monto, método, fecha o comprobante del abono.</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setEditPaymentModal(null)} className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <form onSubmit={handleSavePaymentRecordEdit} className="p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar text-xs">
-              <div>
-                <label className="text-gray-300 block mb-1 font-bold">Monto (S/) *</label>
-                <input
-                  type="number" step="0.01" min="0.01" required
-                  value={editPaymentForm.amount || ""}
-                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, amount: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black focus:border-amber-400"
-                />
-              </div>
-
-              <div>
-                <label className="text-gray-300 block mb-1 font-bold">📅 Fecha de Pago</label>
-                <MiniDatePicker
-                  value={editPaymentForm.paymentDate}
-                  onChange={(d) => setEditPaymentForm({ ...editPaymentForm, paymentDate: d || getPeruDateString() })}
-                />
-              </div>
-
-              <div>
-                <label className="text-gray-300 block mb-1 font-bold">Método de Pago</label>
-                <select
-                  value={editPaymentForm.method}
-                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, method: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
-                >
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Yape">Yape</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Culqi">Culqi</option>
-                  <option value="">Sin Método</option>
-                  {(editPaymentModal.record.method || "").trim().startsWith("Mixto") && (
-                    <option value={editPaymentModal.record.method}>Mixto (desglose actual)</option>
-                  )}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-gray-300 block mb-1 font-bold">Comprobante</label>
-                  <select
-                    value={editPaymentForm.receiptType}
-                    onChange={(e) => setEditPaymentForm({ ...editPaymentForm, receiptType: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
-                  >
-                    <option value="">Sin comprobante</option>
-                    <option value="Ticket">Ticket</option>
-                    <option value="Boleta">Boleta</option>
-                    <option value="Factura">Factura</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-gray-300 block mb-1 font-bold">N° Comprobante</label>
-                  <input
-                    type="text"
-                    value={editPaymentForm.receiptNumber}
-                    onChange={(e) => setEditPaymentForm({ ...editPaymentForm, receiptNumber: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white font-mono focus:border-amber-400"
-                    placeholder="TK01-00000001"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-gray-300 block mb-1 font-bold">Observación</label>
-                <input
-                  type="text"
-                  value={editPaymentForm.observation}
-                  onChange={(e) => setEditPaymentForm({ ...editPaymentForm, observation: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
-                  placeholder="Nota del abono"
-                />
-              </div>
-
-              {/* Vínculo recurso -> pago: ver/editar qué recursos cubre este pago.
-                  SOLO aplica a pagos desde el 17/08/2026 (los anteriores no vinculan). */}
-              {editPaymentResources.length > 0 && (
-              <div className="p-3 bg-black/30 rounded-xl border border-white/10 space-y-2">
-                <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[10px] font-bold text-amber-400 uppercase">
-                  <span>Recursos que cubre este pago (vínculo VENTAS POR CONCEPTO)</span>
-                  <span className="font-mono text-gray-400">Total: S/ {editPaymentResources.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}</span>
-                </div>
-                {editPaymentResources.length === 0 ? (
-                  <p className="text-[11px] text-gray-500 italic">Este pago no tiene recursos vinculados (pago histórico). Márcalos para vincularlo.</p>
-                ) : (
-                  <div className="max-h-40 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1 custom-scrollbar">
-                    {editPaymentResources.map((rs) => (
-                      <div key={rs.key} className="flex items-center gap-2 text-xs pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setEditPaymentResources((prev) => prev.map((r) =>
-                            r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? r.fullAmount : r.payAmount } : r
-                          ))}
-                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
-                            ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
-                            : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
-                            }`}
-                        >
-                          <Check className="w-3 h-3" />
-                        </button>
-                        <span className={`flex-1 truncate ${rs.selected ? "text-white" : "text-gray-500 line-through"}`}>
-                          {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
-                          {rs.description}
-                          <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
-                        </span>
-                        {rs.selected && (
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max={rs.fullAmount}
-                            value={rs.payAmount || ""}
-                            onChange={(e) => {
-                              const val = Math.max(0, Math.min(Number(rs.fullAmount), parseFloat(e.target.value) || 0));
-                              setEditPaymentResources((prev) => prev.map((r) =>
-                                r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
-                              ));
-                            }}
-                            className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-emerald-400"
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setEditPaymentModal(null)} className="flex-1 py-2.5 bg-reygas-surface hover:bg-white/10 text-gray-300 hover:text-white font-bold rounded-xl text-xs border border-white/10">
-                  Cancelar
-                </button>
-                <button type="submit" className="flex-1 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-black rounded-xl text-xs shadow-lg shadow-amber-600/30 flex items-center justify-center gap-2 transition-transform hover:scale-105">
-                  <Check className="w-4 h-4" />
-                  Guardar Cambios
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
       {/* THERMAL 80MM RECEIPT VIEWER / PRINT MODAL */}
       {/* ========================================================================= */}
       {activeReceiptModal && (
