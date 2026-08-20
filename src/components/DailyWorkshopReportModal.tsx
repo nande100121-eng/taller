@@ -525,9 +525,23 @@ export function WorkshopDailyReportView({
         payState = "trunco";
         paidAmount = 0;
       } else {
-        payState = "pendiente";
-        paidAmount = 0;
-        pendingAmount = totalAmount;
+        // BUG FIX (BEF-098): una factura "pendiente" con ABONOS reales en su historial
+        // (pago parcial, ej. Transferencia S/ 1000 de un total S/ 2800) SÍ tiene ingreso
+        // del día: se clasifica PARCIAL con la parte pagada como cobrado. Antes se
+        // marcaba "pendiente" con pago 0 y la transferencia desaparecía del informe.
+        const historyPaid = Array.isArray(inv?.payment_history)
+          ? (inv.payment_history as any[]).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+          : 0;
+        const paidPortion = Math.min(totalAmount, historyPaid);
+        if (paidPortion > 0.01) {
+          payState = "parcial";
+          paidAmount = paidPortion;
+          pendingAmount = Math.max(0, totalAmount - paidPortion);
+        } else {
+          payState = "pendiente";
+          paidAmount = 0;
+          pendingAmount = totalAmount;
+        }
       }
       const isPending = payState === "pendiente" || payState === "parcial";
       const isTrunco = payState === "trunco";
@@ -648,9 +662,19 @@ export function WorkshopDailyReportView({
       let pendingAmount = 0;
       let paidAmount = totalAmount;
       if (inv.payment_status === "pendiente") {
-        payState = "pendiente";
-        paidAmount = 0;
-        pendingAmount = totalAmount;
+        const histPaid = Array.isArray(inv.payment_history)
+          ? (inv.payment_history as any[]).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+          : 0;
+        const paidP = Math.min(totalAmount, histPaid);
+        if (paidP > 0.01) {
+          payState = "parcial";
+          paidAmount = paidP;
+          pendingAmount = Math.max(0, totalAmount - paidP);
+        } else {
+          payState = "pendiente";
+          paidAmount = 0;
+          pendingAmount = totalAmount;
+        }
       } else {
         const creditAmt = Number((inv as any).credit_amount) || 0;
         let paidPortion = 0;
@@ -758,8 +782,9 @@ export function WorkshopDailyReportView({
   // Liquidación del día: SOLO ingresos reales (facturas cobradas + abonos recibidos hoy).
   // Excluye pendientes/crédito y montos truncos (esos van a la pestaña Saldos Pendientes).
   const liquidacionRows = useMemo(() => {
+    // Incluye PAGADO y PARCIAL (la parte pagada es ingreso real); excluye pendiente/trunco.
     const rows = reportableRows
-      .filter((r) => !r.isPending && !r.isTrunco)
+      .filter((r) => r.payState !== "pendiente" && !r.isTrunco)
       .map((r) => ({ ...r }));
 
     (dayPayments || []).forEach((p: any) => {
@@ -1477,6 +1502,11 @@ export function WorkshopDailyReportView({
                         </td>
                         <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
                           {r.plate}
+                          {r.payState === "parcial" && (
+                            <span className="block text-[9px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/30 rounded px-1 mt-0.5">
+                              ⏳ parcial (saldo S/ {formatPEN(r.pendingAmount)})
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3 text-gray-200 font-sans text-xs border-r border-white/5 truncate max-w-xs" title={r.description}>
                           {r.description}
