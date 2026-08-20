@@ -41,7 +41,12 @@ import {
   fetchSupabaseInventory,
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
-import { getPeruDateString } from "@/lib/utils/date-utils";
+import { getPeruDateString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
+
+// Ahora (fecha/hora actual) ANCLADA a Perú (-05:00): las fechas de pago/emisión
+// NUNCA deben guardarse en UTC (un pago a las 22:00 Perú quedaría al día siguiente
+// en UTC y rompería los filtros por fecha). Igual que el resto del flujo.
+const nowPeruISO = (): string => toPeruAnchoredISO(new Date().toISOString()) || new Date().toISOString();
 import {
   sanitizeMethod,
   rebuildMethodFromHistory,
@@ -2311,7 +2316,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         grand_total: grandTotal,
         payment_status: "pendiente",
         payment_method: method,
-        issued_at: new Date().toISOString(),
+        issued_at: nowPeruISO(),
       };
 
       saveSupabaseInvoice(newInvoice);
@@ -2408,7 +2413,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const updatedInvoice = {
         ...targetInvoice,
         payment_status: "pagado" as const,
-        paid_at: new Date().toISOString(),
+        paid_at: nowPeruISO(),
       };
       saveSupabaseInvoice(updatedInvoice);
 
@@ -2455,7 +2460,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
       const nextPaymentStatus = isCurrentlyPaid ? ("pendiente" as const) : ("pagado" as const);
       const nextCondition = isCurrentlyPaid ? "PENDIENTE" : "PAGADO";
-      const nextPaidAt = isCurrentlyPaid ? undefined : new Date().toISOString();
+      const nextPaidAt = isCurrentlyPaid ? undefined : nowPeruISO();
       const nextOrderStatus = isCurrentlyPaid ? ("por_cobrar" as WorkOrderStatus) : ("pagado_autorizado" as WorkOrderStatus);
 
       let updatedInvoices = [...state.invoices];
@@ -2721,7 +2726,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
       const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
       const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
-      const nowISO = new Date().toISOString();
+      const nowISO = nowPeruISO();
       let updatedInvoices = [...state.invoices];
       let updatedCorrelativeConfig = state.correlativeConfig;
 
@@ -2960,7 +2965,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     observation,
     responsible,
   }) => {
-    const nowISO = paidAt || new Date().toISOString();
+    const nowISO = paidAt || nowPeruISO();
     set((state) => {
       let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
       // NUNCA duplicar: si el id no coincide (p. ej. tras sync), buscar por work_order_id
