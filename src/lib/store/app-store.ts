@@ -1873,6 +1873,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateWorkOrderStatus: (id, status) => {
     set((state) => {
+      const prevOrder = state.workOrders.find((o) => o.id === id);
+      // LOG DE TRANSICIÓN DE ESTADO: registra de qué estado venía y a cuál va, para que
+      // el log muestre exactamente la secuencia (ej. en_servicio -> por_cobrar -> pagado).
+      logSystemEvent("info", "workorder.status_change", {
+        woId: String(id).slice(0, 8),
+        from: prevOrder?.status || "?",
+        to: status,
+        plate: prevOrder?.vehicle_plate || "",
+        prevInvoice: state.invoices.some((i) => i.work_order_id === id),
+      }, "store:updateWorkOrderStatus");
       // Estados que indican que el servicio terminó (permite calcular cuánto demoró el técnico)
       const FINISHED_STATUSES = ["por_cobrar", "pendiente_pago", "pagado_autorizado", "finalizado", "entregado"];
       const updatedOrders = state.workOrders.map((o) => {

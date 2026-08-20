@@ -13,6 +13,7 @@ import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
+import { logSystemEvent } from "@/lib/system-log";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import { fetchDailyExpenses, saveDailyExpenses, DailyExpense } from "@/lib/supabase/expenses";
 import { supabase } from "@/lib/supabase/client";
@@ -705,6 +706,62 @@ export default function CajaPage() {
         return sum + credit;
       }, 0);
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, computeOrderNetTotal]);
+
+  // LOG DE ESTADO DE CARDS (diagnóstico): detecta estados inconsistentes para saber qué
+  // ocurrió en el instante. Ej: card PENDIENTE con saldo 0 (bug "CRÉDITO PENDIENTE S/ 0.00")
+  // o card con factura pero sin historial. Se loguea UNA vez por placa+estado (ref).
+  const stateLogRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    try {
+      allBillingWorkOrders.slice(0, 120).forEach((wo: any) => {
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        const isPaid = isOrderPaid(wo, inv);
+        const totalDue = computeOrderNetTotal(wo, inv);
+        const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
+        const paid = hist.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+        const saldo = Math.max(0, totalDue - paid);
+        const key = String(wo.id).slice(0, 8) + "|" + wo.status + "|" + (isPaid ? "P" : "N") + "|" + saldo.toFixed(2);
+        if (stateLogRef.current.has(key)) return;
+        stateLogRef.current.add(key);
+        if (!isPaid && saldo === 0 && totalDue > 0) {
+          logSystemEvent("warn", "caja.card_saldo_0_pendiente", {
+            plate: wo.vehicle_plate || "",
+            woId: String(wo.id).slice(0, 8),
+            status: wo.status,
+            totalDue,
+            paid,
+            invId: inv?.id ? String(inv.id).slice(0, 26) : null,
+            invTotal: inv?.grand_total || 0,
+            invCredit: inv?.credit_amount || 0,
+            histCount: hist.length,
+          }, "Caja:card-estado");
+        } else if (inv && hist.length === 0 && (inv.payment_status === "pagado" || wo.status === "pagado_autorizado")) {
+          logSystemEvent("warn", "caja.card_pagada_sin_historial", {
+            plate: wo.vehicle_plate || "",
+            woId: String(wo.id).slice(0, 8),
+            status: wo.status,
+            invId: String(inv.id).slice(0, 26),
+            invTotal: inv.grand_total || 0,
+            invStatus: inv.payment_status || "",
+          }, "Caja:card-estado");
+        } else {
+          logSystemEvent("info", "caja.card_estado", {
+            plate: wo.vehicle_plate || "",
+            woId: String(wo.id).slice(0, 8),
+            status: wo.status,
+            isPaid,
+            totalDue,
+            paid,
+            saldo,
+            invId: inv?.id ? String(inv.id).slice(0, 26) : null,
+          }, "Caja:card-estado");
+        }
+      });
+    } catch {
+      // noop: el log jamás rompe el render
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
 
   const pendingCountToday = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
@@ -1814,6 +1871,19 @@ export default function CajaPage() {
     const balance = (inv?.credit_amount && inv.credit_amount > 0)
       ? Number(inv.credit_amount)
       : Math.max(0, totalDue - paidSoFar);
+    // LOG DE ESTADO DEL MODAL DE ABONO: registra total/saldo en el instante de abrir el
+    // modal, para detectar el caso "CRÉDITO PENDIENTE S/ 0.00" o "abono supera el saldo".
+    logSystemEvent("info", "caja.abono_modal_open", {
+      plate: wo?.vehicle_plate || "",
+      woId: String(wo?.id || "").slice(0, 8),
+      invId: inv?.id ? String(inv.id).slice(0, 26) : null,
+      invTotal: inv?.grand_total || 0,
+      invCredit: inv?.credit_amount || 0,
+      totalDue,
+      paidSoFar,
+      balance,
+      status: wo?.status || "",
+    }, "Caja:modal-abono");
 
     const initialType = "Ticket" as "Ticket" | "Boleta" | "Factura";
     const previewNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
