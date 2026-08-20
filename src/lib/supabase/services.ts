@@ -2319,6 +2319,31 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     if (inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`) {
       return;
     }
+    // BUG FIX (AFT-598): un work_order_id INVÁLIDO ("x" o 1-2 caracteres, p. ej. desde
+    // una confirmación con OT corrupta) rompía el vínculo OT<->factura: la Tabla Maestra
+    // mostraba la placa SIN número de boleta. Se recupera el UUID correcto desde el
+    // snapshot previo de la misma factura, o desde la OT real de la misma placa.
+    if (!inv.work_order_id || String(inv.work_order_id).length < 3 || String(inv.work_order_id) === "x") {
+      try {
+        const snapRes = await supabase.from("site_content").select("value").eq("key", `inv_full_${inv.id}`).maybeSingle();
+        const snapVal = snapRes?.data?.value;
+        const snapInv: any = typeof snapVal === "string" ? JSON.parse(snapVal) : snapVal;
+        if (snapInv?.work_order_id && String(snapInv.work_order_id).length >= 3 && String(snapInv.work_order_id) !== "x") {
+          inv = { ...inv, work_order_id: String(snapInv.work_order_id) };
+        } else if (inv.vehicle_plate) {
+          const woRes = await supabase
+            .from("work_orders")
+            .select("id")
+            .eq("vehicle_plate", inv.vehicle_plate)
+            .order("entry_time", { ascending: false })
+            .limit(1);
+          const woId = woRes?.data?.[0]?.id;
+          if (woId) inv = { ...inv, work_order_id: String(woId) };
+        }
+      } catch (e) {
+        console.warn("saveSupabaseInvoice work_order_id repair warning:", e);
+      }
+    }
     const payload: any = {
       id: inv.id,
       work_order_id: inv.work_order_id,
