@@ -409,19 +409,11 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     if (order.observations && !diagText.includes("[OBSERVACIONES]:")) {
       diagText = `${diagText}\n[OBSERVACIONES]: ${order.observations}`.trim();
     }
-    // Respaldo [ERP_META] con las fechas (misma técnica que la importación masiva):
-    // la reconstrucción recupera quinquenal/chip desde aquí aunque una tablet con
-    // datos viejos sobrescriba las columnas -> las fechas NUNCA se pierden.
-    const meta = {
-      q_date: order.quinquennial_date || "",
-      c_date: order.chip_expiry_date || "",
-      v_type: order.vehicle_type || "",
-      m_serv: order.general_maintenance_service || "",
-      sp_serv: order.spare_parts_services || "",
-    };
-    if (Object.values(meta).some((v) => v !== "")) {
-      diagText = `${diagText}\n[ERP_META]:${JSON.stringify(meta)}`.trim();
-    }
+    // NOTA: las fechas de Infogas (quinquennial_date / chip_expiry_date) se guardan en
+    // sus COLUMNAS reales de work_orders. NO se incrusta [ERP_META] aquí: esa marca
+    // disparaba la reconstrucción de "facturas fantasma" (pago sin cobrar) en órdenes
+    // nuevas con Tipo de Servicio. La reconstrucción solo LEE [ERP_META] de registros
+    // históricos importados (Tabla Maestra), que es donde corresponde.
 
     const payload: any = {
       id: order.id,
@@ -2274,6 +2266,13 @@ export async function saveSupabaseAttendanceLogs(logs: AttendanceLog[]) {
 export async function saveSupabaseInvoice(inv: Invoice) {
   try {
     markLocalMutation("invoices");
+    // BUG FIX: las facturas FANTASMA (id = "inv-<work_order_id>") son artefactos de la
+    // reconstrucción para reflejar el estado de registros importados; NO deben persistirse
+    // en la tabla invoices (generaban filas duplicadas/fantasmas en la base: AFT-598 tenía
+    // 3 facturas para la misma OT, y había 64 filas fantasma en total).
+    if (inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`) {
+      return;
+    }
     const payload: any = {
       id: inv.id,
       work_order_id: inv.work_order_id,
