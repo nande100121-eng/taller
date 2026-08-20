@@ -612,11 +612,11 @@ export default function CajaPage() {
       const isPaid = isOrderPaid(wo, inv);
 
       // Include if it's a valid billing order (has items or price or receipt) OR if it is
-      // pending payment OR if it is ALREADY PAID with an invoice: el filtro "Pagados" del
-      // día debe mostrar las cards cobradas aunque la OT no tenga ítems/precio/comprobante
-      // persistido pero sí factura (ej. re-ingreso del 17/08 con OTs pagadas sin items ->
-      // antes quedaban fuera y el filtro "Pagados" no mostraba nada).
-      return total > 0 || hasItems || hasReceipt || !isPaid || (isPaid && !!inv);
+      // pending payment OR if it is ALREADY PAID: el filtro "Pagados" del día debe mostrar
+      // las cards cobradas aunque la OT no tenga ítems/precio/comprobante persistido
+      // (ej. re-ingreso del 17/08 con OTs en pagado_autorizado sin items -> antes quedaban
+      // fuera porque la factura vinculada podía faltar en la ventana del store local).
+      return total > 0 || hasItems || hasReceipt || !isPaid || isPaid;
     });
   }, [workOrders, invoicesByWorkOrderId, isOrderPaid, computeOrderNetTotal]);
 
