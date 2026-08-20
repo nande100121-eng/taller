@@ -574,6 +574,88 @@ export async function clearSupabaseWorkOrders() {
 }
 
 // ---------------------------------------------------------------------
+// ELIMINAR UN ABONO (pago parcial) desde la Tabla Maestra
+// Fuente única con el reporte diario: los abonos viven en site_content
+// (inv_payhistory_<invoiceId> e inv_payhistory_<workOrderId>). Borrar el
+// abono aquí lo elimina del reporte/informe del día siguiente de forma
+// inmediata, y recalcula el saldo de la factura original (la OT se mantiene).
+// ---------------------------------------------------------------------
+export async function deleteSupabasePaymentRecord(paymentId: string): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    // 1. Localizar TODOS los snapshots inv_payhistory_* que contienen el pago
+    const phRes = await safeQuery<any[]>(
+      supabase.from("site_content").select("key, section_key, value").like("key", "inv_payhistory_%")
+    );
+    const affectedKeys: string[] = [];
+    let remainingHistory: any[] | null = null;
+    let invoiceId = "";
+    (phRes?.data || []).forEach((row: any) => {
+      const k = row.key || row.section_key;
+      if (!k || !k.startsWith("inv_payhistory_")) return;
+      let raw: any = row.value;
+      if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+      if (!Array.isArray(raw)) return;
+      const found = raw.some((r: any) => r && r.id === paymentId);
+      if (found) {
+        affectedKeys.push(k);
+        const invKey = k.replace("inv_payhistory_", "");
+        if (!invoiceId) invoiceId = invKey;
+        remainingHistory = raw.filter((r: any) => r && r.id !== paymentId);
+      }
+    });
+    if (affectedKeys.length === 0) {
+      return { ok: false, reason: "not_found" };
+    }
+
+    // 2. Recuperar la factura real (por id o por work_order_id del sufijo de la clave)
+    let invoice: any = null;
+    if (invoiceId) {
+      const byId = await supabase.from("invoices").select("*").eq("id", invoiceId).maybeSingle();
+      invoice = byId.data || null;
+      if (!invoice) {
+        const byWo = await supabase.from("invoices").select("*").eq("work_order_id", invoiceId).maybeSingle();
+        invoice = byWo.data || null;
+      }
+    }
+
+    // 3. Recalcular el estado de la factura sin ese abono
+    if (invoice) {
+      const hist = Array.isArray(remainingHistory) ? remainingHistory : [];
+      const totalDue = Number(invoice.grand_total) || 0;
+      const prevPaid = hist.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+      const balance = Math.max(0, totalDue - prevPaid);
+      const isFullyPaid = balance <= 0.01;
+      const updated: any = {
+        ...invoice,
+        payment_status: isFullyPaid ? "pagado" : "pendiente",
+        payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
+        credit_amount: isFullyPaid ? 0 : balance,
+        payment_history: hist.length > 0 ? hist : undefined,
+        paid_at: hist.length > 0 ? ((hist[hist.length - 1] as any)?.date || invoice.paid_at) : null,
+      };
+      await saveSupabaseInvoice(updated as Invoice);
+    }
+
+    // 4. Reescribir snapshots con el historial restante (o borrar si quedó vacío)
+    for (const k of affectedKeys) {
+      const arr = Array.isArray(remainingHistory) ? remainingHistory : [];
+      if (arr.length > 0) {
+        await saveSupabaseSiteContent(k, arr, "invoices", false);
+      } else {
+        await supabase.from("site_content").delete().eq("key", k);
+      }
+    }
+
+    broadcastRealtimeChange("payment_deleted");
+    emitCloudSavedToast("Abono eliminado de la Tabla Maestra ✓");
+    return { ok: true };
+  } catch (err) {
+    console.warn("deleteSupabasePaymentRecord deferred:", err);
+    return { ok: false, reason: "error" };
+  }
+}
+
+// ---------------------------------------------------------------------
 // VEHICLES SUPABASE SYNC
 // ---------------------------------------------------------------------
 export async function saveSupabaseVehicle(v: Vehicle) {
@@ -963,6 +1045,29 @@ export interface MasterTablePageResult {
   total: number;
   vehicles: Vehicle[];
   invoices: Invoice[];
+  /** Abonos (pagos parciales con su propio comprobante) del rango consultado: cada uno
+   *  con fecha propia, placa, monto y método, para mostrarlos como registros en la
+   *  Tabla Maestra (fuente única con el reporte diario: inv_payhistory_*). */
+  abonos?: MasterAbonoRow[];
+}
+
+/** Fila de ABONO en la Tabla Maestra: un pago parcial recibido en la fecha indicada
+ *  contra una factura (que puede ser de un día anterior). Al borrarlo desde la Tabla
+ *  Maestra se elimina del reporte diario (misma fuente: inv_payhistory_*). */
+export interface MasterAbonoRow {
+  /** id del PaymentRecord (rec.id) */
+  id: string;
+  /** Fecha del abono (ISO, hora Perú) */
+  date: string;
+  amount: number;
+  method: string;
+  destination: string;
+  receipt_number: string;
+  receipt_type: string;
+  invoice_id: string;
+  work_order_id: string;
+  vehicle_plate: string;
+  client_name: string;
 }
 
 function formatWorkOrderTableRow(o: any): WorkOrder {
@@ -1207,7 +1312,99 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
       }
     }
 
-    return { rows, total, vehicles, invoices };
+    // 6. ABONOS del rango (pagos parciales con fecha propia): se consultan desde los
+    // snapshots inv_payhistory_* (la MISMA fuente que usa el reporte diario) para que
+    // cada abono aparezca como registro propio en la Tabla Maestra con su fecha,
+    // comprobante y monto. Solo se muestran abonos cuya factura EXISTE (fuente única:
+    // si la factura/OT se borró, su abono ya no es un ingreso real y no se lista).
+    let abonos: MasterAbonoRow[] = [];
+    try {
+      const phRes = await safeQuery<any[]>(
+        supabase.from("site_content").select("key, section_key, value").like("key", "inv_payhistory_%")
+      );
+      const allRecs: { rec: any; invKey: string }[] = [];
+      const seenRec = new Set<string>();
+      (phRes?.data || []).forEach((row: any) => {
+        const k = row.key || row.section_key;
+        if (!k || !k.startsWith("inv_payhistory_")) return;
+        const invKey = k.replace("inv_payhistory_", "");
+        let raw: any = row.value;
+        if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+        if (!Array.isArray(raw)) return;
+        raw.forEach((rec: any) => {
+          if (rec && rec.id && !seenRec.has(rec.id)) {
+            seenRec.add(rec.id);
+            allRecs.push({ rec, invKey });
+          }
+        });
+      });
+
+      // Filtrar por fecha del ABONO segun el filtro activo (dia PERUANO)
+      const dateInRange = (d: string) => {
+        const key = toPeruDateKey(d);
+        if ((timeFilter === "hoy" || timeFilter === "fecha") && queryDate) return key === queryDate;
+        if (timeFilter === "rango") {
+          if (startDate && key < startDate) return false;
+          if (endDate && key > endDate) return false;
+          return true;
+        }
+        return true; // "todos"
+      };
+      const dayRecs = allRecs.filter(({ rec }) => dateInRange(rec.date));
+
+      // Enriquecer con la factura (placa, cliente) por id o work_order_id del sufijo
+      const invKeys = Array.from(new Set(dayRecs.map(({ invKey }) => invKey)));
+      const invLookup = new Map<string, any>();
+      if (invKeys.length > 0) {
+        for (let i = 0; i < invKeys.length; i += 60) {
+          const chunk = invKeys.slice(i, i + 60);
+          const listParam = chunk.map((k) => '"' + k + '"').join(",");
+          const invRes = await supabase
+            .from("invoices")
+            .select("*")
+            .or('id.in.(' + listParam + '),work_order_id.in.(' + listParam + ')');
+          (invRes.data || []).forEach((inv: any) => {
+            if (inv.id) invLookup.set(inv.id, inv);
+            if (inv.work_order_id) invLookup.set(inv.work_order_id, inv);
+          });
+        }
+      }
+
+      abonos = dayRecs
+        .map(({ rec, invKey }): MasterAbonoRow | null => {
+          const inv = invLookup.get(invKey);
+          if (!inv || !inv.id) return null; // huerfano: no mostrar
+          const amt = Number(rec.amount) || 0;
+          if (amt <= 0) return null;
+          return {
+            id: rec.id,
+            date: rec.date || "",
+            amount: amt,
+            method: cleanMethodDisplay(rec.method, amt) || rec.method || "Efectivo",
+            destination: rec.destination || inv.payment_destination || "EMPRESA",
+            receipt_number: rec.receipt_number ? String(rec.receipt_number) : "",
+            receipt_type: rec.receipt_type || inv.receipt_type || "",
+            invoice_id: inv.id,
+            work_order_id: inv.work_order_id || "",
+            vehicle_plate: (inv.vehicle_plate || "").toUpperCase(),
+            client_name: inv.client_name || "",
+          };
+        })
+        .filter((a): a is MasterAbonoRow => Boolean(a))
+        .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+      // Si hay busqueda activa, filtrar abonos por placa/cliente/comprobante
+      if (cleanTerm && cleanTerm.length >= 3) {
+        abonos = abonos.filter((ab) => {
+          const hay = [ab.vehicle_plate, ab.client_name, ab.receipt_number].join(" ").toUpperCase();
+          return hay.includes(cleanTerm);
+        });
+      }
+    } catch (err) {
+      console.warn("Master table abonos fetch warning:", err);
+    }
+
+    return { rows, total, vehicles, invoices, abonos };
   } catch (err) {
     console.warn("Master table page fetch warning:", err);
     return null;

@@ -50,7 +50,7 @@ import {
   Lock,
   AtSign
 } from "lucide-react";
-import { fetchMasterTablePage, saveSupabaseSiteContent, saveSupabaseWorkOrder, saveSupabaseInvoice } from "@/lib/supabase/services";
+import { fetchMasterTablePage, saveSupabaseSiteContent, saveSupabaseWorkOrder, saveSupabaseInvoice, deleteSupabasePaymentRecord, MasterAbonoRow } from "@/lib/supabase/services";
 
 const ALL_ERP_STATIONS = [
   { id: "/dashboard/porteria", label: "1. Portería" },
@@ -138,6 +138,7 @@ export default function AdminTablesPage() {
   const [masterTotal, setMasterTotal] = useState(0);
   const [masterVehicles, setMasterVehicles] = useState<typeof vehicles>([]);
   const [masterInvoices, setMasterInvoices] = useState<typeof invoices>([]);
+  const [masterAbonos, setMasterAbonos] = useState<MasterAbonoRow[]>([]);
   const [masterLoading, setMasterLoading] = useState(true);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
@@ -170,6 +171,7 @@ export default function AdminTablesPage() {
         setMasterTotal(res.total);
         setMasterVehicles(res.vehicles);
         setMasterInvoices(res.invoices);
+        setMasterAbonos(res.abonos || []);
       }
       setMasterLoading(false);
     }, 120);
@@ -218,7 +220,7 @@ export default function AdminTablesPage() {
     isOpen: boolean;
     title: string;
     description: string;
-    actionType: "single" | "bulk" | "clearAll";
+    actionType: "single" | "bulk" | "clearAll" | "abono";
     targetId?: string;
   }>({
     isOpen: false,
@@ -1024,6 +1026,18 @@ export default function AdminTablesPage() {
     });
   };
 
+  // Eliminar UN ABONO (pago parcial) desde la Tabla Maestra: quita el registro del
+  // reporte diario y recalcula el saldo de la factura original (la OT se mantiene).
+  const triggerDeleteAbono = (abono: MasterAbonoRow) => {
+    setModalConfig({
+      isOpen: true,
+      title: "Confirmar Eliminación de ABONO",
+      description: "¿Está seguro de eliminar el abono de S/ " + abono.amount.toFixed(2) + " (" + (abono.receipt_number || "s/n") + ") de la placa " + abono.vehicle_plate + " con fecha " + formatPeruDate(abono.date) + "? Se quitará del reporte diario y la factura original recalculará su saldo. Esta acción no se puede deshacer.",
+      actionType: "abono",
+      targetId: abono.id,
+    });
+  };
+
   const triggerDeleteBulk = () => {
     if (selectedIds.length === 0) return;
     setModalConfig({
@@ -1052,6 +1066,14 @@ export default function AdminTablesPage() {
       deleteMultipleWorkOrders(selectedIds);
       notify("success", `Se eliminaron ${selectedIds.length} filas seleccionadas.`);
       setSelectedIds([]);
+    } else if (modalConfig.actionType === "abono" && modalConfig.targetId) {
+      deleteSupabasePaymentRecord(modalConfig.targetId).then((res) => {
+        if (res?.ok) {
+          notify("success", "Abono eliminado de la Tabla Maestra y del reporte diario.");
+        } else {
+          notify("error", "No se pudo eliminar el abono.");
+        }
+      });
     } else if (modalConfig.actionType === "clearAll") {
       clearAllWorkOrders();
       notify("warning", "Base de datos de la Tabla Maestra vaciada por completo.");
@@ -1510,6 +1532,66 @@ export default function AdminTablesPage() {
               </tbody>
             </table>
           </div>
+
+          {/* ABONOS DEL RANGO: pagos parciales con su propio comprobante/fecha.
+              Fuente única con el reporte diario (inv_payhistory_*): al eliminarlos
+              desde aquí desaparecen del informe del día y la factura recalcula su saldo. */}
+          {masterAbonos.length > 0 && (
+            <div className="mt-6 rounded-xl border border-cyan-500/30 overflow-hidden">
+              <div className="bg-cyan-950/40 px-4 py-3 border-b border-cyan-500/20 flex items-center justify-between">
+                <h3 className="text-sm font-black text-cyan-300 uppercase tracking-wider flex items-center gap-2">
+                  <Receipt className="w-4 h-4" />
+                  Abonos / Pagos Parciales del Rango ({masterAbonos.length})
+                </h3>
+                <p className="text-[11px] text-gray-400">
+                  Se muestran con su fecha propia (pueden diferir de la OT original). Al eliminarlos se quitan del reporte diario.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-gray-300 whitespace-nowrap">
+                  <thead className="bg-reygas-dark text-[11px] uppercase tracking-wider text-gray-400 border-b border-white/10">
+                    <tr>
+                      <th className="p-3">Fecha</th>
+                      <th className="p-3 font-black text-white">PLACA</th>
+                      <th className="p-3">Cliente</th>
+                      <th className="p-3">N° comprobante</th>
+                      <th className="p-3">Tipo</th>
+                      <th className="p-3">Método</th>
+                      <th className="p-3">Destino</th>
+                      <th className="p-3">Monto</th>
+                      <th className="p-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 bg-black/20">
+                    {masterAbonos.map((ab) => (
+                      <tr key={ab.id} className="bg-cyan-950/20 hover:bg-cyan-900/30 transition-colors">
+                        <td className="p-3 font-mono text-purple-300">
+                          {formatPeruDate(ab.date)}
+                          {ab.date.includes("T") && <div className="text-[10px] text-cyan-300 font-semibold">{ab.date.slice(11, 16)} hrs</div>}
+                        </td>
+                        <td className="p-3 font-mono font-black text-white bg-reygas-surface/60 px-2 py-1 rounded border border-white/10">{ab.vehicle_plate}</td>
+                        <td className="p-3 font-semibold text-white">{ab.client_name || ""}</td>
+                        <td className="p-3 font-mono text-white">{ab.receipt_number}</td>
+                        <td className="p-3 text-cyan-300 font-bold">{ab.receipt_type || "Ticket"}</td>
+                        <td className="p-3 text-emerald-300 font-bold">{ab.method}</td>
+                        <td className="p-3 text-purple-300">{ab.destination}</td>
+                        <td className="p-3 font-mono font-bold text-white">S/ {ab.amount.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          <button
+                            onClick={() => triggerDeleteAbono(ab)}
+                            className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors"
+                            title="Eliminar este abono"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Pagination Navigation */}
           {filteredOrders.length > 0 && (
