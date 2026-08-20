@@ -374,7 +374,7 @@ export default function WorkshopOperationsPage() {
     { status: "en_diagnostico", label: "2. Diagnóstico", color: "bg-purple-500" },
     { status: "esperando_repuestos", label: "3. Repuestos", color: "bg-amber-500" },
     { status: "en_servicio", label: "4. En Servicio", color: "bg-teal-500" },
-    { status: "por_cobrar", label: "5. Por Cobrar", color: "bg-emerald-500" },
+    { status: "por_cobrar", label: "5. Enviar a Cobrar", color: "bg-emerald-500" },
   ];
 
   const handleOpenDiagnostic = (orderId: string, currentNotes?: string, currentObservations?: string, currentQuinquennial?: string, currentChip?: string) => {
@@ -1367,14 +1367,22 @@ export default function WorkshopOperationsPage() {
                                   key={step.status}
                                   disabled={isLocked}
                                   onClick={() => {
-                                    // NO permitir pasar a POR COBRAR (o estados finales) si hay
+                                    // NO permitir pasar a COBRAR (o estados finales) si hay
                                     // repuestos solicitados SIN LIBERAR por Almacén (despacho pendiente).
                                     const target = step.status;
                                     const isFinishing = target === "por_cobrar" || target === "pendiente_pago" || target === "pagado_autorizado" || target === "finalizado";
                                     const pendingParts = (wo.items || []).some((it: any) => it.item_type === "repuesto" && it.dispatched !== true);
                                     if (isFinishing && pendingParts) {
-                                      notify("warning", `⚠️ ${wo.vehicle_plate} tiene repuestos pendientes de liberación en Almacén. Espera la confirmación de entrega del material antes de pasar a Por Cobrar.`);
+                                      notify("warning", `⚠️ ${wo.vehicle_plate} tiene repuestos pendientes de liberación en Almacén. Espera la confirmación de entrega del material antes de enviar a cobrar.`);
                                       return;
+                                    }
+                                    // FLUJO COBRO: "Enviar a Cobrar" requiere CONFIRMACIÓN explícita:
+                                    // solo al aceptar, la card aparece en Caja (evita que Caja cobre
+                                    // una OT que aún se está editando en Taller).
+                                    if (target === "por_cobrar") {
+                                      if (!window.confirm(`¿Enviar a cobrar ${wo.vehicle_plate}? La card aparecerá en Caja para el cobro.`)) {
+                                        return;
+                                      }
                                     }
                                     updateWorkOrderStatus(wo.id, step.status);
                                   }}

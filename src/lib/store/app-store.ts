@@ -2325,9 +2325,18 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => {
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
+          const nextAllow = !o.allow_modifications;
           const updated = {
             ...o,
-            allow_modifications: !o.allow_modifications,
+            allow_modifications: nextAllow,
+            // FLUJO COBRO (card de Caja): al HABILITAR edición en Taller desde Caja, la OT
+            // VUELVE a en_servicio (estado de taller) para que la card DESAPAREZCA de Caja
+            // hasta que Taller la envíe de nuevo a cobrar (evita cobrar datos a medio editar).
+            // Al deshabilitar (bloquear) NO se fuerza por_cobrar: la reaparición la decide
+            // Taller con "Enviar a Cobrar".
+            status: nextAllow && (o.status === "por_cobrar" || o.status === "pendiente_pago")
+              ? ("en_servicio" as WorkOrderStatus)
+              : o.status,
           };
           saveSupabaseWorkOrder(updated);
           return updated;

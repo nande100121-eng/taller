@@ -903,9 +903,13 @@ export default function CajaPage() {
       if (activeStatusFilter === "hoy") {
         // Del Día / Hoy: con actividad REAL en la fecha (ingreso, emisión o pago del
         // historial). NO se usa paid_at: fue sobrescrito en bloque en muchas facturas.
+        // FLUJO COBRO: se EXCLUYEN las OTs que siguen en Taller (en_servicio/diagnóstico/
+        // repuestos) y NO fueron enviadas a cobrar: su card no debe aparecer en Caja
+        // hasta que Taller pulse "Enviar a Cobrar" (evita cobrar una OT a medio editar).
         const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
         const invoiceDateStr = inv?.issued_at ? toPeruDateKey(inv.issued_at) : "";
-        matchStatus = orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate);
+        const inWorkshopNotSent = isInWorkshopNotCredit(wo, inv);
+        matchStatus = !inWorkshopNotSent && (orderDateStr === targetDate || invoiceDateStr === targetDate || hasPaymentOnDate(inv, targetDate));
       } else if (activeStatusFilter === "pendientesHoy") {
         // Pendientes del día / hoy: sin pagar y con fecha de REGISTRO (ingreso al taller) = hoy.
         // Las órdenes registradas en días anteriores (aunque se facturen hoy) NO entran aquí.
@@ -3411,13 +3415,15 @@ export default function CajaPage() {
                               <button
                                 onClick={() => {
                                   toggleAllowModificationsInWorkshop(wo.id);
-                                  notify("success", !allowModInWorkshop ? "🔓 Modificaciones habilitadas en Taller para " + wo.vehicle_plate + "." : "🔒 Modificaciones bloqueadas en Taller para " + wo.vehicle_plate + ".");
+                                  notify("success", !allowModInWorkshop
+                                    ? "🔓 Modificaciones habilitadas en Taller para " + wo.vehicle_plate + ". La card se ocultó de Caja hasta que Taller la envíe de nuevo a cobrar."
+                                    : "🔒 Modificaciones bloqueadas en Taller para " + wo.vehicle_plate + ".");
                                 }}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border cursor-pointer ${allowModInWorkshop
                                   ? "bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30"
                                   : "bg-gray-800 text-gray-400 border-white/10 hover:text-white hover:bg-gray-700"
                                   }`}
-                                title="Habilitar/deshabilitar la edición de esta orden en el Taller (las modificaciones se reflejan en esta card)"
+                                title="Enviar la orden de vuelta al Taller para modificar (la card se oculta de Caja). Al terminar, Taller debe pulsar 'Enviar a Cobrar' para que aparezca de nuevo aquí con los cambios."
                               >
                                 {allowModInWorkshop ? (
                                   <>
