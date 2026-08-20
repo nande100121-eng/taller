@@ -63,11 +63,12 @@ import { WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lookup";
 // completo como máximo cada 30 segundos.
 let lastFullSyncAt = 0;
 const FULL_SYNC_MIN_INTERVAL = 30000;
-// Sync operativo LIGERO (solo workOrders/invoices/vehicles) con throttle corto:
-// alimenta el realtime entre pestañas (BroadcastChannel nativo) SIN descargar
-// catálogos completos cada vez. El sync completo de 30s queda para el arranque.
+// Sync operativo LIGERO (solo workOrders/invoices/vehicles) con throttle:
+// alimenta el realtime entre pestañas SIN descargar catálogos completos cada vez.
+// 5s: balance entre frescura y no saturar la red (antes 2s con 5 pestañas abiertas
+// generaba decenas de syncs por segundo y Almacén/Taller tardaban en responder).
 let lastOperationalSyncAt = 0;
-const OPERATIONAL_SYNC_MIN_INTERVAL = 2000;
+const OPERATIONAL_SYNC_MIN_INTERVAL = 5000;
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -2180,6 +2181,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             quantity,
             unit_price,
             subtotal,
+            // Timestamp de edición: el merge en saveSupabaseWorkOrder usa updated_at
+            // para que la cantidad más reciente gane sobre la versión obsoleta de otra
+            // pestaña (bug BAG-123: Taller pone 4, Almacén guardaba 3 y pisaba).
+            updated_at: new Date().toISOString(),
           };
         });
         const updatedOrder = { ...o, items: updatedItems };
@@ -2215,7 +2220,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         }
         const updatedItems = o.items.map((i) =>
           i.id === itemId
-            ? { ...i, dispatched: true, dispatched_at: new Date().toISOString() }
+            ? { ...i, dispatched: true, dispatched_at: new Date().toISOString(), updated_at: new Date().toISOString() }
             : i
         );
         const updatedOrder = { ...o, items: updatedItems };
@@ -2238,6 +2243,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               ...i,
               dispatched: nextDispatched,
               dispatched_at: nextDispatched ? new Date().toISOString() : undefined,
+              updated_at: new Date().toISOString(),
             };
           }
           return i;

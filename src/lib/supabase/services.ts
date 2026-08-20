@@ -443,6 +443,62 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     // wo_mod_<id>). Incluirla hacía FALLAR el upsert principal (PGRST204) y el fallback
     // que se usaba después NO guardaba quinquennial_date/chip_expiry_date -> las fechas
     // de Infogas no persistían en la nube. Por eso se retiró del payload.
+
+    // MERGE DEFENSIVO DE ITEMS (bug BAG-123: Taller y Almacén guardan la misma OT con
+    // versiones distintas y se pisan: cantidad 3->2->4->3, despacho que se desactiva).
+    // Regla: NUNCA revertir un despacho confirmado (dispatched:true) y, para cantidad/
+    // precio, gana el item con updated_at MÁS RECIENTE (comparado contra la DB actual).
+    try {
+      const dbRes = await supabase.from("work_orders").select("items").eq("id", order.id).maybeSingle();
+      const dbRaw = dbRes?.data?.items;
+      if (dbRaw) {
+        let dbItems: any[] = [];
+        try { dbItems = typeof dbRaw === "string" ? JSON.parse(dbRaw) : dbRaw; } catch { dbItems = []; }
+        const localItems: any[] = Array.isArray(order.items) ? order.items : [];
+        if (localItems.length > 0 || dbItems.length > 0) {
+          const dbMap = new Map<string, any>();
+          const keyOf = (it: any) => it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+          dbItems.forEach((it: any) => { if (it) dbMap.set(keyOf(it), it); });
+          const mergedItems = localItems.map((it: any) => {
+            const k = keyOf(it);
+            const dbIt = dbMap.get(k);
+            if (!dbIt) return it; // item nuevo: se guarda tal cual
+            const t = (x: any) => new Date(x?.updated_at || 0).getTime();
+            const localNewer = t(it) >= t(dbIt);
+            // Cantidad/precio/subtotal: gana el más reciente
+            const qty = localNewer ? it.quantity : dbIt.quantity;
+            const unitPrice = localNewer ? it.unit_price : dbIt.unit_price;
+            const subtotal = Number(((qty ?? 0) * (unitPrice ?? 0)).toFixed(2));
+            // Despacho: NUNCA revertir true->false (un item entregado en Almacén no
+            // debe desactivarse porque otra pestaña guardó una versión sin despachar).
+            const dispatched = !!(dbIt.dispatched === true || it.dispatched === true);
+            const dispatchedAt = it.dispatched_at || dbIt.dispatched_at || undefined;
+            return {
+              ...dbIt,
+              ...it,
+              quantity: qty,
+              unit_price: unitPrice,
+              subtotal,
+              dispatched,
+              dispatched_at: dispatched ? dispatchedAt : undefined,
+              updated_at: localNewer ? it.updated_at : dbIt.updated_at,
+            };
+          });
+          // Conservar items que existen en DB pero no en la versión local (evita que una
+          // pestaña con cache viejo "borre" repuestos pedidos por otra).
+          localItems.forEach((it: any) => dbMap.delete(keyOf(it)));
+          const preserved = Array.from(dbMap.values()).filter((dbIt: any) =>
+            !mergedItems.some((m: any) => keyOf(m) === keyOf(dbIt))
+          );
+          const finalItems = [...mergedItems, ...preserved];
+          payload.items = JSON.stringify(finalItems);
+          (order as any).items = finalItems;
+        }
+      }
+    } catch (e) {
+      console.warn("saveSupabaseWorkOrder merge warning:", e);
+    }
+
     const { error } = await supabase.from("work_orders").upsert(payload);
     if (error) {
       console.warn("Supabase work order upsert notice, trying core columns fallback:", error.message);
@@ -478,12 +534,18 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     }, "work_orders", false);
 
     broadcastRealtimeChange("work_order_updated");
+    const logItems = (Array.isArray(order.items) ? order.items : []).map((it: any) => ({
+      d: String(it.description || "").slice(0, 18),
+      q: it.quantity,
+      disp: it.dispatched ? 1 : 0,
+    }));
     logSystemEvent("info", "workorder.save.ok", {
       woId: String(order.id || "").slice(0, 8),
       status: order.status || "",
       plate: order.vehicle_plate || "",
       itemCount: Array.isArray(order.items) ? order.items.length : 0,
       total: (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0),
+      items: logItems.slice(0, 8),
     });
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
@@ -1872,6 +1934,12 @@ export async function saveSupabaseBulkScheduleRecords(
 // (fetchSupabaseConsultasRealtime / fetchSupabaseDayReport) sin descargar todo.
 // Si el tope falla, se hace fallback a la carga completa (nunca dejar sin datos).
 // ============================================================================
+// Cache de 15s para los snapshots de historial (inv_payhistory_*/inv_full_*) en el sync
+// operativo: evita consultar ~44 lotes de site_content en CADA sync (2s) con varias
+// pestañas abiertas (eso saturaba la red y Almacén/Taller tardaban en actualizarse).
+let cappedHistoryCache: { at: number; pay: Map<string, any[]>; full: Map<string, any> } | null = null;
+const CAPPED_HISTORY_TTL = 15000;
+
 export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
   try {
     // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
@@ -1987,34 +2055,42 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
     });
     const histKeys = Array.from(cappedInvoiceKeys);
     if (histKeys.length > 0) {
-      const payHistMap = new Map<string, any[]>();
-      const invFullMapCapped = new Map<string, any>();
-      // Snapshots por LOTES de 100 keys (postgREST limita el IN)
-      await Promise.all(
-        Array.from({ length: Math.ceil(histKeys.length / 100) }, (_, bi) => {
-          const chunk = histKeys.slice(bi * 100, bi * 100 + 100);
-          if (chunk.length === 0) return Promise.resolve();
-          return safeQuery<any[]>(
-            supabase.from("site_content").select("key, value").in("key", [
-              ...chunk.map((k) => `inv_payhistory_${k}`),
-              ...chunk.map((k) => `inv_full_${k}`),
-            ])
-          ).then((res) => {
-            (res?.data || []).forEach((row: any) => {
-              const k = row.key || row.section_key || "";
-              let val: any = row.value !== undefined ? row.value : row.content;
-              if (typeof val === "string") { try { val = JSON.parse(val); } catch { val = undefined; } }
-              if (k.startsWith("inv_payhistory_")) {
-                const id = k.replace("inv_payhistory_", "");
-                if (Array.isArray(val)) payHistMap.set(id, val);
-              } else if (k.startsWith("inv_full_")) {
-                const id = k.replace("inv_full_", "");
-                if (val && typeof val === "object") invFullMapCapped.set(id, val);
-              }
+      // Cache de 15s: si otra pestaña/sync ya cargó los snapshots hace poco, reutilizarlos
+      // (el historial cambia poco en segundos; el sync completo de 30s refresca el resto).
+      const nowCache = Date.now();
+      if (!cappedHistoryCache || nowCache - cappedHistoryCache.at > CAPPED_HISTORY_TTL) {
+        const payHistMap = new Map<string, any[]>();
+        const invFullMapCapped = new Map<string, any>();
+        // Snapshots por LOTES de 100 keys (postgREST limita el IN)
+        await Promise.all(
+          Array.from({ length: Math.ceil(histKeys.length / 100) }, (_, bi) => {
+            const chunk = histKeys.slice(bi * 100, bi * 100 + 100);
+            if (chunk.length === 0) return Promise.resolve();
+            return safeQuery<any[]>(
+              supabase.from("site_content").select("key, value").in("key", [
+                ...chunk.map((k) => `inv_payhistory_${k}`),
+                ...chunk.map((k) => `inv_full_${k}`),
+              ])
+            ).then((res) => {
+              (res?.data || []).forEach((row: any) => {
+                const k = row.key || row.section_key || "";
+                let val: any = row.value !== undefined ? row.value : row.content;
+                if (typeof val === "string") { try { val = JSON.parse(val); } catch { val = undefined; } }
+                if (k.startsWith("inv_payhistory_")) {
+                  const id = k.replace("inv_payhistory_", "");
+                  if (Array.isArray(val)) payHistMap.set(id, val);
+                } else if (k.startsWith("inv_full_")) {
+                  const id = k.replace("inv_full_", "");
+                  if (val && typeof val === "object") invFullMapCapped.set(id, val);
+                }
+              });
             });
-          });
-        })
-      );
+          })
+        );
+        cappedHistoryCache = { at: nowCache, pay: payHistMap, full: invFullMapCapped };
+      }
+      const payHistMap = cappedHistoryCache.pay;
+      const invFullMapCapped = cappedHistoryCache.full;
       // Fusionar historial en cada factura (fuente: inv.payment_history -> inv_full -> inv_payhistory)
       cappedInvoices.forEach((inv: any, idx: number) => {
         const k = inv?.id || inv?.work_order_id;
