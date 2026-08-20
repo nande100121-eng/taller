@@ -1881,6 +1881,27 @@ async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoic
     );
     const workOrders = Array.from(woMap.values());
 
+    // 3b. FIX (cards del día sin historial): la ventana de FACTURAS PAGADAS RECIENTES
+    // (1000 por paid_at) deja FUERA pagos de días anteriores (ej. re-ingreso 17/08 con
+    // 23k facturas pagadas después) -> la card de Caja mostraba la OT pero SIN su factura
+    // ni historial de pago. Se cargan TAMBIÉN las facturas de las OTs de la ventana
+    // reciente (por work_order_id), así toda card visible tiene su factura + historial.
+    const recentWoIds = Array.from(woMap.keys());
+    if (recentWoIds.length > 0) {
+      await Promise.all(
+        Array.from({ length: Math.ceil(recentWoIds.length / 100) }, (_, i) => {
+          const chunk = recentWoIds.slice(i * 100, i * 100 + 100);
+          if (chunk.length === 0) return Promise.resolve();
+          return safeQuery<any[]>(supabase.from("invoices").select("*").in("work_order_id", chunk)).then((res) => {
+            (res?.data || []).forEach((inv: any) => {
+              const k = inv?.work_order_id || inv?.id;
+              if (k && !invMap.has(k)) invMap.set(k, inv);
+            });
+          });
+        })
+      );
+    }
+
     // Si el tope devolvió vacío (algo raro), caer a la carga completa
     if (workOrders.length === 0 && invMap.size === 0) {
       return {
