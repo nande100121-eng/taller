@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
 import { Toast } from "@/components/ui/toast";
 import { useAppStore } from "@/lib/store/app-store";
+import { initGlobalErrorLogger, logSystemEvent } from "@/lib/system-log";
 import {
   Globe,
   ShieldAlert,
@@ -34,6 +35,18 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const { currentUser, userRole, logout, isVisualEditing, toggleVisualEditing } = useAppStore();
+
+  // Log interno de procesos: captura errores globales y registra la sesión/build
+  // (NUNCA visible en la interfaz; se consulta directo en Supabase syslog_*).
+  React.useEffect(() => {
+    initGlobalErrorLogger();
+    logSystemEvent("info", "app.load", {
+      path: pathname,
+      user: (currentUser as any)?.username || (currentUser as any)?.name || "",
+      role: userRole || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // En TABLET (<1280px) el panel izquierdo nace SIEMPRE COLAPSADO (también al
   // recargar la web) para dejar el mayor espacio al contenido.

@@ -3,6 +3,7 @@ import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
+import { logSystemEvent } from "@/lib/system-log";
 import { toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 
 // Unique browser session ID to prevent self-broadcast reload loops
@@ -2644,6 +2645,17 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     // en la tabla invoices (generaban filas duplicadas/fantasmas en la base: AFT-598 tenía
     // 3 facturas para la misma OT, y había 64 filas fantasma en total).
     if (inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`) {
+      // LOG INTERNO: este descarte en silencio es la causa raíz de OT pagada sin
+      // factura real: el store local reconstruye una factura fantasma y el flujo de
+      // pago la "guarda" aquí sin persistir nada en Supabase.
+      logSystemEvent("warn", "invoice.fantasma.descartada", {
+        invId: String(inv.id).slice(0, 26),
+        woId: String(inv.work_order_id).slice(0, 8),
+        plate: inv.vehicle_plate || "",
+        receipt: inv.receipt_number || "",
+        total: inv.grand_total,
+        status: inv.payment_status || "",
+      });
       return;
     }
     // BUG FIX (AFT-598): un work_order_id INVÁLIDO ("x" o 1-2 caracteres, p. ej. desde
@@ -2675,6 +2687,16 @@ export async function saveSupabaseInvoice(inv: Invoice) {
     // en OTRA factura (fuente de verdad = Supabase, no el store local), se notifica
     // por toast y se reasigna automáticamente al siguiente número libre de la serie
     // para que NUNCA haya dos facturas con el mismo ticket/boleta/factura.
+    logSystemEvent("info", "invoice.save.start", {
+      invId: String(inv.id).slice(0, 26),
+      woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+      plate: inv.vehicle_plate || "",
+      receipt: inv.receipt_number || "",
+      type: inv.receipt_type || "",
+      total: inv.grand_total,
+      status: inv.payment_status || "",
+      isPhantom: !!(inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`),
+    });
     if (inv.receipt_number && String(inv.receipt_number).trim()) {
       const invType: "Ticket" | "Boleta" | "Factura" =
         inv.receipt_type === "Factura" || inv.receipt_type === "Boleta"
@@ -2684,6 +2706,13 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       if (resolved.collision) {
         const oldNum = String(inv.receipt_number);
         const newNum = resolved.number;
+        logSystemEvent("warn", "invoice.correlativo.duplicado", {
+          invId: String(inv.id).slice(0, 26),
+          woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+          oldNum,
+          newNum,
+          type: invType,
+        });
         emitCloudSavedToast(
           `⚠️ El correlativo ${oldNum} ya existe en otra factura. Se asignó ${newNum} para evitar duplicado.`,
           "warning"
@@ -2731,6 +2760,12 @@ export async function saveSupabaseInvoice(inv: Invoice) {
 
     const { error } = await supabase.from("invoices").upsert(payload);
     if (error) {
+      logSystemEvent("error", "invoice.save.upsert_error", {
+        invId: String(inv.id).slice(0, 26),
+        woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+        receipt: inv.receipt_number || "",
+        error: error.message,
+      });
       console.warn("Supabase invoice upsert notice, trying core columns fallback:", error.message);
       await supabase.from("invoices").upsert({
         id: inv.id,
@@ -2777,8 +2812,20 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       }
     }
     broadcastRealtimeChange("invoice_updated");
+    logSystemEvent("info", "invoice.save.ok", {
+      invId: String(inv.id).slice(0, 26),
+      woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+      receipt: inv.receipt_number || "",
+      type: inv.receipt_type || "",
+      total: inv.grand_total,
+      hasHistory: Array.isArray(inv.payment_history) ? inv.payment_history.length : 0,
+    });
     emitCloudSavedToast("Comprobante guardado en la nube ✓");
   } catch (err) {
+    logSystemEvent("error", "invoice.save.exception", {
+      invId: inv.id ? String(inv.id).slice(0, 26) : null,
+      err: err instanceof Error ? err.message : String(err),
+    });
     console.warn("Supabase invoice deferred:", err);
   }
 }

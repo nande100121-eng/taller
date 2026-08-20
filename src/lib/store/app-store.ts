@@ -42,6 +42,7 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
+import { logSystemEvent } from "@/lib/system-log";
 
 // Ahora (fecha/hora actual) ANCLADA a Perú (-05:00): las fechas de pago/emisión
 // NUNCA deben guardarse en UTC (un pago a las 22:00 Perú quedaría al día siguiente
@@ -1765,6 +1766,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       if (isPaidStatus) {
         const targetOrder = state.workOrders.find((o) => o.id === id);
         const hasInvoice = invoices.some((i) => i.work_order_id === id);
+        logSystemEvent("info", "workorder.to_paid", {
+          woId: String(id).slice(0, 8),
+          status,
+          hasInvoice,
+          hasItems: !!(targetOrder && targetOrder.items && targetOrder.items.length > 0),
+          itemCount: targetOrder?.items?.length || 0,
+          itemsTotal: (targetOrder?.items || []).reduce((s, it) => s + (Number(it.subtotal) || 0), 0),
+          isPhantomOnly: hasInvoice ? invoices.some((i) => i.work_order_id === id && i.id === `inv-${id}`) : false,
+        });
         if (targetOrder && !hasInvoice && targetOrder.items && targetOrder.items.length > 0) {
           const partsTotal = targetOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = targetOrder.requires_certification ? (Number(targetOrder.certification_price) || 0) : 0;
@@ -1806,7 +1816,27 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             };
             saveSupabaseInvoice(newInvoice);
             invoices = [...invoices, newInvoice];
+            logSystemEvent("info", "workorder.auto_invoice_created", {
+              woId: String(id).slice(0, 8),
+              invId: String(newInvoice.id).slice(0, 26),
+              receipt: newInvoice.receipt_number,
+              total: grandTotal,
+              paidAt: paidAtISO,
+            });
+          } else {
+            logSystemEvent("warn", "workorder.auto_invoice_skip_total_0", {
+              woId: String(id).slice(0, 8),
+              partsTotal,
+              certFee,
+              discount,
+              grandTotal,
+            });
           }
+        } else {
+          logSystemEvent("warn", "workorder.auto_invoice_skip_no_items", {
+            woId: String(id).slice(0, 8),
+            status,
+          });
         }
       }
       return { workOrders: updatedOrders, invoices };
@@ -1856,6 +1886,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         // sin factura y no mostraba historial ni aparecía en el reporte diario.
         const isPaidOrder = updatedOrder.status === "pagado_autorizado" || updatedOrder.status === "finalizado";
         const hasInvoice = invoices.some((i) => i.work_order_id === orderId);
+        logSystemEvent("info", "workorder.add_item.to_paid", {
+          woId: String(orderId).slice(0, 8),
+          isPaidOrder,
+          hasInvoice,
+        });
         if (isPaidOrder && !hasInvoice) {
           const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
@@ -1895,6 +1930,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             };
             saveSupabaseInvoice(newInvoice);
             invoices = [...invoices, newInvoice];
+            logSystemEvent("info", "workorder.add_item.invoice_created", {
+              woId: String(orderId).slice(0, 8),
+              invId: String(newInvoice.id).slice(0, 26),
+              receipt: newInvoice.receipt_number,
+              total: grandTotal,
+              paidAt: paidAtISO,
+            });
           }
         }
         return updatedOrder;
@@ -1932,6 +1974,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         // pago automáticamente (historial + ticket) para que aparezca en Caja y Reportes.
         const isPaidOrder = updatedOrder.status === "pagado_autorizado" || updatedOrder.status === "finalizado";
         const hasInvoice = invoices.some((i) => i.work_order_id === orderId);
+        logSystemEvent("info", "workorder.add_item.to_paid", {
+          woId: String(orderId).slice(0, 8),
+          isPaidOrder,
+          hasInvoice,
+        });
         if (isPaidOrder && !hasInvoice) {
           const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
@@ -1971,6 +2018,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             };
             saveSupabaseInvoice(newInvoice);
             invoices = [...invoices, newInvoice];
+            logSystemEvent("info", "workorder.add_item.invoice_created", {
+              woId: String(orderId).slice(0, 8),
+              invId: String(newInvoice.id).slice(0, 26),
+              receipt: newInvoice.receipt_number,
+              total: grandTotal,
+              paidAt: paidAtISO,
+            });
           }
         }
         return updatedOrder;
@@ -2641,6 +2695,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const nextPaidAt = isCurrentlyPaid ? undefined : nowPeruISO();
       const nextOrderStatus = isCurrentlyPaid ? ("por_cobrar" as WorkOrderStatus) : ("pagado_autorizado" as WorkOrderStatus);
 
+      logSystemEvent("info", "payment.toggle.start", {
+        orderId: orderId ? String(orderId).slice(0, 8) : null,
+        invoiceId: invoiceId ? String(invoiceId).slice(0, 26) : null,
+        wasPaid: isCurrentlyPaid,
+        foundInvoice: !!targetInvoice,
+        foundOrder: !!targetOrder,
+      });
+
       let updatedInvoices = [...state.invoices];
 
       if (targetInvoice) {
@@ -2673,6 +2735,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         };
         saveSupabaseInvoice(newInv);
         updatedInvoices.push(newInv);
+        logSystemEvent("info", "payment.toggle.created_invoice", {
+          woId: orderId ? String(orderId).slice(0, 8) : null,
+          invId: String(newInv.id).slice(0, 26),
+          total: newInv.grand_total,
+          partsTotal,
+          paid: nextPaymentStatus,
+        });
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -2685,6 +2754,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           return updatedOrder;
         }
         return o;
+      });
+
+      logSystemEvent("info", "payment.toggle.end", {
+        orderId: orderId ? String(orderId).slice(0, 8) : null,
+        invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
+        nextStatus: nextOrderStatus,
       });
 
       return {
@@ -2914,6 +2989,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       let updatedInvoices = [...state.invoices];
       let updatedCorrelativeConfig = state.correlativeConfig;
 
+      logSystemEvent("info", "payment.confirm.start", {
+        invoiceId: invoiceId ? String(invoiceId).slice(0, 26) : null,
+        workOrderId: workOrderId ? String(workOrderId).slice(0, 8) : null,
+        method: paymentMethod || "",
+        receipt: receiptNumber || "",
+        type: receiptType || "",
+        foundInvoice: !!targetInvoice,
+        foundOrder: !!targetOrder,
+        foundInvoiceIsPhantom: !!(targetInvoice && targetInvoice.id && targetInvoice.work_order_id && targetInvoice.id === `inv-${targetInvoice.work_order_id}`),
+      });
+
       if (targetInvoice) {
         const oldNum = targetInvoice.receipt_number;
         const oldType = targetInvoice.receipt_type;
@@ -3049,6 +3135,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         };
         saveSupabaseInvoice(newInvoice);
         updatedInvoices = [newInvoice, ...state.invoices];
+        logSystemEvent("info", "payment.confirm.created_invoice", {
+          woId: effectiveWorkOrderId ? String(effectiveWorkOrderId).slice(0, 8) : null,
+          invId: String(newInvoice.id).slice(0, 26),
+          receipt: newInvoice.receipt_number,
+          total: grandTotalNew,
+          partsTotal,
+        });
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -3058,6 +3151,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           return updated;
         }
         return o;
+      });
+
+      logSystemEvent("info", "payment.confirm.end", {
+        woId: effectiveWorkOrderId ? String(effectiveWorkOrderId).slice(0, 8) : null,
+        invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
+        updatedInvoiceCount: updatedInvoices.length,
       });
 
       return {
@@ -3277,6 +3376,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       // Pago completo: se usa para el estado de la orden (pagado_autorizado vs pendiente_pago)
       let isFullyPaid = false;
 
+      logSystemEvent("info", "payment.register.start", {
+        invoiceId: invoiceId ? String(invoiceId).slice(0, 26) : null,
+        workOrderId: workOrderId ? String(workOrderId).slice(0, 8) : null,
+        amount: payAmount,
+        method: methodStr,
+        receipt: recNum || "",
+        type: recType || "",
+        foundInvoice: !!targetInvoice,
+        foundOrder: !!targetOrder,
+        foundInvoiceIsPhantom: !!(targetInvoice && targetInvoice.id && targetInvoice.work_order_id && targetInvoice.id === `inv-${targetInvoice.work_order_id}`),
+        invoiceWoId: targetInvoice?.work_order_id ? String(targetInvoice.work_order_id).slice(0, 8) : null,
+      });
+
       if (targetInvoice) {
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
           ? [...targetInvoice.payment_history]
@@ -3382,6 +3494,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         };
         saveSupabaseInvoice(newInvoice);
         updatedInvoices = [newInvoice, ...state.invoices];
+        logSystemEvent("info", "payment.register.created_invoice", {
+          woId: effectiveWorkOrderId ? String(effectiveWorkOrderId).slice(0, 8) : null,
+          invId: String(newInvoice.id).slice(0, 26),
+          receipt: newInvoice.receipt_number,
+          type: newInvoice.receipt_type,
+          total: newInvoice.grand_total,
+          isFullyPaid,
+          payAmount,
+          partsTotal,
+        });
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -3396,6 +3518,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           return updatedOrder;
         }
         return o;
+      });
+
+      logSystemEvent("info", "payment.register.end", {
+        woId: effectiveWorkOrderId ? String(effectiveWorkOrderId).slice(0, 8) : null,
+        invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
+        isFullyPaid,
+        updatedInvoiceCount: updatedInvoices.length,
       });
 
       return {
