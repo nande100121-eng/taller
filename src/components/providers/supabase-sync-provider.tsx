@@ -9,6 +9,7 @@ import {
   getLastLocalMutationTime,
   hasRecentLocalMutation,
 } from "@/lib/supabase/services";
+import { logTiming } from "@/lib/system-log";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
@@ -27,7 +28,22 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (opTimerRef.current) clearTimeout(opTimerRef.current);
     opTimerRef.current = setTimeout(() => {
       if (Date.now() - getLastLocalMutationTime() < 800) return;
-      syncOperationalOnly();
+      const startMs = Date.now();
+      syncOperationalOnly().then(() => {
+        // TIMING LATENCIA REALTIME -> STORE: cuánto tardó desde que llegó la señal
+        // (WebSocket) hasta que el store quedó actualizado (cards pintadas).
+        try {
+          const rt = (window as any).__REYGAS_LAST_REALTIME;
+          logTiming("realtime.sync.duration", startMs, {
+            totalMs: Date.now() - startMs,
+            desdeLlegadaMs: rt ? Date.now() - rt.at : undefined,
+            cloudToArrivalMs: rt?.fromCloudMs,
+            eventType: rt?.eventType || "",
+          }, "realtime:sync-operativo");
+        } catch {
+          // noop
+        }
+      });
     }, 120);
   };
 
@@ -95,6 +111,16 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (msg.payload?.senderId === CLIENT_SESSION_ID) {
         return;
       }
+      // TIMING LATENCIA REALTIME: marca cuándo llegó la señal desde otra tablet/dispositivo
+      // (WebSocket). El sync que dispara se mide al completarse (debouncedOperationalSync).
+      const arrivalMs = Date.now();
+      const sentAt = Number(msg.payload?.timestamp || 0);
+      (window as any).__REYGAS_LAST_REALTIME = {
+        at: arrivalMs,
+        sentAt,
+        fromCloudMs: sentAt > 0 ? Math.max(0, arrivalMs - sentAt) : undefined,
+        eventType: msg.payload?.eventType || "",
+      };
       const eventType = msg.payload?.eventType || "";
       if (eventType.includes("service")) {
         syncServicesOnly();

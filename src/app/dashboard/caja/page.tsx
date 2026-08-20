@@ -13,7 +13,7 @@ import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
-import { logSystemEvent } from "@/lib/system-log";
+import { logSystemEvent, logTiming } from "@/lib/system-log";
 import { lookupPlateClientData } from "@/lib/utils/plate-autofill";
 import { fetchDailyExpenses, saveDailyExpenses, DailyExpense } from "@/lib/supabase/expenses";
 import { supabase } from "@/lib/supabase/client";
@@ -762,6 +762,34 @@ export default function CajaPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
+
+  // TIMING DE RENDER DE CARDS: mide cuánto tarda en actualizarse la lista de cards de
+  // Caja cuando cambian los datos (realtime/sync). Con un ref del último tiempo se registra
+  // el costo de render (ms) y cuántas cards se pintan.
+  const cardRenderRef = React.useRef<{ count: number; last: number } | null>(null);
+  React.useEffect(() => {
+    try {
+      const count = allBillingWorkOrders.length;
+      const prev = cardRenderRef.current;
+      const nowMs = Date.now();
+      if (prev && prev.count === count && nowMs - prev.last > 300) {
+        // Solo mide cuando el conteo cambió o tras >300ms (evita registrar cada re-render)
+        return;
+      }
+      if (!prev) {
+        cardRenderRef.current = { count, last: nowMs };
+        return;
+      }
+      logTiming("caja.cards.render.duration", prev.last, {
+        cards: count,
+        delta: count - prev.count,
+      }, "Caja:render-cards");
+      cardRenderRef.current = { count, last: nowMs };
+    } catch {
+      // noop
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allBillingWorkOrders]);
 
   const pendingCountToday = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {

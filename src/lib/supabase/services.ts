@@ -3,7 +3,7 @@ import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
-import { logSystemEvent } from "@/lib/system-log";
+import { logSystemEvent, logTiming } from "@/lib/system-log";
 import { toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 
 // Unique browser session ID to prevent self-broadcast reload loops
@@ -402,6 +402,7 @@ export async function clearSupabaseInventory() {
 // WORK ORDERS SUPABASE SYNC
 // ---------------------------------------------------------------------
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
+  const saveStart = Date.now();
   try {
     markLocalMutation("workOrders");
     let diagText = (order.diagnostic_notes || "").replace(/\[ALLOW_MOD\]:\s*(true|false)/gi, "").replace(/\[ERP_META\]:[^\n]+/g, "").trim();
@@ -555,6 +556,11 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       allowMod: !!order.allow_modifications,
       entry: order.entry_time || "",
       completion: order.completion_time || "",
+    }, "services:saveSupabaseWorkOrder");
+    // TIMING del guardado de OT: cuánto tarda en persistir en la nube
+    logTiming("workorder.save.duration", saveStart, {
+      woId: String(order.id || "").slice(0, 8),
+      plate: order.vehicle_plate || "",
     }, "services:saveSupabaseWorkOrder");
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
@@ -1958,6 +1964,7 @@ export function invalidateCappedHistoryCache() {
 }
 
 export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
+  const fetchStart = Date.now();
   try {
     // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
     // así que cada tabla se pide por páginas de 1000. NO se descarga el histórico completo.
@@ -2139,8 +2146,18 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
       };
     }
 
+    // TIMING del sync operativo: cuánto tardó en traer los datos (determina cuánto
+    // demora en aparecer una card nueva en Caja/Almacén/Taller).
+    logTiming("sync.operational.duration", fetchStart, {
+      orders: workOrders.length,
+      invoices: cappedInvoices.length,
+      vehicles: vehicles.length,
+    }, "services:fetchCappedOperationalData");
     return { workOrders, invoices: cappedInvoices, vehicles };
   } catch (err) {
+    logTiming("sync.operational.error.duration", fetchStart, {
+      err: err instanceof Error ? err.message : String(err),
+    }, "services:fetchCappedOperationalData");
     console.warn("Capped operational fetch failed, fallback to full load:", err);
     return {
       workOrders: await fetchAllSupabaseTable("work_orders"),
@@ -2815,6 +2832,7 @@ export async function saveSupabaseAttendanceLogs(logs: AttendanceLog[]) {
 // INVOICES SUPABASE SYNC
 // ---------------------------------------------------------------------
 export async function saveSupabaseInvoice(inv: Invoice) {
+  const invSaveStart = Date.now();
   try {
     markLocalMutation("invoices");
     // BUG FIX: las facturas FANTASMA (id = "inv-<work_order_id>") son artefactos de la
@@ -3000,8 +3018,18 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       total: inv.grand_total,
       hasHistory: Array.isArray(inv.payment_history) ? inv.payment_history.length : 0,
     }, "services:saveSupabaseInvoice");
+    // TIMING del guardado de factura (pago/abono): cuánto tarda en persistir
+    logTiming("invoice.save.duration", invSaveStart, {
+      invId: String(inv.id).slice(0, 26),
+      woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+      total: inv.grand_total,
+    }, "services:saveSupabaseInvoice");
     emitCloudSavedToast("Comprobante guardado en la nube ✓");
   } catch (err) {
+    logTiming("invoice.save.error.duration", invSaveStart, {
+      invId: inv.id ? String(inv.id).slice(0, 26) : null,
+      err: err instanceof Error ? err.message : String(err),
+    }, "services:saveSupabaseInvoice");
     logSystemEvent("error", "invoice.save.exception", {
       invId: inv.id ? String(inv.id).slice(0, 26) : null,
       err: err instanceof Error ? err.message : String(err),

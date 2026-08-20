@@ -1,5 +1,5 @@
 // =====================================================================
-// SISTEMA DE LOG INTERNO DE PROCESOS (diagnóstico de bugs)
+// SISTEMA DE LOG INTERNO DE PROCESOS (diagnóstico de bugs y RENDIMIENTO)
 // Guarda cada evento/flujo en Supabase (site_content, category system_logs)
 // SIN mostrar nada en la interfaz web. Se consulta directo en la base:
 //   select * from site_content where key like 'syslog_%' order by key desc
@@ -44,6 +44,7 @@ export function logSystemEvent(
   try {
     const entry = {
       ts: new Date().toISOString(),
+      tsMs: Date.now(),
       level,
       action,
       source: source || currentLogPage || (typeof window !== "undefined" ? window.location.pathname : "server"),
@@ -73,6 +74,36 @@ export function logSystemEvent(
       });
   } catch {
     // noop: el log jamás debe interrumpir el flujo del sistema
+  }
+}
+
+/** Registra la DURACIÓN de una operación (rendimiento): mide cuánto tarda un sync,
+ *  un guardado, la aparición de una card, etc. Con start = Date.now() previo. */
+export function logTiming(action: string, start: number, meta?: Record<string, unknown> | null, source?: string) {
+  try {
+    const end = Date.now();
+    logSystemEvent("info", action, {
+      ...(meta || {}),
+      durationMs: Math.max(0, end - start),
+    }, source || "timing");
+  } catch {
+    // noop
+  }
+}
+
+/** Igual que logTiming pero alerta (warn) si supera un umbral en ms. */
+export function logTimingThreshold(action: string, start: number, warnMs: number, meta?: Record<string, unknown> | null, source?: string) {
+  try {
+    const end = Date.now();
+    const durationMs = Math.max(0, end - start);
+    logSystemEvent(durationMs >= warnMs ? "warn" : "info", action, {
+      ...(meta || {}),
+      durationMs,
+      thresholdMs: warnMs,
+      slow: durationMs >= warnMs,
+    }, source || "timing");
+  } catch {
+    // noop
   }
 }
 

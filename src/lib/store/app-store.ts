@@ -44,7 +44,7 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
-import { logSystemEvent } from "@/lib/system-log";
+import { logSystemEvent, logTiming } from "@/lib/system-log";
 
 // Ahora (fecha/hora actual) ANCLADA a Perú (-05:00): las fechas de pago/emisión
 // NUNCA deben guardarse en UTC (un pago a las 22:00 Perú quedaría al día siguiente
@@ -1338,6 +1338,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     const now = Date.now();
     if (now - lastOperationalSyncAt < OPERATIONAL_SYNC_MIN_INTERVAL) return;
     lastOperationalSyncAt = now;
+    const syncStart = Date.now();
     try {
       const capped = await fetchCappedOperationalData();
       if (!capped) return;
@@ -1444,7 +1445,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         invoices: capped.invoices?.length || 0,
         vehicles: capped.vehicles?.length || 0,
       }, "store:syncOperationalOnly");
+      // TIMING del sync operativo completo (fetch + merge + set): cuánto tarda en
+      // actualizarse el store y por tanto en aparecer/refrescar las cards.
+      logTiming("sync.operational.store.duration", syncStart, {
+        orders: capped.workOrders?.length || 0,
+      }, "store:syncOperationalOnly");
     } catch (err) {
+      logTiming("sync.operational.store.error.duration", syncStart, {
+        err: err instanceof Error ? err.message : String(err),
+      }, "store:syncOperationalOnly");
       console.warn("Supabase operational sync warning:", err);
     }
   },
