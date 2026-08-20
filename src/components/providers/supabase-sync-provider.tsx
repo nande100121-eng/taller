@@ -86,7 +86,9 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleFocus);
 
-    // 4. Supabase Realtime Broadcast channel listener (instant push across all devices/tablets)
+    // 4. PRINCIPAL CROSS-DEVICE: Supabase Realtime Broadcast listener. La señal llega por
+    //    WebSocket desde CUALQUIER tablet/dispositivo conectado y dispara el sync ligero
+    //    (workOrders/invoices/vehicles) casi al instante en todas las estaciones.
     const broadcastChannel = getSharedRealtimeChannel();
     broadcastChannel.on("broadcast", { event: "db_update" }, (msg: any) => {
       // Ignore broadcast messages originating from this same browser window
@@ -114,9 +116,9 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     });
 
-    // 4b. BroadcastChannel NATIVO del navegador (pestañas del mismo navegador):
-    //     no se suspende con el tab-throttling como el WebSocket de Supabase, así
-    //     Portería->Taller->Almacén->Caja reflejan los cambios al instante.
+    // 4b. EXTRA local (mismo navegador): BroadcastChannel nativo como refuerzo para
+    //     pestañas del mismo navegador (no se suspende con el tab-throttling). El
+    //     realtime ENTRE DISPOSITIVOS lo garantiza el canal 4 (Supabase Realtime).
     let localBC: BroadcastChannel | null = null;
     try {
       localBC = (window as any).__REYGAS_TAB_BC ||
@@ -173,11 +175,13 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         syncScheduleOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, (payload: any) => {
-        // Borrado en la nube (Tabla Maestra / otra tablet / migración): quitar la card localmente
-        // de inmediato; el merge del sync conserva lo local, por eso el DELETE se maneja aparte.
+        // CROSS-DEVICE: la fila llega por WebSocket de Supabase desde CUALQUIER dispositivo.
+        // Se aplica DIRECTA al store (<100ms) y el sync operativo completa el resto.
         if (payload?.eventType === "DELETE") {
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedWorkOrderLocal(oldId);
+        } else if (payload?.new?.id) {
+          useAppStore.getState().applyRemoteWorkOrderLocal(payload.new);
         }
         debouncedOperationalSync();
       })
@@ -185,9 +189,12 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         debouncedOperationalSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, (payload: any) => {
+        // CROSS-DEVICE: factura creada/editada en otra tablet se aplica directa.
         if (payload?.eventType === "DELETE") {
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedInvoiceLocal(oldId);
+        } else if (payload?.new?.id) {
+          useAppStore.getState().applyRemoteInvoiceLocal(payload.new);
         }
         debouncedOperationalSync();
       })

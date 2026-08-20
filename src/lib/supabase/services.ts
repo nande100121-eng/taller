@@ -1462,28 +1462,29 @@ async function queryAppointmentsWithMissingGuard(): Promise<{ data: any[] | null
   return res;
 }
 
-// Broadcast instant real-time signal to all other connected devices/tablets
+// Broadcast instant real-time signal to ALL devices/tablets (cross-device):
+// 1) Canal Realtime de Supabase (WebSocket) -> llega a TODAS las tablets/dispositivos
+//    conectados (latencia <50ms). Este es el mecanismo PRINCIPAL y obligatorio.
+// 2) BroadcastChannel nativo del navegador -> EXTRA solo para pestañas del mismo
+//    navegador (no se suspende con el tab-throttling). Nunca reemplaza al canal cloud.
 export async function broadcastRealtimeChange(eventType: string = "db_update") {
   try {
     markLocalMutation();
     const payload = { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() };
-    // 1) BroadcastChannel NATIVO del navegador (pestañas del MISMO navegador): es
-    //    instantáneo (~1ms) y NO se suspende con el tab-throttling del navegador,
-    //    que sí congela el WebSocket de Supabase en pestañas de segundo plano
-    //    (demora reportada: Portería->Taller->Almacén tardaba en reflejar cambios).
-    try {
-      const localBC = (window as any).__REYGAS_TAB_BC ||
-        ((window as any).__REYGAS_TAB_BC = new BroadcastChannel("reygas-tab-sync"));
-      localBC.postMessage({ ...payload, local: true });
-    } catch {
-      // BroadcastChannel no disponible (navegador viejo): se omite, el canal Realtime sigue
-    }
-    // 2) Canal Realtime de Supabase (otras tablets / otros dispositivos), <50ms.
+    // 1) PRINCIPAL: Canal Realtime de Supabase (otras tablets / otros dispositivos), <50ms.
     const channel = getSharedRealtimeChannel();
     if ((channel as any).state === "joined") {
       await channel.send({ type: "broadcast", event: "db_update", payload });
     } else {
       await channel.httpSend("db_update", payload);
+    }
+    // 2) EXTRA local: pestañas del MISMO navegador (instantáneo, resistente al tab-throttling).
+    try {
+      const localBC = (window as any).__REYGAS_TAB_BC ||
+        ((window as any).__REYGAS_TAB_BC = new BroadcastChannel("reygas-tab-sync"));
+      localBC.postMessage({ ...payload, local: true });
+    } catch {
+      // BroadcastChannel no disponible: el canal Realtime de Supabase ya cubrió el aviso
     }
   } catch (err) {
     // deferred

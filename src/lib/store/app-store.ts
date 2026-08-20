@@ -633,6 +633,11 @@ interface AppState {
   deleteWorkOrder: (id: string) => void;
   removeDeletedWorkOrderLocal: (orderId: string) => void;
   removeDeletedInvoiceLocal: (invoiceId: string) => void;
+  // Realtime CROSS-DEVICE: aplica directo al store la fila que llega por postgres_changes
+  // (WebSocket de Supabase). Así un cambio hecho en OTRA tablet se refleja en <100ms,
+  // sin esperar el refetch. El merge por id conserva items locales recién agregados.
+  applyRemoteWorkOrderLocal: (wo: any) => void;
+  applyRemoteInvoiceLocal: (inv: any) => void;
   deleteMultipleWorkOrders: (ids: string[]) => void;
   clearAllWorkOrders: () => void;
   requestCertificationForWorkOrder: (
@@ -2344,6 +2349,69 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => {
       if (!state.invoices.some((i) => i.id === invoiceId)) return state;
       return { invoices: state.invoices.filter((i) => i.id !== invoiceId) };
+    });
+  },
+
+  // Realtime CROSS-DEVICE: fila de work_orders que llega por postgres_changes desde OTRA
+  // tablet/dispositivo. Se aplica directo (merge por id + items por clave) para que la
+  // card aparezca/actualice al instante en TODAS las pestañas de TODOS los dispositivos.
+  applyRemoteWorkOrderLocal: (wo) => {
+    if (!wo || !wo.id) return;
+    set((state) => {
+      if (hasRecentLocalMutation("workOrders", 1500)) return state;
+      const existing = state.workOrders.find((o) => o.id === wo.id);
+      let items: any[] = Array.isArray(wo.items) ? wo.items : [];
+      if (typeof wo.items === "string") {
+        try { items = JSON.parse(wo.items || "[]"); } catch { items = []; }
+      }
+      if (existing) {
+        // Merge de items por clave (conserva ítems locales recién agregados sin duplicar)
+        const localItems: any[] = Array.isArray(existing.items) ? existing.items : [];
+        const itemsMap = new Map<string, any>();
+        const itemKey = (it: any) =>
+          it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+        localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
+        (items || []).forEach((it: any) => {
+          if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
+        });
+        items = Array.from(itemsMap.values());
+      }
+      const merged = { ...(existing || {}), ...wo, items };
+      const updated = state.workOrders.some((o) => o.id === wo.id)
+        ? state.workOrders.map((o) => (o.id === wo.id ? merged : o))
+        : [...state.workOrders, merged];
+      return { workOrders: updated };
+    });
+  },
+
+  // Realtime CROSS-DEVICE: fila de invoices que llega por postgres_changes desde OTRA
+  // tablet. Se aplica directo; si el remoto trae payment_history null (la columna de la
+  // tabla es null; el historial vive en snapshots), se conserva el historial local.
+  applyRemoteInvoiceLocal: (inv) => {
+    if (!inv || !inv.id) return;
+    set((state) => {
+      if (hasRecentLocalMutation("invoices", 1500)) return state;
+      const existing = state.invoices.find((i) => i.id === inv.id);
+      if (!existing) {
+        // Factura nueva desde otra tablet: se agrega directo (el sync operativo
+        // completará historial/desglose desde snapshots si hace falta).
+        return { invoices: [...state.invoices, inv] };
+      }
+      const merged = {
+        ...existing,
+        ...inv,
+        payment_history: (Array.isArray(inv.payment_history) && inv.payment_history.length > 0)
+          ? inv.payment_history
+          : (Array.isArray(existing.payment_history) && existing.payment_history.length > 0 ? existing.payment_history : inv.payment_history),
+        payment_breakdown: (Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0)
+          ? inv.payment_breakdown
+          : (Array.isArray(existing.payment_breakdown) && existing.payment_breakdown.length > 0 ? existing.payment_breakdown : inv.payment_breakdown),
+        resource_payments: (Array.isArray(inv.resource_payments) && inv.resource_payments.length > 0)
+          ? inv.resource_payments
+          : (Array.isArray(existing.resource_payments) && existing.resource_payments.length > 0 ? existing.resource_payments : inv.resource_payments),
+      };
+      const updated = state.invoices.map((i) => (i.id === inv.id ? merged : i));
+      return { invoices: updated };
     });
   },
 
