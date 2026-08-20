@@ -539,13 +539,22 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       q: it.quantity,
       disp: it.dispatched ? 1 : 0,
     }));
+    const partsSum = (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
+    const certFeeSave = order.requires_certification ? (Number(order.certification_price) || 0) : 0;
     logSystemEvent("info", "workorder.save.ok", {
       woId: String(order.id || "").slice(0, 8),
       status: order.status || "",
       plate: order.vehicle_plate || "",
       itemCount: Array.isArray(order.items) ? order.items.length : 0,
-      total: (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0),
+      total: partsSum + certFeeSave,
       items: logItems.slice(0, 8),
+      // Detalle completo para el diagnóstico: certificación, allow_mod, fechas
+      requiresCert: !!order.requires_certification,
+      certType: order.certification_type || "",
+      certPrice: certFeeSave,
+      allowMod: !!order.allow_modifications,
+      entry: order.entry_time || "",
+      completion: order.completion_time || "",
     }, "services:saveSupabaseWorkOrder");
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
