@@ -1182,9 +1182,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
                 const localItems: any[] = Array.isArray(local.items) ? local.items : [];
                 const remoteItems: any[] = Array.isArray(wo.items) ? wo.items : [];
                 const itemsMap = new Map<string, any>();
-                localItems.forEach((it: any) => { if (it && it.id) itemsMap.set(it.id, it); });
+                // Clave estable para ítems SIN id (p. ej. certificación agregada como ítem
+                // sin item_type: "CERTIFICACIÓN (Chip por deterioro)" S/180). Si usáramos
+                // solo it.id, el merge DESCARTARÍA ese ítem y la card del Taller perdería
+                // la certificación (bug AUH-440: total 270 -> 90 tras un sync).
+                const itemKey = (it: any) =>
+                  it && it.id
+                    ? it.id
+                    : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+                localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
                 remoteItems.forEach((it: any) => {
-                  if (it && it.id) itemsMap.set(it.id, { ...itemsMap.get(it.id), ...it });
+                  if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
                 });
                 mergedOrders.set(wo.id, { ...local, ...wo, items: Array.from(itemsMap.values()) });
               } else {
