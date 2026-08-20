@@ -3049,7 +3049,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const remaining = history.filter((p) => p.id !== recordId);
       if (remaining.length === history.length) return state;
       const prevPaid = remaining.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      const totalDue = Number(targetInvoice.grand_total) || 0;
+      // BUG FIX (BAG-123): al eliminar el ÚLTIMO pago, el total de la factura debe
+      // sincronizarse con el total ACTUAL de la OT (items editados en Taller). Antes
+      // usaba el grand_total viejo de la factura (360) y el abono de 365 fallaba con
+      // "supera el saldo pendiente (S/ 0.00)" porque totalDue 360 - paidSoFar 360 = 0.
+      const targetOrder = state.workOrders.find((o) => o.id === targetInvoice.work_order_id);
+      const orderItemsTotal = (targetOrder?.items || []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
+      const orderCertFee = targetOrder?.requires_certification ? (Number(targetOrder.certification_price) || 0) : 0;
+      const orderDiscount = Number((targetOrder as any)?.discount_amount) || 0;
+      const orderTotal = Math.max(0, orderItemsTotal + orderCertFee - orderDiscount);
+      // Si quedan pagos, el total es el de la factura (no alterar lo ya cobrado); si se
+      // eliminó el último pago, el total pendiente es el actual de la OT (dato reciente).
+      const totalDue = remaining.length > 0
+        ? (Number(targetInvoice.grand_total) || 0)
+        : (orderTotal > 0 ? orderTotal : (Number(targetInvoice.grand_total) || 0));
       const balance = Math.max(0, totalDue - prevPaid);
       const isFullyPaid = remaining.length > 0 && balance <= 0.01;
       const lastRec = remaining.length > 0 ? remaining[remaining.length - 1] : undefined;
@@ -3058,6 +3071,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
         payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
         credit_amount: isFullyPaid ? 0 : balance,
+        // Sincroniza el total con la OT al eliminar el último pago
+        grand_total: remaining.length > 0 ? targetInvoice.grand_total : totalDue,
+        parts_total: remaining.length > 0 ? targetInvoice.parts_total : orderItemsTotal,
+        certification_fee: remaining.length > 0 ? targetInvoice.certification_fee : orderCertFee,
         payment_history: remaining,
         // Recalcula método/destino/desglose SOLO con los pagos vigentes.
         payment_method: rebuildMethodFromHistory(remaining),
@@ -3683,8 +3700,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         // se está cobrando un monto, el total real ES el monto cobrado: la factura debe
         // reflejarlo (antes el pago quedaba en el historial pero el total seguía en 0 y el
         // registro no aparecía en el informe diario).
+        // BUG FIX (BAG-123): si la factura está pendiente SIN pagos y la OT fue modificada
+        // en Taller (total nuevo 365 vs factura vieja 360), el total a cobrar es el ACTUAL
+        // de la OT. Antes usaba grand_total viejo de la factura y el abono fallaba con
+        // "supera el saldo pendiente (S/ 0.00)" (360 - 360 = 0).
+        const histLenBefore = history.length;
         let totalDue = Number(targetInvoice.grand_total) || 0;
         if (totalDue <= 0 && payAmount > 0) totalDue = payAmount;
+        if (histLenBefore === 0 && targetOrder) {
+          const otItems = (targetOrder.items || []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
+          const otCert = targetOrder.requires_certification ? (Number(targetOrder.certification_price) || 0) : 0;
+          const otDisc = Number((targetOrder as any)?.discount_amount) || 0;
+          const otTotal = Math.max(0, otItems + otCert - otDisc);
+          if (otTotal > 0) totalDue = otTotal;
+        }
         const prevCredit = Number(targetInvoice.credit_amount) || 0;
 
         // BUG FIX: en facturas con crédito el adelanto ya pagado puede estar IMPLÍCITO
