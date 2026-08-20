@@ -1350,10 +1350,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         localOrders.forEach((wo) => mergedOrders.set(wo.id, wo));
         remoteOrders.forEach((wo) => {
           if (wo && wo.id) {
+            // BUG FIX (crash web): fetchCappedOperationalData devuelve items como STRING
+            // (columna JSON de la tabla). Normalizar SIEMPRE a array: si no, la card hace
+            // (o.items || []).map y crashea con "items.map is not a function".
+            const remoteItems: any[] = (() => {
+              if (Array.isArray(wo.items)) return wo.items;
+              if (typeof wo.items === "string") {
+                try { return JSON.parse(wo.items || "[]"); } catch { return []; }
+              }
+              return [];
+            })();
             const local = mergedOrders.get(wo.id);
             if (local) {
               const localItems: any[] = Array.isArray(local.items) ? local.items : [];
-              const remoteItems: any[] = Array.isArray(wo.items) ? wo.items : [];
               const itemsMap = new Map<string, any>();
               const itemKey = (it: any) =>
                 it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
@@ -1363,7 +1372,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               });
               mergedOrders.set(wo.id, { ...local, ...wo, items: Array.from(itemsMap.values()) });
             } else {
-              mergedOrders.set(wo.id, wo);
+              mergedOrders.set(wo.id, { ...wo, items: remoteItems });
             }
           }
         });
@@ -3992,7 +4001,23 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       getItem: (name: string): StorageValue<AppState> | null => {
         try {
           const raw = localStorage.getItem(name);
-          return raw ? (JSON.parse(raw) as StorageValue<AppState>) : null;
+          if (!raw) return null;
+          const parsed = JSON.parse(raw) as StorageValue<AppState>;
+          // BUG FIX (crash web "items.map is not a function"): el cache persistido puede
+          // contener OTs con items como STRING (guardadas desde fetchCappedOperationalData
+          // sin normalizar). Al hidratar se normalizan SIEMPRE a array para que ninguna
+          // card (Taller/Caja/Almacén) crashee con (wo.items || []).map.
+          const state = parsed?.state as any;
+          if (state && Array.isArray(state.workOrders)) {
+            state.workOrders = state.workOrders.map((wo: any) => {
+              if (!wo || Array.isArray(wo.items)) return wo;
+              if (typeof wo.items === "string") {
+                try { return { ...wo, items: JSON.parse(wo.items || "[]") }; } catch { return { ...wo, items: [] }; }
+              }
+              return { ...wo, items: Array.isArray(wo.items) ? wo.items : [] };
+            });
+          }
+          return parsed;
         } catch {
           return null;
         }
