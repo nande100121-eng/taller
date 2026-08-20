@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
-import { useAppStore, PaymentSplit, PaymentRecord } from "@/lib/store/app-store";
+import { useAppStore, PaymentSplit, PaymentRecord, PaymentResource } from "@/lib/store/app-store";
 import {
   buildVehicleCreditSettlementMap,
   parseSplitPaymentString,
@@ -176,7 +176,19 @@ export default function CajaPage() {
     paymentMethod: string;
     paymentDestination: string;
     isSplitPayment?: boolean;
-    paymentSplits?: PaymentSplit[];
+    // Cada split (método/comprobante) lleva SU PROPIA lista de recursos a vincular
+    // (splitResources). El Monto Total del split = suma de los recursos marcados.
+    paymentSplits?: (PaymentSplit & {
+      splitResources?: Array<{
+        key: string;
+        description: string;
+        category: "servicio" | "repuesto" | "certificado";
+        fullAmount: number;
+        pendingAmount: number; // Saldo pendiente del recurso
+        payAmount: number;
+        selected: boolean;
+      }>;
+    })[];
     splitTicketMode?: "single" | "perMethod";
     receiptNumber: string;
     receiptType: "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
@@ -1760,6 +1772,11 @@ export default function CajaPage() {
       ? inv.receipt_number
       : getCorrelativePreview(initialType);
 
+    // Recursos disponibles para vincular en este abono (solo desde 17/08/2026).
+    // Se incrustan en CADA split del desglose: cada método/comprobante lleva su
+    // propia lista y su Monto Total = suma de los recursos marcados en ese split.
+    const abonoResourcesPool = buildAbonoResourceSelection(wo, inv, balance) || [];
+    const initialSplitResources = abonoResourcesPool.map((r) => ({ ...r }));
     setPartialPaymentModal({
       isOpen: true,
       workOrder: wo,
@@ -1778,6 +1795,8 @@ export default function CajaPage() {
           method: defaultMethodFrom(inv?.payment_method),
           destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
           amount: balance,
+          // Recursos de ESTE comprobante: se van sumando al Monto Total del split
+          splitResources: initialSplitResources.length > 0 ? initialSplitResources : undefined,
         },
       ],
       receiptNumber: previewNum,
@@ -1787,9 +1806,7 @@ export default function CajaPage() {
       customerAddress: inv?.customer_address || "-",
       observation: inv?.debt_observation || inv?.observations || wo.observations || "",
       responsible: inv?.debt_responsible || "",
-      // Vínculo recurso -> pago en abonos (desde 17/08/2026): marca qué recursos
-      // cubre este abono y cuánto de cada uno. Los abonos anteriores no vinculan.
-      resourceSelection: buildAbonoResourceSelection(wo, inv, balance),
+      resourceSelection: abonoResourcesPool.length > 0 ? abonoResourcesPool : undefined,
     });
   };
 
@@ -1798,11 +1815,17 @@ export default function CajaPage() {
     e.preventDefault();
     if (!partialPaymentModal) return;
 
-    // El monto del abono se DERIVA de la suma de recursos marcados (el campo
-    // "Monto a Abonar Ahora" ya no existe): si no hay recursos, usa el monto del estado.
-    const selectedSum = (partialPaymentModal.resourceSelection || [])
-      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
-      .reduce((s, r) => s + (Number(r.payAmount) || 0), 0);
+    // El monto del abono se DERIVA de la suma de recursos marcados: en PAGO MIXTO
+    // se suman los recursos de TODOS los métodos (splitResources); en Pago Único
+    // la selección global. El campo "Monto a Abonar Ahora" ya no existe.
+    const splitResSum = Array.isArray(partialPaymentModal.paymentSplits)
+      ? (partialPaymentModal.paymentSplits as any[]).reduce((acc, sp) => acc + (Array.isArray(sp.splitResources) ? sp.splitResources.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0) : 0), 0)
+      : 0;
+    const selectedSum = splitResSum > 0
+      ? splitResSum
+      : (partialPaymentModal.resourceSelection || [])
+          .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+          .reduce((s, r) => s + (Number(r.payAmount) || 0), 0);
     const amount = selectedSum > 0 ? Number(selectedSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0);
     // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
@@ -1885,17 +1908,39 @@ export default function CajaPage() {
           : partialPaymentModal.receiptType);
     const isFullyPaid = Math.abs(balance - amount) <= 0.01;
 
-    // Vínculo recurso -> pago en abonos: recursos seleccionados con su monto a pagar.
-    // Solo aplica desde 17/08/2026 (resourceSelection viene undefined en abonos viejos).
-    const abonoResources = (partialPaymentModal.resourceSelection || [])
-      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
-      .map((r) => ({
-        description: r.description,
-        category: r.category,
-        amount: Number(r.payAmount) || 0,
-        receipt_number: assignedReceiptNum || undefined,
-        receipt_type: finalReceiptType || undefined,
-      }));
+    // Vínculo recurso -> pago en abonos: en PAGO MIXTO cada método/comprobante lleva
+    // SUS propios recursos (splitResources) con su N° de comprobante; en Pago Único
+    // se usa la selección global. Cada recurso va con el comprobante que lo cubre.
+    const abonoResources: PaymentResource[] = [];
+    if (partialPaymentModal.isSplitPayment && Array.isArray(partialPaymentModal.paymentSplits)) {
+      (partialPaymentModal.paymentSplits as any[]).forEach((sp) => {
+        const recNum = (sp as any).receipt_number || assignedReceiptNum || undefined;
+        const recType = (sp as any).receipt_type || finalReceiptType || undefined;
+        (Array.isArray((sp as any).splitResources) ? (sp as any).splitResources : [])
+          .filter((r2: any) => r2.selected && (Number(r2.payAmount) || 0) > 0)
+          .forEach((r2: any) => {
+            abonoResources.push({
+              description: r2.description,
+              category: r2.category,
+              amount: Number(r2.payAmount) || 0,
+              receipt_number: recNum || undefined,
+              receipt_type: recType || undefined,
+            });
+          });
+      });
+    } else {
+      (partialPaymentModal.resourceSelection || [])
+        .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+        .forEach((r) => {
+          abonoResources.push({
+            description: r.description,
+            category: r.category,
+            amount: Number(r.payAmount) || 0,
+            receipt_number: assignedReceiptNum || undefined,
+            receipt_type: finalReceiptType || undefined,
+          });
+        });
+    }
     if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0) {
       notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) que cubra este abono.");
       return;
@@ -2033,7 +2078,7 @@ export default function CajaPage() {
       paymentMethod: (rec.method || "").trim() === "Sin Método" ? "" : defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
       paymentDestination: rec.destination || invEdit.payment_destination || "EMPRESA",
       isSplitPayment: false,
-      paymentSplits: [{ id: `split-1`, method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"), destination: rec.destination || invEdit.payment_destination || "EMPRESA", amount: Number(rec.amount) || 0 }],
+      paymentSplits: [{ id: `split-1`, method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"), destination: rec.destination || invEdit.payment_destination || "EMPRESA", amount: Number(rec.amount) || 0, splitResources: resList.length > 0 ? resList.map((x) => ({ ...x })) : undefined }],
       receiptNumber: rec.receipt_number || invEdit.receipt_number || "",
       receiptType: (rec.receipt_type === "Boleta" || rec.receipt_type === "Factura" ? rec.receipt_type : (rec.receipt_type === "Sin Comprobante" ? "Sin Comprobante" : "Ticket")) as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante",
       customerDoc: invEdit.customer_doc || "",
@@ -5248,6 +5293,11 @@ export default function CajaPage() {
                           const currentSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                           const remaining = Math.max(0, Number(((partialPaymentModal.amount || 0) - currentSum).toFixed(2)));
                           const splitsNow = partialPaymentModal.paymentSplits || [];
+                          // El NUEVO método hereda los recursos AÚN NO usados por otros
+                          // métodos (sin marcar): cada comprobante puede vincular los que
+                          // estén libres; los ya usados aparecen tachados al intentar.
+                          const usedKeys = new Set(splitsNow.flatMap((sp: any) => Array.isArray(sp.splitResources) ? sp.splitResources.filter((x: any) => x.selected).map((x: any) => x.key) : []));
+                          const pool = (partialPaymentModal.resourceSelection || []).filter((x) => !usedKeys.has(x.key));
                           const lastSplit = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1] : undefined;
                           const lastSplitType = (lastSplit?.receipt_type === "Boleta" || lastSplit?.receipt_type === "Factura"
                             ? lastSplit.receipt_type
@@ -5262,6 +5312,7 @@ export default function CajaPage() {
                               method: "Culqi",
                               destination: eligibleDestinations[0] || "EMPRESA",
                               amount: remaining,
+                              splitResources: pool.length > 0 ? pool.map((x) => ({ ...x, selected: false, payAmount: 0, pendingAmount: Number(x.pendingAmount) || Number(x.fullAmount) || 0 })) : undefined,
                               ...(nextTicketNum
                                 ? { receipt_number: nextTicketNum, receipt_type: lastSplitType }
                                 : {}),
@@ -5335,6 +5386,7 @@ export default function CajaPage() {
                           ? split.receipt_type
                           : (partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura" ? partialPaymentModal.receiptType : "Ticket")) as "Ticket" | "Boleta" | "Factura";
                         return (
+                        <>
                         <div
                           key={split.id || idx}
                           className="p-2.5 rounded-xl bg-reygas-surface/80 border border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs"
@@ -5425,22 +5477,37 @@ export default function CajaPage() {
                             </>
                           )}
 
-                          <div className="flex-1 min-w-[110px]">
-                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto S/:</label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              onWheel={(e) => (e.target as HTMLInputElement).blur()}
-                              value={split.amount || ""}
-                              onChange={(e) => {
-                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
-                                  i === idx ? { ...p, amount: parseFloat(e.target.value) || 0 } : p
+                          <div className="flex-1 min-w-[120px]">
+                            <label className="text-[10px] text-gray-400 block mb-0.5 font-semibold">Monto Total:</label>
+                            {/* Monto Total = suma de los recursos marcados de ESTE método;
+                                si no hay recursos (factura anterior al 17/08), se edita manual. */}
+                            {(() => {
+                              const splitRes = Array.isArray((split as any).splitResources) ? (split as any).splitResources : [];
+                              const sumRes = splitRes.filter((r: any) => r.selected).reduce((s: number, r: any) => s + (Number(r.payAmount) || 0), 0);
+                              if (splitRes.length > 0) {
+                                return (
+                                  <div className="w-full px-2.5 py-1.5 bg-reygas-dark border border-emerald-500/30 rounded-lg text-emerald-400 font-mono font-bold text-right">
+                                    S/ {sumRes.toFixed(2)}
+                                  </div>
                                 );
-                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
-                              }}
-                              className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold focus:border-purple-400"
-                            />
+                              }
+                              return (
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  onWheel={(e) => (e.target as HTMLInputElement).blur()}
+                                  value={split.amount || ""}
+                                  onChange={(e) => {
+                                    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                      i === idx ? { ...p, amount: parseFloat(e.target.value) || 0 } : p
+                                    );
+                                    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                  }}
+                                  className="w-full px-2.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold focus:border-purple-400"
+                                />
+                              );
+                            })()}
                           </div>
 
                           <button
@@ -5455,9 +5522,85 @@ export default function CajaPage() {
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        );
-                      })}
-                    </div>
+                        {/* RECURSOS DE ESTE MÉTODO/COMPROBANTE: marcar aquí hace subir el
+                            Monto Total. Recurso usado en otro método = tachado/no disponible;
+                            si se usó parcial, solo se ofrece el saldo restante. */}
+                        {Array.isArray((split as any).splitResources) && (split as any).splitResources.length > 0 && (
+                          <div className="mt-2 p-2.5 rounded-xl bg-black/30 border border-white/10 space-y-1.5">
+                            <div className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
+                              <span>🔗 Recursos de este comprobante</span>
+                              <span className="font-mono text-emerald-300">
+                                S/ {(split as any).splitResources.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                              {(split as any).splitResources.map((rs: any, rsi: number) => {
+                                const usedOther = (partialPaymentModal.paymentSplits || [])
+                                  .filter((_, oi) => oi !== idx)
+                                  .some((p: any) => Array.isArray(p.splitResources) && p.splitResources.some((o: any) => o.key === rs.key && o.selected));
+                                const disabled = usedOther && !rs.selected;
+                                return (
+                                  <div key={rs.key} className={`flex items-center gap-2 text-[11px] pt-0.5 ${disabled ? "opacity-40" : ""}`}>
+                                    <button
+                                      type="button"
+                                      disabled={disabled}
+                                      onClick={() => {
+                                        const next = (split as any).splitResources.map((r2: any) =>
+                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, Number(r2.pendingAmount) || r2.fullAmount) : r2.payAmount } : r2
+                                        );
+                                        const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
+                                        const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                          i === idx ? { ...p, splitResources: next, amount: newAmount } : p
+                                        );
+                                        setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                      }}
+                                      className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
+                                        ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                                        : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
+                                        }`}
+                                    >
+                                      <Check className="w-2.5 h-2.5" />
+                                    </button>
+                                    <span className={`flex-1 truncate ${rs.selected ? "text-white" : usedOther ? "text-gray-500 line-through" : "text-gray-400"}`}>
+                                      {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
+                                      {rs.description}
+                                      <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
+                                      {usedOther && !rs.selected && (
+                                        <span className="ml-1 text-[9px] text-rose-300 font-bold">usado en otro comprobante</span>
+                                      )}
+                                    </span>
+                                    {rs.selected && (
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max={Math.max(0.01, Number(rs.pendingAmount) || rs.fullAmount)}
+                                        value={rs.payAmount || ""}
+                                        onChange={(e) => {
+                                          const cap = Number(rs.pendingAmount) || rs.fullAmount;
+                                          const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
+                                          const next = (split as any).splitResources.map((r2: any) =>
+                                            r2.key === rs.key ? { ...r2, payAmount: val, selected: val > 0 } : r2
+                                          );
+                                          const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
+                                          const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                                            i === idx ? { ...p, splitResources: next, amount: newAmount } : p
+                                          );
+                                          setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+                                        }}
+                                        className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-purple-400"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        </>
+                      );
+                    })}
+                  </div>
 
                     {(() => {
                       const sum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -5498,7 +5641,10 @@ export default function CajaPage() {
                 )}
               </div>
 
-              {/* Sección 3b: RECURSOS a vincular a este comprobante (monto total y monto a pagar) */}
+              {/* Sección 3b: RECURSOS a vincular — SOLO en Pago Único (sin desglose).
+                  En Pago Mixto/Comprobante por Método los recursos van DENTRO de cada
+                  método del desglose (suman su Monto Total). */}
+              {!partialPaymentModal.isSplitPayment && (
               <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
                 <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Link2 className="w-3.5 h-3.5" />
@@ -5571,6 +5717,7 @@ export default function CajaPage() {
                   </span>
                 </div>
               </div>
+              )}
 
               {/* Sección 4: Observación y Responsable del Saldo Pendiente */}
               <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
