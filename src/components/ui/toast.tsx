@@ -22,7 +22,8 @@ export function Toast() {
         const handler = (e: Event) => {
             const detail = (e as CustomEvent)?.detail;
             const message = detail?.message || "Guardado en la nube ✓";
-            notify("success", message);
+            const type = detail?.type === "warning" || detail?.type === "error" ? detail.type : "success";
+            notify(type, message);
         };
         window.addEventListener("reygas:cloud-saved", handler);
         return () => window.removeEventListener("reygas:cloud-saved", handler);

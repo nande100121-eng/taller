@@ -1472,17 +1472,67 @@ export async function broadcastRealtimeChange(eventType: string = "db_update") {
 // Central cloud-saved toast signal (CustomEvent) so EVERY web action can confirm
 // the write to the cloud WITHOUT changing the page flow (skill de congruencia Supabase).
 // El componente <Toast/> lo escucha y lo muestra como toast de confirmación.
-export function emitCloudSavedToast(message?: string) {
+export function emitCloudSavedToast(message?: string, type: "success" | "warning" | "error" = "success") {
   try {
     if (typeof window === "undefined") return;
     window.dispatchEvent(
       new CustomEvent("reygas:cloud-saved", {
-        detail: { message: message || "Guardado en la nube ✓" },
+        detail: { message: message || "Guardado en la nube ✓", type },
       })
     );
   } catch {
     // noop
   }
+}
+
+// Filtro anti-duplicado de correlativo: consulta la fuente de verdad (Supabase) y
+// devuelve el PRIMER número libre de la serie cuando el número preferido ya existe
+// en otra factura. Evita dos facturas con el mismo ticket/boleta/factura cuando el
+// store local no tiene todas las facturas cargadas (ventana de 1000).
+async function resolveUniqueReceiptNumber(
+  preferred: string,
+  type: "Ticket" | "Boleta" | "Factura",
+  currentInvoiceId?: string
+): Promise<{ number: string; collision: boolean }> {
+  const prefTrim = (preferred || "").trim();
+  if (!prefTrim) return { number: preferred, collision: false };
+
+  const isFactura = type === "Factura" || /^F0|^F1|^FA/i.test(prefTrim);
+  const isBoleta = type === "Boleta" || /^B0|^B1|^BO/i.test(prefTrim);
+  const isTicket = type === "Ticket" || /^TK|^T0/i.test(prefTrim) || (!isFactura && !isBoleta);
+  const prefix = isFactura ? "F" : isBoleta ? "B" : "TK";
+
+  // 1. ¿El número preferido YA existe en OTRA factura?
+  const { data: existing } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("receipt_number", prefTrim)
+    .limit(50);
+  const collision = (existing || []).some((r) => r.id !== currentInvoiceId);
+  if (!collision) return { number: prefTrim, collision: false };
+
+  // 2. Colisión detectada: calcular el máximo real de la serie en la DB
+  const { data: all } = await supabase
+    .from("invoices")
+    .select("receipt_number")
+    .ilike("receipt_number", prefix + "%")
+    .limit(5000);
+  let maxNum = 0;
+  (all || []).forEach((r) => {
+    const clean = parseInt(String(r.receipt_number || "").replace(/\D/g, ""), 10);
+    if (!isNaN(clean) && clean > maxNum && clean < 99999999) maxNum = clean;
+  });
+  const series = isFactura ? "F001" : isBoleta ? "B001" : "TK01";
+
+  // 3. Avanzar hasta encontrar uno libre (loop acotado de seguridad)
+  let next = maxNum + 1;
+  for (let i = 0; i < 200; i++) {
+    const cand = series + "-" + String(next).padStart(8, "0");
+    const { data: dup } = await supabase.from("invoices").select("id").eq("receipt_number", cand).limit(1);
+    if (!dup || dup.length === 0) return { number: cand, collision: true };
+    next++;
+  }
+  return { number: series + "-" + String(next).padStart(8, "0"), collision: true };
 }
 
 // Ultra-fast granular fetch for Services Catalog (~15ms)
@@ -2621,6 +2671,36 @@ export async function saveSupabaseInvoice(inv: Invoice) {
         console.warn("saveSupabaseInvoice work_order_id repair warning:", e);
       }
     }
+    // FILTRO ANTI-DUPLICADO DE CORRELATIVO: si el número de comprobante ya existe
+    // en OTRA factura (fuente de verdad = Supabase, no el store local), se notifica
+    // por toast y se reasigna automáticamente al siguiente número libre de la serie
+    // para que NUNCA haya dos facturas con el mismo ticket/boleta/factura.
+    if (inv.receipt_number && String(inv.receipt_number).trim()) {
+      const invType: "Ticket" | "Boleta" | "Factura" =
+        inv.receipt_type === "Factura" || inv.receipt_type === "Boleta"
+          ? (inv.receipt_type as "Ticket" | "Boleta" | "Factura")
+          : "Ticket";
+      const resolved = await resolveUniqueReceiptNumber(String(inv.receipt_number), invType, inv.id);
+      if (resolved.collision) {
+        const oldNum = String(inv.receipt_number);
+        const newNum = resolved.number;
+        emitCloudSavedToast(
+          `⚠️ El correlativo ${oldNum} ya existe en otra factura. Se asignó ${newNum} para evitar duplicado.`,
+          "warning"
+        );
+        // Reasigna en la factura Y en el historial de pagos (cada registro lleva su comprobante)
+        inv = { ...inv, receipt_number: newNum };
+        if (Array.isArray(inv.payment_history) && inv.payment_history.length > 0) {
+          inv = {
+            ...inv,
+            payment_history: inv.payment_history.map((p) =>
+              p && p.receipt_number === oldNum ? { ...p, receipt_number: newNum, receipt_type: p.receipt_type || inv.receipt_type } : p
+            ),
+          };
+        }
+      }
+    }
+
     const payload: any = {
       id: inv.id,
       work_order_id: inv.work_order_id,
