@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useAppStore, PaymentSplit, PaymentRecord, PaymentResource } from "@/lib/store/app-store";
 import {
@@ -111,6 +111,34 @@ export default function CajaPage() {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
+
+  // HISTORIAL EN VIVO desde Supabase: cuando el store local no tiene el payment_history
+  // de una factura (por quedar fuera de la ventana de 1000 pagadas recientes, ej. pagos
+  // con fecha 17/08), se consulta el snapshot inv_payhistory_* directo para que la card
+  // SIEMPRE muestre el historial de pago y permita editar, sin depender del caché local.
+  const [livePayhistory, setLivePayhistory] = useState<Record<string, any[]>>({});
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await supabase
+          .from("site_content")
+          .select("key, value")
+          .like("key", "inv_payhistory_%");
+        if (!active) return;
+        const map: Record<string, any[]> = {};
+        (res.data || []).forEach((row: any) => {
+          const k = row.key || row.section_key;
+          if (!k || !k.startsWith("inv_payhistory_")) return;
+          let raw: any = row.value;
+          if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch { raw = null; } }
+          if (Array.isArray(raw)) map[k.replace("inv_payhistory_", "")] = raw;
+        });
+        setLivePayhistory(map);
+      } catch { /* silencioso */ }
+    })();
+    return () => { active = false; };
+  }, []);
 
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
@@ -2863,6 +2891,18 @@ export default function CajaPage() {
                 // importados), se RECONSTRUYE desde el desglose/recursos para que la card
                 // muestre los pagos y permita ver/editar qué recursos cubrieron.
                 let partialHistory: any[] = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
+                // Historial EN VIVO: si el store local no trajo el historial (factura fuera de
+                // la ventana de pagadas recientes), se toma del snapshot inv_payhistory_* de
+                // Supabase (por id de factura o por work_order_id) para que la card SIEMPRE
+                // muestre los pagos y permita editar (bug: pagos con fecha 17/08 sin historial).
+                if (partialHistory.length === 0) {
+                  const liveHist = (invoice?.id ? livePayhistory[invoice.id] : undefined)
+                    || (invoice?.work_order_id ? livePayhistory[invoice.work_order_id] : undefined)
+                    || (wo?.id ? livePayhistory[wo.id] : undefined);
+                  if (Array.isArray(liveHist) && liveHist.length > 0) {
+                    partialHistory = liveHist.map((r: any) => ({ ...r, isLive: true }));
+                  }
+                }
                 if (partialHistory.length === 0) {
                   const bdRecs: any[] = Array.isArray((invoice as any)?.payment_breakdown) ? (invoice as any).payment_breakdown : [];
                   if (bdRecs.length > 0) {
