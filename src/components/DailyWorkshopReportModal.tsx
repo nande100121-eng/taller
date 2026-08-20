@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { fetchSupabaseDayReport } from "@/lib/supabase/services";
+import { supabase } from "@/lib/supabase/client";
 import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
 import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
@@ -151,6 +152,71 @@ export function WorkshopDailyReportView({
       });
     return () => {
       active = false;
+    };
+  }, [selectedDate]);
+
+  // REALTIME SIN SATURAR: el reporte se actualiza solo cuando llegan cambios de la
+  // fecha visible (work_orders, invoices o snapshots de pagos/gastos del día) desde
+  // cualquier dispositivo. Se usa DEBOUNCE (agrupa ráfagas) + THROTTLE (máx 1 recarga
+  // cada 4s) + consulta LIGERA por fecha (fetchSupabaseDayReport), para que la web
+  // no se sature mientras los datos del día cambian en tiempo real.
+  useEffect(() => {
+    let lastReloadAt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let active = true;
+
+    const reloadDay = () => {
+      const now = Date.now();
+      // Throttle: no recargar más de 1 vez cada 4s aunque lleguen muchos eventos
+      if (now - lastReloadAt < 4000) return;
+      lastReloadAt = now;
+      fetchSupabaseDayReport(selectedDate)
+        .then((data) => {
+          if (!active) return;
+          if (data) {
+            setDayData({ workOrders: data.workOrders, invoices: data.invoices, payments: data.payments || [], expenses: data.expenses || [] });
+          } else {
+            setDayData(null);
+          }
+        })
+        .catch(() => { /* silencioso: el reporte mantiene su último dato válido */ });
+    };
+
+    const scheduleReload = () => {
+      if (!active) return;
+      if (timer) clearTimeout(timer);
+      // Debounce: agrupa eventos en ráfaga en una sola recarga (evita N fetch seguidos)
+      timer = setTimeout(reloadDay, 600);
+    };
+
+    const isReportRelevant = (payload: any) => {
+      const table = payload?.table || "";
+      if (table === "work_orders" || table === "invoices") return true;
+      // site_content: solo importan los snapshots de pagos/gastos del reporte
+      if (table === "site_content") {
+        const k = String(payload?.new?.key || payload?.new?.section_key || "");
+        return k.startsWith("inv_payhistory_") || k.startsWith("inv_breakdown_") || k.startsWith("inv_resources_") || k.startsWith("exp_");
+      }
+      return false;
+    };
+
+    const channel = supabase
+      .channel("report-day-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, (payload: any) => {
+        if (isReportRelevant(payload)) scheduleReload();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, (payload: any) => {
+        if (isReportRelevant(payload)) scheduleReload();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_content" }, (payload: any) => {
+        if (isReportRelevant(payload)) scheduleReload();
+      })
+      .subscribe();
+
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
     };
   }, [selectedDate]);
 
