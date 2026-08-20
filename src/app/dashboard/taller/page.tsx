@@ -46,6 +46,7 @@ import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
 import { capitalizeFirst } from "@/lib/utils/text-format";
+import { logSystemEvent } from "@/lib/system-log";
 
 const DailyWorkshopReportModal = dynamic(
   () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
@@ -499,6 +500,13 @@ export default function WorkshopOperationsPage() {
       notify("warning", "Ingrese un precio unitario válido antes de añadir el servicio a la lista.");
       return;
     }
+    logSystemEvent("info", "taller.agregar_servicio_carrito", {
+      woId: activeOrderModal ? String(activeOrderModal).slice(0, 8) : null,
+      desc: customItemName.trim() || selectedServiceId,
+      qty: Number(partQty) || 1,
+      price: Number(customItemPrice) || 0,
+      requisitionType,
+    }, "Taller:modal-servicio");
     if (requisitionType === "servicio") {
       const srv = workshopServices.find((s) => s.id === selectedServiceId);
       if (!srv) return;
@@ -566,6 +574,10 @@ export default function WorkshopOperationsPage() {
   };
 
   const handleOpenServices = (orderId: string) => {
+    logSystemEvent("info", "taller.abrir_modal_servicio", {
+      woId: String(orderId).slice(0, 8),
+      plate: workOrders.find((o) => o.id === orderId)?.vehicle_plate || "",
+    }, "Taller:modal-servicio");
     setActiveOrderModal(orderId);
     setModalMode("service");
     setRequisitionType("servicio");
@@ -773,6 +785,16 @@ export default function WorkshopOperationsPage() {
         }
       }
     } else if (modalMode === "service") {
+      // LOG: confirmación de asignación de servicios (antes de ejecutar el agregado)
+      logSystemEvent("info", "taller.confirmar_asignar_servicios", {
+        woId: String(targetOrderId).slice(0, 8),
+        cartCount: pendingServicesCart.length,
+        cartItems: pendingServicesCart.map((p: any) => ({
+          d: String(p.description || "").slice(0, 18),
+          q: p.quantity,
+          p: p.unit_price,
+        })),
+      }, "Taller:modal-servicio");
       // Si hay servicios en el carrito, se agregan TODOS a la orden (multi-servicio)
       if (pendingServicesCart.length > 0) {
         addMultipleWorkOrderItems(

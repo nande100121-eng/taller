@@ -60,6 +60,40 @@ export default function DashboardLayout({
       user: (currentUser as any)?.username || (currentUser as any)?.name || "",
       role: userRole || "",
     });
+
+    // LISTENER GLOBAL DE CLICS: registra CADA acción del usuario en la web (botón pulsado,
+    // texto visible, contexto), para que el log NUNCA omita lo que ocurrió en la interfaz
+    // (diagnóstico A1D-031: el servicio "se agregó" pero no aparecía en el log porque el
+    // agregado venía de un camino sin instrumentar). Con esto, cualquier clic queda rastreado.
+    const clickHandler = (e: MouseEvent) => {
+      try {
+        const target = e.target as HTMLElement | null;
+        if (!target || !target.closest) return;
+        const btn = target.closest("button, [role='button'], a, input[type='button'], [onclick]") as HTMLElement | null;
+        if (!btn) return;
+        // Ignorar clics repetidos del mismo botón en <800ms (evita saturar el log)
+        const now = Date.now();
+        const btnKey = pageName + "|" + (btn.textContent || "").trim().slice(0, 40) + "|" + (btn.getAttribute("title") || "");
+        const lastClick = (window as any).__REYGAS_LAST_CLICK;
+        if (lastClick && lastClick.key === btnKey && now - lastClick.at < 800) return;
+        (window as any).__REYGAS_LAST_CLICK = { key: btnKey, at: now };
+        const text = (btn.textContent || "").trim().replace(/\s+/g, " ").slice(0, 60);
+        const title = btn.getAttribute("title") || "";
+        const aria = btn.getAttribute("aria-label") || "";
+        logSystemEvent("info", "web.click", {
+          page: pageName,
+          btn: text || aria || title || "(sin texto)",
+          title: title || undefined,
+          dataAction: btn.getAttribute("data-action") || undefined,
+        }, "web:" + pageName);
+      } catch {
+        // noop
+      }
+    };
+    document.addEventListener("click", clickHandler, true);
+    return () => {
+      document.removeEventListener("click", clickHandler, true);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 

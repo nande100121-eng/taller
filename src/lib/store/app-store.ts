@@ -2004,6 +2004,18 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   addWorkOrderItem: (orderId, item) =>
     set((state) => {
+      // LOG INCONDICIONAL de entrada: registra SIEMPRE el intento de agregar un item
+      // (repuesto/servicio), con sus datos, para que el log NUNCA omita un agregado
+      // (diagnóstico A1D-031: el servicio "no se veía" en el log porque la función
+      // no llegó a ejecutarse con items).
+      logSystemEvent("info", "workorder.add_item.request", {
+        woId: String(orderId).slice(0, 8),
+        desc: item.description || "",
+        qty: item.quantity,
+        price: item.unit_price,
+        type: item.item_type || "",
+        plate: state.workOrders.find((o) => o.id === orderId)?.vehicle_plate || "",
+      }, "store:addWorkOrderItem");
       let invoices = [...state.invoices];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
@@ -2091,6 +2103,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   addMultipleWorkOrderItems: (orderId, items) =>
     set((state) => {
+      // LOG INCONDICIONAL de entrada (multi-items): registra SIEMPRE el intento con el
+      // detalle de cada item, para que el log nunca omita un agregado (A1D-031).
+      logSystemEvent("info", "workorder.add_items.request", {
+        woId: String(orderId).slice(0, 8),
+        count: Array.isArray(items) ? items.length : 0,
+        items: (Array.isArray(items) ? items : []).map((it: any) => ({
+          d: String(it.description || "").slice(0, 18),
+          q: it.quantity,
+          p: it.unit_price,
+          t: it.item_type || "",
+        })),
+        plate: state.workOrders.find((o) => o.id === orderId)?.vehicle_plate || "",
+      }, "store:addMultipleWorkOrderItems");
       let invoices = [...state.invoices];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
