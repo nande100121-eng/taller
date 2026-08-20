@@ -3124,13 +3124,17 @@ export default function CajaPage() {
                               DEUDA CANCELADA ✓
                             </span>
                           </div>
-                        ) : (!isPaid && (settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0)) ? (
+                        ) : (!isPaid && (settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || grandTotal > 0)) ? (
                           <div className="p-3 bg-amber-950/60 border border-amber-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow">
                             <div className="flex items-center gap-2">
                               <span className="text-lg">🏦</span>
                               <div>
                                 <span className="font-black text-amber-300 text-xs block">
-                                  CRÉDITO PENDIENTE POR COBRAR: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || 0).toFixed(2)}
+                                  {/* BUG FIX (BAG-123): el crédito pendiente real = total actual de la OT
+                                      menos lo ya pagado. Antes usaba invoice.credit_amount (dato viejo de
+                                      la factura pendiente) y la etiqueta quedaba desactualizada (decía 360
+                                      cuando la card ya mostraba 365). */}
+                                  CRÉDITO PENDIENTE POR COBRAR: S/ {Math.max(0, grandTotal - totalPaidSoFar).toFixed(2)}
                                 </span>
                                 <span className="text-[11px] text-gray-300">
                                   Atención registrada con saldo deudor pendiente de cobro.
@@ -3346,7 +3350,8 @@ export default function CajaPage() {
                             {settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || (!isPaid && grandTotal > 0) ? (
                               <>
                                 <span>•</span>
-                                <span className="text-amber-400 font-bold">Saldo: S/ {(settledInfo?.creditAmount || invoice?.credit_amount || grandTotal).toFixed(2)}</span>
+                                {/* Saldo real = total actual - lo ya pagado (no credit_amount viejo de la factura) */}
+                                <span className="text-amber-400 font-bold">Saldo: S/ {(settledInfo?.creditAmount ?? Math.max(0, grandTotal - totalPaidSoFar)).toFixed(2)}</span>
                               </>
                             ) : null}
                             {isPartiallyPaid && (
@@ -3372,7 +3377,7 @@ export default function CajaPage() {
                           {isPartiallyPaid && (
                             <div className="text-right text-[11px] text-gray-300 mt-1 space-y-0.5">
                               <div>Pagado: <strong className="text-emerald-400 font-mono">S/ {totalPaidSoFar.toFixed(2)}</strong></div>
-                              <div>Saldo: <strong className="text-amber-400 font-mono">S/ {(invoice?.credit_amount || 0).toFixed(2)}</strong></div>
+                              <div>Saldo: <strong className="text-amber-400 font-mono">S/ {Math.max(0, grandTotal - totalPaidSoFar).toFixed(2)}</strong></div>
                             </div>
                           )}
                         </div>
