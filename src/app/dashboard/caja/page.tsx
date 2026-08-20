@@ -1850,7 +1850,14 @@ export default function CajaPage() {
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
     const invForBalance = partialPaymentModal.invoice;
     const paidSoFarReal = invoicePaidSoFar(invForBalance);
-    const balance = Math.max(0, partialPaymentModal.totalDue - paidSoFarReal);
+    // EN EDICIÓN: el pago que se está editando YA está contado en paidSoFarReal (historial).
+    // Se excluye su monto original del "ya pagado" para que el saldo disponible refleje el
+    // estado ANTES de este comprobante; si no, al cambiar solo la fecha se bloqueaba con
+    // "El abono supera el saldo pendiente (S/ 0.00)" (el saldo era el propio pago).
+    const editingExcluded = partialPaymentModal.editingRecordId
+      ? (Number(partialPaymentModal.editingRecordAmount) || 0)
+      : 0;
+    const balance = Math.max(0, partialPaymentModal.totalDue - Math.max(0, paidSoFarReal - editingExcluded));
     if (amount <= 0) {
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
