@@ -1027,10 +1027,15 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
     };
 
     // 2. Búsqueda por placa, cliente o comprobante
-    if (cleanTerm) {
+    // Búsqueda desde las 3 primeras letras (petición del usuario). Con menos de 3
+    // caracteres no se filtra (se muestra la vista por defecto).
+    if (cleanTerm && cleanTerm.length >= 3) {
       const orClauses: string[] = [`vehicle_plate.ilike.%${cleanTerm}%`];
 
-      // Cliente o comprobante en invoices → work_order_ids candidatos
+      // Cliente o comprobante en invoices → ids de OTs candidatas.
+      // NOTA: la tabla work_orders NO tiene columna work_order_id; el id de la OT es su
+      // columna "id". Antes se filtraba work_order_id.in.(...) y la consulta FALLABA
+      // (tabla vacía) cuando había coincidencia de facturas (caso "bxd").
       const invLike = supabase
         .from("invoices")
         .select("work_order_id")
@@ -1041,7 +1046,7 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
         .map((i) => i.work_order_id)
         .filter((id): id is string => !!id && id.length > 0);
       if (ids.length > 0) {
-        orClauses.push(`work_order_id.in.(${ids.map((id) => `"${id}"`).join(",")})`);
+        orClauses.push(`id.in.(${ids.map((id) => `"${id}"`).join(",")})`);
       }
 
       // Cliente en vehicles → plates candidatos
