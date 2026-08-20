@@ -2414,7 +2414,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   applyRemoteInvoiceLocal: (inv) => {
     if (!inv || !inv.id) return;
     set((state) => {
-      if (hasRecentLocalMutation("invoices", 1500)) return state;
+      // Protección ampliada (3s): si el usuario acaba de ELIMINAR un pago localmente y llega
+      // un postgres_changes tardío del toggle "Desmarcar Pago" anterior (que conserva el
+      // historial), NO revivir el pago eliminado en la card (bug: toast eliminado pero el
+      // pago seguía visible por un save viejo que llegó después).
+      if (hasRecentLocalMutation("invoices", 3000)) return state;
       const existing = state.invoices.find((i) => i.id === inv.id);
       if (!existing) {
         // Factura nueva desde otra tablet: se agrega directo (el sync operativo
@@ -3059,6 +3063,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_method: rebuildMethodFromHistory(remaining),
         payment_destination: rebuildDestFromHistory(remaining),
         payment_breakdown: remaining.length > 0 ? rebuildBreakdownFromHistory(remaining) : undefined,
+        // BUG FIX: al eliminar el ÚLTIMO pago también se limpian resource_payments y el
+        // comprobante, para que la card NO reconstruya el pago eliminado desde esos fallbacks
+        // (fallbacks solo se usan cuando la factura no trae payment_history en el store).
+        resource_payments: remaining.length > 0 ? targetInvoice.resource_payments : undefined,
         receipt_number: remaining.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
         receipt_type: remaining.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
         paid_at: remaining.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,

@@ -2895,11 +2895,13 @@ export default function CajaPage() {
                 // importados), se RECONSTRUYE desde el desglose/recursos para que la card
                 // muestre los pagos y permita ver/editar qué recursos cubrieron.
                 let partialHistory: any[] = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
-                // Historial EN VIVO: si el store local no trajo el historial (factura fuera de
-                // la ventana de pagadas recientes), se toma del snapshot inv_payhistory_* de
-                // Supabase (por id de factura o por work_order_id) para que la card SIEMPRE
-                // muestre los pagos y permita editar (bug: pagos con fecha 17/08 sin historial).
-                if (partialHistory.length === 0) {
+                // Historial EN VIVO: si la factura NO trae payment_history en el store (undefined/null,
+                // factura fuera de la ventana de pagadas recientes), se toma del snapshot inv_payhistory_*
+                // de Supabase. IMPORTANTE: si el store trae un ARRAY (aunque vacío, ej. tras eliminar un
+                // pago), NO se usa el snapshot: el [] es un estado legítimo de "pago eliminado" y el
+                // snapshot viejo haría que la card mostrara el pago que ya se borró (bug: toast eliminado
+                // pero el pago seguía visible).
+                if (invoice?.payment_history === undefined || invoice?.payment_history === null) {
                   const liveHist = (invoice?.id ? livePayhistory[invoice.id] : undefined)
                     || (invoice?.work_order_id ? livePayhistory[invoice.work_order_id] : undefined)
                     || (wo?.id ? livePayhistory[wo.id] : undefined);
@@ -2907,32 +2909,34 @@ export default function CajaPage() {
                     partialHistory = liveHist.map((r: any) => ({ ...r, isLive: true }));
                   }
                 }
-                if (partialHistory.length === 0) {
-                  const bdRecs: any[] = Array.isArray((invoice as any)?.payment_breakdown) ? (invoice as any).payment_breakdown : [];
-                  if (bdRecs.length > 0) {
-                    partialHistory = bdRecs.map((s: any, si: number) => ({
-                      id: `bd-${invoice?.id}-${si}`,
-                      date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
-                      amount: Number(s.amount) || 0,
-                      method: s.method || (invoice as any)?.payment_method || "Efectivo",
-                      destination: s.destination || (invoice as any)?.payment_destination || "EMPRESA",
-                      receipt_number: s.receipt_number || (invoice as any)?.receipt_number || undefined,
-                      receipt_type: s.receipt_type || (invoice as any)?.receipt_type || undefined,
-                      resources: Array.isArray((s as any).resources) ? (s as any).resources : undefined,
-                      isReconstructed: true,
-                    }));
-                  } else if ((invoice as any)?.resource_payments && Array.isArray((invoice as any).resource_payments) && (invoice as any).resource_payments.length > 0) {
-                    partialHistory = [{
-                      id: `rp-${invoice?.id}`,
-                      date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
-                      amount: (invoice as any)?.grand_total || 0,
-                      method: (invoice as any)?.payment_method || "Efectivo",
-                      destination: (invoice as any)?.payment_destination || "EMPRESA",
-                      receipt_number: (invoice as any)?.receipt_number || undefined,
-                      receipt_type: (invoice as any)?.receipt_type || undefined,
-                      resources: (invoice as any).resource_payments,
-                      isReconstructed: true,
-                    }];
+                if (invoice?.payment_history === undefined || invoice?.payment_history === null) {
+                  if (partialHistory.length === 0) {
+                    const bdRecs: any[] = Array.isArray((invoice as any)?.payment_breakdown) ? (invoice as any).payment_breakdown : [];
+                    if (bdRecs.length > 0) {
+                      partialHistory = bdRecs.map((s: any, si: number) => ({
+                        id: `bd-${invoice?.id}-${si}`,
+                        date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
+                        amount: Number(s.amount) || 0,
+                        method: s.method || (invoice as any)?.payment_method || "Efectivo",
+                        destination: s.destination || (invoice as any)?.payment_destination || "EMPRESA",
+                        receipt_number: s.receipt_number || (invoice as any)?.receipt_number || undefined,
+                        receipt_type: s.receipt_type || (invoice as any)?.receipt_type || undefined,
+                        resources: Array.isArray((s as any).resources) ? (s as any).resources : undefined,
+                        isReconstructed: true,
+                      }));
+                    } else if ((invoice as any)?.resource_payments && Array.isArray((invoice as any).resource_payments) && (invoice as any).resource_payments.length > 0) {
+                      partialHistory = [{
+                        id: `rp-${invoice?.id}`,
+                        date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
+                        amount: (invoice as any)?.grand_total || 0,
+                        method: (invoice as any)?.payment_method || "Efectivo",
+                        destination: (invoice as any)?.payment_destination || "EMPRESA",
+                        receipt_number: (invoice as any)?.receipt_number || undefined,
+                        receipt_type: (invoice as any)?.receipt_type || undefined,
+                        resources: (invoice as any).resource_payments,
+                        isReconstructed: true,
+                      }];
+                    }
                   }
                 }
                 const totalPaidSoFar = partialHistory.reduce((s, p) => s + (Number(p.amount) || 0), 0);
