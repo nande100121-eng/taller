@@ -542,12 +542,16 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     }));
     const partsSum = (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
     const certFeeSave = order.requires_certification ? (Number(order.certification_price) || 0) : 0;
+    const discountSave = Number((order as any)?.discount_amount) || 0;
     logSystemEvent("info", "workorder.save.ok", {
       woId: String(order.id || "").slice(0, 8),
       status: order.status || "",
       plate: order.vehicle_plate || "",
       itemCount: Array.isArray(order.items) ? order.items.length : 0,
-      total: partsSum + certFeeSave,
+      // TOTAL CON DESCUENTO: items + certificación - descuento (lo que ve la card de Caja)
+      total: Math.max(0, partsSum + certFeeSave - discountSave),
+      gross: partsSum + certFeeSave,
+      discount: discountSave,
       items: logItems.slice(0, 8),
       // Detalle completo para el diagnóstico: certificación, allow_mod, fechas
       requiresCert: !!order.requires_certification,

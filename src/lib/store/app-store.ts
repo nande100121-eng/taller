@@ -1841,6 +1841,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateVehicle: (plate, updates) =>
     set((state) => {
+      logSystemEvent("info", "vehicle.update", {
+        plate,
+        campos: Object.keys(updates || {}),
+      }, "store:updateVehicle");
       const updatedVehicles = state.vehicles.map((v) => {
         if (v.plate.toUpperCase() === plate.toUpperCase()) {
           const updated = { ...v, ...updates };
@@ -1855,6 +1859,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   workOrders: [],
 
   createWorkOrder: (order) => {
+    logSystemEvent("info", "workorder.create", {
+      woId: String(order.id || "").slice(0, 8),
+      plate: order.vehicle_plate || "",
+      status: order.status || "",
+      items: (order.items || []).length,
+    }, "store:createWorkOrder");
     const newOrder: WorkOrder = {
       ...order,
       id: order.id || generateUUID(),
@@ -1869,6 +1879,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateWorkOrder: (id, updates) =>
     set((state) => {
+      const prev = state.workOrders.find((o) => o.id === id);
+      logSystemEvent("info", "workorder.update", {
+        woId: String(id).slice(0, 8),
+        plate: prev?.vehicle_plate || "",
+        campos: Object.keys(updates || {}),
+        updResumen: JSON.stringify(updates || {}).slice(0, 200),
+      }, "store:updateWorkOrder");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === id) {
           const updated = { ...o, ...updates };
@@ -1999,6 +2016,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   assignTechnicianToOrder: (orderId, techId) => {
     set((state) => {
+      const prev = state.workOrders.find((o) => o.id === orderId);
+      logSystemEvent("info", "workorder.assign_tecnico", {
+        woId: String(orderId).slice(0, 8),
+        plate: prev?.vehicle_plate || "",
+        techId: String(techId).slice(0, 14),
+      }, "store:assignTechnicianToOrder");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
           const updated = { ...o, assigned_technician_id: techId };
@@ -2213,6 +2236,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateWorkOrderItem: (orderId, itemId, updates) =>
     set((state) => {
+      const prevWo = state.workOrders.find((o) => o.id === orderId);
+      const prevItem = prevWo?.items?.find((i) => i.id === itemId);
+      logSystemEvent("info", "workorder.edit_item", {
+        woId: String(orderId).slice(0, 8),
+        plate: prevWo?.vehicle_plate || "",
+        itemId: String(itemId).slice(0, 16),
+        desc: prevItem?.description || "",
+        upd: JSON.stringify(updates || {}).slice(0, 200),
+      }, "store:updateWorkOrderItem");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
         const updatedItems = o.items.map((i) => {
@@ -2242,6 +2274,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   removeWorkOrderItem: (orderId, itemId) =>
     set((state) => {
+      const prevWo = state.workOrders.find((o) => o.id === orderId);
+      const prevItem = prevWo?.items?.find((i) => i.id === itemId);
+      logSystemEvent("info", "workorder.remove_item", {
+        woId: String(orderId).slice(0, 8),
+        plate: prevWo?.vehicle_plate || "",
+        itemId: String(itemId).slice(0, 16),
+        desc: prevItem?.description || "",
+      }, "store:removeWorkOrderItem");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
         const updatedOrder = {
@@ -2256,51 +2296,78 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     }),
 
   markWorkOrderItemDispatched: (orderId, itemId) =>
-    set((state) => ({
-      workOrders: state.workOrders.map((o) => {
-        if (o.id !== orderId) return o;
-        const targetItem = o.items.find((i) => i.id === itemId);
-        if (targetItem && targetItem.inventory_item_id && !targetItem.dispatched) {
-          get().deductStock(targetItem.inventory_item_id, targetItem.quantity);
-        }
-        const updatedItems = o.items.map((i) =>
-          i.id === itemId
-            ? { ...i, dispatched: true, dispatched_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-            : i
-        );
-        const updatedOrder = { ...o, items: updatedItems };
-        saveSupabaseWorkOrder(updatedOrder);
-        return updatedOrder;
-      }),
-    })),
+    set((state) => {
+      const prevWo = state.workOrders.find((o) => o.id === orderId);
+      const prevItem = prevWo?.items?.find((i) => i.id === itemId);
+      logSystemEvent("info", "almacen.despachar_item", {
+        woId: String(orderId).slice(0, 8),
+        plate: prevWo?.vehicle_plate || "",
+        itemId: String(itemId).slice(0, 16),
+        desc: prevItem?.description || "",
+        qty: prevItem?.quantity || 0,
+      }, "store:markWorkOrderItemDispatched");
+      return {
+        workOrders: state.workOrders.map((o) => {
+          if (o.id !== orderId) return o;
+          const targetItem = o.items.find((i) => i.id === itemId);
+          if (targetItem && targetItem.inventory_item_id && !targetItem.dispatched) {
+            get().deductStock(targetItem.inventory_item_id, targetItem.quantity);
+          }
+          const updatedItems = o.items.map((i) =>
+            i.id === itemId
+              ? { ...i, dispatched: true, dispatched_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+              : i
+          );
+          const updatedOrder = { ...o, items: updatedItems };
+          saveSupabaseWorkOrder(updatedOrder);
+          return updatedOrder;
+        }),
+      };
+    }),
 
   toggleWorkOrderItemDispatched: (orderId, itemId) =>
-    set((state) => ({
-      workOrders: state.workOrders.map((o) => {
-        if (o.id !== orderId) return o;
-        const updatedItems = o.items.map((i) => {
-          if (i.id === itemId) {
-            const nextDispatched = !i.dispatched;
-            if (nextDispatched && i.inventory_item_id) {
-              get().deductStock(i.inventory_item_id, i.quantity);
+    set((state) => {
+      const prevWo = state.workOrders.find((o) => o.id === orderId);
+      const prevItem = prevWo?.items?.find((i) => i.id === itemId);
+      logSystemEvent("info", "almacen.toggle_despacho", {
+        woId: String(orderId).slice(0, 8),
+        plate: prevWo?.vehicle_plate || "",
+        itemId: String(itemId).slice(0, 16),
+        desc: prevItem?.description || "",
+        fueDespachado: !!prevItem?.dispatched,
+      }, "store:toggleWorkOrderItemDispatched");
+      return {
+        workOrders: state.workOrders.map((o) => {
+          if (o.id !== orderId) return o;
+          const updatedItems = o.items.map((i) => {
+            if (i.id === itemId) {
+              const nextDispatched = !i.dispatched;
+              if (nextDispatched && i.inventory_item_id) {
+                get().deductStock(i.inventory_item_id, i.quantity);
+              }
+              return {
+                ...i,
+                dispatched: nextDispatched,
+                dispatched_at: nextDispatched ? new Date().toISOString() : undefined,
+                updated_at: new Date().toISOString(),
+              };
             }
-            return {
-              ...i,
-              dispatched: nextDispatched,
-              dispatched_at: nextDispatched ? new Date().toISOString() : undefined,
-              updated_at: new Date().toISOString(),
-            };
-          }
-          return i;
-        });
-        const updatedOrder = { ...o, items: updatedItems };
-        saveSupabaseWorkOrder(updatedOrder);
-        return updatedOrder;
-      }),
-    })),
+            return i;
+          });
+          const updatedOrder = { ...o, items: updatedItems };
+          saveSupabaseWorkOrder(updatedOrder);
+          return updatedOrder;
+        }),
+      };
+    }),
 
   markAllWorkOrderItemsDispatched: (orderId) =>
-    set((state) => ({
+    set((state) => {
+      logSystemEvent("info", "almacen.despachar_todos", {
+        woId: orderId ? String(orderId).slice(0, 8) : null,
+        scope: orderId ? "una-OT" : "todas",
+      }, "store:markAllWorkOrderItemsDispatched");
+      return {
       workOrders: state.workOrders.map((o) => {
         if (orderId && o.id !== orderId) return o;
         const updatedItems = o.items.map((i) => ({
@@ -2312,7 +2379,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         saveSupabaseWorkOrder(updatedOrder);
         return updatedOrder;
       }),
-    })),
+      };
+    }),
 
   markAllMigratedWorkOrderItemsDispatched: (cutoffDate = "2026-08-08") =>
     set((state) => ({
@@ -2350,6 +2418,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   updateDiagnosticAndObservations: (orderId, notes, observations) => {
     set((state) => {
+      const prev = state.workOrders.find((o) => o.id === orderId);
+      logSystemEvent("info", "workorder.update_diagnostico", {
+        woId: String(orderId).slice(0, 8),
+        plate: prev?.vehicle_plate || "",
+        notesLen: String(notes || "").length,
+        obsLen: String(observations || "").length,
+      }, "store:updateDiagnosticAndObservations");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
           const updated = {
@@ -2504,6 +2579,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   requestCertificationForWorkOrder: (orderId, certType, price) => {
     set((state) => {
       const targetOrder = state.workOrders.find((o) => o.id === orderId);
+      logSystemEvent("info", "taller.solicitar_certificacion", {
+        woId: String(orderId).slice(0, 8),
+        plate: targetOrder?.vehicle_plate || "",
+        certType: certType || "",
+        price: Number(price) || 0,
+      }, "store:requestCertificationForWorkOrder");
       if (!targetOrder) return state;
 
       const veh = state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate);
@@ -2555,6 +2636,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   },
 
   removeCertificationFromWorkOrder: (orderId) => {
+    const prev = get().workOrders.find((o) => o.id === orderId);
+    logSystemEvent("info", "taller.quitar_certificacion", {
+      woId: String(orderId).slice(0, 8),
+      plate: prev?.vehicle_plate || "",
+      certType: prev?.certification_type || "",
+      price: Number(prev?.certification_price) || 0,
+    }, "store:removeCertificationFromWorkOrder");
     set((state) => {
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
@@ -2587,6 +2675,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => {
       const discountVal = Math.max(0, Number(amount) || 0);
       let targetPlate = "";
+      // LOG INCONDICIONAL de la acción "aplicar descuento" (Taller): registra el monto,
+      // la placa y el total antes/después para que el log NUNCA omita un descuento.
+      const prevOrder = state.workOrders.find((o) => o.id === orderId);
+      const prevItemsSum = (prevOrder?.items || []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0);
+      const prevCert = prevOrder?.requires_certification ? (Number(prevOrder.certification_price) || 0) : 0;
+      logSystemEvent("info", "taller.aplicar_descuento", {
+        woId: String(orderId).slice(0, 8),
+        plate: prevOrder?.vehicle_plate || "",
+        discount: discountVal,
+        prevDiscount: Number((prevOrder as any)?.discount_amount) || 0,
+        gross: prevItemsSum + prevCert,
+        totalDespues: Math.max(0, prevItemsSum + prevCert - discountVal),
+      }, "store:setWorkOrderDiscount");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
           targetPlate = o.vehicle_plate || "";
