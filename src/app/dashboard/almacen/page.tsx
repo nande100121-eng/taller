@@ -582,14 +582,25 @@ export default function AlmacenPage() {
     return dateStr.slice(0, 10);
   };
 
+  // ¿Es un REPUESTO físico despachable desde Almacén? Excluye SERVICIOS y
+  // CERTIFICACIONES (ej. "CERTIFICACIÓN (Anual GNV)"), que NO son ítems de almacén:
+  // el ítem de certificación puede quedar sin item_type (bug: Almacén pedía despachar
+  // la certificación como si fuera un repuesto).
+  const isPhysicalPart = (i: any) => {
+    if (!i) return false;
+    if (String(i.item_type || "").toLowerCase() === "servicio") return false;
+    const desc = String(i.description || "").toUpperCase();
+    return !/CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(desc);
+  };
+
   // Group work orders with physical warehouse items by vehicle plate (Services are excluded from warehouse dispatch)
   const allVehiclePartGroups = workOrders
-    .filter((wo) => wo.items && wo.items.some((i) => i.item_type !== "servicio"))
+    .filter((wo) => wo.items && wo.items.some((i) => isPhysicalPart(i)))
     .map((wo) => {
       const vehicle = vehicles.find((v) => v.plate === wo.vehicle_plate);
       const tech = technicians.find((t) => t.id === wo.assigned_technician_id);
       const dateKey = extractDateKey(wo.entry_time);
-      const physicalParts = (wo.items || []).filter((i) => i.item_type !== "servicio");
+      const physicalParts = (wo.items || []).filter((i) => isPhysicalPart(i));
 
       return {
         orderId: wo.id,
@@ -658,7 +669,7 @@ export default function AlmacenPage() {
   });
   const matchingMigratedPendingItemsCount = matchingMigratedOrders
     .flatMap((o) => o.items)
-    .filter((i) => i.item_type !== "servicio" && !i.dispatched).length;
+    .filter((i) => isPhysicalPart(i) && !i.dispatched).length;
 
   const handleSearchIngresoSku = (codeToSearch?: string) => {
     const raw = (codeToSearch ?? ingresoSku).trim();
