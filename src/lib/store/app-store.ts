@@ -3292,7 +3292,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
       // Último recurso antes de crear: factura pendiente/crédito de la misma placa.
       // Evita que un abono genere una factura duplicada en la tabla de registro taller.
-      if (!targetInvoice && targetOrder) {
+      // BUG FIX (log syslog 20/08 20:55): NO aplica a placas genéricas "VENTA"/"GASTO":
+      // todas las ventas de mostrador comparten la placa VENTA, y este bloque enganchaba
+      // la factura pendiente de OTRA venta (pago cargado a factura ajena, OT quedaba
+      // pagada sin factura propia). Solo aplica a placas reales de vehículo.
+      const orderPlateUp = (targetOrder?.vehicle_plate || "").toUpperCase().trim();
+      const isGenericPlate = orderPlateUp === "VENTA" || orderPlateUp === "GASTO" || orderPlateUp === "";
+      if (!targetInvoice && targetOrder && !isGenericPlate) {
         targetInvoice = state.invoices.find(
           (i) =>
             i.vehicle_plate &&
@@ -3300,6 +3306,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             i.vehicle_plate.toUpperCase() === targetOrder.vehicle_plate.toUpperCase() &&
             (i.payment_status !== "pagado" || Number(i.credit_amount) > 0)
         );
+        if (targetInvoice) {
+          logSystemEvent("warn", "payment.register.reused_invoice_by_plate", {
+            woId: String(effectiveWorkOrderId).slice(0, 8),
+            plate: orderPlateUp,
+            reusedInvId: String(targetInvoice.id).slice(0, 26),
+            reusedInvWoId: targetInvoice.work_order_id ? String(targetInvoice.work_order_id).slice(0, 8) : null,
+          });
+        }
       }
 
       const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
