@@ -1776,15 +1776,23 @@ export default function CajaPage() {
     // propia lista y su Monto Total = suma de los recursos marcados en ese split.
     const abonoResourcesPool = buildAbonoResourceSelection(wo, inv, balance) || [];
     const initialSplitResources = abonoResourcesPool.map((r) => ({ ...r }));
+    // Los recursos vienen PRESELECCIONADOS con su saldo pendiente (el reparto del balance
+    // los deja marcados): el monto inicial del abono = suma de los recursos ya marcados,
+    // para que la etiqueta muestre "A abonar: S/ 90.00 · Saldo restante: S/ 0.00" desde
+    // el inicio y el abono quede "Cuadrado" por defecto (el usuario puede desmarcar).
+    const initialMarkedSum = Number(initialSplitResources
+      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+      .reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+      .toFixed(2));
     setPartialPaymentModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       totalDue,
       paidSoFar,
-      // Con recursos, el monto del abono se DERIVA de los recursos marcados (parte en 0).
-      // Sin recursos (factura pre-17/08) se usa el saldo y el monto es editable manual.
-      amount: initialSplitResources.length > 0 ? 0 : balance, // Por defecto: abonar el saldo total
+      // Con recursos preseleccionados, el monto arranca en su suma; si no hay recursos
+      // (factura pre-17/08) se usa el saldo y el monto es editable manual.
+      amount: initialSplitResources.length > 0 ? initialMarkedSum : balance, // Por defecto: abonar el saldo total
       paymentDate: getPeruDateString(), // Fecha del pago: hoy por defecto, editable
       // Método limpio (nunca "Mixto (Mixto (...))" anidado) para no re-guardar basura
       paymentMethod: defaultMethodFrom(inv?.payment_method),
@@ -1795,7 +1803,7 @@ export default function CajaPage() {
           id: `split-1`,
           method: defaultMethodFrom(inv?.payment_method),
           destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
-          amount: initialSplitResources.length > 0 ? 0 : balance,
+          amount: initialSplitResources.length > 0 ? initialMarkedSum : balance,
           // Recursos de ESTE comprobante: se van sumando al Monto Total del split
           splitResources: initialSplitResources.length > 0 ? initialSplitResources : undefined,
         },
