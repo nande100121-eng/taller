@@ -455,7 +455,7 @@ export function WorkshopDailyReportView({
           itemNumber: count++,
           plate: (rec.plate || "S/P").toUpperCase(),
           description: desc,
-          total: totalAmount,
+          total: payState === "parcial" ? paidAmount : totalAmount,
           isPending,
           payState,
           pendingAmount,
@@ -615,7 +615,9 @@ export function WorkshopDailyReportView({
           itemNumber: count++,
           plate: (wo.vehicle_plate || "S/P").toUpperCase(),
           description: desc,
-          total: totalAmount,
+          // En PARCIAL el monto del día es la parte PAGADA/cobrada (el saldo va a
+          // Saldos Pendientes) -> el TOTAL GENERAL cuadra con la tabla.
+          total: payState === "parcial" ? paidAmount : totalAmount,
           isPending,
           payState,
           pendingAmount,
@@ -630,9 +632,10 @@ export function WorkshopDailyReportView({
           isInvoice: Boolean(inv?.id),
           orderStatus: wo.status,
           receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
-          catServ: catSplit.total > 0 ? totalAmount * (catSplit.serv / catSplit.total) : totalAmount,
-          catRep: catSplit.total > 0 ? totalAmount * (catSplit.rep / catSplit.total) : 0,
-          catCert: catSplit.total > 0 ? totalAmount * (catSplit.cert / catSplit.total) : 0,
+          // En VENTAS POR CONCEPTO solo cuenta lo COBRADO (parcial = parte pagada).
+          catServ: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.serv / catSplit.total) : (payState === "parcial" ? paidAmount : totalAmount),
+          catRep: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.rep / catSplit.total) : 0,
+          catCert: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.cert / catSplit.total) : 0,
         });
       }
     });
@@ -749,7 +752,7 @@ export function WorkshopDailyReportView({
           itemNumber: count++,
           plate: (inv.vehicle_plate || "VENTA DIRECTA").toUpperCase(),
           description: (inv as any).service_type || (inv as any).notes || "Certificación / Venta Directa",
-          total: totalAmount,
+          total: payState === "parcial" ? paidAmount : totalAmount,
           isPending,
           payState,
           pendingAmount,
@@ -777,7 +780,19 @@ export function WorkshopDailyReportView({
     const n = String(r.receiptNumber || "").trim();
     return n !== "" && n !== "0" && n.toLowerCase() !== "s/n";
   };
-  const reportableRows = useMemo(() => consolidatedRows.filter((r) => Number(r.total) > 0 && hasComprobante(r)), [consolidatedRows]);
+  // Filas reportables: SOLO lo COBRADO/ABONADO (pagado + parcial). Las pendientes
+  // (sin ingreso) y truncos NO van al REPORTE DEL DÍA (van a Saldos Pendientes).
+  const reportableRows = useMemo(
+    () =>
+      consolidatedRows.filter(
+        (r) =>
+          Number(r.total) > 0 &&
+          hasComprobante(r) &&
+          (r.payState === "pagado" || r.payState === "parcial") &&
+          !r.isTrunco
+      ),
+    [consolidatedRows]
+  );
 
   // Liquidación del día: SOLO ingresos reales (facturas cobradas + abonos recibidos hoy).
   // Excluye pendientes/crédito y montos truncos (esos van a la pestaña Saldos Pendientes).
