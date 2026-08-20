@@ -848,16 +848,22 @@ export default function WorkshopOperationsPage() {
   // Overall & Context counts
   const counts = React.useMemo(() => {
     const todayTarget = queryDate || getPeruDateString();
+    // Las filas "GASTO" (egresos de caja) solo viven en la Tabla Maestra, NO en el Taller:
+    // los conteos deben excluirlas igual que la vista de tarjetas (dateScopedOrders),
+    // para que "Todos los Estados (2)" no muestre un contador de registros que luego
+    // la vista no renderiza (bug: 17/08 solo tenía 2 GASTO -> contaba 2, mostraba 0).
+    const isGasto = (wo: any) => (wo.vehicle_plate || "").toUpperCase() === "GASTO";
     const todayOrders = workOrders.filter((wo) => {
+      if (isGasto(wo)) return false;
       const d = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
       return d === todayTarget;
     });
 
-    const activeList = timeFilter === "hoy" ? todayOrders : workOrders;
+    const activeList = timeFilter === "hoy" ? todayOrders : workOrders.filter((wo) => !isGasto(wo));
 
     return {
       today: todayOrders.length,
-      all: workOrders.length,
+      all: workOrders.filter((wo) => !isGasto(wo)).length,
       currentTotal: activeList.length,
       ingresado: activeList.filter((wo) => wo.status === "ingresado").length,
       en_diagnostico: activeList.filter((wo) => wo.status === "en_diagnostico").length,
