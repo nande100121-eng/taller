@@ -691,6 +691,20 @@ export function WorkshopDailyReportView({
           pendingAmount = totalAmount;
         }
       }
+      // FIX FECHA DE PAGO (doble conteo en reportes): igual que en dayInvoices, la OT
+      // del día solo cuenta su cobro si el pago ocurrió ESE día (la fecha de pago manda).
+      // Si la factura tiene historial de pagos pero NINGÚN pago es de la fecha seleccionada,
+      // se omite la fila aquí: su ingreso ya aparece como abono en el reporte del día del
+      // pago (ej. OT 17/08 pagada el 20/08 -> solo cuenta el 20/08, no el 17/08).
+      const histForPayDay = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+      if (histForPayDay.length > 0) {
+        const recsDelDia = histForPayDay.filter((r: any) => toPeruDateKey(r?.date) === selectedDate);
+        if (recsDelDia.length === 0) return; // nada cobrado este día: omitir fila
+        const cobradoHoy = Number(recsDelDia.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0).toFixed(2));
+        paidAmount = cobradoHoy;
+        pendingAmount = Math.max(0, totalAmount - cobradoHoy);
+        payState = pendingAmount <= 0.01 ? "pagado" : "parcial";
+      }
       const isPending = payState === "pendiente" || payState === "parcial";
       const isTrunco = payState === "trunco";
 
@@ -717,8 +731,12 @@ export function WorkshopDailyReportView({
         : (wo as any).technician_name || csvRec?.technician;
 
       // Cada PAGO del historial con su N° de Ticket/Boleta/Factura se muestra en SU PROPIA
-      // fila del informe (igual que el historial de la card de Caja).
-      const histRecs = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+      // fila del informe (igual que el historial de la card de Caja). FECHA DE PAGO MANDA:
+      // solo los pagos registrados en el día seleccionado (los de otros días ya aparecen
+      // como abonos en su propio reporte, evitando doble conteo).
+      const histRecs = Array.isArray(inv?.payment_history)
+        ? (inv.payment_history as any[]).filter((r: any) => toPeruDateKey(r?.date) === selectedDate)
+        : [];
       const comprobantes = histRecs.filter(
         (r) => r && r.receipt_number && String(r.receipt_number).trim() !== "" && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n"
       );
@@ -917,7 +935,11 @@ export function WorkshopDailyReportView({
       let tDest = breakdown.transfDestino || "EMPRESA";
 
       // Cada PAGO del historial con su N° de Ticket/Boleta/Factura se muestra en SU PROPIA fila.
-      const histRecs = Array.isArray(inv?.payment_history) ? (inv.payment_history as any[]) : [];
+      // FECHA DE PAGO MANDA: solo pagos del día seleccionado (los de otros días ya aparecen
+      // como abonos en su propio reporte, evitando doble conteo).
+      const histRecs = Array.isArray(inv?.payment_history)
+        ? (inv.payment_history as any[]).filter((r: any) => toPeruDateKey(r?.date) === selectedDate)
+        : [];
       const comprobantes = histRecs.filter(
         (r) => r && r.receipt_number && String(r.receipt_number).trim() !== "" && String(r.receipt_number) !== "0" && String(r.receipt_number).toLowerCase() !== "s/n"
       );
