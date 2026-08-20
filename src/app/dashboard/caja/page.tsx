@@ -619,11 +619,24 @@ export default function CajaPage() {
     const discount = (wo.discount_amount && wo.discount_amount > 0)
       ? Number(wo.discount_amount)
       : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+    const otTotal = Math.max(0, gross - discount);
 
-    if (inv?.grand_total !== undefined && inv.grand_total > 0 && (!wo.discount_amount || inv.discounts === wo.discount_amount)) {
+    // BUG FIX (BAG-123 22:02): si la factura quedó pendiente SIN pagos (ej. se desmarcó un
+    // pago y luego Taller cambió el precio), su grand_total es el VIEJO y la card de Caja
+    // mostraba el precio anterior aunque la OT ya tuviera el nuevo. El total visible debe
+    // ser el de la OT (dato más reciente) cuando la factura NO tiene pagos registrados.
+    // Solo facturas con historial de pagos/abonos o PAGADAS conservan su propio total.
+    const hist = Array.isArray(inv?.payment_history) ? inv.payment_history : [];
+    const isInvPaid = inv?.payment_status === "pagado" || (inv?.payment_condition || "").toUpperCase().includes("PAGADO");
+    const hasPayments = hist.length > 0 || (Number(inv?.credit_amount) > 0 && Number(inv?.credit_amount) < (Number(inv?.grand_total) || 0));
+
+    if (inv?.grand_total !== undefined && inv.grand_total > 0 && hasPayments && (!wo.discount_amount || inv.discounts === wo.discount_amount)) {
       return inv.grand_total;
     }
-    return Math.max(0, gross - discount);
+    if (inv?.grand_total !== undefined && inv.grand_total > 0 && isInvPaid && (!wo.discount_amount || inv.discounts === wo.discount_amount)) {
+      return inv.grand_total;
+    }
+    return otTotal;
   }, []);
 
   // Orders that reached billing or have an invoice registered
@@ -2878,8 +2891,15 @@ export default function CajaPage() {
                   ? Number(wo.discount_amount)
                   : (invoice?.discounts ? (typeof invoice.discounts === "number" ? invoice.discounts : Number(invoice.discounts) || 0) : 0);
 
+                // BUG FIX (BAG-123 22:02): el total mostrado debe ser el de la OT (dato más
+                // reciente) cuando la factura quedó pendiente SIN pagos (ej. se desmarcó un
+                // pago y Taller cambió el precio). Solo facturas con pagos o PAGADAS usan su
+                // propio grand_total. Igual que computeOrderNetTotal.
+                const invHistLen = Array.isArray(invoice?.payment_history) ? invoice.payment_history.length : 0;
+                const invPaidFlag = invoice?.payment_status === "pagado" || (invoice?.payment_condition || "").toUpperCase().includes("PAGADO");
+                const invHasPayments = invHistLen > 0 || (Number(invoice?.credit_amount) > 0 && Number(invoice?.credit_amount) < (Number(invoice?.grand_total) || 0));
                 let grandTotal = 0;
-                if (invoice?.grand_total !== undefined && invoice.grand_total > 0 && (!wo.discount_amount || invoice.discounts === wo.discount_amount)) {
+                if (invoice?.grand_total !== undefined && invoice.grand_total > 0 && (invHasPayments || invPaidFlag) && (!wo.discount_amount || invoice.discounts === wo.discount_amount)) {
                   grandTotal = invoice.grand_total;
                 } else {
                   grandTotal = Math.max(0, grossSubtotal - discountVal);
