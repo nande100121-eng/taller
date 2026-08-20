@@ -3,6 +3,7 @@ import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
+import { toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 
 // Unique browser session ID to prevent self-broadcast reload loops
 export const CLIENT_SESSION_ID =
@@ -618,12 +619,14 @@ export async function fetchSupabaseConsultasRealtime(queryDate?: string, searchP
       invoiceQuery = invoiceQuery.ilike("vehicle_plate", `%${cleanPlate}%`);
       vehicleQuery = vehicleQuery.ilike("plate", `%${cleanPlate}%`);
     } else if (queryDate) {
+      // Día PERUANO completo en UTC: [día 05:00 UTC, día+1 05:00 UTC)
+      const nextDay = nextPeruDay(queryDate);
       orderQuery = orderQuery
-        .gte("entry_time", `${queryDate}T00:00:00`)
-        .lte("entry_time", `${queryDate}T23:59:59`);
+        .gte("entry_time", `${queryDate}T05:00:00`)
+        .lt("entry_time", `${nextDay}T05:00:00`);
       invoiceQuery = invoiceQuery
-        .gte("issued_at", `${queryDate}T00:00:00`)
-        .lte("issued_at", `${queryDate}T23:59:59`);
+        .gte("issued_at", `${queryDate}T05:00:00`)
+        .lt("issued_at", `${nextDay}T05:00:00`);
     }
 
     const [ordersRes, invoicesRes, vehiclesRes] = await Promise.all([
@@ -709,17 +712,21 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     next.setUTCDate(next.getUTCDate() + 1);
     const nextDayISO = next.toISOString().slice(0, 10);
 
+    // Día PERUANO en UTC: Perú (UTC-5) empieza el día a las 05:00 UTC. Un ingreso
+    // nocturno (ej. 19/08 20:45 Perú = 20/08 01:45 UTC) debe contar en el día 19/08.
+    const peruDayStartUTC = `${cleanDate}T05:00:00`;
+    const nextDayStartUTC = `${nextDayISO}T05:00:00`;
     const [ordersRes, invoicesRes, payhistRes, dayExpenses] = await Promise.all([
       supabase
         .from("work_orders")
         .select("*")
-        .gte("entry_time", `${cleanDate}T00:00:00`)
-        .lt("entry_time", `${nextDayISO}T00:00:00`),
+        .gte("entry_time", peruDayStartUTC)
+        .lt("entry_time", nextDayStartUTC),
       supabase
         .from("invoices")
         .select("*")
-        .gte("issued_at", `${cleanDate}T00:00:00`)
-        .lt("issued_at", `${nextDayISO}T00:00:00`),
+        .gte("issued_at", peruDayStartUTC)
+        .lt("issued_at", nextDayStartUTC),
       // Roster de abonos parciales (payment_history) persistido en site_content.
       // Se consulta por prefijo de clave para hallar los abonos recibidos HOY
       // sobre facturas emitidas en días anteriores (ingresos reales del día).
@@ -775,9 +782,11 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       const payHistory = phMap.get(inv.id) || (Array.isArray(inv.payment_history) ? inv.payment_history : undefined);
       return {
         ...inv,
+        issued_at: toPeruAnchoredISO(inv.issued_at) || inv.issued_at,
+        paid_at: toPeruAnchoredISO(inv.paid_at) || inv.paid_at || undefined,
         payment_method: cleanMethodDisplay(inv.payment_method),
         payment_history: Array.isArray(payHistory)
-          ? payHistory.map((r: any) => ({ ...r, method: cleanMethodDisplay(r.method, Number(r.amount) || 0) }))
+          ? payHistory.map((r: any) => ({ ...r, date: toPeruAnchoredISO(r.date) || r.date, method: cleanMethodDisplay(r.method, Number(r.amount) || 0) }))
           : payHistory,
         payment_breakdown: Array.isArray(paymentBreakdown)
           ? paymentBreakdown.map((s: any) => ({ ...s, method: cleanMethodDisplay(s.method, Number(s.amount) || 0) }))
@@ -804,7 +813,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
       }
     });
 
-    const dayRecs = Array.from(paymentMap.values()).filter(({ rec }) => (rec.date || "").slice(0, 10) === cleanDate);
+    const dayRecs = Array.from(paymentMap.values()).filter(({ rec }) => toPeruDateKey(rec.date) === cleanDate);
 
     // Enriquecer cada abono con datos de su factura original (placa, cliente, descripción).
     const invKeys = dayRecs.map(({ invKey }) => invKey);
@@ -834,7 +843,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
         // la OT/factura viejas se eliminaron pero su inv_payhistory_ seguía sumando
         // un "abono de 270" fantasma en el informe del 18/08).
         if (!inv || !inv.id) return null;
-        const issuedDay = (inv.issued_at || "").slice(0, 10);
+        const issuedDay = toPeruDateKey(inv.issued_at);
         // Si la factura fue emitida HOY, su cobro ya está contado en `invoices`
         // del día: se excluye para evitar doble conteo en la liquidación.
         if (issuedDay === cleanDate) return null;
@@ -975,12 +984,24 @@ function formatWorkOrderTableRow(o: any): WorkOrder {
     diagnostic_notes: diagNotes,
     observations: obs || o.observations || undefined,
     items,
+    // FIX PERÚ/UTC: la base devuelve entry_time en UTC (+00:00); se re-ancla a -05:00
+    // para que los filtros por fecha (slice(0,10)) vean el día correcto de Perú, incluso
+    // para ingresos nocturnos (ej. 19/08 20:45 en Perú = 20/08 01:45 UTC).
+    entry_time: toPeruAnchoredISO(o.entry_time) || o.entry_time,
+    completion_time: toPeruAnchoredISO(o.completion_time) || o.completion_time || undefined,
   } as WorkOrder;
 }
 
 function escapePostgrestTerm(term: string): string {
   // Remueve caracteres que rompen la sintaxis de filtros PostgREST ((), comas, comillas)
   return term.replace(/[(),"']/g, "");
+}
+
+// Siguiente día (YYYY-MM-DD) de una fecha dada (para rangos PERUANOS en UTC)
+function nextPeruDay(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 export async function fetchMasterTablePage(params: MasterTablePageParams): Promise<MasterTablePageResult | null> {
@@ -994,12 +1015,13 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
 
     const applyDateFilters = (q: any) => {
       if (timeFilter === "hoy" && queryDate) {
-        q = q.gte("entry_time", `${queryDate}T00:00:00`).lte("entry_time", `${queryDate}T23:59:59`);
+        // Día PERUANO: Perú (UTC-5) empieza el día a las 05:00 UTC
+        q = q.gte("entry_time", `${queryDate}T05:00:00`).lt("entry_time", `${nextPeruDay(queryDate)}T05:00:00`);
       } else if (timeFilter === "fecha" && queryDate) {
-        q = q.gte("entry_time", `${queryDate}T00:00:00`).lte("entry_time", `${queryDate}T23:59:59`);
+        q = q.gte("entry_time", `${queryDate}T05:00:00`).lt("entry_time", `${nextPeruDay(queryDate)}T05:00:00`);
       } else if (timeFilter === "rango" && (startDate || endDate)) {
-        if (startDate) q = q.gte("entry_time", `${startDate}T00:00:00`);
-        if (endDate) q = q.lte("entry_time", `${endDate}T23:59:59`);
+        if (startDate) q = q.gte("entry_time", `${startDate}T05:00:00`);
+        if (endDate) q = q.lt("entry_time", `${nextPeruDay(endDate)}T05:00:00`);
       }
       return q;
     };
@@ -1999,6 +2021,10 @@ export async function fetchSupabaseErpData() {
       return {
         ...invFull,
         ...inv,
+        // FIX PERÚ/UTC: anclar issued_at/paid_at a -05:00 para que los filtros por
+        // fecha de Caja/reportes (slice(0,10)) vean el día correcto de Perú.
+        issued_at: toPeruAnchoredISO(inv.issued_at || invFull.issued_at) || inv.issued_at || invFull.issued_at,
+        paid_at: toPeruAnchoredISO(inv.paid_at || invFull.paid_at) || inv.paid_at || invFull.paid_at || undefined,
         receipt_number: inv.receipt_number || invFull.receipt_number || "",
         receipt_type: inv.receipt_type || invFull.receipt_type || "",
         discounts: inv.discounts !== undefined && inv.discounts !== null && inv.discounts !== "" ? inv.discounts : (invFull.discounts !== undefined ? invFull.discounts : ""),
@@ -2007,7 +2033,11 @@ export async function fetchSupabaseErpData() {
         payment_condition: inv.payment_condition || invFull.payment_condition || "",
         observations: inv.observations || invFull.observations || "",
         payment_method: methodClean,
-        payment_history: rawHistory.map((rr: any) => ({ ...rr, method: cleanMethodDisplay(rr.method, Number(rr.amount) || 0) })),
+        payment_history: rawHistory.map((rr: any) => ({
+          ...rr,
+          date: toPeruAnchoredISO(rr.date) || rr.date,
+          method: cleanMethodDisplay(rr.method, Number(rr.amount) || 0),
+        })),
         payment_breakdown: Array.isArray(bdArr)
           ? bdArr.map((s: any) => ({ ...s, method: cleanMethodDisplay(s.method, Number(s.amount) || 0) }))
           : bdArr,

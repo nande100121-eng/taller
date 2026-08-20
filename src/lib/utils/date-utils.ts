@@ -35,6 +35,54 @@ export function buildPeruISOString(dateStr: string, timeStr = "08:30"): string {
 }
 
 /**
+ * Devuelve la FECHA de Perú (YYYY-MM-DD) de un timestamp ISO, convirtiendo
+ * correctamente desde UTC. Fix: la base guarda timestamps en UTC (+00:00) y un
+ * ingreso de la noche en Perú (ej. 19/08 20:45) queda como 2026-08-20T01:45Z;
+ * con esto el filtro por fecha SIEMPRE ve el día correcto de Perú.
+ */
+export function toPeruDateKey(isoLike: string | Date | null | undefined): string {
+  if (!isoLike) return "";
+  if (isoLike instanceof Date) {
+    return isNaN(isoLike.getTime()) ? "" : getPeruDateString(isoLike);
+  }
+  const trimmed = String(isoLike).trim();
+  if (!trimmed) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) return getPeruDateString(d);
+  const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  return "";
+}
+
+/**
+ * Re-ancla un timestamp ISO a la hora local de Perú con offset -05:00, manteniendo
+ * el MISMO instante (no cambia cuándo ocurrió). Así `slice(0,10)` de los consumidores
+ * da la fecha correcta de Perú aunque la base lo devuelva en UTC.
+ */
+export function toPeruAnchoredISO(isoLike: string | null | undefined): string | null | undefined {
+  if (!isoLike) return isoLike;
+  const trimmed = String(isoLike).trim();
+  if (!trimmed) return isoLike;
+  // Ya está anclado a Perú (termina en -05:00) o es solo fecha: se devuelve igual
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed) || /-05:00$/.test(trimmed)) return trimmed;
+  const d = new Date(trimmed);
+  if (isNaN(d.getTime())) return isoLike;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PERU_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}-05:00`;
+}
+
+/**
  * Formats date into Peru standard format "DD/MM/YYYY" (e.g. "14/08/2026")
  * Guaranteed never to roll back to the previous day due to UTC midnight parsing.
  */
