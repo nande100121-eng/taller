@@ -174,6 +174,7 @@ export default function CajaPage() {
       description: string;
       category: "servicio" | "repuesto" | "certificado";
       fullAmount: number;
+      pendingAmount?: number; // Saldo pendiente del recurso (total - pagado previo vinculado)
       payAmount: number;
       selected: boolean;
     }>;
@@ -200,6 +201,16 @@ export default function CajaPage() {
     customerAddress: string;
     observation?: string;        // Observación del saldo pendiente / abono
     responsible?: string;        // Responsable del saldo pendiente (FRANCO, JAIME, ...)
+    // Vínculo recurso -> pago (desde 17/08/2026): qué recursos cubre este abono.
+    resourceSelection?: Array<{
+      key: string;
+      description: string;
+      category: "servicio" | "repuesto" | "certificado";
+      fullAmount: number;
+      pendingAmount?: number; // Saldo pendiente del recurso (abonos: total - pagado previo)
+      payAmount: number;
+      selected: boolean;
+    }>;
   } | null>(null);
 
   // Modal State for Manual / Direct Payment Confirmation (Registro Taller)
@@ -1239,12 +1250,28 @@ export default function CajaPage() {
       ? Number(wo.discount_amount)
       : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
 
+    // Vínculo recurso -> pago: SOLO a partir del 17/08/2026 (hora Perú). Los pagos
+    // anteriores conservan el flujo clásico (monto único/parcial/mixto sin marcar
+    // recursos): no se debe aplicar la selección de recursos a toda la data histórica.
+    const linkDateKey = toPeruDateKey((inv as any)?.issued_at || (wo as any).entry_time || "");
+    const canLinkResources = linkDateKey >= "2026-08-17";
     // Vínculo recurso -> pago: convierte el desglose de la card en una lista marcable,
     // donde cada recurso lleva su categoría y un monto a pagar editable (pago total o
     // parcial por recurso). Si la factura YA tiene resource_payments (pago previo), se
-    // precarga ese vínculo para poder editarlo/verlo.
+    // precarga ese vínculo para poder editarlo/verlo. El monto a pagar de cada recurso
+    // es su SALDO PENDIENTE (total - abonado previo vinculado): si un recurso ya fue
+    // abonado parcialmente, solo se ofrece lo que falta por pagar.
     const existingResources: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
-    const resourceSelection = breakdown.map((b, bi) => {
+    const payHistoryAll: any[] = Array.isArray((inv as any)?.payment_history) ? (inv as any).payment_history : [];
+    const paidByDesc = new Map<string, number>();
+    payHistoryAll.forEach((p: any) => {
+      if (!Array.isArray(p.resources)) return;
+      p.resources.forEach((x: any) => {
+        const k = String(x.description || "").trim().toLowerCase();
+        paidByDesc.set(k, (paidByDesc.get(k) || 0) + (Number(x.amount) || 0));
+      });
+    });
+    const resourceSelection = canLinkResources ? breakdown.map((b, bi) => {
       const descUp = String(b.description || "").toUpperCase();
       const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
       const woItem = (wo.items || []).find((it: any) => it.description === b.description);
@@ -1253,18 +1280,24 @@ export default function CajaPage() {
       else if (woItem && (String(woItem.item_type || "").toLowerCase() === "repuesto" || woItem.inventory_item_id)) category = "repuesto";
       else if (woItem && String(woItem.item_type || "").toLowerCase() === "servicio") category = "servicio";
       const prev = existingResources.find((x: any) => String(x.description || "") === String(b.description || ""));
+      const fullAmt = Number(b.subtotal) || 0;
+      const alreadyPaid = paidByDesc.get(String(b.description || "").trim().toLowerCase()) || 0;
+      const pendingAmt = Math.max(0, fullAmt - alreadyPaid);
+      const prevPay = prev ? (Number(prev.amount) || 0) : 0;
+      const initPay = pendingAmt > 0.01 ? Math.min(pendingAmt, prevPay > 0 ? prevPay : pendingAmt) : 0;
       return {
         key: `res-${bi}-${String(b.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
         description: b.description,
         category,
-        fullAmount: Number(b.subtotal) || 0,
-        payAmount: prev ? (Number(prev.amount) || 0) : (Number(b.subtotal) || 0),
-        selected: prev ? (Number(prev.amount) > 0) : (Number(b.subtotal) > 0),
+        fullAmount: fullAmt,
+        pendingAmount: pendingAmt,
+        payAmount: Math.round(initPay * 100) / 100,
+        selected: initPay > 0.01,
       };
-    });
+    }) : [];
 
     setPaymentModal({
-      resourceSelection,
+      resourceSelection: resourceSelection.length > 0 ? resourceSelection : undefined,
       isOpen: true,
       workOrder: wo,
       invoice: inv,
@@ -1630,6 +1663,73 @@ export default function CajaPage() {
     notify("warning", "Pago de " + wo.vehicle_plate + " desmarcado (Pendiente de Cobro). El historial de pagos se conserva.");
   };
 
+  // Construye la selección de recursos para un ABONO (crédito pendiente). Solo aplica
+  // desde el 17/08/2026 (hora Perú): los abonos anteriores NO vinculan recursos.
+  // Calcula el SALDO PENDIENTE por recurso (total - abonado previo con vínculo) y
+  // reparte el monto de este abono entre los recursos pendientes, permitiendo que un
+  // abono parcial cubra solo parte de un recurso (el resto queda pendiente para el
+  // próximo abono, que verá SOLO los recursos aún por pagar).
+  const buildAbonoResourceSelection = (wo: any, inv?: any, maxAmount: number = 0) => {
+    const linkKey = toPeruDateKey((inv as any)?.issued_at || (wo as any).entry_time || "");
+    if (linkKey < "2026-08-17") return undefined;
+    const items: any[] = Array.isArray(wo?.items) ? wo.items : [];
+    const resList: Array<{ description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number }> = [];
+    items.forEach((it: any) => {
+      const amt = Number(it.subtotal) || 0;
+      if (amt <= 0) return;
+      const descUp = String(it.description || "").toUpperCase();
+      const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+      const cat = isCertTxt ? ("certificado" as const) : (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id ? ("repuesto" as const) : ("servicio" as const));
+      resList.push({ description: it.description, category: cat, fullAmount: amt });
+    });
+    if (wo?.requires_certification && Number(wo.certification_price) > 0) {
+      resList.push({
+        description: `CERTIFICACIÓN (${wo.certification_type || "GNV/GLP"})`,
+        category: "certificado" as const,
+        fullAmount: Number(wo.certification_price) || 0,
+      });
+    }
+    if (resList.length === 0) return undefined;
+
+    // Abonado PREVIO por recurso desde el historial con vínculo (rec.resources).
+    // Los abonos registrados sin vínculo (antes del 17/08) no descuentan recursos:
+    // ese pago previo queda sin asignar y los recursos muestran su saldo pendiente.
+    const history: any[] = Array.isArray((inv as any)?.payment_history) ? (inv as any).payment_history : [];
+    const paidByDesc = new Map<string, number>();
+    history.forEach((p: any) => {
+      if (!Array.isArray(p.resources)) return;
+      p.resources.forEach((x: any) => {
+        const k = String(x.description || "").trim().toLowerCase();
+        paidByDesc.set(k, (paidByDesc.get(k) || 0) + (Number(x.amount) || 0));
+      });
+    });
+    const pendientes = resList
+      .map((rs) => {
+        const paid = paidByDesc.get(String(rs.description || "").trim().toLowerCase()) || 0;
+        const pending = Math.max(0, rs.fullAmount - paid);
+        return { ...rs, pendingAmount: pending };
+      })
+      .filter((rs) => rs.pendingAmount > 0.01);
+    if (pendientes.length === 0) return undefined;
+
+    // Reparte el monto de este abono entre los recursos pendientes (greedy en orden):
+    // si el abono no alcanza a cubrir un recurso completo, se asigna el monto parcial.
+    let remaining = Math.max(0, maxAmount);
+    return pendientes.map((rs, ri) => {
+      const assigned = Math.max(0, Math.min(rs.pendingAmount, remaining));
+      remaining = Math.max(0, remaining - assigned);
+      return {
+        key: `abono-res-${ri}-${String(rs.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
+        description: rs.description,
+        category: rs.category,
+        fullAmount: rs.fullAmount,
+        pendingAmount: rs.pendingAmount,
+        payAmount: Math.round(assigned * 100) / 100,
+        selected: assigned > 0.01,
+      };
+    });
+  };
+
   // Open Partial / Installment Payment Modal (Abono sobre saldo pendiente por placa)
   const handleOpenPartialPaymentModal = (wo: any, inv?: any) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
@@ -1671,6 +1771,9 @@ export default function CajaPage() {
       customerAddress: inv?.customer_address || "-",
       observation: inv?.debt_observation || inv?.observations || wo.observations || "",
       responsible: inv?.debt_responsible || "",
+      // Vínculo recurso -> pago en abonos (desde 17/08/2026): marca qué recursos
+      // cubre este abono y cuánto de cada uno. Los abonos anteriores no vinculan.
+      resourceSelection: buildAbonoResourceSelection(wo, inv, balance),
     });
   };
 
@@ -1761,6 +1864,29 @@ export default function CajaPage() {
           : partialPaymentModal.receiptType);
     const isFullyPaid = Math.abs(balance - amount) <= 0.01;
 
+    // Vínculo recurso -> pago en abonos: recursos seleccionados con su monto a pagar.
+    // Solo aplica desde 17/08/2026 (resourceSelection viene undefined en abonos viejos).
+    const abonoResources = (partialPaymentModal.resourceSelection || [])
+      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+      .map((r) => ({
+        description: r.description,
+        category: r.category,
+        amount: Number(r.payAmount) || 0,
+        receipt_number: assignedReceiptNum || undefined,
+        receipt_type: finalReceiptType || undefined,
+      }));
+    if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0) {
+      notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) que cubra este abono.");
+      return;
+    }
+    // Consistencia: la suma de los recursos marcados debe coincidir con el monto del
+    // abono (permite abono parcial de un recurso: el monto asignado es lo que se paga).
+    const abonoResSum = abonoResources.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    if (abonoResources.length > 0 && Math.abs(abonoResSum - amount) > 0.05) {
+      notify("warning", `La suma de los recursos marcados (S/ ${abonoResSum.toFixed(2)}) no coincide con el monto del abono (S/ ${amount.toFixed(2)}). Ajuste los montos de los recursos.`);
+      return;
+    }
+
     // Fecha real del pago (por defecto hoy; editable en el modal). El abono se registra
     // en la fecha elegida (afecta al reporte diario de ese día).
     const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -1775,6 +1901,7 @@ export default function CajaPage() {
       receiptNumber: assignedReceiptNum,
       receiptType: finalReceiptType,
       paymentBreakdown: paymentBreakdown,
+      resources: abonoResources.length > 0 ? abonoResources : undefined,
       observation: partialPaymentModal.observation,
       responsible: partialPaymentModal.responsible,
       paidAt: paymentDateTime,
@@ -1828,8 +1955,15 @@ export default function CajaPage() {
     });
     // Precargar el vínculo recurso->pago desde el historial (o la factura) para
     // poder ver y editar QUÉ recursos cubre este pago y CUÁNTO de cada uno.
+    // SOLO a partir del 17/08/2026: los pagos anteriores no muestran vinculación.
     const invForEdit = (invoices || []).find((i: any) => i.id === invoiceId) || invoicesByWorkOrderId.get(invoiceId || "");
+    const linkDateKeyEdit = toPeruDateKey((invForEdit as any)?.issued_at || (rec as any).date || "");
+    const canLinkResourcesEdit = linkDateKeyEdit >= "2026-08-17";
     const woForEdit = workOrders.find((o) => o.id === (invForEdit?.work_order_id || ""));
+    if (!canLinkResourcesEdit) {
+      setEditPaymentResources([]);
+      return;
+    }
     const recResources: any[] = Array.isArray(rec.resources) ? rec.resources : [];
     const invResources: any[] = Array.isArray((invForEdit as any)?.resource_payments) ? (invForEdit as any).resource_payments : [];
     const srcResources = recResources.length > 0 ? recResources : invResources;
@@ -1874,15 +2008,19 @@ export default function CajaPage() {
     }
     const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
     const dateISO = buildPeruISOString(editPaymentForm.paymentDate || getPeruDateString(), payTimeNow);
-    const linkedResources = editPaymentResources
-      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
-      .map((r) => ({
-        description: r.description,
-        category: r.category,
-        amount: Number(r.payAmount) || 0,
-        receipt_number: editPaymentForm.receiptNumber || undefined,
-        receipt_type: editPaymentForm.receiptType || undefined,
-      }));
+    // Solo se vincula recursos si este pago aplica (desde 17/08/2026); en pagos
+    // anteriores editPaymentResources queda vacío y no se toca el vínculo.
+    const linkedResources = editPaymentResources.length > 0
+      ? editPaymentResources
+          .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+          .map((r) => ({
+            description: r.description,
+            category: r.category,
+            amount: Number(r.payAmount) || 0,
+            receipt_number: editPaymentForm.receiptNumber || undefined,
+            receipt_type: editPaymentForm.receiptType || undefined,
+          }))
+      : undefined;
     updatePaymentRecord(editPaymentModal.invoiceId, editPaymentModal.record.id, {
       amount,
       date: dateISO,
@@ -1890,7 +2028,7 @@ export default function CajaPage() {
       receipt_type: editPaymentForm.receiptType || undefined,
       receipt_number: editPaymentForm.receiptNumber || undefined,
       observation: editPaymentForm.observation || undefined,
-      resources: linkedResources.length > 0 ? linkedResources : undefined,
+      resources: linkedResources && linkedResources.length > 0 ? linkedResources : undefined,
     });
     notify("success", "Pago del historial actualizado. Saldo y VENTAS POR CONCEPTO recalculados.");
     setEditPaymentModal(null);
@@ -3194,6 +3332,9 @@ export default function CajaPage() {
                       <span className={`flex-1 truncate ${it.selected ? "text-white" : "text-gray-500 line-through"}`}>
                         {it.category === "certificado" ? "🛡 " : it.category === "repuesto" ? "📦 " : "🔧 "}
                         {it.description}
+                        {typeof it.pendingAmount === "number" && Math.abs(it.pendingAmount - it.fullAmount) > 0.01 && (
+                          <span className="ml-1 text-[9px] text-amber-300 font-bold">pendiente S/ {it.pendingAmount.toFixed(2)}</span>
+                        )}
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="text-[10px] text-gray-500">total S/ {it.fullAmount.toFixed(2)}</span>
@@ -3202,17 +3343,18 @@ export default function CajaPage() {
                             type="number"
                             step="0.01"
                             min="0"
-                            max={it.fullAmount}
+                            max={typeof it.pendingAmount === "number" ? it.pendingAmount : it.fullAmount}
                             value={it.payAmount || ""}
                             onChange={(e) => {
-                              const val = Math.max(0, Math.min(Number(it.fullAmount), parseFloat(e.target.value) || 0));
+                              const cap = typeof it.pendingAmount === "number" ? it.pendingAmount : it.fullAmount;
+                              const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
                               const sel = (paymentModal.resourceSelection || []).map((r: any) =>
                                 r.key === it.key ? { ...r, payAmount: val, selected: val > 0 } : r
                               );
                               setPaymentModal({ ...paymentModal, resourceSelection: sel });
                             }}
                             className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-emerald-400"
-                            title="Monto a pagar de este recurso (puede ser parcial)"
+                            title="Monto a pagar de este recurso (puede ser parcial; no supera el saldo pendiente)"
                           />
                         )}
                       </div>
@@ -4870,18 +5012,86 @@ export default function CajaPage() {
                           const splits = Array.isArray(prev.paymentSplits) ? [...prev.paymentSplits] : [];
                           // Pago único: si hay un solo método, su Monto se completa con el monto a abonar (el usuario puede modificarlo)
                           const synced = splits.length === 1 ? splits.map((s, i) => (i === 0 ? { ...s, amount: val } : s)) : splits;
+                          // Al cambiar el monto del abono, la selección de recursos se
+                          // redistribuye automáticamente entre los recursos pendientes
+                          // (un abono menor cubre solo parte del recurso y el resto
+                          // queda pendiente para el próximo abono).
+                          const redistributed = prev.resourceSelection && prev.resourceSelection.length > 0
+                            ? buildAbonoResourceSelection(prev.workOrder, prev.invoice, val)
+                            : prev.resourceSelection;
                           return {
                             ...prev,
                             amount: val,
                             // Abono menor al 100% -> solo Pago Mixto / Parcial
                             isSplitPayment: !fullNow ? true : prev.isSplitPayment,
                             paymentSplits: synced,
+                            resourceSelection: redistributed !== undefined ? redistributed : prev.resourceSelection,
                           };
                         });
                       }}
                       className="w-full pl-9 pr-4 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-emerald-400 font-mono font-black text-base focus:border-cyan-400"
                     />
                   </div>
+
+                  {/* Vínculo recurso -> pago en ABONOS (solo desde 17/08/2026): el
+                      cajero marca qué recursos cubre este abono y cuánto de cada uno. */}
+                  {partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && (
+                    <div className="mt-3 p-3 bg-black/30 rounded-xl border border-white/10 space-y-2">
+                      <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[10px] font-bold text-cyan-400 uppercase">
+                        <span>Recursos que cubre este abono (vínculo VENTAS POR CONCEPTO)</span>
+                        <span className="font-mono text-gray-400">S/ {partialPaymentModal.resourceSelection.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}</span>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1 custom-scrollbar">
+                        {partialPaymentModal.resourceSelection.map((rs) => (
+                          <div key={rs.key} className="flex items-center gap-2 text-xs pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setPartialPaymentModal((prev) => prev ? {
+                                ...prev,
+                                resourceSelection: prev.resourceSelection?.map((r) =>
+                                  r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? Math.min(r.fullAmount, Number(prev.amount) || 0) : r.payAmount } : r
+                                ),
+                              } : prev)}
+                              className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
+                                ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                                : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
+                                }`}
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            <span className={`flex-1 truncate ${rs.selected ? "text-white" : "text-gray-500 line-through"}`}>
+                              {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
+                              {rs.description}
+                              <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
+                              {typeof rs.pendingAmount === "number" && Math.abs(rs.pendingAmount - rs.fullAmount) > 0.01 && (
+                                <span className="ml-1 text-[9px] text-amber-300 font-bold">pendiente S/ {rs.pendingAmount.toFixed(2)}</span>
+                              )}
+                            </span>
+                            {rs.selected && (
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount}
+                                value={rs.payAmount || ""}
+                                onChange={(e) => {
+                                  const cap = typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount;
+                                  const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
+                                  setPartialPaymentModal((prev) => prev ? {
+                                    ...prev,
+                                    resourceSelection: prev.resourceSelection?.map((r) =>
+                                      r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                                    ),
+                                  } : prev);
+                                }}
+                                className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-cyan-400"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <button
                       type="button"
@@ -5527,7 +5737,9 @@ export default function CajaPage() {
                 />
               </div>
 
-              {/* Vínculo recurso -> pago: ver/editar qué recursos cubre este pago */}
+              {/* Vínculo recurso -> pago: ver/editar qué recursos cubre este pago.
+                  SOLO aplica a pagos desde el 17/08/2026 (los anteriores no vinculan). */}
+              {editPaymentResources.length > 0 && (
               <div className="p-3 bg-black/30 rounded-xl border border-white/10 space-y-2">
                 <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[10px] font-bold text-amber-400 uppercase">
                   <span>Recursos que cubre este pago (vínculo VENTAS POR CONCEPTO)</span>
@@ -5577,6 +5789,7 @@ export default function CajaPage() {
                   </div>
                 )}
               </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setEditPaymentModal(null)} className="flex-1 py-2.5 bg-reygas-surface hover:bg-white/10 text-gray-300 hover:text-white font-bold rounded-xl text-xs border border-white/10">

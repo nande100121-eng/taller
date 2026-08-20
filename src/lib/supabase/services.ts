@@ -685,6 +685,7 @@ export interface DayPaymentIncome {
   receipt_type?: string;           // Ticket | Boleta | Factura | Sin Comprobante
   reference?: string;              // Nota / desglose del pago
   payment_breakdown?: any[];       // Desglose de métodos mixtos (si existe en la factura)
+  resources?: any[];               // Vínculo recurso -> pago del abono (desde 17/08/2026)
   plate: string;                   // Placa del vehículo de la factura original
   client_name: string;             // Cliente de la factura original
   description: string;             // Descripción / referencia del abono
@@ -862,6 +863,7 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
           receipt_type: rec.receipt_type || "",
           reference: rec.reference || "",
           payment_breakdown: Array.isArray(inv.payment_breakdown) ? inv.payment_breakdown : undefined,
+          resources: Array.isArray((rec as any).resources) ? (rec as any).resources : undefined,
           plate: (inv.vehicle_plate || "").toUpperCase(),
           client_name: inv.client_name || "",
           description:

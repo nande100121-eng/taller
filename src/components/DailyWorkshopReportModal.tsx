@@ -921,6 +921,19 @@ export function WorkshopDailyReportView({
       const tr = bd.transferencia;
       const cu = bd.culqi;
       const dest = (p.destination || "EMPRESA").toUpperCase();
+      // Vínculo recurso -> pago del ABONO (solo desde 17/08/2026): los abonos que se
+      // registraron marcando recursos traen p.resources y VENTAS POR CONCEPTO usa ese
+      // vínculo directo. Los abonos antiguos caen al fallback por keywords (r.total).
+      const abonoRes: any[] = Array.isArray((p as any).resources) ? (p as any).resources : [];
+      let as = 0, ar = 0, ac = 0;
+      if (abonoRes.length > 0) {
+        abonoRes.forEach((x: any) => {
+          const xa = Number(x.amount) || 0;
+          if (String(x.category || "").toLowerCase() === "repuesto") ar += xa;
+          else if (String(x.category || "").toLowerCase() === "certificado") ac += xa;
+          else as += xa;
+        });
+      }
       rows.push({
         id: "abono_" + p.id,
         itemNumber: rows.length + 1,
@@ -943,6 +956,9 @@ export function WorkshopDailyReportView({
         isInvoice: true,
         orderStatus: "finalizado",
         receiptNumber: (p.receipt_number && String(p.receipt_number) !== "0" ? String(p.receipt_number) : "") || "",
+        catServ: abonoRes.length > 0 ? as : undefined,
+        catRep: abonoRes.length > 0 ? ar : undefined,
+        catCert: abonoRes.length > 0 ? ac : undefined,
       });
     });
 

@@ -3045,6 +3045,21 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const distinctReceipts = Array.from(new Set(splitsWithReceipt.map((s) => String(s.receipt_number).trim())));
       const multiReceipt = splitsWithReceipt.length > 1 && distinctReceipts.length > 1;
 
+      // Vínculo recurso -> pago: se guarda en CADA registro del historial para que el
+      // próximo abono pueda calcular el saldo pendiente por recurso y mostrar SOLO los
+      // recursos aún por pagar. En pago mixto multi-ticket, cada recurso va al registro
+      // cuyo comprobante (receipt_number) coincide; si no hay match, van al primer split.
+      const resourcesForRec = (s: any, idx: number): PaymentResource[] | undefined => {
+        if (!Array.isArray(resources) || resources.length === 0) return undefined;
+        if (!multiReceipt) return resources as PaymentResource[];
+        const rn = String((s as any)?.receipt_number || "").trim();
+        const own = (resources as PaymentResource[]).filter((x) => {
+          const xrn = String((x as any).receipt_number || "").trim();
+          if (rn && xrn) return xrn === rn;
+          return false;
+        });
+        return own.length > 0 ? own : (idx === 0 ? resources as PaymentResource[] : undefined);
+      };
       const recordsToAdd: PaymentRecord[] = multiReceipt
         ? bdSplits.map((s, idx) => {
             const splitAmount = Math.max(0, Number(s.amount) || 0);
@@ -3059,6 +3074,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               receipt_type: s.receipt_type || recType || undefined,
               observation: observation || undefined,
               responsible: responsible || undefined,
+              resources: resourcesForRec(s, idx),
             } as PaymentRecord;
           })
         : [
@@ -3072,6 +3088,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               receipt_type: recType || undefined,
               observation: observation || undefined,
               responsible: responsible || undefined,
+              resources: Array.isArray(resources) && resources.length > 0 ? resources : undefined,
             } as PaymentRecord,
           ];
 
