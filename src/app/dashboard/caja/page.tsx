@@ -178,6 +178,9 @@ export default function CajaPage() {
       payAmount: number;
       selected: boolean;
     }>;
+    // Modo SOLO VINCULAR: abierto desde una card YA PAGADA para asignar recursos a un
+    // pago existente sin re-cobrar (no crea nuevo pago en el historial ni cambia saldos).
+    linkOnly?: boolean;
   } | null>(null);
 
   // Modal State for Partial / Installment Payment (Abonos sobre saldo pendiente por placa)
@@ -1172,7 +1175,7 @@ export default function CajaPage() {
   };
 
   // Handle open payment confirmation modal
-  const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0) => {
+  const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0, linkOnly: boolean = false) => {
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
 
     // Build itemized breakdown
@@ -1298,6 +1301,7 @@ export default function CajaPage() {
 
     setPaymentModal({
       resourceSelection: resourceSelection.length > 0 ? resourceSelection : undefined,
+      linkOnly,
       isOpen: true,
       workOrder: wo,
       invoice: inv,
@@ -1357,7 +1361,8 @@ export default function CajaPage() {
 
     const isZeroAmount = (paymentModal.grandTotal || 0) === 0;
     const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
-
+    // Modo SOLO VINCULAR: no exige método/destino/comprobante (no se cobra de nuevo).
+    if (!paymentModal.linkOnly) {
     if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
       notify("warning", "Debe seleccionar un Método de Pago.");
       return;
@@ -1372,12 +1377,38 @@ export default function CajaPage() {
       notify("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
       return;
     }
+    }
 
     // Vínculo recurso -> pago: si la card ya muestra recursos seleccionables (nuevo
     // flujo), al menos uno debe estar marcado con monto > 0 para confirmar el cobro.
     const selResources = (paymentModal.resourceSelection || []).filter((r) => r.selected && (Number(r.payAmount) || 0) > 0);
     if (!isZeroAmount && paymentModal.resourceSelection && paymentModal.resourceSelection.length > 0 && selResources.length === 0) {
       notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) a cobrar.");
+      return;
+    }
+
+    // MODO SOLO VINCULAR: card ya pagada — se asigna recursos al pago existente SIN
+    // crear un nuevo cobro ni tocar saldos. El vínculo queda en la factura (resource_payments)
+    // y VENTAS POR CONCEPTO lo usa directo. NO se abre comprobante ni se avanza correlativo.
+    if (paymentModal.linkOnly) {
+      const linked = selResources.map((r) => ({
+        description: r.description,
+        category: r.category,
+        amount: Number(r.payAmount) || 0,
+      }));
+      if (linked.length === 0) {
+        notify("warning", "Marque al menos un recurso para vincular a este pago.");
+        return;
+      }
+      if (paymentModal.invoice?.id) {
+        updateInvoice(paymentModal.invoice.id, {
+          resource_payments: linked,
+        } as any);
+        notify("success", `Recursos vinculados al pago de ${paymentModal.workOrder?.vehicle_plate}. VENTAS POR CONCEPTO actualizado.`);
+      } else {
+        notify("warning", "No se encontró la factura para vincular recursos.");
+      }
+      setPaymentModal(null);
       return;
     }
 
@@ -2755,7 +2786,39 @@ export default function CajaPage() {
                 const splitPayment = parseSplitPaymentString(invoice?.discounts, wo.diagnostic_notes, invoice?.payment_method, grandTotal);
                 const isPaid = settledInfo?.isSettled || isOrderPaid(wo, invoice);
                 // Pago parcial: hay abonos registrados y aún queda saldo pendiente (crédito)
-                const partialHistory = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
+                // Historial de pagos: usa payment_history; si la factura está PAGADA pero
+                // no tiene historial (pagos confirmados antes del registro en historial o
+                // importados), se RECONSTRUYE desde el desglose/recursos para que la card
+                // muestre los pagos y permita ver/editar qué recursos cubrieron.
+                let partialHistory: any[] = Array.isArray(invoice?.payment_history) ? invoice.payment_history : [];
+                if (partialHistory.length === 0) {
+                  const bdRecs: any[] = Array.isArray((invoice as any)?.payment_breakdown) ? (invoice as any).payment_breakdown : [];
+                  if (bdRecs.length > 0) {
+                    partialHistory = bdRecs.map((s: any, si: number) => ({
+                      id: `bd-${invoice?.id}-${si}`,
+                      date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
+                      amount: Number(s.amount) || 0,
+                      method: s.method || (invoice as any)?.payment_method || "Efectivo",
+                      destination: s.destination || (invoice as any)?.payment_destination || "EMPRESA",
+                      receipt_number: s.receipt_number || (invoice as any)?.receipt_number || undefined,
+                      receipt_type: s.receipt_type || (invoice as any)?.receipt_type || undefined,
+                      resources: Array.isArray((s as any).resources) ? (s as any).resources : undefined,
+                      isReconstructed: true,
+                    }));
+                  } else if ((invoice as any)?.resource_payments && Array.isArray((invoice as any).resource_payments) && (invoice as any).resource_payments.length > 0) {
+                    partialHistory = [{
+                      id: `rp-${invoice?.id}`,
+                      date: (invoice as any)?.paid_at || (invoice as any)?.issued_at || "",
+                      amount: (invoice as any)?.grand_total || 0,
+                      method: (invoice as any)?.payment_method || "Efectivo",
+                      destination: (invoice as any)?.payment_destination || "EMPRESA",
+                      receipt_number: (invoice as any)?.receipt_number || undefined,
+                      receipt_type: (invoice as any)?.receipt_type || undefined,
+                      resources: (invoice as any).resource_payments,
+                      isReconstructed: true,
+                    }];
+                  }
+                }
                 const totalPaidSoFar = partialHistory.reduce((s, p) => s + (Number(p.amount) || 0), 0);
                 const isPartiallyPaid = !isPaid && partialHistory.length > 0 && (invoice?.credit_amount || 0) > 0;
                 const isCardExpanded = expandedCards.has(wo.id);
@@ -3084,19 +3147,36 @@ export default function CajaPage() {
                                     {" — "}
                                     <strong>{cleanMethodDisplay(rec.method, Number(rec.amount) || 0) || rec.method}</strong>
                                     {rec.receipt_number ? " (" + (rec.receipt_type || "") + " " + rec.receipt_number + ")" : ""}
-                                    {Array.isArray((rec as any).resources) && (rec as any).resources.length > 0 && (
-                                      <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-cyan-300 bg-cyan-950/40 border border-cyan-500/30 rounded px-1 py-px font-bold" title={(rec as any).resources.map((x: any) => `${x.description}: S/ ${Number(x.amount).toFixed(2)}`).join("\n")}>
-                                        🔗 {(rec as any).resources.length} recurso{(rec as any).resources.length !== 1 ? "s" : ""} vinculado{(rec as any).resources.length !== 1 ? "s" : ""}
-                                      </span>
-                                    )}
+                                    {(() => {
+                                      const recRes: any[] = Array.isArray((rec as any).resources) ? (rec as any).resources : [];
+                                      const invRes: any[] = Array.isArray((invoice as any)?.resource_payments) ? (invoice as any).resource_payments : [];
+                                      const shownRes = recRes.length > 0 ? recRes : (recRes.length === 0 && invRes.length > 0 ? invRes : []);
+                                      const resLabel = shownRes.length > 0
+                                        ? `${shownRes.length} recurso${shownRes.length !== 1 ? "s" : ""} vinculado${shownRes.length !== 1 ? "s" : ""}`
+                                        : (rec as any).isReconstructed ? "sin recursos vinculados" : "";
+                                      return shownRes.length > 0 ? (
+                                        <span className={`ml-1 inline-flex items-center gap-0.5 text-[9px] rounded px-1 py-px font-bold ${recRes.length > 0
+                                          ? "text-cyan-300 bg-cyan-950/40 border border-cyan-500/30"
+                                          : "text-amber-300 bg-amber-950/40 border border-amber-500/30"
+                                          }`} title={(shownRes as any[]).map((x: any) => `${x.description}: S/ ${Number(x.amount).toFixed(2)}`).join("\n")}>
+                                          🔗 {resLabel}
+                                        </span>
+                                      ) : (rec as any).isReconstructed ? (
+                                        <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded px-1 py-px font-bold" title="Este pago no tiene recursos vinculados. Pulse el lápiz para asignarlos.">
+                                          ⚠ sin recursos vinculados
+                                        </span>
+                                      ) : null;
+                                    })()}
                                   </span>
                                   <span className="flex items-center gap-1.5">
                                     <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenEditPaymentRecord(rec, invoice?.id)}
+                                      onClick={() => (rec as any).isReconstructed
+                                        ? handleOpenPaymentModal(wo, invoice, grandTotal, true)
+                                        : handleOpenEditPaymentRecord(rec, invoice?.id)}
                                       className="p-0.5 rounded bg-amber-500/10 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 transition-colors"
-                                      title="Editar este pago del historial (monto, método, fecha, comprobante)"
+                                      title={(rec as any).isReconstructed ? "Vincular recursos a este pago (abre el cobro con selección de recursos)" : "Editar este pago del historial (monto, método, fecha, comprobante, recursos)"}
                                     >
                                       <Edit3 className="w-3 h-3" />
                                     </button>
@@ -3199,18 +3279,18 @@ export default function CajaPage() {
 
                               {partialHistory.length > 0 ? (
                                 <button
-                                  onClick={() => handleQuickConfirmPayment(wo, invoice)}
+                                  onClick={() => handleOpenPartialPaymentModal(wo, invoice)}
                                   className="px-5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 font-extrabold text-xs rounded-xl border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center gap-2 transition-all cursor-pointer"
-                                  title="Confirmar y registrar el abono pendiente con el método/comprobante de la factura (sin abrir el modal; no duplica)"
+                                  title="Abonar el saldo pendiente con selección de recursos (desde 17/08/2026) o pago parcial clásico"
                                 >
                                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
-                                  <span>Confirmar Abono Parcial</span>
+                                  <span>Abonar Saldo (Vincular Recursos)</span>
                                 </button>
                               ) : (
                                 <button
-                                  onClick={() => handleQuickConfirmPayment(wo, invoice)}
+                                  onClick={() => handleOpenPaymentModal(wo, invoice, grandTotal)}
                                   className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
-                                  title={grandTotal <= 0 ? "Confirmar atención sin costo — sin comprobante y sin método de pago" : "Confirmar y registrar el pago completo con el método/comprobante de la factura (sin abrir el modal; no duplica)"}
+                                  title={grandTotal <= 0 ? "Confirmar atención sin costo — sin comprobante y sin método de pago" : "Cobrar con selección de recursos (desde 17/08/2026): marque qué cubre este pago y confirme"}
                                 >
                                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                                   <span>{grandTotal <= 0 ? "Confirmar (Sin Costo)" : "Confirmar Pago"}</span>
@@ -3973,10 +4053,13 @@ export default function CajaPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                  className={`px-6 py-2.5 rounded-xl text-white font-black text-xs shadow-lg flex items-center gap-2 transition-transform hover:scale-105 ${paymentModal.linkOnly
+                    ? "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 shadow-cyan-600/30"
+                    : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-600/30"
+                    }`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirmar, Cobrar e Imprimir</span>
+                  <span>{paymentModal.linkOnly ? "Vincular Recursos al Pago" : "Confirmar, Cobrar e Imprimir"}</span>
                 </button>
               </div>
             </form>

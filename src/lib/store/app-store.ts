@@ -2816,6 +2816,22 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           ? `Factura ${oldNum} anulada mediante Nota de Crédito ${generatedNC}. ${targetInvoice.observations || ""}`.trim()
           : targetInvoice.observations;
 
+        // Registrar el pago en el HISTORIAL (además del desglose): así la card muestra
+        // el pago aunque la factura ya esté pagada, y se puede ver/editar qué recursos
+        // cubrió (vínculo recurso -> pago desde 17/08/2026).
+        const confirmRec: PaymentRecord = {
+          id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          date: nowISO,
+          amount: computedGrandTotal,
+          method: sanitizeMethod(paymentMethod || targetInvoice.payment_method || "Efectivo", computedGrandTotal) || "Efectivo",
+          destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
+          receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || undefined),
+          receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || undefined),
+          resources: Array.isArray(resources) && resources.length > 0 ? resources : undefined,
+        };
+        const prevHistory: PaymentRecord[] = Array.isArray(targetInvoice.payment_history) ? targetInvoice.payment_history : [];
+        const historyAfter = [...prevHistory, confirmRec];
+
         const updated: Invoice = {
           ...targetInvoice,
           client_name: customerName || targetInvoice.client_name || vehicle?.owner_name || "Cliente Taller",
@@ -2834,6 +2850,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || ""),
           payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
           resource_payments: resources !== undefined ? resources : targetInvoice.resource_payments,
+          payment_history: historyAfter,
           credit_note_number: generatedNC || targetInvoice.credit_note_number,
           observations: updatedObservations,
           paid_at: nowISO,
@@ -2844,6 +2861,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const partsTotal = (targetOrder.items || []).reduce((sum, item) => sum + item.subtotal, 0);
         const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
         const discountVal = targetOrder.discount_amount || 0;
+        const grandTotalNew = Math.max(0, partsTotal + certFee - discountVal);
         const newInvoice: Invoice = {
           id: `inv-${Date.now()}`,
           work_order_id: targetOrder.id,
@@ -2855,7 +2873,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           parts_total: partsTotal,
           certification_fee: certFee,
           discounts: discountVal,
-          grand_total: Math.max(0, partsTotal + certFee - discountVal),
+          grand_total: grandTotalNew,
           payment_status: "pagado",
           payment_method: sanitizeMethod(paymentMethod || "Efectivo"),
           payment_destination: paymentDestination || "EMPRESA",
@@ -2863,6 +2881,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_type: receiptType !== undefined ? receiptType : "",
           payment_breakdown: paymentBreakdown,
           resource_payments: resources,
+          payment_history: [{
+            id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            date: nowISO,
+            amount: grandTotalNew,
+            method: sanitizeMethod(paymentMethod || "Efectivo", grandTotalNew) || "Efectivo",
+            destination: paymentDestination || "EMPRESA",
+            receipt_number: receiptNumber || undefined,
+            receipt_type: receiptType || undefined,
+            resources: Array.isArray(resources) && resources.length > 0 ? resources : undefined,
+          } as PaymentRecord],
           issued_at: targetOrder.entry_time || nowISO,
           paid_at: nowISO,
         };
