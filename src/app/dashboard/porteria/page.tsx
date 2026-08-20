@@ -113,7 +113,6 @@ export default function PorteriaPage() {
     owner_phone: "",
     current_mileage: 0,
     problem_description: "",
-    monto: "",
   });
 
   // Keep entryDate in sync when selectedDate changes and update time
@@ -438,7 +437,6 @@ export default function PorteriaPage() {
           owner_phone: existingData?.owner_phone || data.owner_phone || "",
           current_mileage: existingData?.current_mileage || 0,
           problem_description: "",
-          monto: "",
         });
       } else {
         notify("warning", "No se detectó una placa clara en la imagen. Ingrese los datos manualmente.");
@@ -549,27 +547,17 @@ export default function PorteriaPage() {
     });
 
     // 2. Create work order for workshop with specific entry_time.
-    // Si el usuario indicó un MONTO, la OT nace con su ítem con precio (evita el bug de
-    // registros en S/ 0.00: el monto quedaba perdido y el pago se registraba contra una
-    // factura de 0, como pasó con A2J-607).
-    const montoNum = parseFloat(entryForm.monto) || 0;
+    // La venta de repuesto ingresa a Taller SIN precio: el MATERIAL A VENDER se define
+    // desde Taller -> Pedir Repuesto (catálogo del Almacén con su precio) y el cobro
+    // continúa el flujo normal (Taller/Caja). La OT nace sin ítems para que no quede
+    // un monto genérico ni un registro en S/ 0.00 duplicado.
     const descServ = entryForm.problem_description.trim() || (isVentaDirecta ? "Venta directa de repuestos al mostrador" : "Ingreso para mantenimiento general y revisión");
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
       problem_description: descServ,
       entry_time: chosenDateTimeISO,
-      items: montoNum > 0
-        ? [
-          {
-            id: `item-${Date.now()}`,
-            description: descServ,
-            quantity: 1,
-            unit_price: montoNum,
-            subtotal: montoNum,
-          },
-        ]
-        : [],
+      items: [],
     });
 
     if (isVentaDirecta) {
@@ -591,7 +579,6 @@ export default function PorteriaPage() {
       owner_phone: "",
       current_mileage: 0,
       problem_description: "",
-      monto: "",
     });
   };
 
@@ -1093,24 +1080,9 @@ export default function PorteriaPage() {
               />
             </div>
 
-            {/* Monto a cobrar: SOLO visible en Venta Directa (obligatorio). En el ingreso
-                normal de taller el monto se define al agregar el servicio/repuesto en el Taller. */}
-            {isVentaDirecta && (
-            <div>
-              <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                Precio de Venta (S/) *
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="Ej. 80 (Anual GNV)"
-                value={entryForm.monto}
-                onChange={(e) => setEntryForm({ ...entryForm, monto: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-emerald-400 focus:outline-none font-bold"
-              />
-            </div>
-            )}
+            {/* NOTA: la venta de repuesto ya NO pide precio en Portería. El registro ingresa
+                a Taller con su OT abierta (placa VENTA) y el MATERIAL A VENDER se define
+                desde Taller -> Pedir Repuesto (catálogo con precio), continuando el flujo. */}
 
             {/* Submit Button */}
             <button
