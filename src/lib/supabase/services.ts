@@ -485,7 +485,31 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
 
 export async function deleteSupabaseWorkOrder(id: string) {
   try {
+    // BORRADO EN CASCADA: al eliminar la OT de la Tabla Registro Taller se elimina
+    // TODO lo vinculado, para que no queden huérfanos (bug: facturas/snapshots sin OT
+    // seguían apareciendo en reportes y la Tabla Maestra al re-ingresar datos).
+    // 1) Facturas de la OT (la tabla invoices no tiene FK en cascada)
+    const invRes = await supabase.from("invoices").select("id").eq("work_order_id", id);
+    const invIds = (invRes?.data || []).map((i: any) => i.id as string);
     await supabase.from("invoices").delete().eq("work_order_id", id);
+    // 2) Snapshots de facturas (site_content): por id de factura Y por work_order_id
+    const scKeys: string[] = [];
+    invIds.forEach((invId) => {
+      scKeys.push(`inv_full_${invId}`, `inv_breakdown_${invId}`, `inv_payhistory_${invId}`, `inv_resources_${invId}`);
+    });
+    scKeys.push(`inv_full_${id}`, `inv_breakdown_${id}`, `inv_payhistory_${id}`, `inv_resources_${id}`);
+    for (const k of scKeys) {
+      await supabase.from("site_content").delete().eq("key", k);
+    }
+    // 3) Certificaciones vinculadas a la OT (tabla + snapshot site_content)
+    const certRes = await supabase.from("certifications").select("id").eq("work_order_id", id);
+    const certIds = (certRes?.data || []).map((c: any) => c.id as string);
+    await supabase.from("certifications").delete().eq("work_order_id", id);
+    for (const cid of certIds) {
+      await supabase.from("site_content").delete().eq("key", `cert_${cid}`);
+      await supabase.from("site_content").delete().eq("section_key", `cert_${cid}`);
+    }
+    // 4) La OT misma
     const { error } = await supabase.from("work_orders").delete().eq("id", id);
     broadcastRealtimeChange("work_order_deleted");
     if (error) console.warn("Supabase work order delete warning:", error.message);
@@ -496,6 +520,23 @@ export async function deleteSupabaseWorkOrder(id: string) {
 
 export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
   try {
+    // Cascada: facturas + snapshots + certificaciones de las OTs borradas
+    const invRes = await supabase.from("invoices").select("id").in("work_order_id", ids);
+    const invIds = (invRes?.data || []).map((i: any) => i.id as string);
+    await supabase.from("invoices").delete().in("work_order_id", ids);
+    const scKeys: string[] = [];
+    invIds.forEach((invId) => scKeys.push(`inv_full_${invId}`, `inv_breakdown_${invId}`, `inv_payhistory_${invId}`, `inv_resources_${invId}`));
+    ids.forEach((id) => scKeys.push(`inv_full_${id}`, `inv_breakdown_${id}`, `inv_payhistory_${id}`, `inv_resources_${id}`));
+    for (const k of scKeys) {
+      await supabase.from("site_content").delete().eq("key", k);
+    }
+    const certRes = await supabase.from("certifications").select("id").in("work_order_id", ids);
+    const certIds = (certRes?.data || []).map((c: any) => c.id as string);
+    await supabase.from("certifications").delete().in("work_order_id", ids);
+    for (const cid of certIds) {
+      await supabase.from("site_content").delete().eq("key", `cert_${cid}`);
+      await supabase.from("site_content").delete().eq("section_key", `cert_${cid}`);
+    }
     const { error } = await supabase.from("work_orders").delete().in("id", ids);
     if (error) console.warn("Supabase multiple work orders delete warning:", error.message);
   } catch (err) {
@@ -507,6 +548,24 @@ export const deleteMultipleSupabaseWorkOrders = deleteSupabaseMultipleWorkOrders
 
 export async function clearSupabaseWorkOrders() {
   try {
+    // Cascada total: borra TODAS las facturas, sus snapshots y certificaciones
+    // (equivale a vaciar la Tabla Registro Taller completa).
+    const invRes = await supabase.from("invoices").select("id");
+    const invIds = (invRes?.data || []).map((i: any) => i.id as string);
+    await supabase.from("invoices").delete().neq("id", "");
+    for (const invId of invIds) {
+      await supabase.from("site_content").delete().eq("key", `inv_full_${invId}`);
+      await supabase.from("site_content").delete().eq("key", `inv_breakdown_${invId}`);
+      await supabase.from("site_content").delete().eq("key", `inv_payhistory_${invId}`);
+      await supabase.from("site_content").delete().eq("key", `inv_resources_${invId}`);
+    }
+    const certRes = await supabase.from("certifications").select("id");
+    const certIds = (certRes?.data || []).map((c: any) => c.id as string);
+    await supabase.from("certifications").delete().neq("id", "");
+    for (const cid of certIds) {
+      await supabase.from("site_content").delete().eq("key", `cert_${cid}`);
+      await supabase.from("site_content").delete().eq("section_key", `cert_${cid}`);
+    }
     const { error } = await supabase.from("work_orders").delete().neq("id", "");
     if (error) console.warn("Supabase work orders clear warning:", error.message);
   } catch (err) {
