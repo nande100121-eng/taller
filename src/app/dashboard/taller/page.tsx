@@ -38,6 +38,8 @@ import {
   Tag,
   Coins,
   Percent,
+  Send,
+  CheckCircle2,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -94,6 +96,8 @@ export default function WorkshopOperationsPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
+  // Modal de confirmación "Enviar a Cobrar" (diseño glassmórfico de la web, no window.confirm)
+  const [sendToCashierConfirm, setSendToCashierConfirm] = useState<{ id: string; plate: string } | null>(null);
 
   // Editar FECHA/HORA DE INGRESO de la OT (corrección de errores)
   const [editEntryOrder, setEditEntryOrder] = useState<{ id: string; plate: string; entryTime: string } | null>(null);
@@ -1376,13 +1380,12 @@ export default function WorkshopOperationsPage() {
                                       notify("warning", `⚠️ ${wo.vehicle_plate} tiene repuestos pendientes de liberación en Almacén. Espera la confirmación de entrega del material antes de enviar a cobrar.`);
                                       return;
                                     }
-                                    // FLUJO COBRO: "Enviar a Cobrar" requiere CONFIRMACIÓN explícita:
-                                    // solo al aceptar, la card aparece en Caja (evita que Caja cobre
-                                    // una OT que aún se está editando en Taller).
-                                    if (target === "por_cobrar") {
-                                      if (!window.confirm(`¿Enviar a cobrar ${wo.vehicle_plate}? La card aparecerá en Caja para el cobro.`)) {
-                                        return;
-                                      }
+                                    // FLUJO COBRO: "Enviar a Cobrar" requiere CONFIRMACIÓN explícita
+                                    // (modal glassmórfico de la web): solo al aceptar, la card aparece
+                                    // en Caja (evita que Caja cobre una OT que aún se está editando).
+                                    if (target === "por_cobrar" && wo.status !== "por_cobrar") {
+                                      setSendToCashierConfirm({ id: wo.id, plate: wo.vehicle_plate || "" });
+                                      return;
                                     }
                                     updateWorkOrderStatus(wo.id, step.status);
                                   }}
@@ -2750,6 +2753,74 @@ export default function WorkshopOperationsPage() {
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Confirmar y Eliminar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIRMACIÓN "ENVIAR A COBRAR" (glassmórfico) */}
+      {sendToCashierConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl shadow-black/90 space-y-6">
+            {/* Encabezado */}
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                  <Send className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Enviar a Cobrar</h3>
+                  <p className="text-xs text-gray-400">Confirmar envío de la orden a Caja</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSendToCashierConfirm(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <div className="space-y-2.5 text-xs text-gray-300">
+              <p>
+                La orden del vehículo <strong className="text-white font-mono">{sendToCashierConfirm.plate}</strong>{" "}
+                se enviará a <strong className="text-emerald-400">Caja</strong> y su card aparecerá disponible para el cobro.
+              </p>
+              <div className="bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/30 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>¿Desea continuar?</span>
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  Una vez enviada, la card quedará visible en Caja para registrar el pago. Para volver a modificar la orden, Caja debe habilitar la edición en Taller.
+                </p>
+              </div>
+            </div>
+
+            {/* Acciones */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setSendToCashierConfirm(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  updateWorkOrderStatus(sendToCashierConfirm.id, "por_cobrar");
+                  const sentPlate = sendToCashierConfirm.plate;
+                  setSendToCashierConfirm(null);
+                  notify("success", `✅ ${sentPlate} enviada a Caja para el cobro.`);
+                }}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+              >
+                <Send className="w-4 h-4" />
+                <span>Confirmar Envío a Caja</span>
               </button>
             </div>
           </div>
