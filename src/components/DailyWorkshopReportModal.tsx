@@ -413,6 +413,73 @@ export function WorkshopDailyReportView({
       return { serv, rep, cert, total: serv + rep + cert };
     };
 
+    // Ítems REALES de la card con su categoría (para repartir VENTAS POR CONCEPTO
+    // por lo asignado en el Taller y NO por proporciones inventadas del total).
+    const buildCategoryItems = (wo: any) => {
+      const items = Array.isArray(wo.items) ? wo.items : [];
+      const out: Array<{ amount: number; cat: 'serv' | 'rep' | 'cert' }> = [];
+      items.forEach((it: any) => {
+        const amt = Number(it.subtotal) || Number(it.quantity) * Number(it.unit_price) || 0;
+        if (amt <= 0) return;
+        const descUp = String(it.description || '').toUpperCase();
+        const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+        if (isCertTxt) { out.push({ amount: amt, cat: 'cert' }); return; }
+        if (String(it.item_type || '').toLowerCase() === 'repuesto' || it.inventory_item_id) { out.push({ amount: amt, cat: 'rep' }); return; }
+        out.push({ amount: amt, cat: 'serv' });
+      });
+      const certExtra = wo.requires_certification ? Number(wo.certification_price) || 0 : 0;
+      if (certExtra > 0) out.push({ amount: certExtra, cat: 'cert' });
+      return out;
+    };
+
+    // Busca un subconjunto de ítems (índices) que sume `target` (±0.01).
+    const findSubset = (items: Array<{ amount: number }>, used: boolean[], target: number): number[] | null => {
+      const n = items.length;
+      const rec = (idx: number, remaining: number, chosen: number[]): number[] | null => {
+        if (Math.abs(remaining) < 0.01) return chosen;
+        if (idx >= n || remaining < 0) return null;
+        for (let i = idx; i < n; i++) {
+          if (used[i] || items[i].amount <= 0) continue;
+          if (items[i].amount > remaining + 0.01) continue;
+          const res = rec(i + 1, remaining - items[i].amount, chosen.concat(i));
+          if (res) return res;
+        }
+        return null;
+      };
+      return rec(0, target, []);
+    };
+
+    // Asigna los ítems reales de la card a cada ticket del pago por SUMA EXACTA
+    // (ej. AUH-440: ticket 180 = certificado 180; ticket 90 = 40 filtro + 30 mant + 20 calib).
+    // Si algún ticket no calza exacto o sobran ítems, devuelve null (fallback proporcional).
+    const matchTicketsToItems = (
+      ticketAmounts: number[],
+      catItems: Array<{ amount: number; cat: 'serv' | 'rep' | 'cert' }>
+    ): Array<{ serv: number; rep: number; cert: number } | null> | null => {
+      const n = catItems.length;
+      if (n === 0 || n > 14) return null;
+      const used = new Array(n).fill(false);
+      const order = ticketAmounts.map((amt, i) => ({ amt, i })).sort((a, b) => b.amt - a.amt);
+      const result: Array<{ serv: number; rep: number; cert: number } | null> = ticketAmounts.map(() => null);
+      let remainingItems = n;
+      for (const { amt, i } of order) {
+        const subset = findSubset(catItems, used, amt);
+        if (!subset) return null;
+        const split = { serv: 0, rep: 0, cert: 0 };
+        subset.forEach((idx) => {
+          used[idx] = true;
+          remainingItems--;
+          const it = catItems[idx];
+          if (it.cat === 'serv') split.serv += it.amount;
+          else if (it.cat === 'rep') split.rep += it.amount;
+          else split.cert += it.amount;
+        });
+        result[i] = split;
+      }
+      if (remainingItems > 0) return null;
+      return result;
+    };
+
     // 1. First Priority: Load exact day records from workshop CSV lookup (e.g. 14/08/2026, 15/08/2026, etc.)
     const csvDayRecords = getWorkshopDayRecords(selectedDate);
 
@@ -576,6 +643,14 @@ export function WorkshopDailyReportView({
       );
 
       if (comprobantes.length > 1) {
+        // VENTAS POR CONCEPTO: asigna los ítems REALES de la card a cada ticket del
+        // pago por suma exacta (ej. AUH-440: ticket 180 = certificado, ticket 90 =
+        // filtro 40 + mantenimiento 30 + calibración 20). Si no calza exacto,
+        // cae al reparto proporcional anterior (fallback).
+        const ticketCatSplits = matchTicketsToItems(
+          comprobantes.map((rc) => Number(rc.amount) || 0),
+          buildCategoryItems(wo)
+        );
         comprobantes.forEach((rec, si) => {
           const recAmount = Number(rec.amount) || 0;
           const subBd = breakdownFromSources(
@@ -604,9 +679,9 @@ export function WorkshopDailyReportView({
             isInvoice: true,
             orderStatus: "finalizado",
             receiptNumber: String(rec.receipt_number || ""),
-            catServ: catSplit.total > 0 ? recAmount * (catSplit.serv / catSplit.total) : recAmount,
-            catRep: catSplit.total > 0 ? recAmount * (catSplit.rep / catSplit.total) : 0,
-            catCert: catSplit.total > 0 ? recAmount * (catSplit.cert / catSplit.total) : 0,
+            catServ: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.serv : (catSplit.total > 0 ? recAmount * (catSplit.serv / catSplit.total) : recAmount),
+            catRep: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.rep : (catSplit.total > 0 ? recAmount * (catSplit.rep / catSplit.total) : 0),
+            catCert: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.cert : (catSplit.total > 0 ? recAmount * (catSplit.cert / catSplit.total) : 0),
           });
         });
       } else {
