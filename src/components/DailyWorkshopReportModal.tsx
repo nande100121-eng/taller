@@ -213,9 +213,24 @@ export function WorkshopDailyReportView({
       })
       .subscribe();
 
+    // RECARGA AL VOLVER A LA PESTAÑA: los navegadores SUSPENDEN el WebSocket de
+    // Realtime cuando la pestaña está en segundo plano, así los cambios hechos en
+    // otra pestaña no llegan por broadcast mientras tanto. Al volver el foco o la
+    // visibilidad se recarga la consulta ligera del día (debounce + throttle 4s).
+    // Cubre el caso "dejo Reportes abierta, pago en Caja/Taller, al volver no veo
+    // el registro hasta refrescar".
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") scheduleReload();
+    };
+    const handleFocus = () => scheduleReload();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
       supabase.removeChannel(channel);
     };
   }, [selectedDate]);
