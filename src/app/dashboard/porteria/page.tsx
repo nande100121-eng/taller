@@ -627,8 +627,10 @@ export default function PorteriaPage() {
       entry_time: nowISO,
     });
 
-    // 3. Update appointment status
-    updateAppointmentStatus(app.id, "confirmado");
+    // 3. Update appointment status: "completado" = el vehículo YA ingresó al taller
+    // (no "confirmado", que en Recepción significa cita confirmada con el cliente y
+    // todavía debe poder verse en Portería hasta que asista).
+    updateAppointmentStatus(app.id, "completado");
 
     notify(
       "success",
@@ -683,10 +685,13 @@ export default function PorteriaPage() {
     });
   };
 
-  // Filtered Appointments (Active/Pending)
+  // Filtered Appointments (Active/Pending): se muestran las citas AÚN NO ASISTIDAS
+  // (status "pendiente" = creada, y "confirmado" = confirmada con el cliente vía WhatsApp
+  // pero cuyo vehículo todavía no llega a la garita). Solo se ocultan "cancelado" y
+  // "completado" (cita ya atendida / vehículo ya ingresó).
   const filteredAppointments = useMemo(() => {
     return appointments.filter((app) => {
-      if (app.status === "cancelado" || app.status === "completado" || app.status === "confirmado") {
+      if (app.status === "cancelado" || app.status === "completado") {
         return false;
       }
       if (dateFilterMode === "dia") {
