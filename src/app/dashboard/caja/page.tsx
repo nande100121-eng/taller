@@ -1788,7 +1788,7 @@ export default function CajaPage() {
       // Método limpio (nunca "Mixto (Mixto (...))" anidado) para no re-guardar basura
       paymentMethod: defaultMethodFrom(inv?.payment_method),
       paymentDestination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
-      isSplitPayment: false,
+      isSplitPayment: true,
       paymentSplits: [
         {
           id: `split-1`,
@@ -2077,7 +2077,7 @@ export default function CajaPage() {
       paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
       paymentMethod: (rec.method || "").trim() === "Sin Método" ? "" : defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
       paymentDestination: rec.destination || invEdit.payment_destination || "EMPRESA",
-      isSplitPayment: false,
+      isSplitPayment: true,
       paymentSplits: [{ id: `split-1`, method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"), destination: rec.destination || invEdit.payment_destination || "EMPRESA", amount: Number(rec.amount) || 0, splitResources: resList.length > 0 ? resList.map((x) => ({ ...x })) : undefined }],
       receiptNumber: rec.receipt_number || invEdit.receipt_number || "",
       receiptType: (rec.receipt_type === "Boleta" || rec.receipt_type === "Factura" ? rec.receipt_type : (rec.receipt_type === "Sin Comprobante" ? "Sin Comprobante" : "Ticket")) as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante",
@@ -5178,110 +5178,10 @@ export default function CajaPage() {
                   <span>3. Método y Destino del Abono</span>
                 </h4>
 
-                {(() => {
-                  const saldoActualAbono = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
-                  const montoAbono = Number(partialPaymentModal.amount) || 0;
-                  // 100% del saldo -> ambas opciones; menor al 100% -> solo Pago Mixto / Parcial
-                  const isFullAbono = saldoActualAbono <= 0 || montoAbono >= saldoActualAbono - 0.01;
-                  return (
-                  <div className="flex items-center bg-black/50 p-0.5 rounded-xl border border-white/15 text-xs self-start sm:self-auto">
-                    <button
-                      type="button"
-                      disabled={!isFullAbono}
-                      onClick={() => {
-                        const val = Number(partialPaymentModal.amount) || 0;
-                        setPartialPaymentModal({
-                          ...partialPaymentModal,
-                          isSplitPayment: false,
-                          paymentSplits: [{ id: "split-1", method: partialPaymentModal.paymentMethod || "Efectivo", destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA", amount: val }],
-                        });
-                      }}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all ${!isFullAbono
-                        ? "opacity-40 cursor-not-allowed"
-                        : !partialPaymentModal.isSplitPayment
-                          ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
-                          : "text-gray-400 hover:text-white"
-                        }`}
-                      title={!isFullAbono ? "Abono parcial: use Pago Mixto / Parcial" : "Pago único del monto indicado"}
-                    >
-                      💵 Pago Único
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const splitsNow = Array.isArray(partialPaymentModal.paymentSplits) ? [...partialPaymentModal.paymentSplits] : [];
-                        const currentSplits = splitsNow.length > 0
-                          ? (splitsNow.length === 1 ? splitsNow.map((s, i) => (i === 0 ? { ...s, amount: montoAbono } : s)) : splitsNow)
-                          : [
-                            {
-                              id: "split-1",
-                              method: partialPaymentModal.paymentMethod || "Efectivo",
-                              destination: partialPaymentModal.paymentDestination || eligibleDestinations[0] || "EMPRESA",
-                              amount: montoAbono,
-                            },
-                          ];
-                      setPartialPaymentModal({ ...partialPaymentModal, isSplitPayment: true, paymentSplits: currentSplits });
-                    }}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 ${partialPaymentModal.isSplitPayment
-                      ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
-                      : "text-gray-400 hover:text-white"
-                      }`}
-                  >
-                    💳 Pago Mixto / Parcial
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20">
-                      {(partialPaymentModal.paymentSplits || []).length}
-                    </span>
-                  </button>
-                  </div>
-                  );
-                })()}
-
-                {!partialPaymentModal.isSplitPayment ? (
-                  <div className="space-y-3">
-                    <div>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                        {(["Efectivo", "Yape", "Transferencia", "Culqi", "Sin Método"] as const).map((method) => {
-                          const isSelected = method === "Sin Método" ? (!partialPaymentModal.paymentMethod || partialPaymentModal.paymentMethod === "Sin Método") : partialPaymentModal.paymentMethod === method;
-                          return (
-                            <button
-                              key={method}
-                              type="button"
-                              onClick={() => setPartialPaymentModal({ ...partialPaymentModal, paymentMethod: method === "Sin Método" ? "" : method })}
-                              className={`p-2 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${isSelected
-                                ? "bg-emerald-600 border-emerald-400 text-white shadow-lg shadow-emerald-600/30 scale-[1.02]"
-                                : "bg-reygas-surface border-white/10 text-gray-300 hover:border-white/30"
-                                }`}
-                            >
-                              <span>{method === "Efectivo" ? "💵" : method === "Yape" ? "📱" : method === "Transferencia" ? "🏦" : method === "Culqi" ? "💳" : "🚫"}</span>
-                              <span>{method}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-gray-300 block mb-1 font-bold text-xs">
-                        Destino del Abono / Responsable:
-                      </label>
-                      <div className="relative">
-                        <Building className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <select
-                          value={partialPaymentModal.paymentDestination}
-                          onChange={(e) => setPartialPaymentModal({ ...partialPaymentModal, paymentDestination: e.target.value })}
-                          className="w-full pl-9 pr-4 py-2 bg-reygas-dark border border-white/10 rounded-xl text-xs font-bold text-white focus:border-emerald-400"
-                        >
-                          <option value="">(Ninguno / Dejar Vacío)</option>
-                          {eligibleDestinations.map((dest) => (
-                            <option key={dest} value={dest}>
-                              {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : `👤 ${dest}`}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                {/* SIEMPRE desglose de métodos: 1 método = Pago Único, varios = Pago Mixto / Parcial.
+                    Cada método lleva SUS recursos vinculados; su Monto Total = suma de los
+                    recursos marcados. El modo "Pago Único" ya no existe como sección aparte. */}
+                <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
                       <span className="font-bold text-purple-300 flex items-center gap-1.5">
                         <Coins className="w-4 h-4 text-purple-400" />
@@ -5293,11 +5193,23 @@ export default function CajaPage() {
                           const currentSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
                           const remaining = Math.max(0, Number(((partialPaymentModal.amount || 0) - currentSum).toFixed(2)));
                           const splitsNow = partialPaymentModal.paymentSplits || [];
-                          // El NUEVO método hereda los recursos AÚN NO usados por otros
-                          // métodos (sin marcar): cada comprobante puede vincular los que
-                          // estén libres; los ya usados aparecen tachados al intentar.
-                          const usedKeys = new Set(splitsNow.flatMap((sp: any) => Array.isArray(sp.splitResources) ? sp.splitResources.filter((x: any) => x.selected).map((x: any) => x.key) : []));
-                          const pool = (partialPaymentModal.resourceSelection || []).filter((x) => !usedKeys.has(x.key));
+                          // El NUEVO método jala los recursos con SALDO PENDIENTE restante:
+                          // los no usados y también los parcialmente pagados en otro método
+                          // (con su saldo a pagar). El monto total del método = suma de los
+                          // recursos que marque. Un recurso ya cubierto al 100% no se repite.
+                          const paidByKey = new Map<string, number>();
+                          (splitsNow || []).forEach((sp: any) => {
+                            (Array.isArray(sp.splitResources) ? sp.splitResources : []).forEach((x: any) => {
+                              if (x && x.selected) paidByKey.set(x.key, (paidByKey.get(x.key) || 0) + (Number(x.payAmount) || 0));
+                            });
+                          });
+                          const pool = (partialPaymentModal.resourceSelection || [])
+                            .map((x) => {
+                              const paid = paidByKey.get(x.key) || 0;
+                              const saldo = Math.max(0, (Number(x.pendingAmount) || Number(x.fullAmount) || 0) - paid);
+                              return { ...x, pendingAmount: saldo, payAmount: 0, selected: false };
+                            })
+                            .filter((x) => x.pendingAmount > 0.01);
                           const lastSplit = splitsNow.length > 0 ? splitsNow[splitsNow.length - 1] : undefined;
                           const lastSplitType = (lastSplit?.receipt_type === "Boleta" || lastSplit?.receipt_type === "Factura"
                             ? lastSplit.receipt_type
@@ -5311,7 +5223,9 @@ export default function CajaPage() {
                               id: "split-" + Date.now() + "-" + Math.random(),
                               method: "Culqi",
                               destination: eligibleDestinations[0] || "EMPRESA",
-                              amount: remaining,
+                              // Si el nuevo método hereda recursos, su Monto Total = suma de los
+                              // marcados (parte en 0); si no hay recursos, arranca con el resto.
+                              amount: pool.length > 0 ? 0 : remaining,
                               splitResources: pool.length > 0 ? pool.map((x) => ({ ...x, selected: false, payAmount: 0, pendingAmount: Number(x.pendingAmount) || Number(x.fullAmount) || 0 })) : undefined,
                               ...(nextTicketNum
                                 ? { receipt_number: nextTicketNum, receipt_type: lastSplitType }
@@ -5525,7 +5439,7 @@ export default function CajaPage() {
                         {/* RECURSOS DE ESTE MÉTODO/COMPROBANTE: marcar aquí hace subir el
                             Monto Total. Recurso usado en otro método = tachado/no disponible;
                             si se usó parcial, solo se ofrece el saldo restante. */}
-                        {Array.isArray((split as any).splitResources) && (split as any).splitResources.length > 0 && (
+                        {((partialPaymentModal.paymentSplits || []).length > 1) && Array.isArray((split as any).splitResources) && (split as any).splitResources.length > 0 && (
                           <div className="mt-2 p-2.5 rounded-xl bg-black/30 border border-white/10 space-y-1.5">
                             <div className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
                               <span>🔗 Recursos de este comprobante</span>
@@ -5535,9 +5449,18 @@ export default function CajaPage() {
                             </div>
                             <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
                               {(split as any).splitResources.map((rs: any, rsi: number) => {
-                                const usedOther = (partialPaymentModal.paymentSplits || [])
+                                // Saldo pendiente REAL del recurso: pendingAmount original menos lo
+                                // ya pagado en OTROS métodos. Si otro método tomó un pago PARCIAL,
+                                // este método puede tomar el saldo restante (no se tacha).
+                                const paidOther = (partialPaymentModal.paymentSplits || [])
                                   .filter((_, oi) => oi !== idx)
-                                  .some((p: any) => Array.isArray(p.splitResources) && p.splitResources.some((o: any) => o.key === rs.key && o.selected));
+                                  .reduce((acc: number, p: any) => acc + ((Array.isArray(p.splitResources) ? p.splitResources : []).filter((o: any) => o.key === rs.key && o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
+                                const pendingBase = (() => {
+                                  const base = (partialPaymentModal.resourceSelection || []).find((b: any) => b.key === rs.key);
+                                  return Number(base?.pendingAmount) || Number(base?.fullAmount) || Number(rs.pendingAmount) || Number(rs.fullAmount) || 0;
+                                })();
+                                const saldoRestante = Math.max(0, pendingBase - paidOther);
+                                const usedOther = saldoRestante <= 0.01;
                                 const disabled = usedOther && !rs.selected;
                                 return (
                                   <div key={rs.key} className={`flex items-center gap-2 text-[11px] pt-0.5 ${disabled ? "opacity-40" : ""}`}>
@@ -5546,7 +5469,7 @@ export default function CajaPage() {
                                       disabled={disabled}
                                       onClick={() => {
                                         const next = (split as any).splitResources.map((r2: any) =>
-                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, Number(r2.pendingAmount) || r2.fullAmount) : r2.payAmount } : r2
+                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, saldoRestante) : r2.payAmount } : r2
                                         );
                                         const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
                                         const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
@@ -5565,8 +5488,10 @@ export default function CajaPage() {
                                       {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
                                       {rs.description}
                                       <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
-                                      {usedOther && !rs.selected && (
+                                      {usedOther && !rs.selected ? (
                                         <span className="ml-1 text-[9px] text-rose-300 font-bold">usado en otro comprobante</span>
+                                      ) : paidOther > 0 && (
+                                        <span className="ml-1 text-[9px] text-cyan-300 font-bold">saldo restante S/ {saldoRestante.toFixed(2)}</span>
                                       )}
                                     </span>
                                     {rs.selected && (
@@ -5574,11 +5499,10 @@ export default function CajaPage() {
                                         type="number"
                                         step="0.01"
                                         min="0"
-                                        max={Math.max(0.01, Number(rs.pendingAmount) || rs.fullAmount)}
+                                        max={Math.max(0.01, saldoRestante)}
                                         value={rs.payAmount || ""}
                                         onChange={(e) => {
-                                          const cap = Number(rs.pendingAmount) || rs.fullAmount;
-                                          const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
+                                          const val = Math.max(0, Math.min(saldoRestante, parseFloat(e.target.value) || 0));
                                           const next = (split as any).splitResources.map((r2: any) =>
                                             r2.key === rs.key ? { ...r2, payAmount: val, selected: val > 0 } : r2
                                           );
@@ -5638,31 +5562,49 @@ export default function CajaPage() {
                       );
                     })()}
                   </div>
-                )}
               </div>
 
-              {/* Sección 3b: RECURSOS a vincular — SOLO en Pago Único (sin desglose).
-                  En Pago Mixto/Comprobante por Método los recursos van DENTRO de cada
-                  método del desglose (suman su Monto Total). */}
-              {!partialPaymentModal.isSplitPayment && (
-              <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
+              {/* Sección 3b: RECURSOS a vincular — se muestra cuando el abono usa UN SOLO
+                  método (Pago Único): la lista global del comprobante. Con 2+ métodos
+                  (Pago Mixto / Parcial) los recursos van DENTRO de cada método. */}
+              {((partialPaymentModal.paymentSplits || []).length <= 1) && (
+              (() => {
+                // Pago Único: la fuente de recursos ES el split-1 (misma lista que el desglose).
+                const singleSplit = (partialPaymentModal.paymentSplits || [])[0];
+                const resList: any[] = Array.isArray((singleSplit as any)?.splitResources) && ((singleSplit as any).splitResources.length > 0)
+                  ? (singleSplit as any).splitResources
+                  : (partialPaymentModal.resourceSelection || []);
+                const totalRes = resList.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0);
+                const syncSplitResources = (next: any[]) => {
+                  // Sincroniza la lista del split-1, su monto y el monto global del abono
+                  // (fuente única para el submit y el check "Cuadrado" del desglose).
+                  const total = Number(next.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2));
+                  const splits = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+                    i === 0 ? { ...p, splitResources: next.length > 0 ? next : undefined, amount: total } : p
+                  );
+                  return { paymentSplits: splits, resourceSelection: next.length > 0 ? next : undefined, amount: total };
+                };
+                return (
+                <div className="p-4 bg-black/40 rounded-2xl border border-white/10 space-y-3">
                 <h4 className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Link2 className="w-3.5 h-3.5" />
                   <span>3. Recursos Vinculados a este Comprobante</span>
                 </h4>
                 <p className="text-[11px] text-gray-400">
-                  Aparecen TODOS los recursos de la orden: marque los que este comprobante cubre, desmarque los que NO van vinculados y edite el monto a pagar de cada uno.
+                  Aparecen TODOS los recursos de la orden: marque los que este comprobante cubre, desmarque los que NO van vinculados y edite el monto a pagar de cada uno. El Monto Total del método se actualiza solo.
                 </p>
-                {partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 ? (
+                {resList.length > 0 ? (
                   <div className="max-h-52 overflow-y-auto space-y-1.5 divide-y divide-white/5 pr-1 custom-scrollbar">
-                    {partialPaymentModal.resourceSelection.map((rs) => (
+                    {resList.map((rs) => (
                       <div key={rs.key} className="flex items-center gap-2 text-xs pt-1.5">
                         <button
                           type="button"
                           onClick={() => setPartialPaymentModal((prev) => prev ? {
                             ...prev,
-                            resourceSelection: prev.resourceSelection?.map((r) =>
-                              r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? Math.min(r.fullAmount, Number(prev.amount) || 0) : r.payAmount } : r
+                            ...syncSplitResources(
+                              resList.map((r) =>
+                                r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? Math.min(r.fullAmount, Number(r.pendingAmount) || r.fullAmount) : r.payAmount } : r
+                              )
                             ),
                           } : prev)}
                           className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
@@ -5684,16 +5626,17 @@ export default function CajaPage() {
                               type="number"
                               step="0.01"
                               min="0"
-                              max={typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount}
+                              max={Math.max(0.01, typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount)}
                               value={rs.payAmount || ""}
                               onChange={(e) => {
                                 const cap = typeof rs.pendingAmount === "number" ? rs.pendingAmount : rs.fullAmount;
                                 const val = Math.max(0, Math.min(cap, parseFloat(e.target.value) || 0));
                                 setPartialPaymentModal((prev) => prev ? {
                                   ...prev,
-                                  amount: Number(((prev.resourceSelection || []).filter((rr) => rr.selected).reduce((s, rr) => s + (Number(rr.payAmount) || 0), 0)).toFixed(2)),
-                                  resourceSelection: prev.resourceSelection?.map((r) =>
-                                    r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                                  ...syncSplitResources(
+                                    resList.map((r) =>
+                                      r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                                    )
                                   ),
                                 } : prev);
                               }}
@@ -5713,10 +5656,12 @@ export default function CajaPage() {
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-xs font-bold">
                   <span className="text-emerald-300">TOTAL A PAGAR CON ESTE COMPROBANTE:</span>
                   <span className="font-mono font-black text-emerald-300">
-                    S/ {(partialPaymentModal.resourceSelection || []).filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}
+                    S/ {totalRes.toFixed(2)}
                   </span>
                 </div>
               </div>
+                );
+              })()
               )}
 
               {/* Sección 4: Observación y Responsable del Saldo Pendiente */}
