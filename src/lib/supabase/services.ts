@@ -753,11 +753,13 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
     // mixto multi-ticket (ej. ticket 4585 / TK01-00004585 de BVZ-412).
     const bdMap = new Map<string, any[]>();
     const phMap = new Map<string, any[]>();
+    const rsMap = new Map<string, any[]>();
     if (rawInvoices.length > 0) {
       try {
         const bdKeys = rawInvoices.map((i: any) => `inv_breakdown_${i.id}`);
         const phKeys = rawInvoices.map((i: any) => `inv_payhistory_${i.id}`);
-        const bdRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys]);
+        const rsKeys = rawInvoices.map((i: any) => `inv_resources_${i.id}`);
+        const bdRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys, ...rsKeys]);
         (bdRes.data || []).forEach((row: any) => {
           const k = row.key || row.section_key;
           if (!k) return;
@@ -768,9 +770,10 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
           if (!Array.isArray(val)) return;
           if (k.startsWith("inv_breakdown_")) bdMap.set(k.replace("inv_breakdown_", ""), val);
           else if (k.startsWith("inv_payhistory_")) phMap.set(k.replace("inv_payhistory_", ""), val);
+          else if (k.startsWith("inv_resources_")) rsMap.set(k.replace("inv_resources_", ""), val);
         });
       } catch (err) {
-        console.warn("Day report breakdown/payhistory merge warning:", err);
+        console.warn("Day report breakdown/payhistory/resources merge warning:", err);
       }
     }
 
@@ -780,8 +783,10 @@ export async function fetchSupabaseDayReport(dateISO: string): Promise<DayReport
         try { paymentBreakdown = JSON.parse(paymentBreakdown); } catch { paymentBreakdown = undefined; }
       }
       const payHistory = phMap.get(inv.id) || (Array.isArray(inv.payment_history) ? inv.payment_history : undefined);
+      const resourcePayments = rsMap.get(inv.id) || (Array.isArray((inv as any).resource_payments) ? (inv as any).resource_payments : undefined);
       return {
         ...inv,
+        resource_payments: resourcePayments,
         issued_at: toPeruAnchoredISO(inv.issued_at) || inv.issued_at,
         paid_at: toPeruAnchoredISO(inv.paid_at) || inv.paid_at || undefined,
         payment_method: cleanMethodDisplay(inv.payment_method),
@@ -1113,9 +1118,11 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
       try {
         const bdKeys = invoices.map((i) => `inv_breakdown_${i.id}`);
         const phKeys = invoices.map((i) => `inv_payhistory_${i.id}`);
-        const scRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys]);
+        const rsKeys = invoices.map((i) => `inv_resources_${i.id}`);
+        const scRes = await supabase.from("site_content").select("key, value").in("key", [...bdKeys, ...phKeys, ...rsKeys]);
         const bdMap = new Map<string, any[]>();
         const phMap = new Map<string, any[]>();
+        const rsMap = new Map<string, any[]>();
         (scRes.data || []).forEach((row: any) => {
           const k = row.key || row.section_key;
           if (!k) return;
@@ -1126,11 +1133,13 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
           if (!Array.isArray(val)) return;
           if (k.startsWith("inv_breakdown_")) bdMap.set(k.replace("inv_breakdown_", ""), val);
           else if (k.startsWith("inv_payhistory_")) phMap.set(k.replace("inv_payhistory_", ""), val);
+          else if (k.startsWith("inv_resources_")) rsMap.set(k.replace("inv_resources_", ""), val);
         });
         invoices = invoices.map((i: any) => ({
           ...i,
           payment_breakdown: bdMap.get(i.id) || (Array.isArray(i.payment_breakdown) ? i.payment_breakdown : undefined),
           payment_history: phMap.get(i.id) || undefined,
+          resource_payments: rsMap.get(i.id) || (Array.isArray(i.resource_payments) ? i.resource_payments : undefined),
         }));
       } catch (err) {
         console.warn("Master table breakdown merge warning:", err);
@@ -2373,6 +2382,14 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       await saveSupabaseSiteContent(`inv_payhistory_${inv.id}`, inv.payment_history, "invoices", false);
       if (inv.work_order_id) {
         await saveSupabaseSiteContent(`inv_payhistory_${inv.work_order_id}`, inv.payment_history, "invoices", false);
+      }
+    }
+
+    // Vínculo directo recurso -> pago (para VENTAS POR CONCEPTO sin repartos inferidos)
+    if (inv.resource_payments && Array.isArray(inv.resource_payments) && inv.resource_payments.length > 0) {
+      await saveSupabaseSiteContent(`inv_resources_${inv.id}`, inv.resource_payments, "invoices", false);
+      if (inv.work_order_id) {
+        await saveSupabaseSiteContent(`inv_resources_${inv.work_order_id}`, inv.resource_payments, "invoices", false);
       }
     }
     broadcastRealtimeChange("invoice_updated");

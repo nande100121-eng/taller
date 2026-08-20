@@ -122,6 +122,16 @@ export default function CajaPage() {
     receiptNumber: "",
     observation: "",
   });
+  // Vínculo recurso -> pago al editar un pago del historial (marcar qué recursos
+  // cubre este pago y cuánto de cada uno; guarda el cambio en la Tabla Maestra).
+  const [editPaymentResources, setEditPaymentResources] = useState<Array<{
+    key: string;
+    description: string;
+    category: "servicio" | "repuesto" | "certificado";
+    fullAmount: number;
+    payAmount: number;
+    selected: boolean;
+  }>>([]);
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
       const next = new Set(prev);
@@ -157,6 +167,16 @@ export default function CajaPage() {
     customerAddress: string;
     observations: string;
     isSearchingRuc?: boolean;
+    // Vínculo recurso -> pago (desde 17/08/2026): el cajero marca qué recursos
+    // cubre este pago y cuánto de cada uno (pago total o parcial por recurso).
+    resourceSelection?: Array<{
+      key: string;
+      description: string;
+      category: "servicio" | "repuesto" | "certificado";
+      fullAmount: number;
+      payAmount: number;
+      selected: boolean;
+    }>;
   } | null>(null);
 
   // Modal State for Partial / Installment Payment (Abonos sobre saldo pendiente por placa)
@@ -1219,7 +1239,32 @@ export default function CajaPage() {
       ? Number(wo.discount_amount)
       : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
 
+    // Vínculo recurso -> pago: convierte el desglose de la card en una lista marcable,
+    // donde cada recurso lleva su categoría y un monto a pagar editable (pago total o
+    // parcial por recurso). Si la factura YA tiene resource_payments (pago previo), se
+    // precarga ese vínculo para poder editarlo/verlo.
+    const existingResources: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
+    const resourceSelection = breakdown.map((b, bi) => {
+      const descUp = String(b.description || "").toUpperCase();
+      const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+      const woItem = (wo.items || []).find((it: any) => it.description === b.description);
+      let category: "servicio" | "repuesto" | "certificado" = "servicio";
+      if (isCertTxt) category = "certificado";
+      else if (woItem && (String(woItem.item_type || "").toLowerCase() === "repuesto" || woItem.inventory_item_id)) category = "repuesto";
+      else if (woItem && String(woItem.item_type || "").toLowerCase() === "servicio") category = "servicio";
+      const prev = existingResources.find((x: any) => String(x.description || "") === String(b.description || ""));
+      return {
+        key: `res-${bi}-${String(b.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
+        description: b.description,
+        category,
+        fullAmount: Number(b.subtotal) || 0,
+        payAmount: prev ? (Number(prev.amount) || 0) : (Number(b.subtotal) || 0),
+        selected: prev ? (Number(prev.amount) > 0) : (Number(b.subtotal) > 0),
+      };
+    });
+
     setPaymentModal({
+      resourceSelection,
       isOpen: true,
       workOrder: wo,
       invoice: inv,
@@ -1292,6 +1337,14 @@ export default function CajaPage() {
 
     if (paymentModal.receiptType === "Factura" && (!paymentModal.customerDoc || paymentModal.customerDoc.length !== 11)) {
       notify("warning", "Para emitir Factura es obligatorio ingresar un RUC de 11 dígitos.");
+      return;
+    }
+
+    // Vínculo recurso -> pago: si la card ya muestra recursos seleccionables (nuevo
+    // flujo), al menos uno debe estar marcado con monto > 0 para confirmar el cobro.
+    const selResources = (paymentModal.resourceSelection || []).filter((r) => r.selected && (Number(r.payAmount) || 0) > 0);
+    if (!isZeroAmount && paymentModal.resourceSelection && paymentModal.resourceSelection.length > 0 && selResources.length === 0) {
+      notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) a cobrar.");
       return;
     }
 
@@ -1370,6 +1423,35 @@ export default function CajaPage() {
 
     const pendingSplitBalance = Math.max(0, Number((paymentModal.grandTotal - paidSplitAmount).toFixed(2)));
 
+    // Vínculo recurso -> pago: recursos seleccionados con su monto a pagar. Si el
+    // cajero marcó recursos (nuevo flujo desde 17/08/2026), el total del pago es la
+    // suma de lo seleccionado y el saldo NO cubierto queda como crédito pendiente.
+    const selectedResources = (paymentModal.resourceSelection || [])
+      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+      .map((r) => ({
+        description: r.description,
+        category: r.category,
+        amount: Number(r.payAmount) || 0,
+        receipt_number: assignedReceiptNum || undefined,
+        receipt_type: finalReceiptType || undefined,
+      }));
+    const hasResourceSelection = selectedResources.length > 0;
+    const resourceTotal = selectedResources.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    // Si hay selección de recursos, el monto a cobrar ES la suma seleccionada
+    // (el resto del total queda pendiente, salvo que cubra todo).
+    if (hasResourceSelection && !paymentModal.isSplitPayment) {
+      paidSplitAmount = resourceTotal;
+      isPartialSplit = paymentModal.grandTotal - resourceTotal > 0.05;
+      if (isPartialSplit && paymentBreakdown && paymentBreakdown.length > 0) {
+        // Escalar el desglose de métodos al monto seleccionado
+        const oldTotal = paymentBreakdown.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        if (oldTotal > 0) {
+          const scale = resourceTotal / oldTotal;
+          paymentBreakdown = paymentBreakdown.map((p) => ({ ...p, amount: Math.round(Number(p.amount) * scale * 100) / 100 }));
+        }
+      }
+    }
+
     if (isPartialSplit) {
       // Abono parcial desde el modal de cobro: registrar el pago recibido y dejar
       // la diferencia como SALDO PENDIENTE (crédito) en la factura.
@@ -1382,6 +1464,7 @@ export default function CajaPage() {
         receiptNumber: assignedReceiptNum,
         receiptType: finalReceiptType,
         paymentBreakdown: paymentBreakdown,
+        resources: selectedResources.length > 0 ? selectedResources : undefined,
         observation: paymentModal.observations || undefined,
       });
       notify("success", `¡Abono parcial de S/ ${paidSplitAmount.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}! Saldo pendiente: S/ ${pendingSplitBalance.toFixed(2)}`);
@@ -1397,6 +1480,7 @@ export default function CajaPage() {
         customerName: paymentModal.customerName,
         customerAddress: paymentModal.customerAddress,
         paymentBreakdown: paymentBreakdown,
+        resources: selectedResources.length > 0 ? selectedResources : undefined,
       });
 
       notify("success", isZeroAmount
@@ -1742,6 +1826,41 @@ export default function CajaPage() {
       receiptNumber: rec.receipt_number || "",
       observation: rec.observation || "",
     });
+    // Precargar el vínculo recurso->pago desde el historial (o la factura) para
+    // poder ver y editar QUÉ recursos cubre este pago y CUÁNTO de cada uno.
+    const invForEdit = (invoices || []).find((i: any) => i.id === invoiceId) || invoicesByWorkOrderId.get(invoiceId || "");
+    const woForEdit = workOrders.find((o) => o.id === (invForEdit?.work_order_id || ""));
+    const recResources: any[] = Array.isArray(rec.resources) ? rec.resources : [];
+    const invResources: any[] = Array.isArray((invForEdit as any)?.resource_payments) ? (invForEdit as any).resource_payments : [];
+    const srcResources = recResources.length > 0 ? recResources : invResources;
+    const woItems = Array.isArray(woForEdit?.items) ? woForEdit.items : [];
+    const resourcesList: Array<{ description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number }> = [];
+    woItems.forEach((it: any) => {
+      const amt = Number(it.subtotal) || 0;
+      if (amt <= 0) return;
+      const descUp = String(it.description || "").toUpperCase();
+      const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+      const cat = isCertTxt ? ("certificado" as const) : (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id ? ("repuesto" as const) : ("servicio" as const));
+      resourcesList.push({ description: it.description, category: cat, fullAmount: amt });
+    });
+    if (woForEdit?.requires_certification && Number(woForEdit.certification_price) > 0) {
+      resourcesList.push({
+        description: `CERTIFICACIÓN (${woForEdit.certification_type || "GNV/GLP"})`,
+        category: "certificado" as const,
+        fullAmount: Number(woForEdit.certification_price) || 0,
+      });
+    }
+    setEditPaymentResources(resourcesList.map((rs, ri) => {
+      const prev = srcResources.find((x: any) => String(x.description || "") === String(rs.description || ""));
+      return {
+        key: `eres-${ri}-${String(rs.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
+        description: rs.description,
+        category: rs.category,
+        fullAmount: rs.fullAmount,
+        payAmount: prev ? (Number(prev.amount) || 0) : 0,
+        selected: prev ? (Number(prev.amount) > 0) : false,
+      };
+    }));
   };
 
   // Guardar edición del pago del historial (saldo y estado se recalculan)
@@ -1755,6 +1874,15 @@ export default function CajaPage() {
     }
     const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
     const dateISO = buildPeruISOString(editPaymentForm.paymentDate || getPeruDateString(), payTimeNow);
+    const linkedResources = editPaymentResources
+      .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
+      .map((r) => ({
+        description: r.description,
+        category: r.category,
+        amount: Number(r.payAmount) || 0,
+        receipt_number: editPaymentForm.receiptNumber || undefined,
+        receipt_type: editPaymentForm.receiptType || undefined,
+      }));
     updatePaymentRecord(editPaymentModal.invoiceId, editPaymentModal.record.id, {
       amount,
       date: dateISO,
@@ -1762,8 +1890,9 @@ export default function CajaPage() {
       receipt_type: editPaymentForm.receiptType || undefined,
       receipt_number: editPaymentForm.receiptNumber || undefined,
       observation: editPaymentForm.observation || undefined,
+      resources: linkedResources.length > 0 ? linkedResources : undefined,
     });
-    notify("success", "Pago del historial actualizado. Saldo recalculado.");
+    notify("success", "Pago del historial actualizado. Saldo y VENTAS POR CONCEPTO recalculados.");
     setEditPaymentModal(null);
   };
 
@@ -2817,6 +2946,11 @@ export default function CajaPage() {
                                     {" — "}
                                     <strong>{cleanMethodDisplay(rec.method, Number(rec.amount) || 0) || rec.method}</strong>
                                     {rec.receipt_number ? " (" + (rec.receipt_type || "") + " " + rec.receipt_number + ")" : ""}
+                                    {Array.isArray((rec as any).resources) && (rec as any).resources.length > 0 && (
+                                      <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-cyan-300 bg-cyan-950/40 border border-cyan-500/30 rounded px-1 py-px font-bold" title={(rec as any).resources.map((x: any) => `${x.description}: S/ ${Number(x.amount).toFixed(2)}`).join("\n")}>
+                                        🔗 {(rec as any).resources.length} recurso{(rec as any).resources.length !== 1 ? "s" : ""} vinculado{(rec as any).resources.length !== 1 ? "s" : ""}
+                                      </span>
+                                    )}
                                   </span>
                                   <span className="flex items-center gap-1.5">
                                     <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
@@ -3032,15 +3166,56 @@ export default function CajaPage() {
                   <span className="font-mono text-white">Placa: {paymentModal.workOrder?.vehicle_plate}</span>
                 </div>
 
-                <div className="max-h-36 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1">
-                  {paymentModal.breakdownItems.map((it, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs pt-1">
-                      <span className="text-gray-300">
-                        {it.description} <strong className="text-gray-400 font-mono">(x{it.quantity})</strong>
+                <div className="max-h-44 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1">
+                  {(paymentModal.resourceSelection && paymentModal.resourceSelection.length > 0 ? paymentModal.resourceSelection : paymentModal.breakdownItems.map((it, idx) => ({
+                    key: `legacy-${idx}`,
+                    description: it.description,
+                    category: "servicio" as const,
+                    fullAmount: Number(it.subtotal) || 0,
+                    payAmount: Number(it.subtotal) || 0,
+                    selected: Number(it.subtotal) > 0,
+                  }))).map((it: any) => (
+                    <div key={it.key} className="flex items-center gap-2 text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sel = (paymentModal.resourceSelection || []).map((r: any) =>
+                            r.key === it.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? r.fullAmount : r.payAmount } : r
+                          );
+                          setPaymentModal({ ...paymentModal, resourceSelection: sel });
+                        }}
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${it.selected
+                          ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                          : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
+                          }`}
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <span className={`flex-1 truncate ${it.selected ? "text-white" : "text-gray-500 line-through"}`}>
+                        {it.category === "certificado" ? "🛡 " : it.category === "repuesto" ? "📦 " : "🔧 "}
+                        {it.description}
                       </span>
-                      <span className="font-mono font-bold text-white">
-                        S/ {it.subtotal.toFixed(2)}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-gray-500">total S/ {it.fullAmount.toFixed(2)}</span>
+                        {it.selected && (
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={it.fullAmount}
+                            value={it.payAmount || ""}
+                            onChange={(e) => {
+                              const val = Math.max(0, Math.min(Number(it.fullAmount), parseFloat(e.target.value) || 0));
+                              const sel = (paymentModal.resourceSelection || []).map((r: any) =>
+                                r.key === it.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                              );
+                              setPaymentModal({ ...paymentModal, resourceSelection: sel });
+                            }}
+                            className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-emerald-400"
+                            title="Monto a pagar de este recurso (puede ser parcial)"
+                          />
+                        )}
+                      </div>
                     </div>
                   ))}
 
@@ -3060,7 +3235,9 @@ export default function CajaPage() {
                 <div className="border-t border-white/10 pt-2 flex justify-between items-center font-bold text-xs">
                   <span className="text-gray-300">MONTO TOTAL A COBRAR:</span>
                   <span className="font-mono font-black text-emerald-400 text-base">
-                    S/ {paymentModal.grandTotal.toFixed(2)}
+                    S/ {(paymentModal.resourceSelection && paymentModal.resourceSelection.length > 0
+                      ? paymentModal.resourceSelection.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
+                      : paymentModal.grandTotal).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -5348,6 +5525,57 @@ export default function CajaPage() {
                   className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-xl text-white focus:border-amber-400"
                   placeholder="Nota del abono"
                 />
+              </div>
+
+              {/* Vínculo recurso -> pago: ver/editar qué recursos cubre este pago */}
+              <div className="p-3 bg-black/30 rounded-xl border border-white/10 space-y-2">
+                <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[10px] font-bold text-amber-400 uppercase">
+                  <span>Recursos que cubre este pago (vínculo VENTAS POR CONCEPTO)</span>
+                  <span className="font-mono text-gray-400">Total: S/ {editPaymentResources.filter((r) => r.selected).reduce((s, r) => s + (Number(r.payAmount) || 0), 0).toFixed(2)}</span>
+                </div>
+                {editPaymentResources.length === 0 ? (
+                  <p className="text-[11px] text-gray-500 italic">Este pago no tiene recursos vinculados (pago histórico). Márcalos para vincularlo.</p>
+                ) : (
+                  <div className="max-h-40 overflow-y-auto space-y-1 divide-y divide-white/5 pr-1 custom-scrollbar">
+                    {editPaymentResources.map((rs) => (
+                      <div key={rs.key} className="flex items-center gap-2 text-xs pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditPaymentResources((prev) => prev.map((r) =>
+                            r.key === rs.key ? { ...r, selected: !r.selected, payAmount: !r.selected ? r.fullAmount : r.payAmount } : r
+                          ))}
+                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${rs.selected
+                            ? "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                            : "bg-black/40 border-white/20 text-transparent hover:border-white/40"
+                            }`}
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <span className={`flex-1 truncate ${rs.selected ? "text-white" : "text-gray-500 line-through"}`}>
+                          {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
+                          {rs.description}
+                          <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
+                        </span>
+                        {rs.selected && (
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={rs.fullAmount}
+                            value={rs.payAmount || ""}
+                            onChange={(e) => {
+                              const val = Math.max(0, Math.min(Number(rs.fullAmount), parseFloat(e.target.value) || 0));
+                              setEditPaymentResources((prev) => prev.map((r) =>
+                                r.key === rs.key ? { ...r, payAmount: val, selected: val > 0 } : r
+                              ));
+                            }}
+                            className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-emerald-400"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 pt-2">

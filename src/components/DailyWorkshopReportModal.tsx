@@ -643,14 +643,33 @@ export function WorkshopDailyReportView({
       );
 
       if (comprobantes.length > 1) {
-        // VENTAS POR CONCEPTO: asigna los ítems REALES de la card a cada ticket del
-        // pago por suma exacta (ej. AUH-440: ticket 180 = certificado, ticket 90 =
-        // filtro 40 + mantenimiento 30 + calibración 20). Si no calza exacto,
-        // cae al reparto proporcional anterior (fallback).
-        const ticketCatSplits = matchTicketsToItems(
-          comprobantes.map((rc) => Number(rc.amount) || 0),
-          buildCategoryItems(wo)
-        );
+        // VÍNCULO DIRECTO (desde 17/08/2026): cada recurso guarda su N° de comprobante,
+        // así este ticket lleva EXACTAMENTE sus recursos. Si no hay vínculo, se asigna
+        // los ítems REALES de la card a cada ticket por suma exacta (ej. AUH-440: ticket
+        // 180 = certificado, ticket 90 = filtro 40 + mantenimiento 30 + calibración 20).
+        // Si no calza exacto, cae al reparto proporcional anterior (fallback).
+        const invResources: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
+        const ticketCatSplits = invResources.length > 0
+          ? comprobantes.map((rc) => {
+              const rn = String(rc.receipt_number || "").trim();
+              const own = invResources.filter((x: any) => {
+                const xrn = String(x.receipt_number || "").trim();
+                if (rn && xrn) return xrn === rn;
+                return true; // sin N° en el vínculo: el recurso aplica al pago completo
+              });
+              const split = { serv: 0, rep: 0, cert: 0 };
+              own.forEach((x: any) => {
+                const amt = Number(x.amount) || 0;
+                if (String(x.category || "").toLowerCase() === "repuesto") split.rep += amt;
+                else if (String(x.category || "").toLowerCase() === "certificado") split.cert += amt;
+                else split.serv += amt;
+              });
+              return split;
+            })
+          : matchTicketsToItems(
+              comprobantes.map((rc) => Number(rc.amount) || 0),
+              buildCategoryItems(wo)
+            );
         comprobantes.forEach((rec, si) => {
           const recAmount = Number(rec.amount) || 0;
           const subBd = breakdownFromSources(
@@ -707,10 +726,27 @@ export function WorkshopDailyReportView({
           isInvoice: Boolean(inv?.id),
           orderStatus: wo.status,
           receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
-          // En VENTAS POR CONCEPTO solo cuenta lo COBRADO (parcial = parte pagada).
-          catServ: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.serv / catSplit.total) : (payState === "parcial" ? paidAmount : totalAmount),
-          catRep: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.rep / catSplit.total) : 0,
-          catCert: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.cert / catSplit.total) : 0,
+          // VÍNCULO DIRECTO (desde 17/08/2026): si el pago se registró marcando qué
+          // recursos cubría, VENTAS POR CONCEPTO usa ese vínculo (cero inferencias).
+          // Fallback: reparto por ítems reales de la card / proporcional.
+          ...(() => {
+            const rp: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
+            if (rp.length > 0) {
+              let s = 0, r = 0, c = 0;
+              rp.forEach((x: any) => {
+                const amt = Number(x.amount) || 0;
+                if (String(x.category || "").toLowerCase() === "repuesto") r += amt;
+                else if (String(x.category || "").toLowerCase() === "certificado") c += amt;
+                else s += amt;
+              });
+              return { catServ: s, catRep: r, catCert: c };
+            }
+            return {
+              catServ: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.serv / catSplit.total) : (payState === "parcial" ? paidAmount : totalAmount),
+              catRep: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.rep / catSplit.total) : 0,
+              catCert: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.cert / catSplit.total) : 0,
+            };
+          })(),
         });
       }
     });

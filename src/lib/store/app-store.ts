@@ -422,6 +422,18 @@ export interface CorrelativeConfig {
   maxVehiclesPerSlot?: number;
 }
 
+// Recurso (ítem/servicio/certificación) cubierto por un pago o comprobante.
+// Vincula EXACTAMENTE lo cobrado con lo asignado en la card del Taller, de modo que
+// VENTAS POR CONCEPTO sale del dato (no de repartos proporcionales inferidos).
+export interface PaymentResource {
+  id?: string;             // id del ítem de la OT si aplica
+  description: string;     // Descripción del recurso (ej: "FILTRO DE GAS", "Calibración")
+  category: "servicio" | "repuesto" | "certificado";
+  amount: number;          // Monto cobrado por este recurso en este pago
+  receipt_number?: string; // Comprobante que cubre este recurso (si el pago es multi-ticket)
+  receipt_type?: string;
+}
+
 export interface PaymentSplit {
   id?: string;
   method: string;
@@ -430,6 +442,7 @@ export interface PaymentSplit {
   reference?: string;
   receipt_number?: string; // N° de ticket/comprobante propio de este método (pago mixto multi-ticket)
   receipt_type?: string;   // Tipo de comprobante propio de este método (Ticket | Boleta | Factura)
+  resources?: PaymentResource[]; // Recursos que cubre este método/comprobante
 }
 
 // Historial de pagos por fecha: cada abono/cobro registrado sobre una factura.
@@ -446,6 +459,7 @@ export interface PaymentRecord {
   reference?: string;      // Nota / desglose del pago
   observation?: string;    // Observación del abono (ej: "SE PROGRAMA A CANCELAR EL DIA 31/07")
   responsible?: string;    // Responsable del saldo pendiente (ej: FRANCO, JAIME)
+  resources?: PaymentResource[]; // Recursos que cubre ESTE pago/abono (vínculo directo con la card)
 }
 
 export interface Invoice {
@@ -474,6 +488,7 @@ export interface Invoice {
   observations?: string; // OBSERVACIONES DEL COMPROBANTE
   payment_breakdown?: PaymentSplit[]; // Desglose de pagos parciales / métodos mixtos
   payment_history?: PaymentRecord[]; // Historial cronológico de pagos por fecha (abonos parciales)
+  resource_payments?: PaymentResource[]; // Vínculo directo: qué recursos cubrió el pago (para VENTAS POR CONCEPTO)
   debt_observation?: string; // Observación del saldo pendiente actual (ej: "SE PROGRAMA A CANCELAR EL DIA 15/08")
   debt_responsible?: string; // Responsable del saldo pendiente actual (ej: FRANCO, JAIME)
   credit_note_number?: string; // N° de Nota de Crédito emitida si se anula Factura
@@ -664,6 +679,7 @@ interface AppState {
     customerName?: string;
     customerAddress?: string;
     paymentBreakdown?: PaymentSplit[];
+    resources?: PaymentResource[]; // Recursos cubiertos por este pago (vínculo directo con la card)
   }) => void;
   registerDirectWorkshopPayment: (data: {
     vehicle_plate: string;
@@ -703,6 +719,7 @@ interface AppState {
     receiptNumber?: string;
     receiptType?: string;
     paymentBreakdown?: PaymentSplit[];
+    resources?: PaymentResource[];     // Recursos cubiertos por este abono (vínculo directo con la card)
     paidAt?: string;                   // Fecha del abono (default: ahora)
     observation?: string;              // Observación del abono / saldo pendiente
     responsible?: string;              // Responsable del saldo pendiente
@@ -2642,12 +2659,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const balance = Math.max(0, totalDue - prevPaid);
       const isFullyPaid = history.length > 0 && balance <= 0.01;
       const lastRec = history.length > 0 ? history[history.length - 1] : undefined;
+      // Vínculo recurso->pago global: reconstruido desde el historial (cada registro
+      // puede traer sus recursos). Mantiene VENTAS POR CONCEPTO al día tras editar.
+      const rebuiltResources: PaymentResource[] = history.flatMap((p) => (Array.isArray(p.resources) ? p.resources : []));
       const updated: Invoice = {
         ...targetInvoice,
         payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
         payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
         credit_amount: isFullyPaid ? 0 : balance,
         payment_history: history,
+        resource_payments: rebuiltResources.length > 0 ? rebuiltResources : targetInvoice.resource_payments,
         payment_method: rebuildMethodFromHistory(history),
         payment_destination: rebuildDestFromHistory(history),
         payment_breakdown: history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined,
@@ -2690,6 +2711,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         payment_condition: "PENDIENTE",
         credit_amount: 0,
         payment_history: [],
+        resource_payments: undefined,
         payment_method: "",
         payment_destination: "",
         payment_breakdown: undefined,
@@ -2724,6 +2746,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     customerName,
     customerAddress,
     paymentBreakdown,
+    resources,
   }) => {
     set((state) => {
       let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
@@ -2810,6 +2833,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || ""),
           receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || ""),
           payment_breakdown: paymentBreakdown !== undefined ? paymentBreakdown : targetInvoice.payment_breakdown,
+          resource_payments: resources !== undefined ? resources : targetInvoice.resource_payments,
           credit_note_number: generatedNC || targetInvoice.credit_note_number,
           observations: updatedObservations,
           paid_at: nowISO,
@@ -2838,6 +2862,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_number: receiptNumber !== undefined ? receiptNumber : "",
           receipt_type: receiptType !== undefined ? receiptType : "",
           payment_breakdown: paymentBreakdown,
+          resource_payments: resources,
           issued_at: targetOrder.entry_time || nowISO,
           paid_at: nowISO,
         };
@@ -2969,6 +2994,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     receiptNumber,
     receiptType,
     paymentBreakdown,
+    resources,
     paidAt,
     observation,
     responsible,
@@ -3110,6 +3136,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           payment_breakdown: paymentBreakdown !== undefined
             ? paymentBreakdown
             : (history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined),
+          resource_payments: resources !== undefined ? resources : targetInvoice.resource_payments,
           payment_history: history,
           debt_observation: isFullyPaid ? undefined : (observation !== undefined ? observation : targetInvoice.debt_observation),
           debt_responsible: isFullyPaid ? undefined : (responsible !== undefined ? responsible : targetInvoice.debt_responsible),
@@ -3148,6 +3175,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt_number: recNum,
           receipt_type: recType,
           payment_breakdown: paymentBreakdown,
+          resource_payments: resources,
           payment_history: recordsToAdd,
           debt_observation: isFullyPaid ? undefined : observation,
           debt_responsible: isFullyPaid ? undefined : responsible,
