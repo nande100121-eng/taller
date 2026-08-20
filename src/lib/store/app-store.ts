@@ -15,6 +15,7 @@ import {
   saveSupabaseAppointment,
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
+  deleteSupabaseInvoice,
   fetchSupabaseErpData,
   fetchCappedOperationalData,
   deleteSupabaseInventoryItem,
@@ -3090,6 +3091,30 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         debt_observation: remaining.length > 0 ? targetInvoice.debt_observation : undefined,
         debt_responsible: remaining.length > 0 ? targetInvoice.debt_responsible : undefined,
       };
+      // BUG FIX (BAG-123): si se elimina el ÚLTIMO pago, la factura se BORRA COMPLETA
+      // (tabla + snapshots) y la card queda como OT sin comprobante vinculado (ya no
+      // muestra "Recibo/Comp: F001-..." con historial vacío). Si quedan pagos, solo se
+      // actualiza el registro como antes.
+      if (remaining.length === 0) {
+        deleteSupabaseInvoice(targetInvoice.id, targetInvoice.work_order_id);
+        logSystemEvent("info", "payment.record_delete.invoice_removed", {
+          invoiceId: String(targetInvoice.id).slice(0, 26),
+          woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+          recordId: String(recordId).slice(0, 20),
+        }, "store:deletePaymentRecord");
+        const updatedOrdersNoInv = state.workOrders.map((o) => {
+          if (o.id === targetInvoice.work_order_id) {
+            const u = { ...o, status: "por_cobrar" as WorkOrderStatus };
+            saveSupabaseWorkOrder(u);
+            return u;
+          }
+          return o;
+        });
+        return {
+          invoices: state.invoices.filter((i) => i.id !== targetInvoice.id && i.work_order_id !== targetInvoice.work_order_id),
+          workOrders: updatedOrdersNoInv,
+        };
+      }
       saveSupabaseInvoice(updated);
       logSystemEvent("info", "payment.record_delete.ok", {
         invoiceId: String(targetInvoice.id).slice(0, 26),

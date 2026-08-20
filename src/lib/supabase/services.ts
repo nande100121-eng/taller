@@ -3001,6 +3001,46 @@ export async function saveSupabaseInvoice(inv: Invoice) {
   }
 }
 
+// ELIMINA UNA FACTURA COMPLETA EN CASCADA (tabla invoices + snapshots inv_full_/
+// inv_payhistory_/inv_breakdown_/inv_resources_ por id Y por work_order_id).
+// Se usa cuando se borra el ÚLTIMO pago del historial: la factura deja de existir
+// y la card de Caja queda como OT sin comprobante vinculado (bug BAG-123: la card
+// seguía mostrando "Recibo/Comp: F001-..." aunque el historial estuviera vacío).
+export async function deleteSupabaseInvoice(invoiceId: string, workOrderId?: string) {
+  try {
+    markLocalMutation("invoices");
+    await supabase.from("invoices").delete().eq("id", invoiceId);
+    const keys = [
+      "inv_full_" + invoiceId,
+      "inv_payhistory_" + invoiceId,
+      "inv_breakdown_" + invoiceId,
+      "inv_resources_" + invoiceId,
+    ];
+    if (workOrderId) {
+      keys.push(
+        "inv_full_" + workOrderId,
+        "inv_payhistory_" + workOrderId,
+        "inv_breakdown_" + workOrderId,
+        "inv_resources_" + workOrderId
+      );
+    }
+    for (const k of keys) {
+      await supabase.from("site_content").delete().eq("key", k);
+    }
+    // Invalida el cache de historial del sync operativo (evita que la factura revive)
+    invalidateCappedHistoryCache();
+    logSystemEvent("info", "invoice.delete.ok", {
+      invId: String(invoiceId).slice(0, 26),
+      woId: workOrderId ? String(workOrderId).slice(0, 8) : null,
+    }, "services:deleteSupabaseInvoice");
+  } catch (err) {
+    logSystemEvent("error", "invoice.delete.exception", {
+      invId: String(invoiceId).slice(0, 26),
+      err: err instanceof Error ? err.message : String(err),
+    }, "services:deleteSupabaseInvoice");
+  }
+}
+
 // Chunked Batch Upsert for Workshop Data to avoid Supabase API payload limits & browser memory crash
 export async function saveSupabaseBulkWorkshopData(
   vehicles: Vehicle[],

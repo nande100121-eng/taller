@@ -2979,11 +2979,18 @@ export default function CajaPage() {
                 const effectiveBrand = vehicle?.brand && vehicle.brand !== "Automóvil" ? vehicle.brand : (csvRec?.brand || "Automóvil");
 
                 const isSinComp = invoice?.receipt_type === "Sin Comprobante" || (invoice && invoice.receipt_type === "" && !invoice.receipt_number);
-                const effectiveReceiptNum = isSinComp
+                // BUG FIX (BAG-123): si NO hay factura local (se eliminó el pago/historial), NO
+                // mostrar el comprobante viejo del CSV de la Tabla Maestra como si fuera el
+                // vigente de la card: la OT re-enviada a cobrar debe verse SIN comprobante
+                // hasta que se confirme el pago de nuevo. El CSV solo aplica a OTs históricas
+                // ya pagadas (sin re-cobro pendiente).
+                const invoiceHasReceipt = invoice?.receipt_number && invoice.receipt_number !== "0" && String(invoice.receipt_number).toUpperCase() !== "S/N";
+                const showCsvReceipt = !invoice && isOrderPaid(wo, invoice) && csvRec?.receiptNumber;
+                const effectiveReceiptNum: string = isSinComp
                   ? ""
-                  : invoice?.receipt_number && invoice.receipt_number !== "0" && invoice.receipt_number !== "S/N"
-                    ? invoice.receipt_number
-                    : (csvRec?.receiptNumber || "");
+                  : invoiceHasReceipt
+                    ? (invoice.receipt_number || "")
+                    : (showCsvReceipt ? (csvRec?.receiptNumber || "") : "");
 
                 const rawType = (invoice?.receipt_type || csvRec?.receiptType || "").toUpperCase().trim();
                 const effectiveReceiptType = isSinComp
@@ -3256,13 +3263,14 @@ export default function CajaPage() {
                             )}
                           </div>
 
-                          {/* Historial de pagos: fecha/hora, método, comprobante (ticket/boleta/factura) y monto */}
-                          {partialHistory.length > 0 && (
-                            <div className="pt-2 border-t border-white/5 space-y-1">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] uppercase font-bold text-gray-400">
-                                  🧾 Historial de Pagos ({partialHistory.length}):
-                                </span>
+                          {/* Historial de pagos: SIEMPRE visible (aunque no haya factura/comprobante
+                              vinculado). Si no hay pagos muestra el estado vacío para dejar claro que la
+                              OT aún no se cobró (bug: card con "Recibo/Comp: F001-..." sin historial). */}
+                          <div className="pt-2 border-t border-white/5 space-y-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] uppercase font-bold text-gray-400">
+                                🧾 Historial de Pagos ({partialHistory.length}):
+                              </span>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -3338,8 +3346,13 @@ export default function CajaPage() {
                                   </span>
                                 </div>
                               ))}
+                              {partialHistory.length === 0 && (
+                                <div className="text-[11px] text-gray-500 flex items-center gap-1.5 py-1">
+                                  <span className="text-gray-600">—</span>
+                                  <span>Sin pagos registrados. Confirme el cobro para generar el comprobante.</span>
+                                </div>
+                              )}
                             </div>
-                          )}
                         </div>
                           </>
                         ) : (
