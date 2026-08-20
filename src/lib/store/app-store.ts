@@ -640,6 +640,7 @@ interface AppState {
   // sin esperar el refetch. El merge por id conserva items locales recién agregados.
   applyRemoteWorkOrderLocal: (wo: any) => void;
   applyRemoteInvoiceLocal: (inv: any) => void;
+  applyRemoteVehicleLocal: (v: any) => void;
   deleteMultipleWorkOrders: (ids: string[]) => void;
   clearAllWorkOrders: () => void;
   requestCertificationForWorkOrder: (
@@ -2560,6 +2561,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       };
       const updated = state.invoices.map((i) => (i.id === inv.id ? merged : i));
       return { invoices: updated };
+    });
+  },
+
+  applyRemoteVehicleLocal: (v) => {
+    if (!v || !v.plate) return;
+    set((state) => {
+      if (hasRecentLocalMutation("vehicles", 1500)) return state;
+      const key = String(v.plate).toUpperCase();
+      const existing = state.vehicles.find((x) => String(x.plate).toUpperCase() === key);
+      const merged = existing ? { ...existing, ...v } : v;
+      const updated = existing
+        ? state.vehicles.map((x) => (String(x.plate).toUpperCase() === key ? merged : x))
+        : [...state.vehicles, merged];
+      return { vehicles: updated };
     });
   },
 

@@ -707,13 +707,14 @@ export default function CajaPage() {
       }, 0);
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid, computeOrderNetTotal]);
 
-  // LOG DE ESTADO DE CARDS (diagnóstico): detecta estados inconsistentes para saber qué
-  // ocurrió en el instante. Ej: card PENDIENTE con saldo 0 (bug "CRÉDITO PENDIENTE S/ 0.00")
-  // o card con factura pero sin historial. Se loguea UNA vez por placa+estado (ref).
+  // LOG DE ESTADO DE CARDS (diagnóstico): detecta estados inconsistentes. Se loguea UNA
+  // vez por placa+estado (ref) y SOLO los casos anómalos (warn), no el estado normal de
+  // cada card (optimización: antes recorría 120 cards y logueaba caja.card_estado por
+  // cada una en cada cambio -> saturaba el log y el render).
   const stateLogRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
     try {
-      allBillingWorkOrders.slice(0, 120).forEach((wo: any) => {
+      allBillingWorkOrders.slice(0, 40).forEach((wo: any) => {
         const inv = invoicesByWorkOrderId.get(wo.id);
         const isPaid = isOrderPaid(wo, inv);
         const totalDue = computeOrderNetTotal(wo, inv);
@@ -744,18 +745,8 @@ export default function CajaPage() {
             invTotal: inv.grand_total || 0,
             invStatus: inv.payment_status || "",
           }, "Caja:card-estado");
-        } else {
-          logSystemEvent("info", "caja.card_estado", {
-            plate: wo.vehicle_plate || "",
-            woId: String(wo.id).slice(0, 8),
-            status: wo.status,
-            isPaid,
-            totalDue,
-            paid,
-            saldo,
-            invId: inv?.id ? String(inv.id).slice(0, 26) : null,
-          }, "Caja:card-estado");
         }
+        // (sin log info por card: solo se registran los casos anómalos arriba para no saturar)
       });
     } catch {
       // noop: el log jamás rompe el render
@@ -763,33 +754,35 @@ export default function CajaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate]);
 
-  // TIMING DE RENDER DE CARDS: mide cuánto tarda en actualizarse la lista de cards de
-  // Caja cuando cambian los datos (realtime/sync). Con un ref del último tiempo se registra
-  // el costo de render (ms) y cuántas cards se pintan.
-  const cardRenderRef = React.useRef<{ count: number; last: number } | null>(null);
+  // TIMING DE RENDER DE CARDS: mide el costo REAL de procesar la lista de cards (el
+  // useMemo allBillingWorkOrders recorre TODAS las OTs + facturas). Se registra con
+  // throttle de 5s (ref) para no saturar, y solo si tarda >800ms (rendimiento).
+  const cardRenderRef = React.useRef<number>(0);
   React.useEffect(() => {
     try {
-      const count = allBillingWorkOrders.length;
-      const prev = cardRenderRef.current;
       const nowMs = Date.now();
-      if (prev && prev.count === count && nowMs - prev.last > 300) {
-        // Solo mide cuando el conteo cambió o tras >300ms (evita registrar cada re-render)
-        return;
+      if (nowMs - cardRenderRef.current < 5000) return;
+      cardRenderRef.current = nowMs;
+      const t0 = performance.now();
+      // Fuerza el recorrido de TODAS las OTs (el mismo costo del filtrado)
+      let count = 0;
+      for (let i = 0; i < allBillingWorkOrders.length; i++) {
+        const wo = allBillingWorkOrders[i];
+        const inv = invoicesByWorkOrderId.get(wo.id);
+        computeOrderNetTotal(wo, inv);
+        count++;
       }
-      if (!prev) {
-        cardRenderRef.current = { count, last: nowMs };
-        return;
+      const elapsed = performance.now() - t0;
+      if (elapsed > 800) {
+        logTiming("caja.cards.render.duration", Math.round(t0) - Math.round(elapsed), {
+          cards: count,
+        }, "Caja:render-cards");
       }
-      logTiming("caja.cards.render.duration", prev.last, {
-        cards: count,
-        delta: count - prev.count,
-      }, "Caja:render-cards");
-      cardRenderRef.current = { count, last: nowMs };
     } catch {
       // noop
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allBillingWorkOrders]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId]);
 
   const pendingCountToday = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {

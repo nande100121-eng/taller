@@ -137,8 +137,9 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       } else if (eventType.includes("attendance")) {
         debouncedFullSync();
       } else {
-        // Operativo (work_orders/invoices/vehicles): sync ligero inmediato
-        debouncedOperationalSync();
+        // Operativo (work_orders/invoices/vehicles): la fila ya llega por postgres_changes
+        // y se aplica directa (applyRemote*). NO se hace refetch completo aquí (optimización:
+        // el refetch de 1177 OTs tardaba 2-27s y era el cuello de botella del realtime).
       }
     });
 
@@ -160,7 +161,10 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         else if (et.includes("inventory")) syncInventoryOnly();
         else if (et.includes("technician")) syncTechniciansOnly();
         else if (et.includes("schedule")) syncScheduleOnly();
-        else debouncedOperationalSync();
+        else if (et.includes("tool_loans")) debouncedFullSync();
+        else if (et.includes("attendance")) debouncedFullSync();
+        // Operativo (work_orders/invoices/vehicles): NO refetch (el postgres_changes del
+        // WebSocket ya aplica la fila directa; optimización de rendimiento).
       };
     } catch {
       // BroadcastChannel no disponible: sigue el canal Realtime de Supabase
@@ -201,28 +205,32 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         syncScheduleOnly();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "work_orders" }, (payload: any) => {
-        // CROSS-DEVICE: la fila llega por WebSocket de Supabase desde CUALQUIER dispositivo.
-        // Se aplica DIRECTA al store (<100ms) y el sync operativo completa el resto.
+        // OPTIMIZACIÓN DE RENDIMIENTO: la fila llega por WebSocket (cross-device) y se aplica
+        // DIRECTA al store (<100ms). NO se dispara el refetch completo (sync operativo de
+        // 1177 OTs + 2187 facturas + snapshots tardaba 2-27s: era el cuello de botella que
+        // hacía que la card apareciera 12-27s después de que la señal llegara en 100ms).
+        // El refetch completo queda solo en el sync inicial y el heartbeat de 5 min.
         if (payload?.eventType === "DELETE") {
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedWorkOrderLocal(oldId);
         } else if (payload?.new?.id) {
           useAppStore.getState().applyRemoteWorkOrderLocal(payload.new);
         }
-        debouncedOperationalSync();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, () => {
-        debouncedOperationalSync();
+      .on("postgres_changes", { event: "*", schema: "public", table: "vehicles" }, (payload: any) => {
+        // Fila directa de vehículo: aplicar si el payload trae la fila
+        if (payload?.new?.plate) {
+          useAppStore.getState().applyRemoteVehicleLocal(payload.new);
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, (payload: any) => {
-        // CROSS-DEVICE: factura creada/editada en otra tablet se aplica directa.
+        // OPTIMIZACIÓN: factura creada/editada se aplica directa, sin refetch completo.
         if (payload?.eventType === "DELETE") {
           const oldId = payload?.old?.id;
           if (oldId) useAppStore.getState().removeDeletedInvoiceLocal(oldId);
         } else if (payload?.new?.id) {
           useAppStore.getState().applyRemoteInvoiceLocal(payload.new);
         }
-        debouncedOperationalSync();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "tool_loans" }, () => {
         if (hasRecentLocalMutation("toolLoans")) return;
