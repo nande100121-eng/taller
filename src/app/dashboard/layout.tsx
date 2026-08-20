@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
 import { Toast } from "@/components/ui/toast";
 import { useAppStore } from "@/lib/store/app-store";
-import { initGlobalErrorLogger, logSystemEvent } from "@/lib/system-log";
+import { initGlobalErrorLogger, logSystemEvent, setCurrentLogPage } from "@/lib/system-log";
 import {
   Globe,
   ShieldAlert,
@@ -36,17 +36,32 @@ export default function DashboardLayout({
   const router = useRouter();
   const { currentUser, userRole, logout, isVisualEditing, toggleVisualEditing } = useAppStore();
 
-  // Log interno de procesos: captura errores globales y registra la sesión/build
-  // (NUNCA visible en la interfaz; se consulta directo en Supabase syslog_*).
+  // Log interno de procesos: captura errores globales, registra la sesión/build y
+  // setea la PÁGINA ACTIVA para que cada evento del log indique de qué pantalla vino.
   React.useEffect(() => {
     initGlobalErrorLogger();
+    const pageMap: Record<string, string> = {
+      "/dashboard/caja": "Caja",
+      "/dashboard/taller": "Taller",
+      "/dashboard/almacen": "Almacén",
+      "/dashboard/porteria": "Portería",
+      "/dashboard/recepcion": "Recepción",
+      "/dashboard/certificaciones": "Certificaciones",
+      "/dashboard/asistencia": "Asistencia",
+      "/dashboard/consultas": "Consultas",
+      "/dashboard/reportes": "Reportes",
+      "/dashboard/configuracion": "Configuración",
+    };
+    const pageName = pageMap[pathname] || pathname || "desconocida";
+    setCurrentLogPage(pageName);
     logSystemEvent("info", "app.load", {
       path: pathname,
+      page: pageName,
       user: (currentUser as any)?.username || (currentUser as any)?.name || "",
       role: userRole || "",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pathname]);
 
   // En TABLET (<1280px) el panel izquierdo nace SIEMPRE COLAPSADO (también al
   // recargar la web) para dejar el mayor espacio al contenido.

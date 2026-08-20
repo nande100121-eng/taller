@@ -1442,7 +1442,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         orders: capped.workOrders?.length || 0,
         invoices: capped.invoices?.length || 0,
         vehicles: capped.vehicles?.length || 0,
-      });
+      }, "store:syncOperationalOnly");
     } catch (err) {
       console.warn("Supabase operational sync warning:", err);
     }
@@ -1908,7 +1908,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           itemCount: targetOrder?.items?.length || 0,
           itemsTotal: (targetOrder?.items || []).reduce((s, it) => s + (Number(it.subtotal) || 0), 0),
           isPhantomOnly: hasInvoice ? invoices.some((i) => i.work_order_id === id && i.id === `inv-${id}`) : false,
-        });
+        }, "store:updateWorkOrderStatus");
         if (targetOrder && !hasInvoice && targetOrder.items && targetOrder.items.length > 0) {
           const partsTotal = targetOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = targetOrder.requires_certification ? (Number(targetOrder.certification_price) || 0) : 0;
@@ -1956,7 +1956,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               receipt: newInvoice.receipt_number,
               total: grandTotal,
               paidAt: paidAtISO,
-            });
+            }, "store:updateWorkOrderStatus");
           } else {
             logSystemEvent("warn", "workorder.auto_invoice_skip_total_0", {
               woId: String(id).slice(0, 8),
@@ -2024,7 +2024,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           woId: String(orderId).slice(0, 8),
           isPaidOrder,
           hasInvoice,
-        });
+        }, "store:addWorkOrderItem");
         if (isPaidOrder && !hasInvoice) {
           const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
@@ -2070,7 +2070,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               receipt: newInvoice.receipt_number,
               total: grandTotal,
               paidAt: paidAtISO,
-            });
+            }, "store:addWorkOrderItem");
           }
         }
         return updatedOrder;
@@ -2112,7 +2112,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           woId: String(orderId).slice(0, 8),
           isPaidOrder,
           hasInvoice,
-        });
+        }, "store:addWorkOrderItem");
         if (isPaidOrder && !hasInvoice) {
           const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
@@ -2158,7 +2158,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
               receipt: newInvoice.receipt_number,
               total: grandTotal,
               paidAt: paidAtISO,
-            });
+            }, "store:addWorkOrderItem");
           }
         }
         return updatedOrder;
@@ -2916,7 +2916,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         wasPaid: isCurrentlyPaid,
         foundInvoice: !!targetInvoice,
         foundOrder: !!targetOrder,
-      });
+      }, "store:toggleOrderPayment");
 
       let updatedInvoices = [...state.invoices];
 
@@ -2956,7 +2956,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           total: newInv.grand_total,
           partsTotal,
           paid: nextPaymentStatus,
-        });
+        }, "store:toggleOrderPayment");
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -2975,7 +2975,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         orderId: orderId ? String(orderId).slice(0, 8) : null,
         invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
         nextStatus: nextOrderStatus,
-      });
+      }, "store:toggleOrderPayment");
 
       return {
         invoices: updatedInvoices,
@@ -3022,7 +3022,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         removedAmount: removed.amount,
         remainingHistory: history.length,
         fullyUnpaid,
-      });
+      }, "store:undoLastPayment");
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -3081,7 +3081,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         remaining: remaining.length,
         isFullyPaid,
         balance,
-      });
+      }, "store:deletePaymentRecord");
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -3107,7 +3107,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         logSystemEvent("warn", "payment.record_update.skip_no_invoice", {
           invoiceId: invoiceId ? String(invoiceId).slice(0, 26) : null,
           recordId: recordId ? String(recordId).slice(0, 20) : null,
-        });
+        }, "store:updatePaymentRecord");
         return state;
       }
       const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
@@ -3121,7 +3121,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           recordId: String(recordId).slice(0, 20),
           historyCount: history.length,
           dateRequested: updates.date || "",
-        });
+        }, "store:updatePaymentRecord");
         return state;
       }
       logSystemEvent("info", "payment.record_update.start", {
@@ -3132,7 +3132,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         newDate: updates.date || "",
         oldAmount: history[idx].amount,
         newAmount: updates.amount !== undefined ? updates.amount : history[idx].amount,
-      });
+      }, "store:updatePaymentRecord");
       const current = history[idx];
       history[idx] = {
         ...current,
@@ -3173,7 +3173,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         amount: history[idx].amount,
         historyCount: history.length,
         isFullyPaid,
-      });
+      }, "store:updatePaymentRecord");
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -3221,7 +3221,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         invoiceId: String(targetInvoice.id).slice(0, 26),
         woId: String(targetInvoice.work_order_id || "").slice(0, 8),
         clearedRecords: history.length,
-      });
+      }, "store:clearInvoicePayments");
       const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
@@ -3270,7 +3270,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         foundInvoice: !!targetInvoice,
         foundOrder: !!targetOrder,
         foundInvoiceIsPhantom: !!(targetInvoice && targetInvoice.id && targetInvoice.work_order_id && targetInvoice.id === `inv-${targetInvoice.work_order_id}`),
-      });
+      }, "store:confirmInvoicePayment");
 
       if (targetInvoice) {
         const oldNum = targetInvoice.receipt_number;
@@ -3413,7 +3413,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           receipt: newInvoice.receipt_number,
           total: grandTotalNew,
           partsTotal,
-        });
+        }, "store:confirmInvoicePayment");
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -3429,7 +3429,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         woId: effectiveWorkOrderId ? String(effectiveWorkOrderId).slice(0, 8) : null,
         invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
         updatedInvoiceCount: updatedInvoices.length,
-      });
+      }, "store:confirmInvoicePayment");
 
       return {
         invoices: updatedInvoices,
@@ -3584,7 +3584,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             plate: orderPlateUp,
             reusedInvId: String(targetInvoice.id).slice(0, 26),
             reusedInvWoId: targetInvoice.work_order_id ? String(targetInvoice.work_order_id).slice(0, 8) : null,
-          });
+          }, "store:registerInvoicePayment");
         }
       }
 
@@ -3673,7 +3673,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         foundOrder: !!targetOrder,
         foundInvoiceIsPhantom: !!(targetInvoice && targetInvoice.id && targetInvoice.work_order_id && targetInvoice.id === `inv-${targetInvoice.work_order_id}`),
         invoiceWoId: targetInvoice?.work_order_id ? String(targetInvoice.work_order_id).slice(0, 8) : null,
-      });
+      }, "store:registerInvoicePayment");
 
       if (targetInvoice) {
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
@@ -3789,7 +3789,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           isFullyPaid,
           payAmount,
           partsTotal,
-        });
+        }, "store:registerInvoicePayment");
       }
 
       const updatedOrders = state.workOrders.map((o) => {
@@ -3811,7 +3811,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         invoiceId: targetInvoice?.id ? String(targetInvoice.id).slice(0, 26) : null,
         isFullyPaid,
         updatedInvoiceCount: updatedInvoices.length,
-      });
+      }, "store:registerInvoicePayment");
 
       return {
         invoices: updatedInvoices,

@@ -546,13 +546,13 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       itemCount: Array.isArray(order.items) ? order.items.length : 0,
       total: (Array.isArray(order.items) ? order.items : []).reduce((s: number, it: any) => s + (Number(it.subtotal) || 0), 0),
       items: logItems.slice(0, 8),
-    });
+    }, "services:saveSupabaseWorkOrder");
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
     logSystemEvent("error", "workorder.save.exception", {
       woId: String(order.id || "").slice(0, 8),
       err: err instanceof Error ? err.message : String(err),
-    });
+    }, "services:saveSupabaseWorkOrder");
     console.warn("Supabase work order deferred:", err);
   }
 }
@@ -1940,6 +1940,14 @@ export async function saveSupabaseBulkScheduleRecords(
 let cappedHistoryCache: { at: number; pay: Map<string, any[]>; full: Map<string, any> } | null = null;
 const CAPPED_HISTORY_TTL = 15000;
 
+// Invalida el cache de historial del sync operativo: DEBE llamarse cada vez que se
+// guarda/edita/elimina una factura o su historial, si no el cache (hasta 15s) revive
+// pagos eliminados y montos viejos en las cards (bug BAG-123: pago "volvía a aparecer"
+// tras eliminarlo desde el historial de Caja).
+export function invalidateCappedHistoryCache() {
+  cappedHistoryCache = null;
+}
+
 export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
   try {
     // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
@@ -2815,7 +2823,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
         receipt: inv.receipt_number || "",
         total: inv.grand_total,
         status: inv.payment_status || "",
-      });
+      }, "services:saveSupabaseInvoice");
       return;
     }
     // BUG FIX (AFT-598): un work_order_id INVÁLIDO ("x" o 1-2 caracteres, p. ej. desde
@@ -2856,7 +2864,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       total: inv.grand_total,
       status: inv.payment_status || "",
       isPhantom: !!(inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`),
-    });
+    }, "services:saveSupabaseInvoice");
     if (inv.receipt_number && String(inv.receipt_number).trim()) {
       const invType: "Ticket" | "Boleta" | "Factura" =
         inv.receipt_type === "Factura" || inv.receipt_type === "Boleta"
@@ -2872,7 +2880,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
           oldNum,
           newNum,
           type: invType,
-        });
+        }, "services:saveSupabaseInvoice");
         emitCloudSavedToast(
           `⚠️ El correlativo ${oldNum} ya existe en otra factura. Se asignó ${newNum} para evitar duplicado.`,
           "warning"
@@ -2925,7 +2933,7 @@ export async function saveSupabaseInvoice(inv: Invoice) {
         woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
         receipt: inv.receipt_number || "",
         error: error.message,
-      });
+      }, "services:saveSupabaseInvoice");
       console.warn("Supabase invoice upsert notice, trying core columns fallback:", error.message);
       await supabase.from("invoices").upsert({
         id: inv.id,
@@ -2972,6 +2980,9 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       }
     }
     broadcastRealtimeChange("invoice_updated");
+    // Invalida el cache de historial del sync operativo: sin esto, un pago recién
+    // eliminado/agregado "volvía a aparecer" hasta 15s (cache viejo en otras pestañas).
+    invalidateCappedHistoryCache();
     logSystemEvent("info", "invoice.save.ok", {
       invId: String(inv.id).slice(0, 26),
       woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
@@ -2979,13 +2990,13 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       type: inv.receipt_type || "",
       total: inv.grand_total,
       hasHistory: Array.isArray(inv.payment_history) ? inv.payment_history.length : 0,
-    });
+    }, "services:saveSupabaseInvoice");
     emitCloudSavedToast("Comprobante guardado en la nube ✓");
   } catch (err) {
     logSystemEvent("error", "invoice.save.exception", {
       invId: inv.id ? String(inv.id).slice(0, 26) : null,
       err: err instanceof Error ? err.message : String(err),
-    });
+    }, "services:saveSupabaseInvoice");
     console.warn("Supabase invoice deferred:", err);
   }
 }

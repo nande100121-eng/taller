@@ -16,21 +16,46 @@ export const BUILD_SHA =
     ? (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF || "dev").slice(0, 8)
     : "dev";
 
-/** Registra un evento interno del sistema (fire-and-forget, NUNCA rompe el flujo). */
-export function logSystemEvent(level: LogLevel, action: string, details?: Record<string, unknown> | null) {
+// Página/componente activo (lo setea el layout con setCurrentLogPage() al navegar):
+// así cada evento del log registra DESDE QUÉ pantalla vino (Caja, Taller, Almacén...).
+let currentLogPage = "desconocida";
+export function setCurrentLogPage(page: string) {
+  currentLogPage = page;
+  try {
+    (window as any).__REYGAS_PAGE = page;
+  } catch {
+    // noop
+  }
+}
+export function getCurrentLogPage(): string {
+  return currentLogPage;
+}
+
+/** Registra un evento interno del sistema (fire-and-forget, NUNCA rompe el flujo).
+ *  source indica el componente/acción que lo originó (ej. "Caja:historial",
+ *  "Taller:stepper", "store:deletePaymentRecord", "services:saveInvoice").
+ *  Si no se pasa source, se usa la página activa registrada por el layout. */
+export function logSystemEvent(
+  level: LogLevel,
+  action: string,
+  details?: Record<string, unknown> | null,
+  source?: string
+) {
   try {
     const entry = {
       ts: new Date().toISOString(),
       level,
       action,
+      source: source || currentLogPage || (typeof window !== "undefined" ? window.location.pathname : "server"),
+      page: currentLogPage || (typeof window !== "undefined" ? window.location.pathname : "server"),
       details: details || null,
       url: typeof window !== "undefined" ? window.location.pathname + window.location.search : "server",
       build: BUILD_SHA,
       session: logSessionId,
     };
     // Consola local para desarrollo
-    if (level === "error") console.error("[syslog]", action, details || "");
-    else if (level === "warn") console.warn("[syslog]", action, details || "");
+    if (level === "error") console.error("[syslog]", action, "src:", entry.source, details || "");
+    else if (level === "warn") console.warn("[syslog]", action, "src:", entry.source, details || "");
     // Persistencia en la nube (resiliente: si falla, no afecta al flujo)
     const key = "syslog_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
     supabase
@@ -75,6 +100,6 @@ export function initGlobalErrorLogger() {
 }
 
 /** Conveniencia: log de entrada a cada acción clave del flujo. */
-export function logFlow(level: LogLevel, action: string, details?: Record<string, unknown> | null) {
-  logSystemEvent(level, action, details);
+export function logFlow(level: LogLevel, action: string, details?: Record<string, unknown> | null, source?: string) {
+  logSystemEvent(level, action, details, source);
 }
