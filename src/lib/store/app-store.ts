@@ -1829,6 +1829,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   addWorkOrderItem: (orderId, item) =>
     set((state) => {
+      let invoices = [...state.invoices];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
         const subtotal = item.quantity * item.unit_price;
@@ -1848,13 +1849,62 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         };
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
+
+        // FIX (VENTA pagada sin factura): si la OT ya está PAGADA y aún no tiene factura
+        // (ej. se marcó pagado antes de agregar el material en Taller -> Pedir Repuesto),
+        // al agregar el ítem se crea la factura automáticamente con su pago. Antes quedaba
+        // sin factura y no mostraba historial ni aparecía en el reporte diario.
+        const isPaidOrder = updatedOrder.status === "pagado_autorizado" || updatedOrder.status === "finalizado";
+        const hasInvoice = invoices.some((i) => i.work_order_id === orderId);
+        if (isPaidOrder && !hasInvoice) {
+          const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+          const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
+          const discount = Number(updatedOrder.discount_amount) || 0;
+          const grandTotal = Math.max(0, partsTotal + certFee - discount);
+          const paidAtISO = updatedOrder.completion_time || new Date().toISOString();
+          if (grandTotal > 0) {
+            const vehicle = state.vehicles.find((v) => v.plate === updatedOrder.vehicle_plate);
+            const newInvoice: Invoice = {
+              id: generateUUID(),
+              work_order_id: orderId,
+              vehicle_plate: updatedOrder.vehicle_plate,
+              client_name: vehicle?.owner_name || "Cliente Taller",
+              customer_doc: "",
+              customer_address: "",
+              labor_fee: 0,
+              parts_total: partsTotal,
+              certification_fee: certFee,
+              discounts: discount > 0 ? discount : "0",
+              grand_total: grandTotal,
+              payment_status: "pagado",
+              payment_condition: "PAGADO",
+              credit_amount: 0,
+              payment_method: "Efectivo",
+              payment_destination: "EMPRESA",
+              issued_at: updatedOrder.entry_time || paidAtISO,
+              paid_at: paidAtISO,
+              receipt_number: get().getAndIncrementReceiptNumber("Ticket", getPeruDateString()),
+              receipt_type: "Ticket" as const,
+              payment_history: [{
+                id: "pay-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+                date: paidAtISO,
+                amount: grandTotal,
+                method: "Efectivo",
+                destination: "EMPRESA",
+              }],
+            };
+            saveSupabaseInvoice(newInvoice);
+            invoices = [...invoices, newInvoice];
+          }
+        }
         return updatedOrder;
       });
-      return { workOrders: updatedOrders };
+      return { workOrders: updatedOrders, invoices };
     }),
 
   addMultipleWorkOrderItems: (orderId, items) =>
     set((state) => {
+      let invoices = [...state.invoices];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
         const nowISO = new Date().toISOString();
@@ -1876,9 +1926,56 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         };
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
+
+        // FIX (VENTA pagada sin factura): si la OT ya está PAGADA y aún no tiene factura,
+        // al agregar los ítems (Pedir Repuesto multi-selección) se crea la factura con su
+        // pago automáticamente (historial + ticket) para que aparezca en Caja y Reportes.
+        const isPaidOrder = updatedOrder.status === "pagado_autorizado" || updatedOrder.status === "finalizado";
+        const hasInvoice = invoices.some((i) => i.work_order_id === orderId);
+        if (isPaidOrder && !hasInvoice) {
+          const partsTotal = updatedOrder.items.reduce((sum, it) => sum + (Number(it.subtotal) || 0), 0);
+          const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
+          const discount = Number(updatedOrder.discount_amount) || 0;
+          const grandTotal = Math.max(0, partsTotal + certFee - discount);
+          const paidAtISO = updatedOrder.completion_time || new Date().toISOString();
+          if (grandTotal > 0) {
+            const vehicle = state.vehicles.find((v) => v.plate === updatedOrder.vehicle_plate);
+            const newInvoice: Invoice = {
+              id: generateUUID(),
+              work_order_id: orderId,
+              vehicle_plate: updatedOrder.vehicle_plate,
+              client_name: vehicle?.owner_name || "Cliente Taller",
+              customer_doc: "",
+              customer_address: "",
+              labor_fee: 0,
+              parts_total: partsTotal,
+              certification_fee: certFee,
+              discounts: discount > 0 ? discount : "0",
+              grand_total: grandTotal,
+              payment_status: "pagado",
+              payment_condition: "PAGADO",
+              credit_amount: 0,
+              payment_method: "Efectivo",
+              payment_destination: "EMPRESA",
+              issued_at: updatedOrder.entry_time || paidAtISO,
+              paid_at: paidAtISO,
+              receipt_number: get().getAndIncrementReceiptNumber("Ticket", getPeruDateString()),
+              receipt_type: "Ticket" as const,
+              payment_history: [{
+                id: "pay-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+                date: paidAtISO,
+                amount: grandTotal,
+                method: "Efectivo",
+                destination: "EMPRESA",
+              }],
+            };
+            saveSupabaseInvoice(newInvoice);
+            invoices = [...invoices, newInvoice];
+          }
+        }
         return updatedOrder;
       });
-      return { workOrders: updatedOrders };
+      return { workOrders: updatedOrders, invoices };
     }),
 
   updateWorkOrderItem: (orderId, itemId, updates) =>
