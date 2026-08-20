@@ -177,6 +177,30 @@ export default function WorkshopOperationsPage() {
   const [observationsText, setObservationsText] = useState("");
   const [quinquennialDate, setQuinquennialDate] = useState("");
   const [chipExpiryDate, setChipExpiryDate] = useState("");
+  // Edición INLINE (sin modal): borradores por card para diagnóstico / observación
+  const [inlineDiagDraft, setInlineDiagDraft] = useState<Record<string, string>>({});
+  const [inlineObsDraft, setInlineObsDraft] = useState<Record<string, string>>({});
+  // Guardado inline al perder el foco: persiste directo en la nube (sin modal)
+  const handleSaveInlineDiagnostic = (orderId: string, value: string) => {
+    const order = workOrders.find((o) => o.id === orderId);
+    if (!order) return;
+    const notes = value.trim();
+    // updateDiagnosticAndObservations pasa la OT a "en_diagnostico" (estado correcto
+    // cuando hay diagnóstico técnico). updateWorkOrder persiste en Supabase directo.
+    updateDiagnosticAndObservations(orderId, notes, order.observations);
+    setInlineDiagDraft((p) => { const n = { ...p }; delete n[orderId]; return n; });
+  };
+  const handleSaveInlineObservation = (orderId: string, value: string) => {
+    updateWorkOrder(orderId, { observations: value.trim() });
+    setInlineObsDraft((p) => { const n = { ...p }; delete n[orderId]; return n; });
+  };
+  // Guardado inline de fechas de inspección (calendario MiniDatePicker sin modal)
+  const handleSaveInlineQuinquennial = (orderId: string, date: string) => {
+    updateWorkOrder(orderId, { quinquennial_date: date || undefined });
+  };
+  const handleSaveInlineChip = (orderId: string, date: string) => {
+    updateWorkOrder(orderId, { chip_expiry_date: date || undefined });
+  };
   const [selectedTechId, setSelectedTechId] = useState("");
   const [selectedFuelType, setSelectedFuelType] = useState<string>("GNV");
   const [certType, setCertType] = useState<string>("Certificado Anual GNV");
@@ -1385,53 +1409,49 @@ export default function WorkshopOperationsPage() {
                           <p className="mt-0.5 line-clamp-2">{wo.problem_description}</p>
                         </div>
 
-                        {/* Diagnostic Notes & Observations */}
-                        <div className="space-y-2">
-                          <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1">
-                            <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center justify-between">
-                              <span className="flex items-center gap-1.5">
-                                <Cpu className="w-3.5 h-3.5 text-purple-400" />
-                                <span>Diagnóstico Técnico ECU:</span>
-                              </span>
-                              {!isLocked && (
-                                <button
-                                  onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                                  className="text-[10px] text-purple-300 hover:text-white underline font-normal"
-                                >
-                                  {wo.diagnostic_notes ? "Editar Diagnóstico" : "+ Añadir Diagnóstico"}
-                                </button>
-                              )}
+                          <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs text-purple-200 space-y-1.5">
+                            <span className="font-bold text-purple-400 block text-[11px] uppercase flex items-center gap-1.5">
+                              <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                              <span>Diagnóstico Técnico ECU (edición directa):</span>
                             </span>
-                            <p className="mt-0.5 text-xs italic">
-                              {wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}
-                            </p>
+                            {isLocked ? (
+                              <p className="mt-0.5 text-xs italic">{wo.diagnostic_notes || "Pendiente de diagnóstico computarizado."}</p>
+                            ) : (
+                              <textarea
+                                rows={2}
+                                placeholder="Escriba el diagnóstico técnico aquí... (se guarda al salir del campo)"
+                                value={inlineDiagDraft[wo.id] !== undefined ? inlineDiagDraft[wo.id] : (wo.diagnostic_notes || "")}
+                                onChange={(e) => setInlineDiagDraft((p) => ({ ...p, [wo.id]: e.target.value }))}
+                                onBlur={(e) => handleSaveInlineDiagnostic(wo.id, e.target.value)}
+                                className="w-full px-2.5 py-2 bg-reygas-dark/80 border border-purple-500/30 rounded-lg text-purple-100 text-xs focus:border-purple-400 focus:outline-none resize-y"
+                              />
+                            )}
                           </div>
 
-                          {/* Observación / Motivo de demora (siempre visible para registrar demoras) */}
-                          <div className={`p-3 rounded-xl border text-xs space-y-1 ${wo.observations
+                          {/* Observación / Motivo de demora — edición directa inline (sin modal) */}
+                          <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${wo.observations
                             ? "bg-amber-950/30 border-amber-500/40 text-amber-200"
                             : "bg-black/30 border-dashed border-white/15 text-gray-400"
                             }`}>
-                            <span className="font-bold block text-[11px] uppercase flex items-center justify-between">
-                              <span>📝 Observación / Motivo de demora:</span>
-                              {!isLocked && (
-                                <button
-                                  onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations)}
-                                  className="text-[10px] underline font-normal"
-                                >
-                                  {wo.observations ? "Editar" : "+ Añadir"}
-                                </button>
-                              )}
+                            <span className="font-bold block text-[11px] uppercase">
+                              📝 Observación / Motivo de demora (edición directa):
                             </span>
-                            {wo.observations ? (
-                              <p className="mt-0.5 text-xs">{wo.observations}</p>
+                            {isLocked ? (
+                              <p className="mt-0.5 text-xs">{wo.observations || "Sin observaciones."}</p>
                             ) : (
-                              <p className="mt-0.5 text-[11px] italic">
-                                Sin observaciones. (Indique aquí el motivo de demora del servicio, si lo hubiera)
-                              </p>
+                              <textarea
+                                rows={1}
+                                placeholder="Escriba la observación / motivo de demora aquí... (se guarda al salir del campo)"
+                                value={inlineObsDraft[wo.id] !== undefined ? inlineObsDraft[wo.id] : (wo.observations || "")}
+                                onChange={(e) => setInlineObsDraft((p) => ({ ...p, [wo.id]: e.target.value }))}
+                                onBlur={(e) => handleSaveInlineObservation(wo.id, e.target.value)}
+                                className={`w-full px-2.5 py-2 bg-reygas-dark/80 border rounded-lg text-xs focus:outline-none resize-y ${wo.observations
+                                  ? "border-amber-500/40 text-amber-100 focus:border-amber-400"
+                                  : "border-white/15 text-gray-300 focus:border-white/40"
+                                  }`}
+                              />
                             )}
                           </div>
-                        </div>
 
                         {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
                         <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-1.5">
@@ -1480,29 +1500,37 @@ export default function WorkshopOperationsPage() {
                                   <span>{consultInfogasPlate === (wo.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") ? "Consultando..." : "Consultar Infogas"}</span>
                                 </button>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenInspectionDates(wo.id, wo.quinquennial_date, wo.chip_expiry_date)}
-                                  className="px-2 py-0.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 text-[10px] font-bold border border-purple-500/30 flex items-center gap-1 transition-colors"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                  <span>Registrar / Editar</span>
-                                </button>
                               </div>
                             )}
                           </div>
+                          {/* Fechas con CALENDARIO INLINE (MiniDatePicker): toca el icono y
+                              selecciona la fecha; se guarda directo en la nube, sin modal. */}
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="p-2 rounded-lg bg-black/40 border border-purple-500/20">
-                              <span className="text-[10px] text-gray-400 block font-semibold">Fecha Quinquenal:</span>
-                              <span className="font-mono font-bold text-purple-300">
-                                {wo.quinquennial_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
-                              </span>
+                              <span className="text-[10px] text-gray-400 block font-semibold mb-1">📅 Fecha Quinquenal:</span>
+                              {isLocked ? (
+                                <span className="font-mono font-bold text-purple-300">{wo.quinquennial_date || "No registrada"}</span>
+                              ) : (
+                                <MiniDatePicker
+                                  value={wo.quinquennial_date || ""}
+                                  onChange={(d) => handleSaveInlineQuinquennial(wo.id, d)}
+                                  variant="compact"
+                                  label="Quinquenal"
+                                />
+                              )}
                             </div>
                             <div className="p-2 rounded-lg bg-black/40 border border-cyan-500/20">
-                              <span className="text-[10px] text-gray-400 block font-semibold">Fecha Chip Anual:</span>
-                              <span className="font-mono font-bold text-cyan-300">
-                                {wo.chip_expiry_date || <span className="text-gray-500 italic text-[11px]">No registrada</span>}
-                              </span>
+                              <span className="text-[10px] text-gray-400 block font-semibold mb-1">📅 Fecha Chip Anual:</span>
+                              {isLocked ? (
+                                <span className="font-mono font-bold text-cyan-300">{wo.chip_expiry_date || "No registrada"}</span>
+                              ) : (
+                                <MiniDatePicker
+                                  value={wo.chip_expiry_date || ""}
+                                  onChange={(d) => handleSaveInlineChip(wo.id, d)}
+                                  variant="compact"
+                                  label="Chip"
+                                />
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1510,16 +1538,10 @@ export default function WorkshopOperationsPage() {
 
                       {/* Right Column: REPUESTOS Y SERVICIOS SOLICITADOS, DESCUENTOS & CERTIFICACION */}
                       <div className="lg:col-span-4 space-y-4 border-t lg:border-t-0 lg:border-l border-white/10 pt-4 lg:pt-0 lg:pl-4">
-                        {/* Action buttons toolbar: 6 distinct, separate actions */}
+                        {/* Action buttons toolbar: acciones principales (sin Diagnóstico ni
+                            botón duplicado de certificación — ambos se editan inline/contextual) */}
                         {!isLocked && (
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            <button
-                              onClick={() => handleOpenDiagnostic(wo.id, wo.diagnostic_notes, wo.observations, wo.quinquennial_date, wo.chip_expiry_date)}
-                              className="py-2 px-2 bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-purple-500/30 transition-colors shadow"
-                            >
-                              <Cpu className="w-3.5 h-3.5" />
-                              <span>Diagnóstico</span>
-                            </button>
 
                             <button
                               onClick={() => handleOpenParts(wo.id)}
@@ -1548,16 +1570,7 @@ export default function WorkshopOperationsPage() {
                               <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
                             </button>
 
-                            <button
-                              onClick={() => handleOpenCertModal(wo.id)}
-                              className={`py-2 px-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border transition-colors shadow ${wo.requires_certification
-                                ? "bg-cyan-950/80 text-cyan-300 border-cyan-500/50"
-                                : "bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border-cyan-500/30"
-                                }`}
-                            >
-                              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>{wo.requires_certification ? "Certificado" : "+ Certificación"}</span>
-                            </button>
+
                           </div>
                         )}
 

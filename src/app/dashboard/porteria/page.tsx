@@ -1088,11 +1088,12 @@ export default function PorteriaPage() {
               />
             </div>
 
-            {/* Monto a cobrar (opcional): evita que el ingreso quede en S/ 0 si no se le
-                agrega el servicio con precio en el Taller. Con monto, la OT nace con su ítem. */}
+            {/* Monto a cobrar: SOLO visible en Venta Directa (obligatorio). En el ingreso
+                normal de taller el monto se define al agregar el servicio/repuesto en el Taller. */}
+            {isVentaDirecta && (
             <div>
               <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                {isVentaDirecta ? "Precio de Venta (S/) *" : "Monto a Cobrar (S/) — opcional"}
+                Precio de Venta (S/) *
               </label>
               <input
                 type="number"
@@ -1103,10 +1104,8 @@ export default function PorteriaPage() {
                 onChange={(e) => setEntryForm({ ...entryForm, monto: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-emerald-400 focus:outline-none font-bold"
               />
-              <p className="text-[10px] text-gray-500 mt-1">
-                Si lo deja vacío, el monto se define cuando se agregue el servicio/repuesto en el Taller.
-              </p>
             </div>
+            )}
 
             {/* Submit Button */}
             <button
