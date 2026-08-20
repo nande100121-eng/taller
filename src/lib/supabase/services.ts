@@ -2045,6 +2045,46 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
     );
     const workOrders = Array.from(woMap.values());
 
+    // 3b2. RECONSTRUIR discount_amount/allow_modifications DESDE SNAPSHOTS wo_mod_*:
+    // discount_amount NO es columna de work_orders (vive en el snapshot wo_mod_<id>).
+    // Sin esto, el sync operativo traía la OT SIN descuento y Caja mostraba el total
+    // completo (bug BCT-750: descuento S/5 en Taller, card de Caja seguía en S/20 hasta
+    // que pasaba el sync completo de 30s).
+    const woIdsForSnap = Array.from(woMap.keys());
+    if (woIdsForSnap.length > 0) {
+      const woModSnapMap = new Map<string, any>();
+      await Promise.all(
+        Array.from({ length: Math.ceil(woIdsForSnap.length / 100) }, (_, bi) => {
+          const chunk = woIdsForSnap.slice(bi * 100, bi * 100 + 100);
+          if (chunk.length === 0) return Promise.resolve();
+          return safeQuery<any[]>(
+            supabase.from("site_content").select("key, value").in("key", chunk.map((k) => "wo_mod_" + k))
+          ).then((res) => {
+            (res?.data || []).forEach((row: any) => {
+              const k = row.key || row.section_key || "";
+              let val: any = row.value !== undefined ? row.value : row.content;
+              if (typeof val === "string") { try { val = JSON.parse(val); } catch { val = undefined; } }
+              const id = k.replace("wo_mod_", "");
+              if (val && typeof val === "object") woModSnapMap.set(id, val);
+            });
+          });
+        })
+      );
+      if (woModSnapMap.size > 0) {
+        workOrders.forEach((o: any, idx: number) => {
+          const snap = woModSnapMap.get(o.id);
+          if (!snap) return;
+          const snapDiscount = snap.discount_amount !== undefined && snap.discount_amount !== null ? Number(snap.discount_amount) : undefined;
+          const colDiscount = o.discount_amount !== undefined && o.discount_amount !== null ? Number(o.discount_amount) : undefined;
+          const finalDiscount = colDiscount !== undefined ? colDiscount : (snapDiscount !== undefined ? snapDiscount : 0);
+          const finalAllowMod = snap.allow_modifications !== undefined ? !!snap.allow_modifications : (o.allow_modifications !== undefined ? !!o.allow_modifications : false);
+          if (finalDiscount !== 0 || finalAllowMod) {
+            workOrders[idx] = { ...o, discount_amount: finalDiscount, allow_modifications: finalAllowMod };
+          }
+        });
+      }
+    }
+
     // 3b. FIX (cards del día sin historial): la ventana de FACTURAS PAGADAS RECIENTES
     // (1000 por paid_at) deja FUERA pagos de días anteriores (ej. re-ingreso 17/08 con
     // 23k facturas pagadas después) -> la card de Caja mostraba la OT pero SIN su factura
