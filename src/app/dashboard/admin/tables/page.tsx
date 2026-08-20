@@ -50,7 +50,7 @@ import {
   Lock,
   AtSign
 } from "lucide-react";
-import { fetchMasterTablePage, saveSupabaseSiteContent } from "@/lib/supabase/services";
+import { fetchMasterTablePage, saveSupabaseSiteContent, saveSupabaseWorkOrder, saveSupabaseInvoice } from "@/lib/supabase/services";
 
 const ALL_ERP_STATIONS = [
   { id: "/dashboard/porteria", label: "1. Portería" },
@@ -98,6 +98,23 @@ export default function AdminTablesPage() {
     syncFromSupabase,
     notify,
   } = useAppStore();
+
+  // Lookup de técnicos por id y por nombre: muestra el NOMBRE (no el código tech-xxx)
+  // en la columna Técnico de la Tabla Maestra.
+  const techLookup = React.useMemo(() => {
+    const byId = new Map<string, string>();
+    const byName = new Map<string, string>();
+    (technicians || []).forEach((t) => {
+      if (t.id) byId.set(t.id, t.full_name);
+      if (t.full_name) byName.set(t.full_name.trim().toLowerCase(), t.full_name);
+    });
+    return { byId, byName };
+  }, [technicians]);
+
+  const resolveTechnicianName = (idOrName: string): string => {
+    if (!idOrName) return "";
+    return techLookup.byId.get(idOrName) || techLookup.byName.get(idOrName.trim().toLowerCase()) || idOrName;
+  };
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios" | "programacion">("taller");
@@ -871,7 +888,7 @@ export default function AdminTablesPage() {
       currentMileage: veh?.current_mileage || 0,
       fuelType: veh?.fuel_type || "GNV",
       brand: veh?.brand || "Toyota",
-      technicianName: wo.assigned_technician_id || "",
+      technicianName: resolveTechnicianName(wo.assigned_technician_id || ""),
       maintenanceService: wo.general_maintenance_service || wo.problem_description || "",
       sparePartsServices: wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : ""),
       price: inv?.grand_total || (wo.items.length > 0 ? wo.items[0].subtotal : 0),
@@ -897,12 +914,23 @@ export default function AdminTablesPage() {
     // IMPORTANTE: se PRESERVAN los ítems reales de la orden (repuestos/servicios del Taller).
     // Solo se crea un ítem desde el texto si la orden NO tiene ítems (evita reemplazar y
     // corromper los totales reales de la card).
-    const currentWo = workOrders.find((o) => o.id === editingWorkshopOrder.orderId);
+    // BUG FIX: la Tabla Maestra carga filas de TODO el historial (servidor), pero la tienda
+    // local solo tiene la ventana reciente. updateWorkOrder/updateInvoice solo actúan si la
+    // fila está en esa ventana -> el guardado no hacía nada en filas antiguas. Ahora se
+    // guarda DIRECTAMENTE en Supabase con el objeto de la fila maestra (siempre persiste).
+    const currentWo = masterRows.find((o) => o.id === editingWorkshopOrder.orderId) || workOrders.find((o) => o.id === editingWorkshopOrder.orderId);
     const existingItems = Array.isArray(currentWo?.items) && currentWo.items.length > 0 ? currentWo.items : [];
-    updateWorkOrder(editingWorkshopOrder.orderId, {
+    // Si el texto del técnico coincide con el roster, se guarda el ID (tech-xxx); si no, el texto.
+    const techText = (editingWorkshopOrder.technicianName || "").trim();
+    const matchedTech = technicians.find((t) => t.full_name.toLowerCase() === techText.toLowerCase()) || technicians.find((t) => t.id === techText);
+    const assignedTech = matchedTech ? matchedTech.id : techText;
+    const updatedWo: any = {
+      ...(currentWo || { id: editingWorkshopOrder.orderId, vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate) }),
+      id: editingWorkshopOrder.orderId,
+      status: (currentWo as any)?.status || "ingresado",
       entry_time: newDateTimeISO,
       vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
-      assigned_technician_id: editingWorkshopOrder.technicianName,
+      assigned_technician_id: assignedTech,
       problem_description: editingWorkshopOrder.maintenanceService,
       general_maintenance_service: editingWorkshopOrder.maintenanceService,
       spare_parts_services: editingWorkshopOrder.sparePartsServices,
@@ -921,6 +949,18 @@ export default function AdminTablesPage() {
               },
             ]
             : []),
+    };
+    saveSupabaseWorkOrder(updatedWo);
+    updateWorkOrder(editingWorkshopOrder.orderId, {
+      entry_time: newDateTimeISO,
+      vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
+      assigned_technician_id: assignedTech,
+      problem_description: editingWorkshopOrder.maintenanceService,
+      general_maintenance_service: editingWorkshopOrder.maintenanceService,
+      spare_parts_services: editingWorkshopOrder.sparePartsServices,
+      quinquennial_date: editingWorkshopOrder.quinquennialDate,
+      chip_expiry_date: editingWorkshopOrder.chipExpiryDate,
+      items: updatedWo.items,
     });
 
     // 2. Update Vehicle
@@ -933,9 +973,25 @@ export default function AdminTablesPage() {
       last_visit_date: newDateTimeISO,
     });
 
-    // 3. Update Invoice if exists
+    // 3. Update Invoice if exists (guardado DIRECTO en la nube para que persista siempre)
     const targetInv = invoicesByWorkOrderId.get(editingWorkshopOrder.orderId);
     if (targetInv) {
+      const updatedInv = {
+        ...targetInv,
+        vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
+        client_name: titleCase(editingWorkshopOrder.clientName),
+        parts_total: Number(editingWorkshopOrder.price) || 0,
+        grand_total: Number(editingWorkshopOrder.price) || 0,
+        issued_at: newDateTimeISO,
+        payment_condition: editingWorkshopOrder.paymentCondition,
+        payment_method: editingWorkshopOrder.paymentMethod,
+        payment_destination: editingWorkshopOrder.paymentDestination,
+        receipt_type: editingWorkshopOrder.receiptType,
+        receipt_number: editingWorkshopOrder.receiptNumber,
+        discounts: editingWorkshopOrder.discounts,
+        credit_amount: Number(editingWorkshopOrder.creditAmount) || 0,
+      };
+      saveSupabaseInvoice(updatedInv);
       updateInvoice(targetInv.id, {
         vehicle_plate: formatPlate(editingWorkshopOrder.vehiclePlate),
         client_name: titleCase(editingWorkshopOrder.clientName),
@@ -1385,7 +1441,7 @@ export default function AdminTablesPage() {
                           <td className="p-3 font-mono text-white">{receiptNumber}</td>
                           <td className="p-3 text-white font-semibold truncate max-w-[150px]">{veh?.owner_name || inv?.client_name || ""}</td>
                           <td className="p-3 font-mono text-gray-300">{veh?.owner_phone || ""}</td>
-                          <td className="p-3 text-amber-300 font-bold">{wo.assigned_technician_id || ""}</td>
+                          <td className="p-3 text-amber-300 font-bold">{resolveTechnicianName(wo.assigned_technician_id || "") || ""}</td>
                           <td className="p-3 truncate max-w-[200px] text-gray-200">{wo.general_maintenance_service || ""}</td>
                           <td className="p-3 truncate max-w-[200px] text-gray-400">{wo.spare_parts_services || (wo.items.length > 0 ? wo.items.map((i) => i.description).join(", ") : "")}</td>
                           <td className={`p-3 font-mono font-bold ${isGasto ? "text-rose-300" : "text-white"}`}>{monto}</td>
