@@ -1974,6 +1974,69 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
       );
     }
 
+    // 3c. RECONSTRUIR HISTORIAL DE PAGOS desde snapshots (inv_payhistory_* / inv_full_*):
+    //     la tabla invoices guarda payment_history como NULL (el historial vive en los
+    //     snapshots). Sin esto, el store local queda con la factura SIN historial y la
+    //     edición de fecha/método de un pago falla en silencio (C8Q-096: skip_record_not_found
+    //     con historyCount 0). El sync operativo ligero debe traer el historial real.
+    const cappedInvoices = Array.from(invMap.values());
+    const cappedInvoiceKeys = new Set<string>();
+    cappedInvoices.forEach((inv: any) => {
+      if (inv?.id) cappedInvoiceKeys.add(inv.id);
+      if (inv?.work_order_id) cappedInvoiceKeys.add(inv.work_order_id);
+    });
+    const histKeys = Array.from(cappedInvoiceKeys);
+    if (histKeys.length > 0) {
+      const payHistMap = new Map<string, any[]>();
+      const invFullMapCapped = new Map<string, any>();
+      // Snapshots por LOTES de 100 keys (postgREST limita el IN)
+      await Promise.all(
+        Array.from({ length: Math.ceil(histKeys.length / 100) }, (_, bi) => {
+          const chunk = histKeys.slice(bi * 100, bi * 100 + 100);
+          if (chunk.length === 0) return Promise.resolve();
+          return safeQuery<any[]>(
+            supabase.from("site_content").select("key, value").in("key", [
+              ...chunk.map((k) => `inv_payhistory_${k}`),
+              ...chunk.map((k) => `inv_full_${k}`),
+            ])
+          ).then((res) => {
+            (res?.data || []).forEach((row: any) => {
+              const k = row.key || row.section_key || "";
+              let val: any = row.value !== undefined ? row.value : row.content;
+              if (typeof val === "string") { try { val = JSON.parse(val); } catch { val = undefined; } }
+              if (k.startsWith("inv_payhistory_")) {
+                const id = k.replace("inv_payhistory_", "");
+                if (Array.isArray(val)) payHistMap.set(id, val);
+              } else if (k.startsWith("inv_full_")) {
+                const id = k.replace("inv_full_", "");
+                if (val && typeof val === "object") invFullMapCapped.set(id, val);
+              }
+            });
+          });
+        })
+      );
+      // Fusionar historial en cada factura (fuente: inv.payment_history -> inv_full -> inv_payhistory)
+      cappedInvoices.forEach((inv: any, idx: number) => {
+        const k = inv?.id || inv?.work_order_id;
+        if (!k) return;
+        const invFull = invFullMapCapped.get(inv.id) || (inv.work_order_id ? invFullMapCapped.get(inv.work_order_id) : undefined) || {};
+        let hist: any[] = Array.isArray(inv.payment_history)
+          ? inv.payment_history
+          : (Array.isArray(invFull.payment_history) && invFull.payment_history.length > 0
+            ? invFull.payment_history
+            : (payHistMap.get(inv.id) || (inv.work_order_id ? payHistMap.get(inv.work_order_id) : undefined) || []));
+        if (Array.isArray(hist) && hist.length > 0) {
+          cappedInvoices[idx] = {
+            ...invFull,
+            ...inv,
+            payment_history: hist,
+          };
+        } else {
+          cappedInvoices[idx] = { ...invFull, ...inv };
+        }
+      });
+    }
+
     // Si el tope devolvió vacío (algo raro), caer a la carga completa
     if (workOrders.length === 0 && invMap.size === 0) {
       return {
@@ -1983,7 +2046,7 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
       };
     }
 
-    return { workOrders, invoices: Array.from(invMap.values()), vehicles };
+    return { workOrders, invoices: cappedInvoices, vehicles };
   } catch (err) {
     console.warn("Capped operational fetch failed, fallback to full load:", err);
     return {
