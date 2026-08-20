@@ -1827,7 +1827,13 @@ export default function CajaPage() {
       : (partialPaymentModal.resourceSelection || [])
           .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
           .reduce((s, r) => s + (Number(r.payAmount) || 0), 0);
-    const amount = selectedSum > 0 ? Number(selectedSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0);
+    // Monto del abono: recursos marcados; si no hay recursos (factura pre-17/08), la suma
+    // real de los montos editados manualmente en el desglose (evita que el monto global
+    // desincronizado bloquee el submit cuando el usuario ajusta un método a mano).
+    const totalSplitsSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const amount = selectedSum > 0
+      ? Number(selectedSum.toFixed(2))
+      : (totalSplitsSum > 0 ? Number(totalSplitsSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0));
     // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
     const invForBalance = partialPaymentModal.invoice;
@@ -5532,36 +5538,34 @@ export default function CajaPage() {
                   </div>
 
                     {(() => {
+                      // Abono REAL = suma de los recursos marcados en todos los métodos.
+                      // Se compara contra el SALDO PENDIENTE de la factura (no contra el
+                      // monto global, que ahora se sincroniza con los recursos y siempre
+                      // coincidiría): si el abono es parcial queda "A abonar / Saldo
+                      // restante"; solo cuando cubre el 100% sale "Cuadrado".
                       const sum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-                      const amount = Number(partialPaymentModal.amount) || 0;
-                      const diff = Number((amount - sum).toFixed(2));
-                      const isBalanced = Math.abs(diff) <= 0.01;
+                      const saldoPendiente = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
+                      const saldoRestante = Math.max(0, saldoPendiente - sum);
+                      const isBalanced = saldoRestante <= 0.01;
                       return (
-                        <div className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold ${isBalanced
+                        <div className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs font-bold ${isBalanced
                           ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-300"
                           : "bg-amber-950/50 border-amber-500/30 text-amber-300"
                           }`}>
-                          <span>Total desglosado: S/ {sum.toFixed(2)}</span>
+                          <span>
+                            A abonar: <span className="font-mono font-black">S/ {sum.toFixed(2)}</span>
+                            {!isBalanced && (
+                              <span className="text-[10px] text-amber-200/80 ml-1">
+                                · Saldo restante: S/ {saldoRestante.toFixed(2)}
+                              </span>
+                            )}
+                          </span>
                           {isBalanced ? (
                             <span className="flex items-center gap-1">
                               <Check className="w-3.5 h-3.5" /> Cuadrado
                             </span>
-                          ) : diff > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const lastIdx = (partialPaymentModal.paymentSplits || []).length - 1;
-                                const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
-                                  i === lastIdx ? { ...p, amount: Number((Number(p.amount) + diff).toFixed(2)) } : p
-                                );
-                                setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
-                              }}
-                              className="px-2.5 py-1 bg-amber-500 text-black rounded-lg text-[11px] font-black hover:bg-amber-400 transition-colors shadow"
-                            >
-                              Falta S/ {diff.toFixed(2)} (Ajustar)
-                            </button>
                           ) : (
-                            <span>Excede por S/ {Math.abs(diff).toFixed(2)}</span>
+                            <span className="text-[10px] text-amber-200/90">Abono parcial</span>
                           )}
                         </div>
                       );
