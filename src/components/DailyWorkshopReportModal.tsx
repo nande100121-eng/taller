@@ -5,7 +5,7 @@ import ReactDOM from "react-dom";
 import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { supabase } from "@/lib/supabase/client";
-import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDate, toPeruDateKey } from "@/lib/utils/date-utils";
 import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
@@ -888,6 +888,21 @@ export function WorkshopDailyReportView({
           payState = "pagado";
           paidAmount = totalAmount;
         }
+      }
+      // FIX FECHA DE PAGO (doble conteo en reportes): el informe se llena según la
+      // fecha de PAGO, no según la fecha de emisión. Si la factura (emitida el día
+      // seleccionado) tiene historial de pagos, el cobro de ESTE día = solo los pagos
+      // con fecha == día seleccionado. Si nada se pagó este día, la factura NO genera
+      // fila aquí (su ingreso ya aparece como abono en el reporte del día del pago).
+      // Ej: factura emitida 17/08 y pagada 20/08 -> solo cuenta el 20/08.
+      const histForPay = Array.isArray(inv.payment_history) ? (inv.payment_history as any[]) : [];
+      if (histForPay.length > 0) {
+        const recsDelDia = histForPay.filter((r: any) => toPeruDateKey(r?.date) === selectedDate);
+        if (recsDelDia.length === 0) return; // nada cobrado este día: omitir fila
+        const cobradoHoy = Number(recsDelDia.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0).toFixed(2));
+        paidAmount = cobradoHoy;
+        pendingAmount = Math.max(0, totalAmount - cobradoHoy);
+        payState = pendingAmount <= 0.01 ? "pagado" : "parcial";
       }
       const isPending = payState === "pendiente" || payState === "parcial";
       const isTrunco = false;
