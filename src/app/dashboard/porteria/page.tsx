@@ -113,6 +113,7 @@ export default function PorteriaPage() {
     owner_phone: "",
     current_mileage: 0,
     problem_description: "",
+    monto: "",
   });
 
   // Keep entryDate in sync when selectedDate changes and update time
@@ -437,6 +438,7 @@ export default function PorteriaPage() {
           owner_phone: existingData?.owner_phone || data.owner_phone || "",
           current_mileage: existingData?.current_mileage || 0,
           problem_description: "",
+          monto: "",
         });
       } else {
         notify("warning", "No se detectó una placa clara en la imagen. Ingrese los datos manualmente.");
@@ -546,12 +548,28 @@ export default function PorteriaPage() {
       last_visit_date: chosenDateTimeISO,
     });
 
-    // 2. Create work order for workshop with specific entry_time
+    // 2. Create work order for workshop with specific entry_time.
+    // Si el usuario indicó un MONTO, la OT nace con su ítem con precio (evita el bug de
+    // registros en S/ 0.00: el monto quedaba perdido y el pago se registraba contra una
+    // factura de 0, como pasó con A2J-607).
+    const montoNum = parseFloat(entryForm.monto) || 0;
+    const descServ = entryForm.problem_description.trim() || (isVentaDirecta ? "Venta directa de repuestos al mostrador" : "Ingreso para mantenimiento general y revisión");
     createWorkOrder({
       vehicle_plate: plate,
       status: "ingresado",
-      problem_description: entryForm.problem_description.trim() || (isVentaDirecta ? "Venta directa de repuestos al mostrador" : "Ingreso para mantenimiento general y revisión"),
+      problem_description: descServ,
       entry_time: chosenDateTimeISO,
+      items: montoNum > 0
+        ? [
+          {
+            id: `item-${Date.now()}`,
+            description: descServ,
+            quantity: 1,
+            unit_price: montoNum,
+            subtotal: montoNum,
+          },
+        ]
+        : [],
     });
 
     if (isVentaDirecta) {
@@ -573,6 +591,7 @@ export default function PorteriaPage() {
       owner_phone: "",
       current_mileage: 0,
       problem_description: "",
+      monto: "",
     });
   };
 
@@ -1067,6 +1086,26 @@ export default function PorteriaPage() {
                 className={`w-full px-3.5 py-2.5 bg-reygas-surface border rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none transition-colors leading-relaxed font-medium ${isVentaDirecta ? "border-emerald-500/40 focus:border-emerald-400" : "border-white/15 focus:border-red-400"
                   }`}
               />
+            </div>
+
+            {/* Monto a cobrar (opcional): evita que el ingreso quede en S/ 0 si no se le
+                agrega el servicio con precio en el Taller. Con monto, la OT nace con su ítem. */}
+            <div>
+              <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
+                {isVentaDirecta ? "Precio de Venta (S/) *" : "Monto a Cobrar (S/) — opcional"}
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                placeholder="Ej. 80 (Anual GNV)"
+                value={entryForm.monto}
+                onChange={(e) => setEntryForm({ ...entryForm, monto: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-emerald-400 focus:outline-none font-bold"
+              />
+              <p className="text-[10px] text-gray-500 mt-1">
+                Si lo deja vacío, el monto se define cuando se agregue el servicio/repuesto en el Taller.
+              </p>
             </div>
 
             {/* Submit Button */}

@@ -3044,7 +3044,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
           ? [...targetInvoice.payment_history]
           : [];
-        const totalDue = Number(targetInvoice.grand_total) || 0;
+        // BUG FIX (A2J-607): si la factura quedó en S/ 0 (orden sin ítems con precio) pero
+        // se está cobrando un monto, el total real ES el monto cobrado: la factura debe
+        // reflejarlo (antes el pago quedaba en el historial pero el total seguía en 0 y el
+        // registro no aparecía en el informe diario).
+        let totalDue = Number(targetInvoice.grand_total) || 0;
+        if (totalDue <= 0 && payAmount > 0) totalDue = payAmount;
         const prevCredit = Number(targetInvoice.credit_amount) || 0;
 
         // BUG FIX: en facturas con crédito el adelanto ya pagado puede estar IMPLÍCITO
@@ -3079,6 +3084,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         isFullyPaid = balance <= 0.01;
         const updated: Invoice = {
           ...targetInvoice,
+          grand_total: totalDue,
           payment_status: isFullyPaid ? ("pagado" as const) : ("pendiente" as const),
           payment_condition: isFullyPaid ? "PAGADO" : "PENDIENTE",
           credit_amount: isFullyPaid ? 0 : balance,
@@ -3102,7 +3108,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const partsTotal = (targetOrder.items || []).reduce((sum, item) => sum + (item.subtotal || 0), 0);
         const certFee = targetOrder.requires_certification ? targetOrder.certification_price || 0 : 0;
         const discountVal = targetOrder.discount_amount || 0;
-        const totalDue = Math.max(0, partsTotal + certFee - discountVal);
+        // BUG FIX (A2J-607): si la orden no tiene ítems con precio pero se cobra un monto,
+        // ese monto es el total de la factura (antes quedaba en 0).
+        let totalDue = Math.max(0, partsTotal + certFee - discountVal);
+        if (totalDue <= 0 && payAmount > 0) totalDue = payAmount;
         const balance = Math.max(0, totalDue - payAmount);
         isFullyPaid = balance <= 0.01;
 
