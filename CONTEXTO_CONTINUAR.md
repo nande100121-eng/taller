@@ -1,7 +1,8 @@
 # REYGAS — CONTEXTO PARA CONTINUAR (ACTUALIZADO)
 
-> Exportado: 20/08/2026 (sesión larga con ~40+ cambios desplegados).
-> Último commit en `main`: `6db0905` — producción: https://taller-two-gamma.vercel.app
+> Exportado: 20/08/2026 — ACTUALIZADO tras sesión de fixes (fechas Perú, descuento, repuestos eliminados, reporte).
+> Último commit en `main`: `9d90129` (build del fix reporte `17e931a`) — producción: https://taller-two-gamma.vercel.app
+> **Deploy del último fix (17e931a) ya finalizó en Vercel según el usuario — VERIFICAR bundle prod (SHA 17e931a o 9d90129) pendiente** (último intento dio DEPLOYMENT_NOT_FOUND/404 por propagación).
 > **MODO AHORRO ACTIVADO**: respuestas compactas, tsc 1x por lote, 1 commit+push+deploy por lote, lecturas quirúrgicas (grep + solo zona a editar), sin verificación redundante del usuario.
 
 ---
@@ -99,6 +100,21 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 6. `73a2548` fix(ui): calendario con **createPortal al body** (escapa overflow-hidden Y backdrop-blur que descolocaba el fixed) + stopPropagation (no expande card Portería) + log calendario.abrir/seleccionar; **visor de Log local en Configuración** (Ver Log + Descargar JSON + filtro).
 7. `6db0905` fix(ui): click en fecha del calendario ya selecciona (handler "click fuera" verifica también popupRef).
 
+### Sesión ACTUAL (20/08, en orden — commits nuevos tras 6db0905)
+8. `4947b30` fix(fechas): card Taller/Almacén mostraba día siguiente para OTs nocturnas — Supabase guarda UTC y realtime/formatters no convertían a Perú; ancla timestamps a −05:00 en applyRemoteWorkOrderLocal/applyRemoteInvoiceLocal, requested_at/dispatched_at con nowPeruISO, formatPeruDate/formatPeruDateTime/getPeruDateString convierten strings UTC, extractDateKey usa toPeruDateKey.
+9. `4892ffc` fix(descuento): card con descuento (BWV-501: 500−20=480) — recursos de abono/pago se ofrecían por monto bruto (500) y no coincidían con el neto; descuento PROPORCIONAL en buildAbonoResourceSelection + modal de pago + orderCategorySplit/buildCategoryItems (VENTAS POR CONCEPTO suma el neto).
+10. `8e83787` fix(taller): no permitía eliminar un repuesto entregado (F2Z-050) — merge defensivo de saveSupabaseWorkOrder lo revivía desde la DB; se registran removedItemIds en la OT y el merge excluye esos ids del preservado.
+11. `acec359` fix(taller): repuesto eliminado volvía a aparecer cuando Almacén guardaba la OT con su copia vieja (F2Z-050 cross-device) — removedItemIds solo vivía en la tablet que borraba; ahora se persiste registro GLOBAL "wo_removed_<id>" en site_content que saveSupabaseWorkOrder lee antes del merge; applyRemoteWorkOrderLocal usa lista remota como autoritativa; reconstrucción filtra por wo_removed_.
+12. `858e5d2` feat(taller): vehículos ACTIVOS de días anteriores (ingresado/diagnóstico/repuestos/en servicio/por cobrar) siguen apareciendo en días posteriores según su estado actual; solo OTs finales (pagado/finalizado/entregado) viven en el día de ingreso.
+13. `37ab63e` fix(caja): repuesto eliminado en Taller seguía en la card de Caja (F2Z-050) — syncOperationalOnly/syncFromSupabase fusionaban items LOCALES con el remoto; ahora la lista remota (que ya excluye wo_removed_) es autoritativa y solo se conservan items locales que coinciden.
+14. `b202b29` fix(reporte): F2Z-050 del 17.08 no aparecía en Saldos Pendientes — OT quedó por_cobrar sin factura (abono mal eliminado) y pendingByPlate solo agrupaba por facturas; ahora también incluye OTs del día en por_cobrar/pendiente_pago sin factura como deuda.
+15. `af81173` feat(caja-abono): descuento ya NO proporcional — en modal Abonar Saldo el cajero indica a QUÉ recurso se aplica (botón 🛡 en cada recurso, asignado por defecto al primero que lo cubre); NO permite asignarlo a recurso cuyo monto < descuento.
+16. `abddcb7` feat(caja-abono): al aplicar descuento a un recurso su monto a pagar se reduce automáticamente y al quitarlo se restaura el bruto (moveAbonoDiscount ajusta payAmount); etiqueta "A abonar" avisa en rojo cuando la suma excede el saldo pendiente y sugiere aplicar descuento.
+17. `2095d54` feat(caja): paneles Gastos del Día y Últimos Correlativos COLAPSADOS por defecto (toggle chevron); correlativos usan serie exacta TK01/B001/F001 — folio = parte tras el guion (TK01-00004545→4545, no 1000004545); secuencia continúa desde el último folio real de esa serie.
+18. `93eb01f` feat(configuracion): nueva tabla Tipo Combustible (agregar/editar/eliminar) — selects de Portería/Taller se renderizan desde fuelTypes (persistido en site_content, fallback GNV/GLP/Gasolina/Bifuel/S/N) + realtime.
+19. `17e931a` fix(reporte): BBL-219 y VENTA se duplicaban el 18.08 (una fila con recurso + una fila "ABONO" del mismo comprobante/monto) — nuevo `dayPaymentsDeduped` en DailyWorkshopReportModal.tsx filtra pagos cuya (placa + folio correlativo + monto) ya está cubierta por una fila reportable del día; aplica en liquidacionRows, abonosDelDia, liquidacionTotals y electronicMatrix (parseCorrelative).
+20. `9d90129` chore: re-trigger vercel deploy (build 17e931a).
+
 ### Otros fixes previos de la sesión (flujo cobro/realtime)
 - `738090d` fix(caja): abono de VENTA no engancha factura de otra venta por placa genérica (bug detectado vía log).
 - `6c23d04` feat(realtime): sync operativo ligero (BroadcastChannel + syncOperationalOnly 2s) — luego optimizado en 95353ee.
@@ -126,6 +142,8 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 ---
 
 ## 5. PENDIENTES / PRÓXIMOS PASOS POSIBLES
+
+- **VERIFICAR deploy del fix 17e931a/9d90129 en prod** (usuario confirmó que el deploy finalizó en Vercel; falta confirmar el SHA en el bundle de prod tras la propagación del edge).
 
 - El usuario probará el flujo completo y reportará inconsistencias → corregir con modo ahorro.
 - Optimizaciones adicionales propuestas (pendientes de aprobación):
