@@ -3733,6 +3733,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         paid_at: history.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,
         debt_observation: history.length > 0 ? targetInvoice.debt_observation : undefined,
         debt_responsible: history.length > 0 ? targetInvoice.debt_responsible : undefined,
+        // El correlativo en EDICIÓN lo digita el cajero a mano: se respeta tal cual.
+        ...({ __respectManualReceipt: true } as any),
       };
       saveSupabaseInvoice(updated);
       logSystemEvent("info", "payment.record_update.ok", {

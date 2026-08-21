@@ -1771,7 +1771,9 @@ async function resolveUniqueReceiptNumber(
     // SOLO de la parte posterior al último guion: "00004611" -> 4611.
     const parts = String(r.receipt_number || "").split("-");
     const clean = parseInt((parts[parts.length - 1] || "").replace(/\D/g, ""), 10);
-    if (!isNaN(clean) && clean > maxNum && clean < 99999999) maxNum = clean;
+    // Tope de cordura (< 1.000.000): los tickets reales son de 4-6 dígitos. Los números
+    // absurdos (TK01-3470348x) generados por bugs de parseo no deben dominar el máximo.
+    if (!isNaN(clean) && clean > maxNum && clean < 999999) maxNum = clean;
   });
   const series = isFactura ? "F001" : isBoleta ? "B001" : "TK01";
 
@@ -3165,7 +3167,18 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       status: inv.payment_status || "",
       isPhantom: !!(inv.id && inv.work_order_id && inv.id === `inv-${inv.work_order_id}`),
     }, "services:saveSupabaseInvoice");
-    if (inv.receipt_number && String(inv.receipt_number).trim()) {
+    // EN EDICIÓN MANUAL (el cajero escribió el N° de comprobante a mano): se RESPETA
+    // el número digitado, NO se reasigna (bug reportado: TK01-00004597 -> TK01-34703486).
+    const respectManualReceipt = (inv as any)?.__respectManualReceipt === true;
+    if (respectManualReceipt) {
+      delete (inv as any).__respectManualReceipt;
+      logSystemEvent("info", "invoice.correlativo.manual_respetado", {
+        invId: String(inv.id).slice(0, 26),
+        woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+        receipt: inv.receipt_number || "",
+      }, "services:saveSupabaseInvoice");
+    }
+    if (!respectManualReceipt && inv.receipt_number && String(inv.receipt_number).trim()) {
       const invType: "Ticket" | "Boleta" | "Factura" =
         inv.receipt_type === "Factura" || inv.receipt_type === "Boleta"
           ? (inv.receipt_type as "Ticket" | "Boleta" | "Factura")
