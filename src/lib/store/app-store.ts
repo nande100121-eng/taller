@@ -3740,7 +3740,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         resource_payments: rebuiltResources.length > 0 ? rebuiltResources : targetInvoice.resource_payments,
         payment_method: rebuildMethodFromHistory(history),
         payment_destination: rebuildDestFromHistory(history),
-        payment_breakdown: history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined,
+        // Desglose: SI el modal de edición pasó el desglose REAL (pago mixto con sus
+        // métodos/destinos/montos), se conserva tal cual; si no, se reconstruye desde el
+        // historial (desanidando "Mixto (...)" en sus métodos) para no perder la
+        // distribución por método al editar un comprobante mixto.
+        payment_breakdown: (Array.isArray((updates as any).payment_breakdown) && (updates as any).payment_breakdown.length > 0)
+          ? (updates as any).payment_breakdown
+          : (history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined),
         receipt_number: history.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
         receipt_type: history.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
         paid_at: history.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,

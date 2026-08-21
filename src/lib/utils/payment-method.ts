@@ -153,24 +153,55 @@ export function rebuildMethodFromHistory(history: MethodSource[]): string {
 }
 
 // Reconstruye el desglose (payment_breakdown) a partir del historial vigente.
+// Un registro "Mixto (Efectivo: S/ 50.00, Yape: S/ 110.00)" se DESANIDA en sus métodos
+// individuales (2 splits) para que la distribución por método (cada parte con su monto)
+// no se pierda al editar/borrar un pago (bug: la matriz YAPES/TRANSFERENCIAS POR DESTINO
+// veía un solo split "Mixto (...)" y no podía separar el efectivo del yape).
 export function rebuildBreakdownFromHistory(history: MethodSource[]): any[] {
   if (!history || history.length === 0) return [];
-  return history.map((rec, i) => ({
-    id: rec.id || `split-${i + 1}`,
-    method: cleanMethodDisplay(rec.method, Number(rec.amount) || 0) || "Efectivo",
-    amount: Number(rec.amount) || 0,
-    destination: rec.destination || undefined,
-    receipt_number: rec.receipt_number || undefined,
-    receipt_type: rec.receipt_type || undefined,
-  }));
+  const out: any[] = [];
+  history.forEach((rec, i) => {
+    const m = (rec.method || "").trim();
+    const amt = Number(rec.amount) || 0;
+    if (m.startsWith("Mixto (")) {
+      const pairs = parseMethodPairs(m);
+      if (pairs.length > 1) {
+        pairs.forEach((p, j) => {
+          out.push({
+            id: rec.id ? (rec.id + "-" + j) : ("split-" + i + "-" + j),
+            method: normalizeMethodName(p.name) || "Efectivo",
+            amount: p.amount,
+            destination: rec.destination || undefined,
+            receipt_number: rec.receipt_number || undefined,
+            receipt_type: rec.receipt_type || undefined,
+          });
+        });
+        return;
+      }
+    }
+    out.push({
+      id: rec.id || ("split-" + (i + 1)),
+      method: cleanMethodDisplay(rec.method, amt) || "Efectivo",
+      amount: amt,
+      destination: rec.destination || undefined,
+      receipt_number: rec.receipt_number || undefined,
+      receipt_type: rec.receipt_type || undefined,
+    });
+  });
+  return out;
 }
 
-// Reconstruye el destino de pago a partir del historial vigente (destinos únicos).
+// Reconstruye el destino de pago a partir del historial vigente: SIEMPRE un solo
+// destino. Si todos los pagos coinciden se usa ese; si difieren, el del pago de MAYOR
+// monto (el principal). NUNCA se concatenan ("CAJA / FRANCO") — la tabla
+// YAPES/TRANSFERENCIAS POR DESTINO y la card muestran un único destino.
 export function rebuildDestFromHistory(history: MethodSource[]): string {
-  const dests: string[] = [];
-  for (const rec of history || []) {
-    const d = (rec.destination || "").trim();
-    if (d && d !== "Ninguno" && !dests.includes(d)) dests.push(d);
-  }
-  return dests.join(" / ");
+  const recs = (history || []).filter(
+    (r) => r && r.destination && String(r.destination).trim() && String(r.destination).trim() !== "Ninguno"
+  );
+  if (recs.length === 0) return "";
+  const unique = Array.from(new Set(recs.map((r) => String(r.destination).trim())));
+  if (unique.length === 1) return unique[0];
+  const top = [...recs].sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0];
+  return String(top?.destination || "").trim();
 }

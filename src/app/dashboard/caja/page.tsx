@@ -2308,7 +2308,10 @@ export default function CajaPage() {
         observation: partialPaymentModal.observation || undefined,
         responsible: partialPaymentModal.responsible || undefined,
         resources: abonoResources.length > 0 ? abonoResources : undefined,
-      });
+        // Desglose real del pago (métodos con monto/destino): se conserva para que la
+        // distribución por método no se pierda al editar un comprobante mixto.
+        payment_breakdown: paymentBreakdown,
+      } as any);
       notify("success", `Comprobante de ${partialPaymentModal.workOrder?.vehicle_plate} actualizado (S/ ${amount.toFixed(2)}). Recursos y saldos recalculados.`);
       setPartialPaymentModal(null);
       return;
