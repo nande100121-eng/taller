@@ -27,9 +27,12 @@ import {
   FolderArchive,
   Receipt,
   Hash,
-  Save
+  Save,
+  Terminal,
+  X
 } from "lucide-react";
 import { getPeruDateString } from "@/lib/utils/date-utils";
+import { getLocalLogs, exportLocalLogs, BUILD_SHA } from "@/lib/system-log";
 
 export default function ConfiguracionPage() {
   const {
@@ -151,6 +154,33 @@ export default function ConfiguracionPage() {
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [testMsg, setTestMsg] = useState<string | null>(null);
 
+  // Log interno local (diagnóstico): visor de texto + descarga
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logText, setLogText] = useState("");
+  const [logFilter, setLogFilter] = useState("");
+
+  const handleViewLog = () => {
+    try {
+      const logs = getLocalLogs(1000);
+      const lines = logs.map((l) => {
+        const t = (l.ts || "").slice(11, 19);
+        const det = l.details ? JSON.stringify(l.details) : "";
+        return `${t} [${l.level}] ${l.action} | src: ${l.source} | ${det}`;
+      });
+      setLogText(lines.join("\n"));
+      setLogModalOpen(true);
+    } catch {
+      setLogText("No se pudo leer el log local.");
+      setLogModalOpen(true);
+    }
+  };
+
+  const filteredLogText = React.useMemo(() => {
+    if (!logFilter.trim()) return logText;
+    const q = logFilter.toLowerCase();
+    return logText.split("\n").filter((line) => line.toLowerCase().includes(q)).join("\n");
+  }, [logText, logFilter]);
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     updateAISettings(formData);
@@ -256,6 +286,7 @@ export default function ConfiguracionPage() {
   };
 
   return (
+    <>
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 glass-panel p-6 rounded-2xl border border-white/10">
@@ -906,6 +937,82 @@ export default function ConfiguracionPage() {
           </div>
         </form>
       </div>
+
+      {/* ============ LOG INTERNO LOCAL (diagnóstico) ============ */}
+      <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-white flex items-center gap-2">
+              <Terminal className="w-5 h-5 text-amber-400" />
+              Log Interno del Sistema
+            </h2>
+            <p className="text-[11px] text-gray-400">
+              Registro local (navegador) de cada acción y tiempo de la web. Build: <span className="font-mono text-amber-300">{BUILD_SHA}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleViewLog}
+              className="px-4 py-2 rounded-xl bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold border border-white/10 flex items-center gap-2 transition-colors"
+            >
+              <Terminal className="w-3.5 h-3.5 text-amber-400" />
+              Ver Log
+            </button>
+            <button
+              type="button"
+              onClick={() => exportLocalLogs()}
+              className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold border border-amber-500/40 flex items-center gap-2 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Descargar JSON
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
+
+    {/* MODAL VISOR DE LOG (texto) */}
+    {logModalOpen && (
+      <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+        <div className="glass-panel bg-reygas-dark/95 border border-white/15 rounded-3xl p-5 sm:p-6 max-w-4xl w-full shadow-2xl shadow-black/90 space-y-4 max-h-[90vh] flex flex-col">
+          <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-3">
+            <div>
+              <h3 className="text-lg font-black text-white">Log del Sistema (texto)</h3>
+              <p className="text-[11px] text-gray-400">Últimas 1000 entradas — cada acción y su tiempo</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={logFilter}
+                onChange={(e) => setLogFilter(e.target.value)}
+                placeholder="Filtrar (placa, acción...)"
+                className="px-3 py-1.5 bg-reygas-surface border border-white/15 rounded-lg text-xs text-white focus:border-amber-400 focus:outline-none w-48"
+              />
+              <button
+                type="button"
+                onClick={() => setLogModalOpen(false)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          <pre className="flex-1 overflow-auto bg-black/60 border border-white/10 rounded-xl p-3 text-[10px] font-mono text-gray-300 leading-relaxed whitespace-pre-wrap custom-scrollbar">
+            {filteredLogText || "(sin entradas — realice acciones en la web para generar el log)"}
+          </pre>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+            <button
+              type="button"
+              onClick={() => setLogModalOpen(false)}
+              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 text-xs font-bold border border-white/10 transition-colors"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
