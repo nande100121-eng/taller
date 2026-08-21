@@ -46,7 +46,7 @@ import {
   Loader2,
   Receipt,
 } from "lucide-react";
-import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString } from "@/lib/utils/date-utils";
+import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
 
 export default function PorteriaPage() {
   const {
@@ -480,7 +480,7 @@ export default function PorteriaPage() {
         const plate = (parsed ? parsed.plate : cols[7] || cols[0] || "").toUpperCase().trim();
         if (!plate || plate.length < 3) continue;
 
-        const entryDateTime = parsed?.dateISO || new Date().toISOString();
+        const entryDateTime = toPeruAnchoredISO(parsed?.dateISO || new Date().toISOString()) || parsed?.dateISO || new Date().toISOString();
 
         registerVehicle({
           plate,
@@ -587,7 +587,7 @@ export default function PorteriaPage() {
    */
   const handleConfirmAttendance = (app: Appointment) => {
     const plate = app.plate.toUpperCase();
-    const nowISO = `${selectedDate}T08:30:00.000Z`;
+    const nowISO = buildPeruISOString(selectedDate, "08:30"); // FIX PERÚ/UTC: antes era UTC (.000Z) y mostraba el día/hora de Perú corridos
 
     // 1. Ensure vehicle is registered
     const existingVehicle = vehicles.find((v) => v.plate === plate);

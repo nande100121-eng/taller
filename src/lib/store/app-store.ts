@@ -1870,7 +1870,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     const newOrder: WorkOrder = {
       ...order,
       id: order.id || generateUUID(),
-      entry_time: order.entry_time || new Date().toISOString(),
+      entry_time: order.entry_time || nowPeruISO(),
       items: order.items || [],
     };
     saveSupabaseWorkOrder(newOrder);
@@ -1920,7 +1920,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             ...o,
             status,
             // Registra cuándo terminó el servicio (primera vez que pasa a estado final)
-            completion_time: isFinishing ? (o.completion_time || new Date().toISOString()) : o.completion_time,
+            completion_time: isFinishing ? (o.completion_time || nowPeruISO()) : o.completion_time,
           };
           saveSupabaseWorkOrder(updated);
           return updated;
@@ -2055,7 +2055,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         if (o.id !== orderId) return o;
         const subtotal = item.quantity * item.unit_price;
         const isService = item.item_type === "servicio";
-        const nowISO = new Date().toISOString();
+        const nowISO = nowPeruISO(); // FIX PERÚ/UTC: anclado a -05:00 (requested_at/dispatched_at en la card de Almacén)
         const newItem: WorkOrderItem = {
           ...item,
           id: `item-${Date.now()}`,
@@ -2087,7 +2087,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
           const discount = Number(updatedOrder.discount_amount) || 0;
           const grandTotal = Math.max(0, partsTotal + certFee - discount);
-          const paidAtISO = updatedOrder.completion_time || new Date().toISOString();
+          const paidAtISO = updatedOrder.completion_time || nowPeruISO();
           if (grandTotal > 0) {
             const vehicle = state.vehicles.find((v) => v.plate === updatedOrder.vehicle_plate);
             const newInvoice: Invoice = {
@@ -2153,7 +2153,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       let invoices = [...state.invoices];
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
-        const nowISO = new Date().toISOString();
+        const nowISO = nowPeruISO(); // FIX PERÚ/UTC: anclado a -05:00 (requested_at/dispatched_at en la card de Almacén)
         const newItems: WorkOrderItem[] = items.map((item, idx) => {
           const subtotal = item.quantity * item.unit_price;
           const isService = item.item_type === "servicio";
@@ -2188,7 +2188,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           const certFee = updatedOrder.requires_certification ? (Number(updatedOrder.certification_price) || 0) : 0;
           const discount = Number(updatedOrder.discount_amount) || 0;
           const grandTotal = Math.max(0, partsTotal + certFee - discount);
-          const paidAtISO = updatedOrder.completion_time || new Date().toISOString();
+          const paidAtISO = updatedOrder.completion_time || nowPeruISO();
           if (grandTotal > 0) {
             const vehicle = state.vehicles.find((v) => v.plate === updatedOrder.vehicle_plate);
             const newInvoice: Invoice = {
@@ -2565,7 +2565,21 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         });
         items = Array.from(itemsMap.values());
       }
-      const merged = { ...(existing || {}), ...wo, items };
+      // FIX PERÚ/UTC (card fecha 18 en lugar de 17): el payload de postgres_changes
+      // trae entry_time/completion_time en UTC (+00:00); se re-anclan a -05:00 para que
+      // la card en Taller/Almacén muestre el día correcto de Perú (ingreso nocturno
+      // 17/08 20:45 Perú = 18/08 01:45 UTC ya no se ve como 18/08).
+      const merged = {
+        ...(existing || {}),
+        ...wo,
+        entry_time: wo.entry_time ? toPeruAnchoredISO(wo.entry_time) || wo.entry_time : (existing?.entry_time || wo.entry_time),
+        completion_time: wo.completion_time ? toPeruAnchoredISO(wo.completion_time) || wo.completion_time : (existing?.completion_time || wo.completion_time),
+        items: (items || []).map((it: any) => ({
+          ...it,
+          requested_at: it.requested_at ? toPeruAnchoredISO(it.requested_at) || it.requested_at : it.requested_at,
+          dispatched_at: it.dispatched_at ? toPeruAnchoredISO(it.dispatched_at) || it.dispatched_at : it.dispatched_at,
+        })),
+      };
       const updated = state.workOrders.some((o) => o.id === wo.id)
         ? state.workOrders.map((o) => (o.id === wo.id ? merged : o))
         : [...state.workOrders, merged];
@@ -2590,18 +2604,32 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         // completará historial/desglose desde snapshots si hace falta).
         return { invoices: [...state.invoices, inv] };
       }
+      const anchorArr = (arr: any[] | undefined, field: string) =>
+        Array.isArray(arr) ? arr.map((r: any) => (r && r[field] ? { ...r, [field]: toPeruAnchoredISO(r[field]) || r[field] } : r)) : arr;
       const merged = {
         ...existing,
         ...inv,
-        payment_history: (Array.isArray(inv.payment_history) && inv.payment_history.length > 0)
-          ? inv.payment_history
-          : (Array.isArray(existing.payment_history) && existing.payment_history.length > 0 ? existing.payment_history : inv.payment_history),
-        payment_breakdown: (Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0)
-          ? inv.payment_breakdown
-          : (Array.isArray(existing.payment_breakdown) && existing.payment_breakdown.length > 0 ? existing.payment_breakdown : inv.payment_breakdown),
-        resource_payments: (Array.isArray(inv.resource_payments) && inv.resource_payments.length > 0)
-          ? inv.resource_payments
-          : (Array.isArray(existing.resource_payments) && existing.resource_payments.length > 0 ? existing.resource_payments : inv.resource_payments),
+        // FIX PERÚ/UTC: anclar issued_at/paid_at a -05:00 (el payload realtime llega en UTC)
+        issued_at: inv.issued_at ? toPeruAnchoredISO(inv.issued_at) || inv.issued_at : existing.issued_at,
+        paid_at: inv.paid_at ? toPeruAnchoredISO(inv.paid_at) || inv.paid_at : existing.paid_at,
+        payment_history: anchorArr(
+          (Array.isArray(inv.payment_history) && inv.payment_history.length > 0)
+            ? inv.payment_history
+            : (Array.isArray(existing.payment_history) && existing.payment_history.length > 0 ? existing.payment_history : inv.payment_history),
+          "date"
+        ),
+        payment_breakdown: anchorArr(
+          (Array.isArray(inv.payment_breakdown) && inv.payment_breakdown.length > 0)
+            ? inv.payment_breakdown
+            : (Array.isArray(existing.payment_breakdown) && existing.payment_breakdown.length > 0 ? existing.payment_breakdown : inv.payment_breakdown),
+          "date"
+        ),
+        resource_payments: anchorArr(
+          (Array.isArray(inv.resource_payments) && inv.resource_payments.length > 0)
+            ? inv.resource_payments
+            : (Array.isArray(existing.resource_payments) && existing.resource_payments.length > 0 ? existing.resource_payments : inv.resource_payments),
+          "date"
+        ),
       };
       const updated = state.invoices.map((i) => (i.id === inv.id ? merged : i));
       return { invoices: updated };

@@ -39,7 +39,7 @@ import {
   FileText,
   RefreshCw
 } from "lucide-react";
-import { getPeruDateString, formatPeruDate } from "@/lib/utils/date-utils";
+import { getPeruDateString, formatPeruDate, formatPeruDateTime, toPeruDateKey } from "@/lib/utils/date-utils";
 import { normalizeScannerCode } from "@/lib/utils/scanner-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -556,30 +556,11 @@ export default function AlmacenPage() {
     setPedidosPageInput("1");
   };
 
-  // Helper to extract YYYY-MM-DD from order entry_time
+  // Helper to extract YYYY-MM-DD from order entry_time (FIX PERÚ/UTC: la base
+  // devuelve UTC y un ingreso nocturno se veía al día siguiente con slice(0,10))
   const extractDateKey = (dateStr?: string) => {
     if (!dateStr || !dateStr.trim() || dateStr === "-") return "";
-    if (dateStr.includes("T")) return dateStr.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.slice(0, 10);
-    const parts = dateStr.split(/[/.-]/);
-    if (parts.length === 3) {
-      let part1 = parseInt(parts[0], 10);
-      let part2 = parseInt(parts[1], 10);
-      let year = parseInt(parts[2], 10);
-      if (year < 100) year += 2000;
-      let day = part1;
-      let month = part2;
-      if (part1 > 12 && part2 <= 12) {
-        day = part1;
-        month = part2;
-      } else if (part2 > 12 && part1 <= 12) {
-        day = part2;
-        month = part1;
-      }
-      const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-      return `${year}-${pad(month)}-${pad(day)}`;
-    }
-    return dateStr.slice(0, 10);
+    return toPeruDateKey(dateStr);
   };
 
   // ¿Es un REPUESTO físico despachable desde Almacén? Excluye SERVICIOS y
@@ -664,7 +645,7 @@ export default function AlmacenPage() {
 
   // Filtered orders for migrated cutoff modal
   const matchingMigratedOrders = workOrders.filter((o) => {
-    const orderDate = (o.entry_time || "").slice(0, 10);
+    const orderDate = toPeruDateKey(o.entry_time || "");
     return orderDate && orderDate <= migratedCutoffDate;
   });
   const matchingMigratedPendingItemsCount = matchingMigratedOrders
@@ -1244,13 +1225,13 @@ export default function AlmacenPage() {
                                   <span>
                                     📅 <strong>Solicitado:</strong>{" "}
                                     {item.requested_at
-                                      ? new Date(item.requested_at).toLocaleString()
+                                      ? formatPeruDateTime(item.requested_at)
                                       : "Reciente"}
                                   </span>
                                   {item.dispatched && item.dispatched_at && (
                                     <span className="text-emerald-400">
                                       ✓ <strong>Entregado:</strong>{" "}
-                                      {new Date(item.dispatched_at).toLocaleString()}
+                                      {formatPeruDateTime(item.dispatched_at)}
                                     </span>
                                   )}
                                 </div>

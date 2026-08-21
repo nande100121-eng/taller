@@ -6,11 +6,31 @@
 export const PERU_TIMEZONE = "America/Lima";
 
 /**
+ * True si el string ISO trae un offset de zona horaria que NO es Perú (-05:00),
+ * p. ej. "2026-08-18T01:30:00+00:00" o "...Z". En ese caso hay que convertirlo
+ * a hora de Perú antes de formatear (la base guarda UTC y un ingreso nocturno
+ * en Perú quedaría con la fecha del día siguiente si se corta el string crudo).
+ */
+function needsPeruConversion(trimmed: string): boolean {
+  if (/Z$/i.test(trimmed)) return true;
+  const m = trimmed.match(/[+-](\d{2}):?(\d{2})?$/);
+  if (!m) return false;
+  const hh = m[1] || "";
+  const mm = m[2] || "";
+  if (hh === "05" && (mm === "00" || mm === "")) return false; // ya -05:00
+  return true; // +00:00, +02:00, -04:00, etc.
+}
+
+/**
  * Returns today's date in Peru formatted as "YYYY-MM-DD" (e.g. "2026-08-14")
  */
 export function getPeruDateString(date: Date | string | number = new Date()): string {
   if (typeof date === "string") {
-    const match = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const trimmed = date.trim();
+    if (!trimmed) return "";
+    // FIX PERÚ/UTC: si el string trae offset UTC/otro (Z, +00:00...), anclar a Perú
+    const src = needsPeruConversion(trimmed) ? toPeruAnchoredISO(trimmed) || trimmed : trimmed;
+    const match = src.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (match) return `${match[1]}-${match[2]}-${match[3]}`;
   }
   const d = typeof date === "number" ? new Date(date) : date instanceof Date ? date : new Date(date);
@@ -90,8 +110,10 @@ export function formatPeruDate(date: Date | string | number = new Date()): strin
   if (!date) return "";
   if (typeof date === "string") {
     const trimmed = date.trim();
+    // FIX PERÚ/UTC: convertir strings con offset UTC/otro a hora de Perú antes de cortar
+    const src = needsPeruConversion(trimmed) ? toPeruAnchoredISO(trimmed) || trimmed : trimmed;
     // If format YYYY-MM-DD or starts with YYYY-MM-DD
-    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const isoMatch = src.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) {
       const [, y, m, d] = isoMatch;
       return `${d}/${m}/${y}`;
@@ -125,8 +147,10 @@ export function formatPeruDateTime(
   if (!date) return "";
   if (typeof date === "string") {
     const trimmed = date.trim();
+    // FIX PERÚ/UTC: convertir strings con offset UTC/otro a hora de Perú antes de cortar
+    const src = needsPeruConversion(trimmed) ? toPeruAnchoredISO(trimmed) || trimmed : trimmed;
     // Check if it matches ISO with time: YYYY-MM-DDTHH:mm
-    const timeMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    const timeMatch = src.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
     if (timeMatch) {
       const [, y, m, d, hh, mm, ss] = timeMatch;
       if (includeSeconds && ss) {
@@ -135,7 +159,7 @@ export function formatPeruDateTime(
       return `${d}/${m}/${y} ${hh}:${mm}`;
     }
     // Check if it's date only: YYYY-MM-DD
-    const dateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const dateMatch = src.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (dateMatch) {
       const [, y, m, d] = dateMatch;
       return `${d}/${m}/${y}`;
