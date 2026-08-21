@@ -131,6 +131,29 @@ export default function AdminTablesPage() {
   const [kitPartQty, setKitPartQty] = useState(1);
   const [kitCertSel, setKitCertSel] = useState<string>("");
   const [kitCertQty, setKitCertQty] = useState(1);
+  // Búsqueda (nombre/marca/serie) y orden A-Z del selector de repuestos del kit.
+  const [kitPartQuery, setKitPartQuery] = useState("");
+  const [kitPartSortAZ, setKitPartSortAZ] = useState(false);
+
+  // Repuestos del catálogo filtrados por texto (nombre, marca, serie, SKU, categoría)
+  // y opcionalmente ordenados alfabéticamente.
+  const kitPartsFiltered = React.useMemo(() => {
+    let list = (inventoryItems || []).slice();
+    const q = kitPartQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((it) =>
+        String(it.name || "").toLowerCase().includes(q) ||
+        String(it.brand || "").toLowerCase().includes(q) ||
+        String(it.serial_number || "").toLowerCase().includes(q) ||
+        String(it.sku_barcode || "").toLowerCase().includes(q) ||
+        String(it.category || "").toLowerCase().includes(q)
+      );
+    }
+    if (kitPartSortAZ) {
+      list = list.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" }));
+    }
+    return list;
+  }, [inventoryItems, kitPartQuery, kitPartSortAZ]);
 
   // Catálogo de certificados (servicios del catálogo con categoría Certificación).
   const certificationCatalogs = React.useMemo(() => {
@@ -2225,16 +2248,41 @@ export default function AdminTablesPage() {
                 <div className="rounded-xl bg-black/30 border border-white/10 p-3 space-y-3">
                   <div className="text-[10px] font-black text-indigo-300 uppercase tracking-wider">Componentes del kit</div>
                   <div>
+                    <div className="flex gap-2 items-center mb-1.5">
+                      <div className="relative flex-1 min-w-0">
+                        <Search className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={kitPartQuery}
+                          onChange={(e) => setKitPartQuery(e.target.value)}
+                          placeholder="Buscar repuesto por nombre, marca o serie..."
+                          className="w-full pl-6 pr-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white focus:border-indigo-400"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setKitPartSortAZ((v) => !v)}
+                        className={"px-2 py-1.5 rounded-lg border text-[10px] font-black transition-colors shrink-0 " + (kitPartSortAZ ? "bg-indigo-500/25 text-indigo-300 border-indigo-500/40" : "bg-white/5 text-gray-400 border-white/10 hover:text-white")}
+                        title={kitPartSortAZ ? "Orden alfabético activo (A-Z) — pulsar para volver al orden del catálogo" : "Ordenar alfabéticamente (A-Z)"}
+                      >
+                        A-Z
+                      </button>
+                    </div>
                     <div className="flex gap-2 items-center">
                       <select value={kitPartSel} onChange={(e) => setKitPartSel(e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-gray-200 focus:border-indigo-400">
                         <option value="">📦 Elegir repuesto del catálogo...</option>
-                        {inventoryItems.map((it) => (
-                          <option key={it.id} value={it.id}>{it.name} — S/ {Number(it.unit_price || 0).toFixed(2)}</option>
+                        {kitPartsFiltered.map((it) => (
+                          <option key={it.id} value={it.id}>
+                            {it.name}{it.brand ? " · " + it.brand : ""}{it.serial_number ? " · S/N " + it.serial_number : ""} — S/ {Number(it.unit_price || 0).toFixed(2)}
+                          </option>
                         ))}
                       </select>
                       <input type="number" min="1" value={kitPartQty} onChange={(e) => setKitPartQty(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white text-center" title="Cantidad" />
                       <button type="button" onClick={handleAddKitPart} disabled={!kitPartSel} className="px-2 py-1.5 rounded-lg bg-emerald-600/70 hover:bg-emerald-500 disabled:opacity-30 text-white text-[10px] font-black transition-colors shrink-0">+ Añadir</button>
                     </div>
+                    {kitPartsFiltered.length === 0 && (
+                      <p className="text-[10px] text-gray-500 italic mt-1">Sin resultados para la búsqueda.</p>
+                    )}
                   </div>
                   <div>
                     <div className="flex gap-2 items-center">
@@ -2249,17 +2297,32 @@ export default function AdminTablesPage() {
                     </div>
                   </div>
                   {formComponents.length > 0 && (
-                    <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar pr-1">
                       {formComponents.map((c, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[11px] bg-white/5 border border-white/10 rounded-lg px-2 py-1">
-                          <span className="shrink-0">{c.source === "repuesto" ? "📦" : "🛡"}</span>
-                          <span className="flex-1 min-w-0 truncate text-gray-200 font-bold">{c.description}</span>
-                          <input type="number" min="1" value={c.quantity} onChange={(e) => handleUpdateKitComp(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="w-12 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-white text-center" title="Cantidad" />
-                          <input type="number" min="0" step="0.1" value={c.unit_price} onChange={(e) => handleUpdateKitComp(i, { unit_price: parseFloat(e.target.value) || 0 })} className="w-20 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-emerald-300 font-mono text-right" title="Precio unitario" />
-                          <span className="text-gray-400 font-mono w-16 text-right shrink-0">S/ {(c.quantity * c.unit_price).toFixed(2)}</span>
-                          <button type="button" onClick={() => handleRemoveKitComp(i)} className="p-0.5 text-red-400 hover:text-red-300 shrink-0" title="Quitar del kit">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                        <div key={i} className="space-y-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5">
+                          {/* Línea 1: nombre COMPLETO (wrap) + datos de marca/serie + quitar */}
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="min-w-0 text-[11px] text-gray-100 font-bold leading-snug break-words">
+                              {c.source === "repuesto" ? "📦 " : "🛡 "}{c.description}
+                              {c.source === "repuesto" && (() => {
+                                const it = inventoryItems.find((x) => x.id === c.id);
+                                const bits: string[] = [];
+                                if (it?.brand) bits.push("Marca: " + it.brand);
+                                if (it?.serial_number) bits.push("S/N: " + it.serial_number);
+                                if (bits.length === 0) return null;
+                                return <span className="block text-[9px] text-gray-400 font-semibold">{bits.join(" · ")}</span>;
+                              })()}
+                            </span>
+                            <button type="button" onClick={() => handleRemoveKitComp(i)} className="p-0.5 text-red-400 hover:text-red-300 shrink-0" title="Quitar del kit">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          {/* Línea 2: cantidad / precio / subtotal */}
+                          <div className="flex items-center gap-2">
+                            <input type="number" min="1" value={c.quantity} onChange={(e) => handleUpdateKitComp(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="w-12 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-white text-center" title="Cantidad" />
+                            <input type="number" min="0" step="0.1" value={c.unit_price} onChange={(e) => handleUpdateKitComp(i, { unit_price: parseFloat(e.target.value) || 0 })} className="w-20 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-emerald-300 font-mono text-right" title="Precio unitario" />
+                            <span className="text-gray-400 font-mono text-[10px] ml-auto shrink-0">= S/ {(c.quantity * c.unit_price).toFixed(2)}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
