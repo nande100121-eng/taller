@@ -1228,7 +1228,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
                   it && it.id
                     ? it.id
                     : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
-                localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
+                // FIX ELIMINAR REPUESTO (F2Z-050 en Caja): la lista REMOTA (que ya excluye
+                // wo_removed_) es autoritativa; se conservan solo los ítems locales que
+                // coinciden con el remoto (cantidad/despacho recién editados localmente).
+                const remoteKeys = new Set<string>(remoteItems.map((it: any) => (it ? itemKey(it) : "")));
+                const localKept = localItems.filter((it: any) => it && remoteKeys.has(itemKey(it)));
+                localKept.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
                 remoteItems.forEach((it: any) => {
                   if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
                 });
@@ -1371,10 +1376,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             })();
             const local = mergedOrders.get(wo.id);
             if (local) {
-              const localItems: any[] = Array.isArray(local.items) ? local.items : [];
-              const itemsMap = new Map<string, any>();
+              // FIX ELIMINAR REPUESTO (F2Z-050 en Caja): el merge conservaba los ítems
+              // LOCALES que el remoto ya no traía -> el repuesto borrado en Taller seguía
+              // en la card de Caja y sumaba. La lista remota (fetchCappedOperationalData,
+              // que ya excluye wo_removed_) es AUTORITATIVA; solo se conservan los ítems
+              // locales que coinciden con el remoto (para no perder cantidades/despachos
+              // recién editados en ESTA tablet y aún no sincronizados).
               const itemKey = (it: any) =>
                 it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+              const remoteKeys = new Set<string>(remoteItems.map((it: any) => (it ? itemKey(it) : "")));
+              const localItems: any[] = (Array.isArray(local.items) ? local.items : []).filter(
+                (it: any) => it && remoteKeys.has(itemKey(it))
+              );
+              const itemsMap = new Map<string, any>();
               localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
               remoteItems.forEach((it: any) => {
                 if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
