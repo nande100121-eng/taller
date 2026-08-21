@@ -40,6 +40,7 @@ import {
   Percent,
   Send,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -1609,6 +1610,13 @@ export default function WorkshopOperationsPage() {
                                       notify("warning", `⚠️ ${wo.vehicle_plate} tiene repuestos pendientes de liberación en Almacén. Espera la confirmación de entrega del material antes de enviar a cobrar.`);
                                       return;
                                     }
+                                    // INSTALACIÓN: si los componentes superan el precio fijo,
+                                    // NO se permite avanzar a cobrar/estados finales hasta
+                                    // ajustar los precios (mano de obra ≥ S/ 0).
+                                    if (isFinishing && installationLaborIssues(wo).length > 0) {
+                                      notify("warning", `⚠️ ${wo.vehicle_plate}: la suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos (mano de obra S/ 0.00 o mayor) antes de enviar a cobrar.`);
+                                      return;
+                                    }
                                     // FLUJO COBRO: "Enviar a Cobrar" requiere CONFIRMACIÓN explícita
                                     // (modal glassmórfico de la web): solo al aceptar, la card aparece
                                     // en Caja (evita que Caja cobre una OT que aún se está editando).
@@ -1632,6 +1640,20 @@ export default function WorkshopOperationsPage() {
                             })}
                           </div>
                         </div>
+
+                        {/* ETIQUETA DE ALERTA: instalación con componentes que superan el
+                            precio fijo (mano de obra negativa). Bloquea enviar a cobrar. */}
+                        {installationLaborIssues(wo).length > 0 && (
+                          <div className="p-3 rounded-xl bg-red-950/50 border border-red-500/50 text-xs space-y-1">
+                            <div className="flex items-center gap-1.5 text-red-300 font-black text-[11px] uppercase tracking-wider">
+                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                              <span>Instalación: componentes superan el precio fijo</span>
+                            </div>
+                            <p className="text-[11px] text-red-200/90">
+                              La suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor — no se puede enviar a cobrar.
+                            </p>
+                          </div>
+                        )}
 
                         {/* Tiempo del servicio: ingreso a Taller -> terminado (por cobrar / pagado) */}
                         <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/40 text-xs text-cyan-200 space-y-1.5">
@@ -3062,6 +3084,21 @@ export default function WorkshopOperationsPage() {
                   Una vez enviada, la card quedará visible en Caja para registrar el pago. Para volver a modificar la orden, Caja debe habilitar la edición en Taller.
                 </p>
               </div>
+              {(() => {
+                const order = workOrders.find((o) => o.id === sendToCashierConfirm.id);
+                if (!order || installationLaborIssues(order).length === 0) return null;
+                return (
+                  <div className="bg-red-950/50 p-3 rounded-xl border border-red-500/50 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5 text-red-300 text-[11px] uppercase tracking-wider">
+                      <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>No se puede enviar a cobrar</span>
+                    </div>
+                    <p className="text-[11px] text-red-200/90">
+                      La suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor.
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Acciones */}
@@ -3075,13 +3112,22 @@ export default function WorkshopOperationsPage() {
               </button>
               <button
                 type="button"
+                disabled={(() => {
+                  const order = workOrders.find((o) => o.id === sendToCashierConfirm.id);
+                  return !!order && installationLaborIssues(order).length > 0;
+                })()}
                 onClick={() => {
+                  const order = workOrders.find((o) => o.id === sendToCashierConfirm.id);
+                  if (order && installationLaborIssues(order).length > 0) {
+                    notify("warning", "⚠ Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor antes de enviar a cobrar.");
+                    return;
+                  }
                   updateWorkOrderStatus(sendToCashierConfirm.id, "por_cobrar");
                   const sentPlate = sendToCashierConfirm.plate;
                   setSendToCashierConfirm(null);
                   notify("success", `✅ ${sentPlate} enviada a Caja para el cobro.`);
                 }}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
                 <Send className="w-4 h-4" />
                 <span>Confirmar Envío a Caja</span>
