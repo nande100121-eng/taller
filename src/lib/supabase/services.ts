@@ -2183,9 +2183,13 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
         const k = inv?.id || inv?.work_order_id;
         if (!k) return;
         const invFull = invFullMapCapped.get(inv.id) || (inv.work_order_id ? invFullMapCapped.get(inv.work_order_id) : undefined) || {};
+        // Prioridad: tabla -> inv_full_ (se actualiza SIEMPRE en cada save, incluso con
+        // payment_history VACÍO tras "Borrar todos") -> inv_payhistory_ (fallback SOLO si
+        // el full no trae el campo). Antes, un inv_full_ con historial vacío saltaba al
+        // inv_payhistory_ VIEJO y revivía pagos borrados (bug card saldo 0).
         let hist: any[] = Array.isArray(inv.payment_history)
           ? inv.payment_history
-          : (Array.isArray(invFull.payment_history) && invFull.payment_history.length > 0
+          : (Array.isArray(invFull.payment_history)
             ? invFull.payment_history
             : (payHistMap.get(inv.id) || (inv.work_order_id ? payHistMap.get(inv.work_order_id) : undefined) || []));
         if (Array.isArray(hist) && hist.length > 0) {
@@ -3067,6 +3071,31 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       await saveSupabaseSiteContent(`inv_resources_${inv.id}`, inv.resource_payments, "invoices", false);
       if (inv.work_order_id) {
         await saveSupabaseSiteContent(`inv_resources_${inv.work_order_id}`, inv.resource_payments, "invoices", false);
+      }
+    }
+
+    // BUG FIX (card con saldo 0 tras desmarcar/borrar factura): los snapshots de
+    // historial/desglose/recursos SOLO se escribían si había datos, pero NUNCA se
+    // borraban si quedaban VACÍOS (ej. "Borrar todos" en Caja). El sync operativo
+    // reconstruía el historial desde el snapshot VIEJO y la card "revivía" los pagos
+    // borrados (mismos datos de factura, saldo 0) aunque el toast dijera pendiente.
+    // Regla: si el array quedó vacío, el snapshot huérfano se ELIMINA (por id y woId).
+    if (!inv.payment_history || inv.payment_history.length === 0) {
+      await supabase.from("site_content").delete().eq("key", `inv_payhistory_${inv.id}`);
+      if (inv.work_order_id) {
+        await supabase.from("site_content").delete().eq("key", `inv_payhistory_${inv.work_order_id}`);
+      }
+    }
+    if (!inv.payment_breakdown || inv.payment_breakdown.length === 0) {
+      await supabase.from("site_content").delete().eq("key", `inv_breakdown_${inv.id}`);
+      if (inv.work_order_id) {
+        await supabase.from("site_content").delete().eq("key", `inv_breakdown_${inv.work_order_id}`);
+      }
+    }
+    if (!inv.resource_payments || inv.resource_payments.length === 0) {
+      await supabase.from("site_content").delete().eq("key", `inv_resources_${inv.id}`);
+      if (inv.work_order_id) {
+        await supabase.from("site_content").delete().eq("key", `inv_resources_${inv.work_order_id}`);
       }
     }
     broadcastRealtimeChange("invoice_updated");
