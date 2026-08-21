@@ -30,7 +30,8 @@ import {
   Save,
   Terminal,
   X,
-  Fuel
+  Fuel,
+  UserCheck
 } from "lucide-react";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { getLocalLogs, exportLocalLogs, BUILD_SHA } from "@/lib/system-log";
@@ -74,6 +75,11 @@ export default function ConfiguracionPage() {
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
+
+  // Máximo de técnicos por card en Taller (Configuración -> Técnicos por Vehículo).
+  const [maxTechsInput, setMaxTechsInput] = useState<number>(
+    Number((siteContent as any)?.taller_config?.max_techs_per_vehicle) || 3
+  );
 
   // Tipo de Combustible Settings State (tabla configurable)
   const [fuelTypeForm, setFuelTypeForm] = useState({ name: "", label: "" });
@@ -723,6 +729,55 @@ export default function ConfiguracionPage() {
               </div>
             </div>
           </div>
+        </form>
+      </div>
+
+      {/* SECTION: TÉCNICOS POR VEHÍCULO (Taller) */}
+      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-amber-500/30 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-amber-400" />
+              <span>Técnicos por Vehículo (Taller)</span>
+            </h2>
+            <p className="text-xs text-gray-400">
+              Máximo de técnicos que se pueden asignar a una misma card de vehículo en <strong>Taller</strong>. Ajuste el límite según la operación del taller.
+            </p>
+          </div>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = Math.max(1, Math.min(10, Number(maxTechsInput) || 3));
+            setMaxTechsInput(v);
+            updateSiteContent("taller_config", { max_techs_per_vehicle: v });
+            notify("success", `Máximo de técnicos por vehículo actualizado a ${v}.`);
+          }}
+          className="flex items-end gap-4 flex-wrap"
+        >
+          <div>
+            <label className="text-xs font-bold text-gray-300 block mb-1">Máximo de técnicos por card *</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={maxTechsInput}
+                onChange={(e) => setMaxTechsInput(Number(e.target.value) || 3)}
+                className="w-24 px-3 py-2 bg-reygas-dark border border-amber-500/40 rounded-xl text-white font-mono font-bold text-sm text-center focus:outline-none focus:border-amber-400"
+              />
+              <span className="text-xs text-gray-400 font-semibold">técnicos</span>
+            </div>
+            <p className="text-[10px] text-gray-500 mt-1">Entre 1 y 10. Se aplica en tiempo real a todas las tablets de Taller.</p>
+          </div>
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-2 transition-transform hover:scale-105"
+          >
+            <Save className="w-4 h-4" />
+            <span>Guardar</span>
+          </button>
         </form>
       </div>
 

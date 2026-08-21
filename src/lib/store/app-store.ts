@@ -265,6 +265,10 @@ export interface SiteContent {
     image_url: string;
     category: string;
   }>;
+  // Configuración operativa del Taller (persistida en site_content "taller_config").
+  taller_config: {
+    max_techs_per_vehicle: number; // Máximo de técnicos asignables por card/vehículo en Taller
+  };
 }
 
 // Componente de una INSTALACIÓN: repuesto (del catálogo de Almacén) o certificado
@@ -385,6 +389,10 @@ export interface WorkOrder {
   vehicle_plate: string;
   status: WorkOrderStatus;
   assigned_technician_id?: string;
+  // LISTA de técnicos asignados a la OT (multi-técnico en Taller). El primero es el
+  // RESPONSABLE y se mantiene sincronizado en assigned_technician_id (columna) para
+  // que las demás vistas sigan funcionando. Se persiste en el snapshot wo_mod_<id>.
+  assigned_technician_ids?: string[];
   problem_description: string;
   diagnostic_notes?: string;
   observations?: string; // OBSERVACIONES ADICIONALES
@@ -744,6 +752,10 @@ interface AppState {
   updateWorkOrder: (id: string, updates: Partial<WorkOrder>) => void;
   updateWorkOrderStatus: (id: string, status: WorkOrderStatus) => void;
   assignTechnicianToOrder: (orderId: string, techId: string) => void;
+  // Asigna la LISTA completa de técnicos a la OT (multi-técnico). El primero es el
+  // responsable (assigned_technician_id). El máximo por card lo define
+  // siteContent.taller_config.max_techs_per_vehicle (Configuración).
+  setWorkOrderTechnicians: (orderId: string, techIds: string[]) => void;
   addWorkOrderItem: (orderId: string, item: Omit<WorkOrderItem, "id" | "subtotal">) => void;
   addMultipleWorkOrderItems: (orderId: string, items: Omit<WorkOrderItem, "id" | "subtotal">[]) => void;
   updateWorkOrderItem: (orderId: string, itemId: string, updates: Partial<WorkOrderItem>) => void;
@@ -1839,6 +1851,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         category: "Mantenimiento",
       },
     ],
+    taller_config: {
+      max_techs_per_vehicle: 3,
+    },
   },
 
   updateSiteContent: async (key, data) => {
@@ -2221,7 +2236,35 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       }, "store:assignTechnicianToOrder");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id === orderId) {
-          const updated = { ...o, assigned_technician_id: techId };
+          // Sincroniza la lista: el asignado pasa a ser el primero (responsable).
+          const updated = { ...o, assigned_technician_id: techId, assigned_technician_ids: techId ? [techId] : [] };
+          saveSupabaseWorkOrder(updated);
+          return updated;
+        }
+        return o;
+      });
+      return { workOrders: updatedOrders };
+    });
+  },
+
+  // Asigna la LISTA completa de técnicos (multi-técnico). El primero queda como
+  // responsable en assigned_technician_id (compatibilidad con otras vistas).
+  setWorkOrderTechnicians: (orderId, techIds) => {
+    set((state) => {
+      const prev = state.workOrders.find((o) => o.id === orderId);
+      const ids = (techIds || []).filter(Boolean);
+      logSystemEvent("info", "workorder.assign_tecnicos", {
+        woId: String(orderId).slice(0, 8),
+        plate: prev?.vehicle_plate || "",
+        techs: ids,
+      }, "store:setWorkOrderTechnicians");
+      const updatedOrders = state.workOrders.map((o) => {
+        if (o.id === orderId) {
+          const updated = {
+            ...o,
+            assigned_technician_ids: ids,
+            assigned_technician_id: ids[0] || "",
+          };
           saveSupabaseWorkOrder(updated);
           return updated;
         }
@@ -4634,7 +4677,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     // Solo se cachean las claves ligeras del siteContent (secciones CMS públicas + configs).
     // Las claves pesadas (inv_full_*/wo_mod_* etc.) ya se excluyen del store en el merge.
     const slimSiteContent: any = {};
-    const CMS_CACHE_KEYS = ["theme", "hero", "navbar", "contact", "metrics", "calculator", "about", "services_header", "footer", "services", "gallery", "booking_modal", "location_map", "aiSettings", "correlativeConfig"];
+    const CMS_CACHE_KEYS = ["theme", "hero", "navbar", "contact", "metrics", "calculator", "about", "services_header", "footer", "services", "gallery", "booking_modal", "location_map", "taller_config", "aiSettings", "correlativeConfig"];
     for (const k of CMS_CACHE_KEYS) {
       const v = (state.siteContent as any)?.[k];
       if (v !== undefined) slimSiteContent[k] = v;

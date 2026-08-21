@@ -129,7 +129,8 @@ export default function WorkshopOperationsPage() {
     workOrders,
     updateWorkOrderStatus,
     updateWorkOrder,
-    assignTechnicianToOrder,
+    setWorkOrderTechnicians,
+    siteContent,
     technicians,
     vehicles,
     updateVehicle,
@@ -1721,28 +1722,83 @@ export default function WorkshopOperationsPage() {
                             )}
                           </div>
 
-                        {/* REQUERIMIENTO #2: EL MECANICO ASIGNADO DEBAJO DEL DIAGNOSTICO */}
+                        {/* TÉCNICOS ASIGNADOS (multi-técnico; máximo configurable en
+                            Configuración -> Técnicos por Vehículo) */}
                         <div className="p-3 rounded-xl bg-reygas-dark/90 border border-white/10 space-y-1.5">
-                          <label className="block text-[10px] font-bold uppercase text-amber-400">
-                            👨‍🔧 Mecánico Asignado Responsable:
-                          </label>
-                          <div className="relative">
-                            <select
-                              disabled={isLocked}
-                              value={wo.assigned_technician_id || ""}
-                              onChange={(e) => assignTechnicianToOrder(wo.id, e.target.value)}
-                              className={`w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400 ${isLocked ? "opacity-60 cursor-not-allowed" : ""
-                                }`}
-                            >
-                              <option value="">-- Sin Técnico Asignado --</option>
-                              {assignableTechnicians.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.full_name} ({t.specialty || "Técnico Especialista"})
-                                </option>
-                              ))}
-                            </select>
-                            <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
-                          </div>
+                          {(() => {
+                            const maxTechs = Math.max(1, Number((siteContent as any)?.taller_config?.max_techs_per_vehicle) || 3);
+                            const currentIds = Array.isArray(wo.assigned_technician_ids) && wo.assigned_technician_ids.length > 0
+                              ? wo.assigned_technician_ids
+                              : (wo.assigned_technician_id ? [wo.assigned_technician_id] : []);
+                            const available = assignableTechnicians.filter((t) => !currentIds.includes(t.id));
+                            const atLimit = currentIds.length >= maxTechs;
+                            return (
+                              <>
+                                <label className="block text-[10px] font-bold uppercase text-amber-400">
+                                  👨‍🔧 Técnicos Asignados ({maxTechs} máx):
+                                </label>
+                                {currentIds.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {currentIds.map((tid, i) => {
+                                      const t = technicians.find((x) => x.id === tid);
+                                      return (
+                                        <span
+                                          key={tid}
+                                          className={"inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-bold " + (i === 0
+                                            ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                                            : "bg-white/5 text-gray-200 border-white/10")}
+                                        >
+                                          {i === 0 && <span className="text-[8px] uppercase text-amber-400 font-black">Resp.</span>}
+                                          <span className="truncate max-w-[120px]">{t ? t.full_name : tid}</span>
+                                          {!isLocked && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setWorkOrderTechnicians(wo.id, currentIds.filter((x) => x !== tid))}
+                                              className="text-gray-400 hover:text-red-300 transition-colors shrink-0"
+                                              title="Quitar técnico"
+                                            >
+                                              <X className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {isLocked ? (
+                                  <p className="text-[10px] text-gray-500 italic">Card bloqueada (pagada).</p>
+                                ) : atLimit ? (
+                                  <p className="text-[10px] text-amber-400/90 font-bold">
+                                    ✓ Máximo de técnicos alcanzado ({maxTechs}).
+                                  </p>
+                                ) : (
+                                  <div className="relative">
+                                    <select
+                                      value=""
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (!v) return;
+                                        if (currentIds.length >= maxTechs) {
+                                          notify("warning", "Máximo " + maxTechs + " técnicos por vehículo (configurable en Configuración).");
+                                          return;
+                                        }
+                                        setWorkOrderTechnicians(wo.id, [...currentIds, v]);
+                                      }}
+                                      className="w-full pl-8 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs font-semibold text-white focus:border-amber-400"
+                                    >
+                                      <option value="">+ Añadir técnico...</option>
+                                      {available.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.full_name} ({t.specialty || "Técnico Especialista"})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <UserCheck className="w-4 h-4 text-amber-400 absolute left-2.5 top-2.5" />
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
 
                         {/* FECHAS DE INSPECCIÓN: QUINQUENAL & CHIP ANUAL */}

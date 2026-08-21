@@ -2182,8 +2182,19 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
           const colDiscount = o.discount_amount !== undefined && o.discount_amount !== null ? Number(o.discount_amount) : undefined;
           const finalDiscount = colDiscount !== undefined ? colDiscount : (snapDiscount !== undefined ? snapDiscount : 0);
           const finalAllowMod = snap.allow_modifications !== undefined ? !!snap.allow_modifications : (o.allow_modifications !== undefined ? !!o.allow_modifications : false);
-          if (finalDiscount !== 0 || finalAllowMod) {
-            workOrders[idx] = { ...o, discount_amount: finalDiscount, allow_modifications: finalAllowMod };
+          // LISTA DE TÉCNICOS (multi-técnico): assigned_technician_ids no es columna,
+          // vive en el snapshot wo_mod_<id>. Se restaura aquí para que otra tablet que
+          // cargue la OT conserve los técnicos asignados.
+          const snapTechs = Array.isArray(snap.assigned_technician_ids) ? snap.assigned_technician_ids : undefined;
+          const colTechs = Array.isArray((o as any).assigned_technician_ids) ? (o as any).assigned_technician_ids : undefined;
+          const finalTechs = snapTechs !== undefined ? snapTechs : colTechs;
+          if (finalDiscount !== 0 || finalAllowMod || finalTechs !== undefined) {
+            workOrders[idx] = {
+              ...o,
+              discount_amount: finalDiscount,
+              allow_modifications: finalAllowMod,
+              ...(finalTechs !== undefined ? { assigned_technician_ids: finalTechs } : {}),
+            };
           }
         });
       }
