@@ -2503,18 +2503,49 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   applyRemoteWorkOrderLocal: (wo) => {
     if (!wo || !wo.id) return;
     set((state) => {
-      if (hasRecentLocalMutation("workOrders", 1500)) return state;
       const existing = state.workOrders.find((o) => o.id === wo.id);
       let items: any[] = Array.isArray(wo.items) ? wo.items : [];
       if (typeof wo.items === "string") {
         try { items = JSON.parse(wo.items || "[]"); } catch { items = []; }
       }
+      const itemKey = (it: any) =>
+        it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+      // FLUIDEZ TALLER<->ALMACÉN (mejora 20/08): el guard anti-eco de 1.5s descartaba
+      // eventos realtime de OTRA tablet si este dispositivo había mutado workOrders
+      // recientemente (ej. el almacenista acaba de despachar otro ítem) -> la card del
+      // repuesto pedido en Taller NO aparecía hasta el heartbeat de 5 min. Reglas nuevas:
+      // (a) guard reducido a 400ms (solo protege ecos de la MISMA pestaña) y
+      // (b) NUNCA descartar un evento que trae un item NUEVO (repuesto solicitado ->
+      //     card en Almacén) ni un despacho confirmado dispatched:true (-> Taller muestra
+      //     "Entregado" al instante). El merge por key ya conserva los items locales.
+      const localItems: any[] = Array.isArray(existing?.items) ? existing.items : [];
+      const localKeys = new Set<string>(localItems.map(itemKey));
+      const hasNewRemoteItem = items.some((it: any) => it && !localKeys.has(itemKey(it)));
+      const hasRemoteDispatch = items.some((it: any) =>
+        it?.dispatched === true &&
+        !localItems.some((l: any) => itemKey(l) === itemKey(it) && l.dispatched === true)
+      );
+      const recentLocal = hasRecentLocalMutation("workOrders", 400);
+      if (recentLocal && !hasNewRemoteItem && !hasRemoteDispatch) {
+        logSystemEvent("info", "realtime.workorder.apply.dropped", {
+          woId: String(wo.id).slice(0, 8),
+          reason: "guard-antieco-400ms",
+          hasNewRemoteItem,
+          hasRemoteDispatch,
+        }, "store:applyRemoteWorkOrderLocal");
+        return state;
+      }
+      if (hasNewRemoteItem || hasRemoteDispatch) {
+        logSystemEvent("info", "realtime.workorder.apply.remote", {
+          woId: String(wo.id).slice(0, 8),
+          plate: wo.vehicle_plate || "",
+          newItems: hasNewRemoteItem ? items.filter((it: any) => it && !localKeys.has(itemKey(it))).map((it: any) => String(it.description || "").slice(0, 16)).slice(0, 4) : [],
+          dispatched: hasRemoteDispatch ? items.filter((it: any) => it?.dispatched === true).map((it: any) => String(it.description || "").slice(0, 16)).slice(0, 4) : [],
+        }, "store:applyRemoteWorkOrderLocal");
+      }
       if (existing) {
         // Merge de items por clave (conserva ítems locales recién agregados sin duplicar)
-        const localItems: any[] = Array.isArray(existing.items) ? existing.items : [];
         const itemsMap = new Map<string, any>();
-        const itemKey = (it: any) =>
-          it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
         localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
         (items || []).forEach((it: any) => {
           if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });

@@ -140,6 +140,13 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         // Operativo (work_orders/invoices/vehicles): la fila ya llega por postgres_changes
         // y se aplica directa (applyRemote*). NO se hace refetch completo aquí (optimización:
         // el refetch de 1177 OTs tardaba 2-27s y era el cuello de botella del realtime).
+        // RED DE SEGURIDAD (fluidez Taller<->Almacén): si ESTE dispositivo mutó workOrders
+        // hace <=2.5s, applyRemoteWorkOrderLocal pudo DESCARTAR el evento (guard anti-eco)
+        // y la card no aparecería hasta el heartbeat de 5 min. Se dispara el sync operativo
+        // ligero (throttle 5s en el store) para que la card aparezca igual en ~2-5s.
+        if (hasRecentLocalMutation("workOrders", 2500)) {
+          debouncedOperationalSync();
+        }
       }
     });
 
@@ -165,6 +172,11 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         else if (et.includes("attendance")) debouncedFullSync();
         // Operativo (work_orders/invoices/vehicles): NO refetch (el postgres_changes del
         // WebSocket ya aplica la fila directa; optimización de rendimiento).
+        // RED DE SEGURIDAD: misma regla que el canal Realtime (ver arriba) por si el
+        // guard anti-eco de applyRemoteWorkOrderLocal descartó la fila directa.
+        if (hasRecentLocalMutation("workOrders", 2500)) {
+          debouncedOperationalSync();
+        }
       };
     } catch {
       // BroadcastChannel no disponible: sigue el canal Realtime de Supabase

@@ -3,7 +3,7 @@ import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
-import { logSystemEvent, logTiming } from "@/lib/system-log";
+import { logSystemEvent, logTiming, logTimingThreshold } from "@/lib/system-log";
 import { toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 
 // Unique browser session ID to prevent self-broadcast reload loops
@@ -449,6 +449,16 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     // versiones distintas y se pisan: cantidad 3->2->4->3, despacho que se desactiva).
     // Regla: NUNCA revertir un despacho confirmado (dispatched:true) y, para cantidad/
     // precio, gana el item con updated_at MÁS RECIENTE (comparado contra la DB actual).
+    // PERF (fluidez 20/08): el snapshot wo_mod_ se dispara EN PARALELO con este SELECT
+    // porque NO depende del merge (usa la versión local completa) -> se ahorra ~1 RTT
+    // en el dispositivo que guarda (broadcast/toast salen antes, la card llega antes).
+    const tMergeStart = Date.now();
+    const tSnapStart = Date.now();
+    const snapshotPromise = saveSupabaseSiteContent(`wo_mod_${order.id}`, {
+      ...order,
+      diagnostic_notes: diagText,
+      updated_at: new Date().toISOString(),
+    }, "work_orders", false);
     try {
       const dbRes = await supabase.from("work_orders").select("items").eq("id", order.id).maybeSingle();
       const dbRaw = dbRes?.data?.items;
@@ -499,7 +509,9 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     } catch (e) {
       console.warn("saveSupabaseWorkOrder merge warning:", e);
     }
+    const mergeMs = Date.now() - tMergeStart;
 
+    const tUpsertStart = Date.now();
     const { error } = await supabase.from("work_orders").upsert(payload);
     if (error) {
       console.warn("Supabase work order upsert notice, trying core columns fallback:", error.message);
@@ -527,12 +539,11 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       });
     }
 
-    // Always persist full snapshot in site_content to guarantee 100% cloud resilience
-    await saveSupabaseSiteContent(`wo_mod_${order.id}`, {
-      ...order,
-      diagnostic_notes: diagText,
-      updated_at: new Date().toISOString(),
-    }, "work_orders", false);
+    // Snapshot de resiliencia en site_content (wo_mod_): ya disparado EN PARALELO con
+    // el SELECT del merge arriba; aquí solo se espera su resolución (no suma al tiempo).
+    const upsertMs = Date.now() - tUpsertStart;
+    await snapshotPromise;
+    const snapshotMs = Date.now() - tSnapStart;
 
     broadcastRealtimeChange("work_order_updated");
     const logItems = (Array.isArray(order.items) ? order.items : []).map((it: any) => ({
@@ -561,10 +572,15 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       entry: order.entry_time || "",
       completion: order.completion_time || "",
     }, "services:saveSupabaseWorkOrder");
-    // TIMING del guardado de OT: cuánto tarda en persistir en la nube
-    logTiming("workorder.save.duration", saveStart, {
+    // TIMING del guardado de OT con DESGLOSE de fases (merge/select, upsert, snapshot)
+    // para diagnosticar la fluidez Taller<->Almacén desde Configuración -> Ver Log.
+    // Salta a "warn" si el save total tarda >1500ms (red lenta / cuello de botella).
+    logTimingThreshold("workorder.save.duration", saveStart, 1500, {
       woId: String(order.id || "").slice(0, 8),
       plate: order.vehicle_plate || "",
+      mergeMs,
+      upsertMs,
+      snapshotMs,
     }, "services:saveSupabaseWorkOrder");
     emitCloudSavedToast("Orden de trabajo guardada en la nube ✓");
   } catch (err) {
@@ -1970,12 +1986,15 @@ export function invalidateCappedHistoryCache() {
 export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
   const fetchStart = Date.now();
   try {
-    // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request,
-    // así que cada tabla se pide por páginas de 1000. NO se descarga el histórico completo.
-    const PAGE = 1000;
+    // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request.
+    // OPTIMIZACIÓN DE RENDIMIENTO: la ventana se reduce a 400 (las OTs/facturas más
+    // recientes cubren la operación del día; las antiguas ya pagadas no necesitan card
+    // activa en Caja). Las facturas pendientes/crédito SIEMPRE se cargan (deuda real,
+    // ~50 filas) y el bloque 3b trae las facturas de las OTs visibles.
+    const PAGE = 400;
 
-    // 1. Fase paralela: órdenes recientes (1000), TODAS las facturas pendientes/crédito
-    //    (solo ~50 filas: es la deuda real), facturas pagadas recientes (1000) y vehículos (1000).
+    // 1. Fase paralela: órdenes recientes (400), TODAS las facturas pendientes/crédito
+    //    (solo ~50 filas: es la deuda real), facturas pagadas recientes (400) y vehículos (400).
     const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes, csvInvRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(PAGE)),
       safeQuery<any[]>(
