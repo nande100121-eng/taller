@@ -1632,7 +1632,12 @@ export default function CajaPage() {
       paymentBreakdown = splits;
       const methodSummary = paymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
       finalMethod = `Mixto (${methodSummary})`;
-      finalDest = Array.from(new Set(paymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
+      // DESTINO ÚNICO del comprobante: el que el cajero eligió (paymentDestination).
+      // Antes se unían los destinos de los métodos ("CAJA / FRANCO") y la tabla de
+      // YAPES/TRANSFERENCIAS POR DESTINO mostraba el doble destino.
+      finalDest = (paymentModal.paymentDestination && paymentModal.paymentDestination !== "Ninguno")
+        ? paymentModal.paymentDestination
+        : (Array.from(new Set(paymentModal.paymentSplits.map((p) => (p.destination || "EMPRESA")))).join(" / ") || "EMPRESA");
     }
 
     // Auto-advance correlative sequence in store and sync to Supabase only if standard receipt type
@@ -2192,7 +2197,11 @@ export default function CajaPage() {
       paymentBreakdown = splits;
       const methodSummary = partialPaymentModal.paymentSplits.map((p) => `${p.method}: S/ ${(Number(p.amount) || 0).toFixed(2)}`).join(", ");
       finalMethod = `Mixto (${methodSummary})`;
-      finalDest = Array.from(new Set(partialPaymentModal.paymentSplits.map((p) => p.destination))).join(" / ");
+      // DESTINO ÚNICO del comprobante: el del cajero (paymentDestination). No se unen
+      // los destinos de cada método (antes: "CAJA / FRANCO" en YAPES POR DESTINO).
+      finalDest = (partialPaymentModal.paymentDestination && partialPaymentModal.paymentDestination !== "Ninguno")
+        ? partialPaymentModal.paymentDestination
+        : (Array.from(new Set(partialPaymentModal.paymentSplits.map((p) => (p.destination || "EMPRESA")))).join(" / ") || "EMPRESA");
     }
 
     // Auto-advance correlative sequence
@@ -2609,6 +2618,53 @@ export default function CajaPage() {
         });
       }
     }
+    // RECONSTRUIR EL PAGO MIXTO REAL al editar: si el registro es "Mixto (...)",
+    // se toman sus splits del desglose del comprobante (payment_breakdown del invoice)
+    // que suman el monto del registro — método, destino, monto y recursos de CADA parte
+    // se conservan. Antes se colapsaba TODO a un solo método y el pago mixto se perdía
+    // al guardar (bug: "edito el comprobante y ya no queda el pago mixto").
+    const bdAll: any[] = Array.isArray((invEdit as any)?.payment_breakdown) ? (invEdit as any).payment_breakdown : [];
+    const recAmt = Number(rec.amount) || 0;
+    const recMethodTxt = (rec.method || "").trim();
+    let editSplits: any[] = [];
+    if (recMethodTxt.startsWith("Mixto (") && bdAll.length > 0) {
+      const byReceipt = bdAll.filter((s: any) =>
+        rec.receipt_number && s && s.receipt_number && String(s.receipt_number) === String(rec.receipt_number)
+      );
+      const candidates = byReceipt.length > 0 ? byReceipt : bdAll;
+      const candSum = (candidates as any[]).reduce((s2: number, x: any) => s2 + (Number(x.amount) || 0), 0);
+      if (candidates.length > 0 && Math.abs(candSum - recAmt) < 0.05) {
+        editSplits = (candidates as any[]).map((s: any) => ({
+          id: s.id || ("split-" + Date.now() + "-" + Math.random()),
+          method: (s.method || "Efectivo") as string,
+          destination: (s.destination || "EMPRESA") as string,
+          amount: Number(s.amount) || 0,
+          splitResources: Array.isArray(s.splitResources) && s.splitResources.length > 0
+            ? s.splitResources.map((x: any) => ({ ...x }))
+            : undefined,
+          receipt_number: s.receipt_number || undefined,
+          receipt_type: s.receipt_type || undefined,
+        }));
+      }
+    }
+    if (editSplits.length === 0) {
+      // Pago único (o mixto sin desglose recuperable): 1 método con los recursos del registro
+      editSplits = [{
+        id: "split-1",
+        method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
+        destination: rec.destination || invEdit.payment_destination || "EMPRESA",
+        amount: recAmt,
+        splitResources: resList.length > 0 ? resList.map((x) => ({ ...x })) : undefined,
+      }];
+    }
+    // DESTINO del comprobante: único (el usuario elige UN responsable). Si el dato
+    // guardado quedó concatenado ("CAJA / FRANCO", "EMPRESA / FRANCO" de pagos mixtos
+    // con destinos por método), se usa el personal (no CAJA/EMPRESA) — el destino real
+    // del cobro (ej. FRANCO), no la unión de los destinos de cada método.
+    const destRaw = (rec.destination || invEdit.payment_destination || "EMPRESA").trim();
+    const destClean = destRaw.includes("/")
+      ? (destRaw.split("/").map((s: string) => s.trim()).filter((s: string) => s && s.toUpperCase() !== "CAJA" && s.toUpperCase() !== "EMPRESA")[0] || destRaw)
+      : destRaw;
     setPartialPaymentModal({
       isOpen: true,
       workOrder: woEdit,
@@ -2622,9 +2678,9 @@ export default function CajaPage() {
         : (invEdit?.discounts ? (typeof invEdit.discounts === "number" ? invEdit.discounts : Number(invEdit.discounts) || 0) : 0),
       paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
       paymentMethod: (rec.method || "").trim() === "Sin Método" ? "" : defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
-      paymentDestination: rec.destination || invEdit.payment_destination || "EMPRESA",
+      paymentDestination: destClean,
       isSplitPayment: true,
-      paymentSplits: [{ id: `split-1`, method: defaultMethodFrom(rec.method) || (rec.method || "Efectivo"), destination: rec.destination || invEdit.payment_destination || "EMPRESA", amount: Number(rec.amount) || 0, splitResources: resList.length > 0 ? resList.map((x) => ({ ...x })) : undefined }],
+      paymentSplits: editSplits,
       receiptNumber: rec.receipt_number || invEdit.receipt_number || "",
       receiptType: (rec.receipt_type === "Boleta" || rec.receipt_type === "Factura" ? rec.receipt_type : (rec.receipt_type === "Sin Comprobante" ? "Sin Comprobante" : "Ticket")) as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante",
       customerDoc: invEdit.customer_doc || "",
@@ -4411,6 +4467,35 @@ export default function CajaPage() {
                 ) : (
                   /* Multi-Method / Split Payment Mode */
                   <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                    {/* DESTINO ÚNICO del comprobante mixto: aplica a todos los métodos (antes
+                        cada método tenía el suyo y el comprobante quedaba "CAJA / FRANCO"). */}
+                    <div>
+                      <label className="text-[10px] font-bold text-gray-400 block mb-0.5">
+                        Destino del Pago / Responsable (aplica a todos los métodos):
+                      </label>
+                      <div className="relative">
+                        <Building className="w-3.5 h-3.5 text-emerald-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <select
+                          value={paymentModal.paymentDestination || ""}
+                          onChange={(e) => {
+                            const dest = e.target.value;
+                            setPaymentModal({
+                              ...paymentModal,
+                              paymentDestination: dest,
+                              paymentSplits: (paymentModal.paymentSplits || []).map((p) => ({ ...p, destination: dest })),
+                            });
+                          }}
+                          className="w-full pl-8 pr-3 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-emerald-400"
+                        >
+                          <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                          {eligibleDestinations.map((dest) => (
+                            <option key={dest} value={dest}>
+                              {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : ("👤 " + dest)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
                       <span className="font-bold text-purple-300 flex items-center gap-1.5">
                         <Coins className="w-4 h-4 text-purple-400" />
@@ -5379,6 +5464,34 @@ export default function CajaPage() {
                   ) : (
                     /* Multi-Method / Split Payment Mode */
                     <div className="space-y-3 p-3.5 rounded-2xl bg-black/40 border border-purple-500/30 animate-fadeIn">
+                      {/* DESTINO ÚNICO del comprobante mixto: aplica a todos los métodos */}
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-400 block mb-0.5">
+                          Destino del Pago / Responsable (aplica a todos los métodos):
+                        </label>
+                        <div className="relative">
+                          <Building className="w-3.5 h-3.5 text-emerald-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <select
+                            value={manualPaymentModal.paymentDestination || ""}
+                            onChange={(e) => {
+                              const dest = e.target.value;
+                              setManualPaymentModal({
+                                ...manualPaymentModal,
+                                paymentDestination: dest,
+                                paymentSplits: (manualPaymentModal.paymentSplits || []).map((p) => ({ ...p, destination: dest })),
+                              });
+                            }}
+                            className="w-full pl-8 pr-3 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-emerald-400"
+                          >
+                            <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                            {eligibleDestinations.map((dest) => (
+                              <option key={dest} value={dest}>
+                                {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : ("👤 " + dest)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between text-xs pb-2 border-b border-white/10">
                         <span className="font-bold text-purple-300 flex items-center gap-1.5">
                           <Coins className="w-4 h-4 text-purple-400" />
@@ -5805,6 +5918,37 @@ export default function CajaPage() {
                   <Coins className="w-3.5 h-3.5" />
                   <span>3. Método y Destino del Abono</span>
                 </h4>
+
+                {/* DESTINO ÚNICO del comprobante: el cajero elige UN responsable y aplica a
+                    TODOS los métodos del desglose (antes cada método tenía su destino y el
+                    comprobante quedaba "CAJA / FRANCO" en la tabla YAPES POR DESTINO). */}
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 block mb-0.5">
+                    Destino del Pago / Responsable (aplica a todos los métodos):
+                  </label>
+                  <div className="relative">
+                    <Building className="w-3.5 h-3.5 text-emerald-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <select
+                      value={partialPaymentModal.paymentDestination || ""}
+                      onChange={(e) => {
+                        const dest = e.target.value;
+                        setPartialPaymentModal({
+                          ...partialPaymentModal,
+                          paymentDestination: dest,
+                          paymentSplits: (partialPaymentModal.paymentSplits || []).map((p) => ({ ...p, destination: dest })),
+                        });
+                      }}
+                      className="w-full pl-8 pr-3 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-white font-bold focus:border-emerald-400"
+                    >
+                      <option value="">(Ninguno / Dejar Vacío para S/ 0.00)</option>
+                      {eligibleDestinations.map((dest) => (
+                        <option key={dest} value={dest}>
+                          {dest === "EMPRESA" ? "🏢 EMPRESA (Cuenta Principal / Caja)" : ("👤 " + dest)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
                 {/* SIEMPRE desglose de métodos: 1 método = Pago Único, varios = Pago Mixto / Parcial.
                     Cada método lleva SUS recursos vinculados; su Monto Total = suma de los
