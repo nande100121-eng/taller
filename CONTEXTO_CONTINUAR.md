@@ -97,6 +97,7 @@ Vive en wo_mod_<id>; el sync lo reconstruye. Al abonar, el cajero asigna el desc
 8. d631a47 fix(caja): al EDITAR ya NO se bloquea por supera saldo (el monto reemplaza; el saldo se recalcula); en edición se sincroniza el monto de cada método con sus recursos; dedup del historial por id.
 9. 25628cc fix(caja edición): saldo restante SECUENCIAL por método (D7U-622 DIAFRAGMA S/130: método 1 toma 10 → saldo 120; método 2 dispone del faltante 120) — arregla keys desnormalizadas (abono-res-* vs edit-res-*).
 10. 687fa20 fix(caja): Abonar Saldo SIEMPRE abre abono NUEVO (sin heredar editingRecordId); pagos RECONSTRUIDOS de la card (id rp-<invoiceId>/bd-, cuando el store no trae payment_history) ya NO abren edición (el lápiz abre Abonar Saldo; eliminar deshabilitado); el submit solo usa modo edición si el id existe en el historial real.
+11. 256b354 fix(caja BEF-098 "abonar jala factura borrada"): clearInvoicePayments ("Borrar todos") retornaba SIN hacer nada si el store no traía payment_history (pagos reconstruidos rp-/bd-, historyCount 0) → la factura de prueba seguía en el caché con su crédito/comprobante y el modal de abono abría con sus datos. Ahora "Borrar todos" ELIMINA la factura COMPLETA en cascada (tabla + snapshots inv_full_/inv_payhistory_/inv_breakdown_/inv_resources_ por id y woId) + OT a por_cobrar, funcione o no con historial. Botón "Borrar todos" solo se muestra si la card tiene factura; toast/tooltip actualizados.
 
 ### Estado de la base (21/08 — limpieza hecha)
 - 118,082 facturas auditadas: 0 tickets absurdos, 0 correlativos duplicados con serie, 0 facturas fantasma en la tabla. (Los 7,926 duplicados restantes son folios históricos SIN serie de CSVs — NO tocar.)
@@ -111,7 +112,7 @@ Vive en wo_mod_<id>; el sync lo reconstruye. Al abonar, el cajero asigna el desc
 
 - **VERIFICAR deploy de 687fa20 (y 25628cc) en prod**: Vercel no desplegó automático. Ctrl+F5; si sigue viejo → deploy manual del usuario o empty commit re-trigger.
 - El usuario sigue probando Caja (editar comprobantes, abonos, pagos mixtos, reporte 18/08) — corregir inconsistencias (modo ahorro).
-- Si el usuario quiere ELIMINAR la factura de prueba de BEF-098: borrar el pago REAL pay-bef098-1000-1808 (aparece tras Ctrl+F5 con historial cargado) — la cascada borra la factura. (El botón eliminar de pagos reconstruidos está deshabilitado a propósito.)
+- Eliminar la factura de prueba de BEF-098: con 256b354, pulsar "Borrar todos" en la card ya elimina la factura completa aunque el historial sea reconstruido. (Alternativa manual: borrar el pago REAL pay-bef098-1000-1808 — cascada.)
 - Pago mixto con destinos distintos (Efectivo→CAJA + Yape→FRANCO en un solo comprobante): YA se soporta — cada método guarda monto+destino; la matriz YAPES muestra el yape en su destino; el destino del comprobante es único (mayor monto).
 - Mejora pendiente (mencionada antes): Almacén reducir carga inicial de inventario completo.
 
