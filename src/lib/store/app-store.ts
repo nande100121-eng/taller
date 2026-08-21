@@ -3792,40 +3792,29 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     });
   },
 
-  // Elimina TODOS los pagos/abonos de la factura: vuelve a pendiente de cobro completo
-  // (sin abonos, sin comprobante) y la card muestra de nuevo "Confirmar Cobro".
+  // Elimina TODOS los pagos/abonos de la factura y ELIMINA la factura completa en
+  // cascada (tabla + snapshots): la card vuelve a "Confirmar Cobro" sin comprobante.
+  // BUG FIX (BEF-098): antes solo limpiaba payment_history y si el store no traía
+  // historial (pagos reconstruidos rp-/bd-) retornaba SIN hacer nada; la factura de
+  // prueba seguía en el caché y el modal de abono jala los datos de la factura borrada.
   clearInvoicePayments: (invoiceId) => {
     set((state) => {
       const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
       if (!targetInvoice) return state;
-      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
-        ? [...targetInvoice.payment_history]
-        : [];
-      if (history.length === 0) return state;
-      const updated: Invoice = {
-        ...targetInvoice,
-        payment_status: "pendiente" as const,
-        payment_condition: "PENDIENTE",
-        credit_amount: 0,
-        payment_history: [],
-        resource_payments: undefined,
-        payment_method: "",
-        payment_destination: "",
-        payment_breakdown: undefined,
-        receipt_number: "",
-        receipt_type: "",
-        paid_at: undefined,
-        debt_observation: undefined,
-        debt_responsible: undefined,
-      };
-      saveSupabaseInvoice(updated);
-      logSystemEvent("info", "payment.clear_all.ok", {
+      // BUG FIX (BEF-098 "al abonar jala datos de una factura borrada"): el store podía NO
+      // traer payment_history (pagos RECONSTRUIDOS rp-/bd- en la card) y esta función
+      // retornaba SIN hacer nada (history.length === 0). La factura de prueba seguía en el
+      // store/caché con su crédito y comprobante, y el modal de abono abría con sus datos
+      // aunque el usuario la hubiera "borrado". Ahora "Borrar todos" ELIMINA la factura
+      // COMPLETA en cascada (tabla + snapshots), igual que deletePaymentRecord cuando queda
+      // 0 pagos: la card vuelve a "Confirmar Cobro" sin comprobante vinculado.
+      deleteSupabaseInvoice(targetInvoice.id, targetInvoice.work_order_id);
+      logSystemEvent("info", "payment.clear_all.invoice_removed", {
         invoiceId: String(targetInvoice.id).slice(0, 26),
         woId: String(targetInvoice.work_order_id || "").slice(0, 8),
-        clearedRecords: history.length,
+        clearedRecords: Array.isArray(targetInvoice.payment_history) ? targetInvoice.payment_history.length : 0,
       }, "store:clearInvoicePayments");
-      const updatedInvoices = state.invoices.map((i) => (i.id === targetInvoice.id ? updated : i));
-      const updatedOrders = state.workOrders.map((o) => {
+      const updatedOrdersNoInv = state.workOrders.map((o) => {
         if (o.id === targetInvoice.work_order_id) {
           const u = { ...o, status: "por_cobrar" as WorkOrderStatus };
           saveSupabaseWorkOrder(u);
@@ -3833,7 +3822,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         }
         return o;
       });
-      return { invoices: updatedInvoices, workOrders: updatedOrders };
+      return {
+        invoices: state.invoices.filter((i) => i.id !== targetInvoice.id && i.work_order_id !== targetInvoice.work_order_id),
+        workOrders: updatedOrdersNoInv,
+      };
     });
   },
 

@@ -3863,13 +3863,14 @@ export default function CajaPage() {
                               <span className="text-[10px] uppercase font-bold text-gray-400">
                                 🧾 Historial de Pagos ({partialHistory.length}):
                               </span>
+                                {invoice?.id && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     if (confirmClearCard === wo.id) {
                                       if (invoice?.id) clearInvoicePayments(invoice.id);
                                       setConfirmClearCard(null);
-                                      notify("warning", "Todos los pagos de " + wo.vehicle_plate + " fueron borrados. La factura vuelve a estar pendiente de cobro completo.");
+                                      notify("warning", "Todos los pagos de " + wo.vehicle_plate + " fueron borrados y la factura eliminada. La OT vuelve a estar pendiente de cobro completo.");
                                     } else {
                                       setConfirmClearCard(wo.id);
                                     }
@@ -3878,11 +3879,12 @@ export default function CajaPage() {
                                     ? "bg-red-600 text-white border-red-500"
                                     : "bg-red-500/10 text-red-400 hover:bg-red-500/25 border-red-500/30"
                                     }`}
-                                  title="Borrar todos los pagos/abonos de esta factura (vuelve a Confirmar Cobro)"
+                                  title="Borrar todos los pagos/abonos y ELIMINAR esta factura (la OT vuelve a Confirmar Cobro sin comprobante)"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                   <span>{confirmClearCard === wo.id ? "¿Confirmar borrado?" : "Borrar todos"}</span>
                                 </button>
+                                )}
                               </div>
                               {partialHistory.map((rec, i) => (
                                 <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-gray-300">
