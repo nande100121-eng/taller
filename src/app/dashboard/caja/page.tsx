@@ -2472,6 +2472,19 @@ export default function CajaPage() {
     const updated = (partialPaymentModal.paymentSplits || []).map((p, i) => {
       if (i !== splitIdx) return p;
       const list: any[] = Array.isArray((p as any).splitResources) ? (p as any).splitResources : [];
+      // SALDO GLOBAL del comprobante (lo que falta por abonar): al marcar "✓ Todos",
+      // los recursos se llenan SECUENCIALMENTE hasta cubrir el saldo pendiente real
+      // (BBF-936: total 450, saldo 50 → solo se toma S/50, no el fullAmount de 450;
+      // si un recurso es menor al saldo, se completa al 100% y el resto sigue).
+      const editingIdAll = partialPaymentModal.editingRecordId;
+      const histEditAll = Array.isArray(partialPaymentModal.invoice?.payment_history) ? (partialPaymentModal.invoice.payment_history as any[]) : [];
+      const isEditingAll = !!(editingIdAll && partialPaymentModal.invoice?.id && histEditAll.some((p: any) => p && p.id === editingIdAll));
+      const saldoGlobalModalAll = Math.max(0, Number(partialPaymentModal.totalDue || 0) - invoicePaidSoFar(partialPaymentModal.invoice));
+      const marcadoOtrosAll = (partialPaymentModal.paymentSplits || [])
+        .filter((_, oi) => oi !== splitIdx)
+        .reduce((acc: number, pp: any) => acc + ((Array.isArray(pp.splitResources) ? pp.splitResources : []).filter((o: any) => o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
+      // En EDICIÓN no se limita al saldo (el monto reemplaza, no suma): marcar libre.
+      let restanteGlobal = isEditingAll ? Number.MAX_SAFE_INTEGER : Math.max(0, saldoGlobalModalAll - marcadoOtrosAll);
       const next = list.map((r2: any) => {
         // Misma lógica de saldo que la fila: lo ya pagado en OTROS métodos.
         const paidOther = (partialPaymentModal.paymentSplits || [])
@@ -2486,7 +2499,9 @@ export default function CajaPage() {
         const disabled = usedOther && !r2.selected;
         if (disabled) return r2; // recurso usado en otro método: no tocar
         if (selectAll) {
-          return { ...r2, selected: true, payAmount: Math.min(Number(r2.fullAmount) || 0, saldoRestante) };
+          const tomar = Math.min(Number(r2.fullAmount) || 0, saldoRestante, restanteGlobal);
+          restanteGlobal = Math.max(0, restanteGlobal - tomar);
+          return { ...r2, selected: tomar > 0.01, payAmount: Math.round(tomar * 100) / 100 };
         }
         return { ...r2, selected: false, payAmount: 0 };
       });
@@ -6246,15 +6261,43 @@ export default function CajaPage() {
                                 const payEste = rs.selected ? (Number(rs.payAmount) || 0) : 0;
                                 const saldoRestante = Math.max(0, saldoDisponible - payEste);
                                 const usedOther = saldoRestante <= 0.01 && !rs.selected;
-                                const disabled = usedOther && !rs.selected;
+                                // LÍMITE GLOBAL por recurso (BBF-936): lo que realmente falta por
+                                // abonar del comprobante menos lo ya marcado en OTROS recursos.
+                                // En EDICIÓN no aplica (el monto reemplaza, no suma).
+                                const saldoGlobalModalRes = Math.max(0, Number(partialPaymentModal.totalDue || 0) - invoicePaidSoFar(partialPaymentModal.invoice));
+                                const marcadoTotalRes = (partialPaymentModal.paymentSplits || []).reduce((acc: number, sp: any) => acc + ((Array.isArray(sp.splitResources) ? sp.splitResources : []).filter((o: any) => o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
+                                const editingIdRes3 = partialPaymentModal.editingRecordId;
+                                const histRes3 = Array.isArray(partialPaymentModal.invoice?.payment_history) ? (partialPaymentModal.invoice.payment_history as any[]) : [];
+                                const isEditingRes3 = !!(editingIdRes3 && partialPaymentModal.invoice?.id && histRes3.some((p: any) => p && p.id === editingIdRes3));
+                                const limiteGlobalRes = isEditingRes3
+                                  ? Number.MAX_SAFE_INTEGER
+                                  : Math.max(0, saldoGlobalModalRes - (marcadoTotalRes - payEste));
+                                // Bloquear marcar si el saldo global del comprobante ya fue cubierto
+                                // por otros recursos (BBF-936: saldo 50 → solo 1 recurso se marca).
+                                const saldoGlobalAgotado = limiteGlobalRes <= 0.01 && !rs.selected;
+                                const disabled = (usedOther || saldoGlobalAgotado) && !rs.selected;
                                 return (
                                   <div key={rs.key} className={`flex items-center gap-2 text-[11px] pt-0.5 ${disabled ? "opacity-40" : ""}`}>
                                     <button
                                       type="button"
                                       disabled={disabled}
                                       onClick={() => {
+                                        // INTELIGENCIA DE SALDO (BBF-936): al marcar un recurso se
+                                        // limita a lo que REALMENTE falta por abonar del comprobante
+                                        // (total - ya pagado), no al fullAmount del recurso. Si el
+                                        // recurso es menor al saldo, se completa al 100%; si es mayor,
+                                        // solo se toma el saldo restante (soporta abonos parciales).
+                                        const saldoGlobalModal = Math.max(0, Number(partialPaymentModal.totalDue || 0) - invoicePaidSoFar(partialPaymentModal.invoice));
+                                        const marcadoTotal = (partialPaymentModal.paymentSplits || []).reduce((acc: number, sp: any) => acc + ((Array.isArray(sp.splitResources) ? sp.splitResources : []).filter((o: any) => o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
+                                        const payEsteAhora = rs.selected ? (Number(rs.payAmount) || 0) : 0;
+                                        const saldoRestanteGlobal = Math.max(0, saldoGlobalModal - (marcadoTotal - payEsteAhora));
+                                        // En EDICIÓN no se limita al saldo (el monto reemplaza, no suma)
+                                        const editingIdRes2 = partialPaymentModal.editingRecordId;
+                                        const histRes2 = Array.isArray(partialPaymentModal.invoice?.payment_history) ? (partialPaymentModal.invoice.payment_history as any[]) : [];
+                                        const isEditingRes2 = !!(editingIdRes2 && partialPaymentModal.invoice?.id && histRes2.some((p: any) => p && p.id === editingIdRes2));
+                                        const limiteGlobalRes = isEditingRes2 ? Number.MAX_SAFE_INTEGER : saldoRestanteGlobal;
                                         const next = (split as any).splitResources.map((r2: any) =>
-                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, saldoDisponible) : r2.payAmount } : r2
+                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(Math.min(Number(r2.fullAmount) || 0, saldoDisponible), limiteGlobalRes) : r2.payAmount } : r2
                                         );
                                         const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
                                         const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
@@ -6327,10 +6370,11 @@ export default function CajaPage() {
                                         type="number"
                                         step="0.01"
                                         min="0"
-                                        max={Math.max(0.01, saldoDisponible)}
+                                        max={Math.max(0.01, Math.min(saldoDisponible, limiteGlobalRes))}
                                         value={rs.payAmount || ""}
                                         onChange={(e) => {
-                                          const val = Math.max(0, Math.min(saldoDisponible, parseFloat(e.target.value) || 0));
+                                          // Límite inteligente: no digitar más del saldo pendiente global
+                                          const val = Math.max(0, Math.min(saldoDisponible, limiteGlobalRes, parseFloat(e.target.value) || 0));
                                           const next = (split as any).splitResources.map((r2: any) =>
                                             r2.key === rs.key ? { ...r2, payAmount: val, selected: val > 0 } : r2
                                           );
