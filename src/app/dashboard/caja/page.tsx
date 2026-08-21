@@ -1013,7 +1013,14 @@ export default function CajaPage() {
       const inv = invoicesByWorkOrderId.get(wo.id);
       const isPaid = isOrderPaid(wo, inv);
 
-      const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
+      // Búsqueda por PLACA o NÚMERO DE TICKET/BOLETA/FACTURA (factura + abonos del historial)
+      const matchPlate = term
+        ? (
+            (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) ||
+            (inv?.receipt_number && String(inv.receipt_number).toUpperCase().includes(term)) ||
+            (Array.isArray(inv?.payment_history) && inv.payment_history.some((p: any) => p && p.receipt_number && String(p.receipt_number).toUpperCase().includes(term)))
+          )
+        : true;
 
       let matchStatus = true;
       if (activeStatusFilter === "hoy") {
@@ -1109,9 +1116,12 @@ export default function CajaPage() {
       );
       return;
     }
-    const localHits = allBillingWorkOrders.some(
-      (wo) => wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)
-    );
+    const localHits = allBillingWorkOrders.some((wo) => {
+      if (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) return true;
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      if (inv?.receipt_number && String(inv.receipt_number).toUpperCase().includes(term)) return true;
+      return Array.isArray(inv?.payment_history) && inv.payment_history.some((p: any) => p && p.receipt_number && String(p.receipt_number).toUpperCase().includes(term));
+    });
     if (localHits) {
       setRemoteSearch((s) =>
         s.loading || s.results.length > 0 ? { loading: false, results: [], invoices: [] } : s
@@ -1122,21 +1132,32 @@ export default function CajaPage() {
     setRemoteSearch((s) => ({ ...s, loading: true }));
     const timer = setTimeout(async () => {
       try {
-        const { data: wos } = await supabase
-          .from("work_orders")
-          .select("*")
-          .ilike("vehicle_plate", "%" + term + "%")
-          .order("entry_time", { ascending: false })
-          .limit(40);
-        const woIds = (wos || []).map((w: any) => w.id);
-        let invs: any[] = [];
+        // Busca por PLACA (work_orders) y por NÚMERO DE COMPROBANTE (invoices), y une
+        // las OTs de ambos (el historial completo nunca se descarga: consulta dirigida).
+        const [plateRes, receiptInvRes] = await Promise.all([
+          supabase.from("work_orders").select("*").ilike("vehicle_plate", "%" + term + "%").order("entry_time", { ascending: false }).limit(40),
+          supabase.from("invoices").select("*").ilike("receipt_number", "%" + term + "%").limit(50),
+        ]);
+        const byPlate = (plateRes?.data || []).map(normalizeRemoteWorkOrder);
+        const receiptInvs = receiptInvRes?.data || [];
+        const byReceiptWoIds = Array.from(new Set(receiptInvs.map((i: any) => i.work_order_id).filter((x: any) => !!x)));
+        let byReceiptWos: any[] = [];
+        if (byReceiptWoIds.length > 0) {
+          const { data: wr } = await supabase.from("work_orders").select("*").in("id", byReceiptWoIds).limit(50);
+          byReceiptWos = (wr || []).map(normalizeRemoteWorkOrder);
+        }
+        const wosMap = new Map<string, any>();
+        [...byPlate, ...byReceiptWos].forEach((w: any) => { if (w && w.id) wosMap.set(w.id, w); });
+        const wos = Array.from(wosMap.values());
+        const woIds = wos.map((w: any) => w.id);
+        let invs: any[] = [...receiptInvs];
         if (woIds.length > 0) {
           const { data: invData } = await supabase
             .from("invoices")
             .select("*")
             .in("work_order_id", woIds)
             .limit(200);
-          invs = invData || [];
+          (invData || []).forEach((i: any) => { if (i && i.id && !invs.some((x: any) => x.id === i.id)) invs.push(i); });
           // Adjuntar el HISTORIAL DE PAGOS (snapshots inv_payhistory_<id>) a las facturas
           // del historial completo: así la card muestra los abonos aunque venga de la
           // consulta directa (ej. BBF-936 con adelanto 400 + abono 50).
@@ -1205,7 +1226,13 @@ export default function CajaPage() {
 
     const filtered = allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
-      const matchPlate = term ? wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term) : true;
+      const matchPlate = term
+        ? (
+            (wo.vehicle_plate && wo.vehicle_plate.toUpperCase().includes(term)) ||
+            (inv?.receipt_number && String(inv.receipt_number).toUpperCase().includes(term)) ||
+            (Array.isArray(inv?.payment_history) && inv.payment_history.some((p: any) => p && p.receipt_number && String(p.receipt_number).toUpperCase().includes(term)))
+          )
+        : true;
 
       // Compare date with entry_time or invoice issued_at / paid_at
       const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
@@ -3013,7 +3040,7 @@ export default function CajaPage() {
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar por placa..."
+              placeholder="Buscar placa o comprobante (ticket/boleta/factura)..."
               value={searchPlate}
               onChange={(e) => setSearchPlate(e.target.value.toUpperCase())}
               className="w-full sm:w-48 pl-9 pr-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white uppercase focus:border-amber-400"
