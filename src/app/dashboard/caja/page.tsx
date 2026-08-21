@@ -2104,6 +2104,10 @@ export default function CajaPage() {
       observation: inv?.debt_observation || inv?.observations || wo.observations || "",
       responsible: inv?.debt_responsible || "",
       resourceSelection: (abonoResourcesPool && abonoResourcesPool.length > 0) ? abonoResourcesPool : undefined,
+      // SIEMPRE modo ABONO NUEVO: nunca heredar un editingRecordId de un modal previo
+      // (el botón "Abonar Saldo" abona; no edita un comprobante).
+      editingRecordId: undefined,
+      editingRecordAmount: undefined,
     });
   };
 
@@ -2146,14 +2150,21 @@ export default function CajaPage() {
     // Se excluye su monto original del "ya pagado" para que el saldo disponible refleje el
     // estado ANTES de este comprobante; si no, al cambiar solo la fecha se bloqueaba con
     // "El abono supera el saldo pendiente (S/ 0.00)" (el saldo era el propio pago).
-    const editingExcluded = partialPaymentModal.editingRecordId
+    // MODO EDICIÓN REAL: el editingRecordId debe EXISTIR en el historial de la factura.
+    // La card RECONSTRUYE pagos virtuales (id "rp-<invoiceId>" / "bd-...") cuando el store
+    // no trae payment_history (factura con resource_payments) — esos NO son registros
+    // reales: editarlos/eliminarlos fallaba (skip_record_not_found, historyCount 0) y la
+    // factura "no se eliminaba". Con un id reconstruido o inexistente se trata como ABONO
+    // NUEVO (el usuario está abonando, no editando).
+    const editingId = partialPaymentModal.editingRecordId;
+    const histReal = Array.isArray(partialPaymentModal.invoice?.payment_history)
+      ? (partialPaymentModal.invoice.payment_history as any[])
+      : [];
+    const isEditingRecord = !!(editingId && partialPaymentModal.invoice?.id && histReal.some((p: any) => p && p.id === editingId));
+    const editingExcluded = isEditingRecord
       ? (Number(partialPaymentModal.editingRecordAmount) || 0)
       : 0;
     const balance = Math.max(0, partialPaymentModal.totalDue - Math.max(0, paidSoFarReal - editingExcluded));
-    // MODO EDICIÓN (comprobante existente del historial, ej. card de monto 0): se permite
-    // guardar solo el cambio de fecha/método SIN marcar recursos (el monto a guardar es
-    // el del registro editado). El bloqueo de "marque un recurso" solo aplica a abonos nuevos.
-    const isEditingRecord = !!(partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id);
     if (amount <= 0 && !isEditingRecord) {
       logSystemEvent("warn", "abono.submit.blocked", { reason: "sin_monto", amount, balance }, "caja:abono-submit");
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
@@ -2311,11 +2322,12 @@ export default function CajaPage() {
     const paymentDateTime = buildPeruISOString(partialPaymentModal.paymentDate || getPeruDateString(), payTimeNow);
 
     // MODO EDICIÓN (comprobante existente desde el historial): actualiza el registro,
-    // no crea uno nuevo ni reimprime comprobante.
-    if (partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id) {
+    // no crea uno nuevo ni reimprime comprobante. Solo si el id es REAL (existe en el
+    // historial); un id reconstruido/inexistente cae al ABONO NUEVO más abajo.
+    if (isEditingRecord) {
       // Card de monto 0 (edición solo de fecha): conserva el monto del registro editado
       const editAmount = amount > 0 ? amount : (Number(partialPaymentModal.editingRecordAmount) || 0);
-      updatePaymentRecord(partialPaymentModal.invoice.id, partialPaymentModal.editingRecordId, {
+      updatePaymentRecord(partialPaymentModal.invoice.id, editingId as string, {
         amount: editAmount,
         date: paymentDateTime,
         method: sanitizeMethod(finalMethod, amount) || "Efectivo",
@@ -3904,22 +3916,30 @@ export default function CajaPage() {
                                     <strong className="text-emerald-400 font-mono">S/ {Number(rec.amount).toFixed(2)}</strong>
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenEditPaymentRecord(rec, invoice?.id)}
+                                      onClick={() => (rec as any).isReconstructed
+                                        ? handleOpenPartialPaymentModal(wo, invoice)
+                                        : handleOpenEditPaymentRecord(rec, invoice?.id)}
                                       className="p-0.5 rounded bg-amber-500/10 hover:bg-amber-500/30 text-amber-400 hover:text-amber-300 transition-colors"
-                                      title="Editar este comprobante (fecha, método, N° de comprobante y recursos vinculados)"
+                                      title={(rec as any).isReconstructed
+                                        ? "Pago reconstruido (sin registro editable): abonar saldo o vincular recursos"
+                                        : "Editar este comprobante (fecha, método, N° de comprobante y recursos vinculados)"}
                                     >
                                       <Edit3 className="w-3 h-3" />
                                     </button>
                                     <button
                                       type="button"
+                                      disabled={(rec as any).isReconstructed}
                                       onClick={() => {
+                                        if ((rec as any).isReconstructed) return;
                                         if (invoice?.id && rec.id) {
                                           deletePaymentRecord(invoice.id, rec.id);
                                           notify("warning", "Pago de S/ " + Number(rec.amount).toFixed(2) + " (" + rec.method + ") eliminado del historial. Saldo recalculado.");
                                         }
                                       }}
-                                      className="p-0.5 rounded bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors"
-                                      title="Eliminar este pago del historial"
+                                      className={"p-0.5 rounded bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors " + ((rec as any).isReconstructed ? "opacity-30 cursor-not-allowed" : "")}
+                                      title={(rec as any).isReconstructed
+                                        ? "Pago reconstruido: no se puede eliminar directamente (sin registro en el historial)"
+                                        : "Eliminar este pago del historial"}
                                     >
                                       <Trash2 className="w-3 h-3" />
                                     </button>
