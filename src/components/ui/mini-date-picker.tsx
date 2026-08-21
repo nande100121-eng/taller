@@ -30,6 +30,37 @@ export default function MiniDatePicker({
 }: MiniDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Calcula la posición del popup en pantalla (fixed) para que NO sea recortado por
+  // contenedores con overflow-hidden (bug Portería: el calendario se abría cortado/detrás
+  // de la siguiente card porque su popup absolute quedaba dentro del overflow-hidden).
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const popupW = 256; // w-64
+    let left = rect.left;
+    if (align === "right") left = rect.right - popupW;
+    // Evitar desbordar el viewport a la derecha
+    if (left + popupW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popupW - 8);
+    setPopupPos({ top: rect.bottom + 8, left });
+    // Recalcular al hacer scroll/resize mientras está abierto
+    const recompute = () => {
+      const r = el.getBoundingClientRect();
+      let l = r.left;
+      if (align === "right") l = r.right - popupW;
+      if (l + popupW > window.innerWidth - 8) l = Math.max(8, window.innerWidth - popupW - 8);
+      setPopupPos({ top: r.bottom + 8, left: l });
+    };
+    window.addEventListener("scroll", recompute, true);
+    window.addEventListener("resize", recompute);
+    return () => {
+      window.removeEventListener("scroll", recompute, true);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [isOpen, align]);
 
   // Parse current value or default today
   const selectedDate = value ? new Date(`${value}T00:00:00`) : new Date();
@@ -144,12 +175,11 @@ export default function MiniDatePicker({
         </button>
       )}
 
-      {/* Mini Calendar Popup */}
-      {isOpen && (
+      {/* Mini Calendar Popup - FIXED en pantalla para escapar de overflow-hidden */}
+      {isOpen && popupPos && (
         <div
-          className={`absolute ${
-            align === "right" ? "right-0" : "left-0"
-          } mt-2 z-50 p-4 bg-reygas-dark border border-amber-500/40 rounded-2xl shadow-2xl backdrop-blur-xl w-64 animate-fadeIn text-xs`}
+          style={{ position: "fixed", top: popupPos.top, left: popupPos.left, zIndex: 9999 }}
+          className="p-4 bg-reygas-dark border border-amber-500/40 rounded-2xl shadow-2xl backdrop-blur-xl w-64 animate-fadeIn text-xs"
         >
           {/* Calendar Header: Month + Year + Arrows */}
           <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
