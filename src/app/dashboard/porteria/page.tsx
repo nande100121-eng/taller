@@ -62,6 +62,7 @@ export default function PorteriaPage() {
     updateAppointment,
     deleteAppointment,
     aiSettings,
+    fuelTypes,
     notify,
   } = useAppStore();
 
@@ -947,11 +948,18 @@ export default function PorteriaPage() {
                       onChange={(e) => setEntryForm({ ...entryForm, fuel_type: e.target.value as any })}
                       className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-sm text-white font-bold focus:border-red-400 focus:outline-none"
                     >
-                      <option value="GNV">GNV</option>
-                      <option value="GLP">GLP</option>
-                      <option value="Gasolina">Gasolina</option>
-                      <option value="Bifuel">Bifuel</option>
-                      <option value="S/N">🔍 S/N (Sin sistema)</option>
+                      {(fuelTypes && fuelTypes.length > 0 ? fuelTypes : [
+                        { id: "fuel-gnv", name: "GNV" },
+                        { id: "fuel-glp", name: "GLP" },
+                        { id: "fuel-gasolina", name: "Gasolina" },
+                        { id: "fuel-bifuel", name: "Bifuel" },
+                        { id: "fuel-sn", name: "S/N", label: "S/N (Sin sistema)" },
+                      ])
+                        .filter((f: any) => f.is_active !== false)
+                        .sort((a: any, b: any) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0))
+                        .map((f: any) => (
+                          <option key={f.id} value={f.name}>⛽ {f.label || f.name}</option>
+                        ))}
                     </select>
                   </div>
                 </div>

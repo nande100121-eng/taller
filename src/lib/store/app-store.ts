@@ -39,6 +39,7 @@ import {
   saveSupabaseAttendanceLogs,
   broadcastRealtimeChange,
   fetchSupabaseServices,
+  fetchSupabaseFuelTypes,
   fetchSupabaseCertifications,
   fetchSupabaseScheduleRecords,
   fetchSupabaseInventory,
@@ -273,6 +274,16 @@ export interface WorkshopService {
   price: number;
   description?: string;
   is_active?: boolean;
+}
+
+// Tipo de Combustible configurable (opciones del select en Portería y Taller).
+// Se administra en Configuración -> Tipo Combustible y se persiste en site_content.
+export interface FuelType {
+  id: string;
+  name: string;          // Valor (ej. "GNV", "GLP", "Gasolina", "Bifuel", "S/N")
+  label?: string;        // Etiqueta amigable (si difiere del valor)
+  is_active?: boolean;
+  sort_order?: number;
 }
 
 export function generateDefaultUsername(fullName: string): string {
@@ -594,6 +605,13 @@ interface AppState {
   addWorkshopService: (service: Omit<WorkshopService, "id">) => Promise<void>;
   updateWorkshopService: (id: string, updates: Partial<WorkshopService>) => Promise<void>;
   deleteWorkshopService: (id: string) => Promise<void>;
+
+  // Tipo de Combustible configurable (Configuración -> Tipo Combustible)
+  fuelTypes: FuelType[];
+  addFuelType: (fuel: Omit<FuelType, "id">) => Promise<void>;
+  updateFuelType: (id: string, updates: Partial<FuelType>) => Promise<void>;
+  deleteFuelType: (id: string) => Promise<void>;
+  syncFuelTypesOnly: () => Promise<void>;
 
   // Supabase Fetch Initializer & Granular Fast Sync (Ultra-Low Latency <50ms)
   isSyncing: boolean;
@@ -1019,6 +1037,64 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       console.error("deleteWorkshopService rollback:", res1.error || res2.error);
       set({ workshopServices: prev });
     }
+  },
+
+  // ===== TIPO DE COMBUSTIBLE (Configuración -> Tipo Combustible) =====
+  fuelTypes: [
+    { id: "fuel-gnv", name: "GNV", is_active: true, sort_order: 1 },
+    { id: "fuel-glp", name: "GLP", is_active: true, sort_order: 2 },
+    { id: "fuel-gasolina", name: "Gasolina", is_active: true, sort_order: 3 },
+    { id: "fuel-bifuel", name: "Bifuel", is_active: true, sort_order: 4 },
+    { id: "fuel-sn", name: "S/N", label: "S/N (Sin sistema)", is_active: true, sort_order: 5 },
+  ],
+
+  addFuelType: async (fuel) => {
+    const prev = get().fuelTypes;
+    const newFuel: FuelType = {
+      ...fuel,
+      id: `fuel-${Date.now()}`,
+      is_active: fuel.is_active ?? true,
+      sort_order: fuel.sort_order ?? prev.length + 1,
+    };
+    const updated = [...prev, newFuel];
+    set({ fuelTypes: updated });
+    const res = await saveSupabaseSiteContent("fuelTypes", updated, "config");
+    if (!res.success) {
+      console.error("addFuelType rollback:", res.error);
+      set({ fuelTypes: prev });
+    }
+  },
+
+  updateFuelType: async (id, updates) => {
+    const prev = get().fuelTypes;
+    const updated = prev.map((f) => (f.id === id ? { ...f, ...updates } : f));
+    set({ fuelTypes: updated });
+    const res = await saveSupabaseSiteContent("fuelTypes", updated, "config");
+    if (!res.success) {
+      console.error("updateFuelType rollback:", res.error);
+      set({ fuelTypes: prev });
+    }
+  },
+
+  deleteFuelType: async (id) => {
+    const prev = get().fuelTypes;
+    const updated = prev.filter((f) => f.id !== id);
+    set({ fuelTypes: updated });
+    const res = await saveSupabaseSiteContent("fuelTypes", updated, "config");
+    if (!res.success) {
+      console.error("deleteFuelType rollback:", res.error);
+      set({ fuelTypes: prev });
+    }
+  },
+
+  syncFuelTypesOnly: async () => {
+    try {
+      if (hasRecentLocalMutation("fuelTypes")) return;
+      const data = await fetchSupabaseFuelTypes();
+      if (Array.isArray(data) && data.length > 0) {
+        set((state) => ({ fuelTypes: data }));
+      }
+    } catch { }
   },
 
   isSyncing: false,

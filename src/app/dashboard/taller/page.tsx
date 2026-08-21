@@ -75,6 +75,7 @@ export default function WorkshopOperationsPage() {
     removeCertificationFromWorkOrder,
     setWorkOrderDiscount,
     deleteWorkOrder,
+    fuelTypes,
     notify,
   } = useAppStore();
 
@@ -1393,11 +1394,18 @@ export default function WorkshopOperationsPage() {
                                   }`}
                                 title="Cambiar tipo de combustible / sistema"
                               >
-                                <option value="GNV" className="bg-gray-900 text-white font-bold">⛽ GNV</option>
-                                <option value="GLP" className="bg-gray-900 text-white font-bold">⛽ GLP</option>
-                                <option value="Gasolina" className="bg-gray-900 text-white font-bold">⛽ Gasolina</option>
-                                <option value="Bifuel" className="bg-gray-900 text-white font-bold">⛽ Bifuel</option>
-                                <option value="S/N" className="bg-gray-900 text-white font-bold">🔍 S/N (Sin sistema)</option>
+                                {(fuelTypes && fuelTypes.length > 0 ? fuelTypes : [
+                                  { id: "fuel-gnv", name: "GNV" },
+                                  { id: "fuel-glp", name: "GLP" },
+                                  { id: "fuel-gasolina", name: "Gasolina" },
+                                  { id: "fuel-bifuel", name: "Bifuel" },
+                                  { id: "fuel-sn", name: "S/N", label: "S/N (Sin sistema)" },
+                                ])
+                                  .filter((f: any) => f.is_active !== false)
+                                  .sort((a: any, b: any) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0))
+                                  .map((f: any) => (
+                                    <option key={f.id} value={f.name} className="bg-gray-900 text-white font-bold">⛽ {f.label || f.name}</option>
+                                  ))}
                               </select>
                               <ChevronDown className="w-3 h-3 text-amber-400 absolute right-1.5 pointer-events-none" />
                             </div>
@@ -2024,19 +2032,27 @@ export default function WorkshopOperationsPage() {
                     <span className="text-[10px] text-gray-400">Actualiza la ficha del vehículo</span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(["GNV", "GLP", "Gasolina", "Bifuel"] as const).map((fuel) => (
-                      <button
-                        key={fuel}
-                        type="button"
-                        onClick={() => setSelectedFuelType(fuel)}
-                        className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all border flex items-center justify-center gap-1.5 active:scale-95 ${selectedFuelType === fuel
-                          ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]"
-                          : "bg-reygas-dark text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
-                          }`}
-                      >
-                        <span>⛽ {fuel}</span>
-                      </button>
-                    ))}
+                    {(fuelTypes && fuelTypes.length > 0 ? fuelTypes : [
+                      { id: "fuel-gnv", name: "GNV" },
+                      { id: "fuel-glp", name: "GLP" },
+                      { id: "fuel-gasolina", name: "Gasolina" },
+                      { id: "fuel-bifuel", name: "Bifuel" },
+                    ])
+                      .filter((f: any) => f.is_active !== false)
+                      .sort((a: any, b: any) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0))
+                      .map((f: any) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setSelectedFuelType(f.name)}
+                          className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all border flex items-center justify-center gap-1.5 active:scale-95 ${selectedFuelType === f.name
+                            ? "bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]"
+                            : "bg-reygas-dark text-gray-300 border-white/10 hover:border-white/20 hover:text-white"
+                            }`}
+                        >
+                          <span>⛽ {f.label || f.name}</span>
+                        </button>
+                      ))}
                   </div>
                 </div>
 

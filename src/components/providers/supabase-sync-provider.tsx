@@ -15,6 +15,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
   const syncOperationalOnly = useAppStore((state) => state.syncOperationalOnly);
   const syncServicesOnly = useAppStore((state) => state.syncServicesOnly);
+  const syncFuelTypesOnly = useAppStore((state) => state.syncFuelTypesOnly);
   const syncCertificationsOnly = useAppStore((state) => state.syncCertificationsOnly);
   const syncInventoryOnly = useAppStore((state) => state.syncInventoryOnly);
   const syncTechniciansOnly = useAppStore((state) => state.syncTechniciansOnly);
@@ -84,6 +85,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // para los datos de operación (workOrders, invoices, vehicles, inventory).
     syncTechniciansOnly();
     syncServicesOnly();
+    syncFuelTypesOnly();
     syncCertificationsOnly();
     syncScheduleOnly();
     syncFromSupabase();
@@ -164,6 +166,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (Date.now() - getLastLocalMutationTime() < 800) return;
         const et = String(msg.eventType || "");
         if (et.includes("service")) syncServicesOnly();
+        else if (et.includes("fuel")) syncFuelTypesOnly();
         else if (et.includes("cert")) syncCertificationsOnly();
         else if (et.includes("inventory")) syncInventoryOnly();
         else if (et.includes("technician")) syncTechniciansOnly();

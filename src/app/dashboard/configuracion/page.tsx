@@ -29,7 +29,8 @@ import {
   Hash,
   Save,
   Terminal,
-  X
+  X,
+  Fuel
 } from "lucide-react";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { getLocalLogs, exportLocalLogs, BUILD_SHA } from "@/lib/system-log";
@@ -50,6 +51,10 @@ export default function ConfiguracionPage() {
     scheduleRecords,
     siteContent,
     updateSiteContent,
+    fuelTypes,
+    addFuelType,
+    updateFuelType,
+    deleteFuelType,
     notify,
   } = useAppStore();
 
@@ -69,6 +74,28 @@ export default function ConfiguracionPage() {
   });
 
   const [correlativeSaveMsg, setCorrelativeSaveMsg] = useState(false);
+
+  // Tipo de Combustible Settings State (tabla configurable)
+  const [fuelTypeForm, setFuelTypeForm] = useState({ name: "", label: "" });
+  const [fuelTypeMsg, setFuelTypeMsg] = useState(false);
+
+  const handleAddFuelType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = fuelTypeForm.name.trim();
+    if (!name) {
+      notify("warning", "Ingrese el nombre del tipo de combustible.");
+      return;
+    }
+    await addFuelType({ name, label: fuelTypeForm.label.trim() || undefined });
+    setFuelTypeForm({ name: "", label: "" });
+    setFuelTypeMsg(true);
+    setTimeout(() => setFuelTypeMsg(false), 2500);
+  };
+
+  const handleDeleteFuelType = async (id: string) => {
+    await deleteFuelType(id);
+    notify("success", "Tipo de combustible eliminado.");
+  };
 
   // WhatsApp Workshop Settings State
   const [whatsappPhone, setWhatsappPhone] = useState(siteContent?.contact?.whatsapp || "+51 987 654 321");
@@ -328,6 +355,113 @@ export default function ConfiguracionPage() {
         </div>
       )}
 
+      {/* SECTION: TIPO DE COMBUSTIBLE (opciones de Portería y Taller) */}
+      <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-emerald-500/30 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Fuel className="w-5 h-5 text-emerald-400" />
+              <span>Tipo de Combustible</span>
+            </h2>
+            <p className="text-xs text-gray-400">
+              Opciones disponibles en el campo <strong>Tipo Combustible</strong> de <strong>Portería</strong> y <strong>Taller</strong>. Agregue, edite o elimine según necesidad.
+            </p>
+          </div>
+        </div>
+
+        {fuelTypeMsg && (
+          <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>¡Tipo de combustible agregado! Aparecerá en Portería y Taller.</span>
+          </div>
+        )}
+
+        <form onSubmit={handleAddFuelType} className="flex flex-col sm:flex-row gap-2 items-end">
+          <div className="flex-1">
+            <label className="text-xs font-bold text-gray-300 block mb-1">Nombre / Valor *</label>
+            <input
+              type="text"
+              value={fuelTypeForm.name}
+              onChange={(e) => setFuelTypeForm({ ...fuelTypeForm, name: e.target.value })}
+              placeholder="Ej. GNV, GLP, Gasolina, Bifuel, S/N..."
+              className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400 font-bold"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs font-bold text-gray-300 block mb-1">Etiqueta (opcional)</label>
+            <input
+              type="text"
+              value={fuelTypeForm.label}
+              onChange={(e) => setFuelTypeForm({ ...fuelTypeForm, label: e.target.value })}
+              placeholder="Ej. S/N (Sin sistema)"
+              className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-xs text-white focus:border-emerald-400"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black font-black text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-transform hover:scale-105 shrink-0"
+          >
+            <Save className="w-4 h-4" />
+            <span>Agregar</span>
+          </button>
+        </form>
+
+        <div className="overflow-x-auto rounded-xl border border-white/10">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-reygas-surface/60 border-b border-white/10 text-gray-300">
+                <th className="px-4 py-2.5 font-bold">#</th>
+                <th className="px-4 py-2.5 font-bold">Valor</th>
+                <th className="px-4 py-2.5 font-bold">Etiqueta</th>
+                <th className="px-4 py-2.5 font-bold">Activo</th>
+                <th className="px-4 py-2.5 font-bold text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {(fuelTypes || []).length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-gray-500 italic">
+                    Sin tipos de combustible configurados. Agregue el primero arriba.
+                  </td>
+                </tr>
+              ) : (
+                (fuelTypes || [])
+                  .slice()
+                  .sort((a: any, b: any) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0))
+                  .map((f: any, i: number) => (
+                    <tr key={f.id} className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-2.5 text-gray-500 font-mono">{i + 1}</td>
+                      <td className="px-4 py-2.5 font-bold text-white">⛽ {f.name}</td>
+                      <td className="px-4 py-2.5 text-gray-300">{f.label || "—"}</td>
+                      <td className="px-4 py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => updateFuelType(f.id, { is_active: f.is_active === false ? true : false })}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${f.is_active === false
+                            ? "bg-gray-800 text-gray-400 border-white/10"
+                            : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                            }`}
+                        >
+                          {f.is_active === false ? "Inactivo" : "Activo"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteFuelType(f.id)}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
+                          title="Eliminar tipo de combustible"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {/* SECTION 0: CORRELATIVE NUMBERING & RECEIPT SERIES CONFIGURATION */}
       <div className="glass-panel p-6 sm:p-8 rounded-2xl border border-amber-500/30 space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">

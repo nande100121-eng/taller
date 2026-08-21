@@ -1,6 +1,6 @@
 import { supabase } from "./client";
 import { fetchDailyExpenses, DailyExpense } from "./expenses";
-import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
+import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, FuelType, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
 import { logSystemEvent, logTiming, logTimingThreshold } from "@/lib/system-log";
@@ -1719,6 +1719,30 @@ export async function fetchSupabaseServices(): Promise<WorkshopService[] | null>
       .select("*")
       .or("section_key.eq.workshopServices,key.eq.workshopServices,section_key.eq.services,key.eq.services");
 
+    if (contentData && contentData.length > 0) {
+      for (const row of contentData) {
+        const rawVal = row.value !== undefined ? row.value : row.content;
+        try {
+          const list = typeof rawVal === "string" ? JSON.parse(rawVal) : rawVal;
+          if (Array.isArray(list) && list.length > 0) {
+            return list;
+          }
+        } catch { }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Catálogo configurable de Tipos de Combustible (Configuración -> Tipo Combustible).
+export async function fetchSupabaseFuelTypes(): Promise<FuelType[] | null> {
+  try {
+    const { data: contentData } = await supabase
+      .from("site_content")
+      .select("*")
+      .or("section_key.eq.fuelTypes,key.eq.fuelTypes");
     if (contentData && contentData.length > 0) {
       for (const row of contentData) {
         const rawVal = row.value !== undefined ? row.value : row.content;
