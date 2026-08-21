@@ -1061,7 +1061,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
 
       if (matches) {
         const { folio } = parseCorrelative(numStr);
-        if (folio > 0 && folio > maxExistingInDb && folio < 99999999) {
+        // Tope de cordura (< 1.000.000, igual que resolveUniqueReceiptNumber): un ticket
+        // absurdo (TK01-3470348x de bugs de parseo) en la ventana local NUNCA debe
+        // dominar la secuencia y obligar a generar el siguiente número absurdo.
+        if (folio > 0 && folio > maxExistingInDb && folio < 999999) {
           maxExistingInDb = folio;
         }
       }
@@ -1084,7 +1087,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       // FIX CORRELATIVOS: solo series TK01/B001/F001 (o folios históricos sin prefijo)
       if (!matchesReceiptSeries(numStr, type)) continue;
       const { folio } = parseCorrelative(numStr);
-      if (folio > 0 && folio > maxExistingInDb && folio < 99999999) {
+      if (folio > 0 && folio > maxExistingInDb && folio < 999999) {
         maxExistingInDb = folio;
       }
     }
@@ -1481,8 +1484,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
           const remoteInvoices = erpData.invoices;
           const localInvoices = state.invoices;
           const mergedInvoices = new Map<string, any>();
+          const deletedRemote = new Set<string>((erpData as any)?.deletedWorkOrderIds || []);
+          // ANTI-FACTURA FANTASMA: si la OT fue BORRADA en otro dispositivo
+          // (tombstone wo_deleted_*), su factura local se DROPEA (no re-crearla).
           localInvoices.forEach((inv) => {
             const k = inv.work_order_id || inv.id;
+            if (k && inv.work_order_id && deletedRemote.has(inv.work_order_id)) return;
             if (k) mergedInvoices.set(k, inv);
           });
           remoteInvoices.forEach((inv) => {
@@ -1643,8 +1650,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         const remoteInvoices = capped.invoices;
         const localInvoices = state.invoices;
         const mergedInvoices = new Map<string, any>();
+        const deletedRemote = new Set<string>((capped as any)?.deletedWorkOrderIds || []);
+        // ANTI-FACTURA FANTASMA (mismo fix que las OTs): si la OT fue BORRADA en otro
+        // dispositivo (tombstone wo_deleted_*), su factura local también se DROPEA del
+        // estado, para que el caché no la conserve y la re-cree al editar/abonar
+        // (caso: factura fantasma que sobrevivía al refresh y reaparecía en la base).
         localInvoices.forEach((inv) => {
           const k = inv.work_order_id || inv.id;
+          if (k && inv.work_order_id && deletedRemote.has(inv.work_order_id)) return;
           if (k) mergedInvoices.set(k, inv);
         });
         remoteInvoices.forEach((inv) => {
