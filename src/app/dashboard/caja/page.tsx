@@ -2664,9 +2664,27 @@ export default function CajaPage() {
           method: (s.method || "Efectivo") as string,
           destination: (s.destination || "EMPRESA") as string,
           amount: Number(s.amount) || 0,
-          splitResources: Array.isArray(s.splitResources) && s.splitResources.length > 0
-            ? s.splitResources.map((x: any) => ({ ...x }))
-            : undefined,
+          // RENORMALIZA cada recurso contra el pool (resList): la KEY debe coincidir con
+          // la del pool para que el saldo restante se calcule bien. Bug: las keys del
+          // desglose guardado eran "abono-res-*" y el pool usa "edit-res-*" → el pool no
+          // encontraba el recurso y el "saldo restante" salía sin lógica (D7U-622: 10 y
+          // 110 en vez de 120/120 para el DIAFRAGMA de S/ 130 repartido 10 + 120).
+          splitResources: (Array.isArray(s.splitResources) ? s.splitResources : []).map((x: any) => {
+            const norm = String(x.description || "").trim().toLowerCase();
+            const base = resList.find((r) => String(r.description || "").trim().toLowerCase() === norm);
+            const full = base ? (Number(base.fullAmount) || 0) : (Number(x.fullAmount) || Number(x.amount) || 0);
+            return {
+              ...(base ? { ...base } : {}),
+              key: base ? base.key : (x.key || ("edit-res-" + Math.random())),
+              description: x.description,
+              category: base ? base.category : (x.category || "servicio"),
+              fullAmount: full,
+              pendingAmount: Number(x.pendingAmount) || full,
+              payAmount: Number(x.payAmount) || Number(x.amount) || 0,
+              selected: !!(x.selected && (Number(x.payAmount) || Number(x.amount) || 0) > 0),
+              ...(x.discountApplied !== undefined ? { discountApplied: Number(x.discountApplied) } : {}),
+            };
+          }),
           receipt_number: s.receipt_number || undefined,
           receipt_type: s.receipt_type || undefined,
         }));
@@ -6185,9 +6203,16 @@ export default function CajaPage() {
                             </div>
                             <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
                               {srs.map((rs: any, rsi: number) => {
-                                // Saldo pendiente REAL del recurso: pendingAmount original menos lo
-                                // ya pagado en OTROS métodos. Si otro método tomó un pago PARCIAL,
-                                // este método puede tomar el saldo restante (no se tacha).
+                                // EN EDICIÓN el saldo se calcula SECUENCIALMENTE por método:
+                                // este método dispone de lo que falta tras los métodos ANTERIORES
+                                // (saldoDisponible) y el label "saldo restante" = lo que queda del
+                                // recurso DESPUÉS de lo tomado aquí (D7U-622: DIAFRAGMA S/130,
+                                // método 1 toma 10 → saldo restante 120; método 2 dispone de 120,
+                                // el faltante, y lo cubre). Antes se restaba lo de TODOS los otros
+                                // métodos sin distinguir orden → saldos sin lógica (10 y 110).
+                                const paidPrev = (partialPaymentModal.paymentSplits || [])
+                                  .filter((_, oi) => oi < idx)
+                                  .reduce((acc: number, p: any) => acc + ((Array.isArray(p.splitResources) ? p.splitResources : []).filter((o: any) => o.key === rs.key && o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
                                 const paidOther = (partialPaymentModal.paymentSplits || [])
                                   .filter((_, oi) => oi !== idx)
                                   .reduce((acc: number, p: any) => acc + ((Array.isArray(p.splitResources) ? p.splitResources : []).filter((o: any) => o.key === rs.key && o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
@@ -6195,8 +6220,10 @@ export default function CajaPage() {
                                   const base = (partialPaymentModal.resourceSelection || []).find((b: any) => b.key === rs.key);
                                   return Number(base?.pendingAmount) || Number(base?.fullAmount) || Number(rs.pendingAmount) || Number(rs.fullAmount) || 0;
                                 })();
-                                const saldoRestante = Math.max(0, pendingBase - paidOther);
-                                const usedOther = saldoRestante <= 0.01;
+                                const saldoDisponible = Math.max(0, pendingBase - paidPrev);
+                                const payEste = rs.selected ? (Number(rs.payAmount) || 0) : 0;
+                                const saldoRestante = Math.max(0, saldoDisponible - payEste);
+                                const usedOther = saldoRestante <= 0.01 && !rs.selected;
                                 const disabled = usedOther && !rs.selected;
                                 return (
                                   <div key={rs.key} className={`flex items-center gap-2 text-[11px] pt-0.5 ${disabled ? "opacity-40" : ""}`}>
@@ -6205,7 +6232,7 @@ export default function CajaPage() {
                                       disabled={disabled}
                                       onClick={() => {
                                         const next = (split as any).splitResources.map((r2: any) =>
-                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, saldoRestante) : r2.payAmount } : r2
+                                          r2.key === rs.key ? { ...r2, selected: !r2.selected, payAmount: !r2.selected ? Math.min(r2.fullAmount, saldoDisponible) : r2.payAmount } : r2
                                         );
                                         const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
                                         const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
@@ -6266,7 +6293,9 @@ export default function CajaPage() {
                                       )}
                                       {usedOther && !rs.selected ? (
                                         <span className="ml-1 text-[9px] text-rose-300 font-bold">usado en otro comprobante</span>
-                                      ) : paidOther > 0 && (
+                                      ) : rs.selected && saldoRestante <= 0.01 ? (
+                                        <span className="ml-1 text-[9px] text-emerald-300 font-bold">✓ cubierto</span>
+                                      ) : paidOther > 0 && saldoRestante > 0.01 && (
                                         <span className="ml-1 text-[9px] text-cyan-300 font-bold">saldo restante S/ {saldoRestante.toFixed(2)}</span>
                                       )}
                                     </span>
@@ -6276,10 +6305,10 @@ export default function CajaPage() {
                                         type="number"
                                         step="0.01"
                                         min="0"
-                                        max={Math.max(0.01, saldoRestante)}
+                                        max={Math.max(0.01, saldoDisponible)}
                                         value={rs.payAmount || ""}
                                         onChange={(e) => {
-                                          const val = Math.max(0, Math.min(saldoRestante, parseFloat(e.target.value) || 0));
+                                          const val = Math.max(0, Math.min(saldoDisponible, parseFloat(e.target.value) || 0));
                                           const next = (split as any).splitResources.map((r2: any) =>
                                             r2.key === rs.key ? { ...r2, payAmount: val, selected: val > 0 } : r2
                                           );
