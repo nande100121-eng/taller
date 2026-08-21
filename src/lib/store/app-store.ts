@@ -370,6 +370,10 @@ export interface WorkOrder {
   general_maintenance_service?: string; // MANT. GENERAL / SERVICIO
   spare_parts_services?: string; // REPUESTOS Y SERVICIOS
   discount_amount?: number; // DESCUENTO MONTO (S/)
+  // IDs de ítems ELIMINADOS intencionalmente (para que el merge defensivo de
+  // saveSupabaseWorkOrder NO los vuelva a conservar desde la DB - fix: eliminar
+  // un repuesto entregado en Taller lo volvía a re-agregar).
+  removedItemIds?: string[];
 }
 
 export interface InventoryItem {
@@ -2289,6 +2293,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const updatedOrder = {
           ...o,
           items: o.items.filter((i) => i.id !== itemId),
+          // Marca el ítem como eliminado para que el merge de saveSupabaseWorkOrder
+          // NO lo conserve desde la DB (bug: el repuesto entregado "volvía" al eliminar).
+          removedItemIds: [...(o.removedItemIds || []), itemId],
         };
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");

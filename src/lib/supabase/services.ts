@@ -470,6 +470,12 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
           const dbMap = new Map<string, any>();
           const keyOf = (it: any) => it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
           dbItems.forEach((it: any) => { if (it) dbMap.set(keyOf(it), it); });
+          // FIX ELIMINAR REPUESTO (F2Z-050): el merge defensivo conservaba en DB los ítems
+          // que no estaban en la versión local -> un repuesto entregado borrado en Taller
+          // "volvía" en el siguiente guardado. Los ítems registrados en removedItemIds se
+          // EXCLUYEN del preservado (borrado intencional, no cache viejo).
+          const removedSet = new Set<string>((order as any)?.removedItemIds || []);
+          dbItems.forEach((it: any) => { if (it && removedSet.has(it.id)) dbMap.delete(keyOf(it)); });
           const mergedItems = localItems.map((it: any) => {
             const k = keyOf(it);
             const dbIt = dbMap.get(k);
