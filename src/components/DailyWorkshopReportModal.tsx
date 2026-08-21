@@ -14,6 +14,7 @@ import { matchDebtCsvByInvoice } from "@/lib/deuda-csv";
 import { logSystemEvent } from "@/lib/system-log";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
+import ReyGasTooltip from "@/components/ui/reygas-tooltip";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import {
   FileText,
@@ -1976,13 +1977,26 @@ export function WorkshopDailyReportView({
                           {formatPEN(r.total)}
                         </td>
                         <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
-                          <span
-                            className={"inline-flex items-center gap-1 " + (r.payState === "parcial" ? "cursor-help" : "")}
-                            title={r.payState === "parcial" ? "Pago parcial: cobrado S/ " + formatPEN(r.total) + " de S/ " + formatPEN((Number(r.total) || 0) + (Number(r.pendingAmount) || 0)) + " - saldo S/ " + formatPEN(r.pendingAmount) : undefined}
+                          <ReyGasTooltip
+                            label={r.payState === "parcial" ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 text-amber-300 font-black text-[10px] uppercase tracking-wider">
+                                  <Info className="w-3 h-3" /> Pago parcial
+                                </div>
+                                <div className="text-gray-300">
+                                  Cobrado <span className="text-emerald-300 font-bold">S/ {formatPEN(r.total)}</span> de{" "}
+                                  <span className="text-white font-bold">S/ {formatPEN((Number(r.total) || 0) + (Number(r.pendingAmount) || 0))}</span>
+                                </div>
+                                <div className="text-gray-300">
+                                  Saldo pendiente <span className="text-amber-300 font-bold">S/ {formatPEN(r.pendingAmount)}</span>
+                                </div>
+                              </div>
+                            ) : undefined}
+                            className={r.payState === "parcial" ? "cursor-help" : ""}
                           >
                             {r.plate}
                             {r.payState === "parcial" && <Info className="w-3 h-3 text-amber-300 shrink-0" />}
-                          </span>
+                          </ReyGasTooltip>
                           {r.payState === "parcial" && (
                             <span className="hidden print:block text-[9px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/30 rounded px-1 mt-0.5">
                               ⏳ parcial (saldo S/ {formatPEN(r.pendingAmount)})
@@ -2150,14 +2164,24 @@ export function WorkshopDailyReportView({
                         return (
                           <td
                             key={"y_val_" + col}
-                            title={val > 0 && ref ? "Yape vinculado a la placa " + ref.plate + " con comprobante " + (ref.receiptNumber || "S/N") : undefined}
-                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-purple-300 bg-purple-950/20 cursor-help" : "text-gray-700")}
+                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700")}
                           >
                             {val > 0 ? (
-                              <span className="inline-flex items-center gap-1">
-                                {formatPEN(val)}
-                                {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-purple-400/80 shrink-0" /> : null}
-                              </span>
+                              <ReyGasTooltip
+                                label={ref ? (
+                                  <div className="space-y-1">
+                                    <div className="text-purple-300 font-black text-[10px] uppercase tracking-wider">Yape vinculado</div>
+                                    <div className="text-gray-300">Placa <span className="text-white font-bold">{ref.plate}</span></div>
+                                    <div className="text-gray-300">Comprobante <span className="text-cyan-300 font-bold">{ref.receiptNumber || "S/N"}</span></div>
+                                  </div>
+                                ) : undefined}
+                                className="cursor-help"
+                              >
+                                <span className="inline-flex items-center gap-1">
+                                  {formatPEN(val)}
+                                  {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-purple-400/80 shrink-0" /> : null}
+                                </span>
+                              </ReyGasTooltip>
                             ) : "-"}
                           </td>
                         );
@@ -2169,14 +2193,24 @@ export function WorkshopDailyReportView({
                         return (
                           <td
                             key={"t_val_" + col}
-                            title={val > 0 && ref ? "Transferencia vinculada a la placa " + ref.plate + " con comprobante " + (ref.receiptNumber || "S/N") : undefined}
-                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-blue-300 bg-blue-950/20 cursor-help" : "text-gray-700")}
+                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700")}
                           >
                             {val > 0 ? (
-                              <span className="inline-flex items-center gap-1">
-                                {formatPEN(val)}
-                                {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-blue-400/80 shrink-0" /> : null}
-                              </span>
+                              <ReyGasTooltip
+                                label={ref ? (
+                                  <div className="space-y-1">
+                                    <div className="text-blue-300 font-black text-[10px] uppercase tracking-wider">Transferencia vinculada</div>
+                                    <div className="text-gray-300">Placa <span className="text-white font-bold">{ref.plate}</span></div>
+                                    <div className="text-gray-300">Comprobante <span className="text-cyan-300 font-bold">{ref.receiptNumber || "S/N"}</span></div>
+                                  </div>
+                                ) : undefined}
+                                className="cursor-help"
+                              >
+                                <span className="inline-flex items-center gap-1">
+                                  {formatPEN(val)}
+                                  {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-blue-400/80 shrink-0" /> : null}
+                                </span>
+                              </ReyGasTooltip>
                             ) : "-"}
                           </td>
                         );
@@ -2420,13 +2454,21 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span
-                                  className="inline-flex items-center gap-1 font-black text-teal-300 cursor-help"
-                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                <ReyGasTooltip
+                                  label={it.receiptNumber ? (
+                                    <div className="space-y-1">
+                                      <div className="text-teal-300 font-black text-[10px] uppercase tracking-wider">Monto vinculado</div>
+                                      <div className="text-gray-300">Factura <span className="text-cyan-300 font-bold">{it.receiptNumber}</span></div>
+                                      <div className="text-gray-300">Placa <span className="text-white font-bold">{it.plate}</span></div>
+                                    </div>
+                                  ) : undefined}
+                                  className="cursor-help"
                                 >
-                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-teal-400/70 shrink-0" /> : null}
-                                  S/ {Number(it.total).toFixed(2)}
-                                </span>
+                                  <span className="inline-flex items-center gap-1 font-black text-teal-300">
+                                    {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-teal-400/70 shrink-0" /> : null}
+                                    S/ {Number(it.total).toFixed(2)}
+                                  </span>
+                                </ReyGasTooltip>
                               </div>
                             ))}
                           </div>
@@ -2459,13 +2501,21 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span
-                                  className="inline-flex items-center gap-1 font-black text-emerald-300 cursor-help"
-                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                <ReyGasTooltip
+                                  label={it.receiptNumber ? (
+                                    <div className="space-y-1">
+                                      <div className="text-emerald-300 font-black text-[10px] uppercase tracking-wider">Monto vinculado</div>
+                                      <div className="text-gray-300">Factura <span className="text-cyan-300 font-bold">{it.receiptNumber}</span></div>
+                                      <div className="text-gray-300">Placa <span className="text-white font-bold">{it.plate}</span></div>
+                                    </div>
+                                  ) : undefined}
+                                  className="cursor-help"
                                 >
-                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-emerald-400/70 shrink-0" /> : null}
-                                  S/ {Number(it.total).toFixed(2)}
-                                </span>
+                                  <span className="inline-flex items-center gap-1 font-black text-emerald-300">
+                                    {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-emerald-400/70 shrink-0" /> : null}
+                                    S/ {Number(it.total).toFixed(2)}
+                                  </span>
+                                </ReyGasTooltip>
                               </div>
                             ))}
                           </div>
@@ -2498,13 +2548,21 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span
-                                  className="inline-flex items-center gap-1 font-black text-purple-300 cursor-help"
-                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                <ReyGasTooltip
+                                  label={it.receiptNumber ? (
+                                    <div className="space-y-1">
+                                      <div className="text-purple-300 font-black text-[10px] uppercase tracking-wider">Monto vinculado</div>
+                                      <div className="text-gray-300">Factura <span className="text-cyan-300 font-bold">{it.receiptNumber}</span></div>
+                                      <div className="text-gray-300">Placa <span className="text-white font-bold">{it.plate}</span></div>
+                                    </div>
+                                  ) : undefined}
+                                  className="cursor-help"
                                 >
-                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-purple-400/70 shrink-0" /> : null}
-                                  S/ {Number(it.total).toFixed(2)}
-                                </span>
+                                  <span className="inline-flex items-center gap-1 font-black text-purple-300">
+                                    {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-purple-400/70 shrink-0" /> : null}
+                                    S/ {Number(it.total).toFixed(2)}
+                                  </span>
+                                </ReyGasTooltip>
                               </div>
                             ))}
                           </div>

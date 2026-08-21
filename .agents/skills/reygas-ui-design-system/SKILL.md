@@ -256,3 +256,58 @@ Toda tabla o listado paginado debe incluir la barra de control de páginas idén
 4. **Sin anidar botones**: si el título también es clicable, el chevron es un botón HERMANO (no hijo) del botón de título.
 5. **Estado por defecto**: todo lo colapsable nace COLAPSADO, salvo la acción principal de la página (ej. formulario de Registro en Portería) que nace expandida.
 6. **Paneles con cabecera de color** (ej. YAPES / VENTAS POR CONCEPTO en el Informe Diario): misma regla — el chevron va al extremo derecho con su botón estándar.
+
+---
+
+## 7. Ventanas Informativas y Tooltips (ReyGasTooltip)
+
+Toda **ventana informativa** que aparezca al pasar el mouse o tocar un dato (ej. "a qué
+factura pertenece este monto", "pago parcial y saldo pendiente de una placa") DEBE usar el
+componente estándar **`ReyGasTooltip`** (`src/components/ui/reygas-tooltip.tsx`) y NUNCA el
+tooltip nativo del navegador (`title="..."`, gris y ajeno al diseño).
+
+**¿Por qué?** El tooltip nativo no sigue la identidad visual ReyGas y, además, en pantallas
+táctiles (Tablet Industrial) no se puede abrir. `ReyGasTooltip`:
+
+- Muestra un popup **oscuro glassmórfico** corporativo: `glass-panel bg-reygas-dark/95 border border-white/15 rounded-xl shadow-2xl`.
+- Se renderiza con **`createPortal` al `document.body` + `position:fixed` + `z-[9999]`**
+  (patrón del mini-date-picker): NUNCA queda recortado detrás de contenedores con
+  overflow/scroll (tablas, paneles, modales).
+- **Desktop**: hover abre, salir cierra (`pointer-events-none` en el popup: no bloquea clicks).
+- **Tablet/táctil**: un TAP abre y otro tap cierra (con `stopPropagation` para no disparar
+  el click de la fila/padre).
+
+**Uso estándar:**
+
+```tsx
+import ReyGasTooltip from "@/components/ui/reygas-tooltip";
+
+<ReyGasTooltip
+  label={
+    <div className="space-y-1">
+      <div className="text-teal-300 font-black text-[10px] uppercase tracking-wider">Monto vinculado</div>
+      <div className="text-gray-300">Factura <span className="text-cyan-300 font-bold">F001-000123</span></div>
+      <div className="text-gray-300">Placa <span className="text-white font-bold">ABC-123</span></div>
+    </div>
+  }
+  className="cursor-help"
+>
+  <span className="inline-flex items-center gap-1 font-black text-teal-300">
+    S/ 1,000.00
+    <ArrowUpRight className="w-3 h-3 text-teal-400/70 shrink-0" />
+  </span>
+</ReyGasTooltip>
+```
+
+**Reglas de uso:**
+1. **Solo para info de datos**: tooltips de placa→saldo, monto→factura, etc. Los hints
+   utilitarios (encabezado de columna, "expandir/contraer", cerrar) pueden seguir con `title` nativo.
+2. **Contenido**: título en MAYÚSCULAS con el acento del contexto (`text-{color}-300 font-black text-[10px] uppercase tracking-wider`),
+   valores en `text-white font-bold`, comprobantes/fechas en `text-cyan-300 font-bold`, montos en `text-emerald-300 font-bold`.
+3. **Acentos por contexto**: Servicios = teal, Almacén/Repuestos = emerald, Certificados = purple,
+   Yape = purple, Transferencia = blue, Pago parcial/saldo = amber.
+4. **Icono de ayuda**: el dato con info lleva `cursor-help` y, si aplica, el icono `ArrowUpRight`
+   (monto vinculado) o `Info` (placa con parcial).
+5. **`label` falsy** (undefined/null) = NO se muestra la ventana.
+6. **`side`**: `"top"` (por defecto, encima) o `"bottom"` (debajo) según espacio disponible.
+
