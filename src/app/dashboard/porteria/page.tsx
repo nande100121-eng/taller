@@ -1018,15 +1018,25 @@ export default function PorteriaPage() {
                   </div>
                   <div className="sm:col-span-1">
                     <label className="block text-xs font-bold text-gray-300 uppercase mb-1">
-                      Kilometraje (km)
+                      Kilometraje
                     </label>
-                    <input
-                      type="number"
-                      placeholder="0"
-                      value={entryForm.current_mileage || ""}
-                      onChange={(e) => setEntryForm({ ...entryForm, current_mileage: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none font-medium"
-                    />
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={entryForm.current_mileage ? Number(entryForm.current_mileage).toLocaleString("es-PE") : ""}
+                        onChange={(e) => {
+                          // Formato de miles en vivo: se guarda SOLO el número (sin comas)
+                          const digits = e.target.value.replace(/[^0-9]/g, "");
+                          setEntryForm({ ...entryForm, current_mileage: digits === "" ? 0 : Number(digits) });
+                        }}
+                        className="w-full pl-3 pr-9 py-2 bg-reygas-surface border border-white/15 rounded-xl text-xs text-white font-mono focus:border-amber-400 focus:outline-none font-medium"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400 pointer-events-none">
+                        km
+                      </span>
+                    </div>
                   </div>
                 </div>
               </>
