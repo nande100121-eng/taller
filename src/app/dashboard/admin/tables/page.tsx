@@ -40,6 +40,8 @@ import {
   Check,
   X,
   Calendar,
+  ChevronUp,
+  ChevronDown,
   Download,
   FileUp,
   Mail,
@@ -181,6 +183,19 @@ export default function AdminTablesPage() {
   };
   const handleRemoveKitComp = (idx: number) => {
     setFormComponents((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Mueve un componente del kit hacia arriba/abajo (reordenar el paquete).
+  const handleMoveKitComp = (idx: number, dir: -1 | 1) => {
+    setFormComponents((prev) => {
+      const next = [...prev];
+      const j = idx + dir;
+      if (j < 0 || j >= next.length) return prev;
+      const tmp = next[idx];
+      next[idx] = next[j];
+      next[j] = tmp;
+      return next;
+    });
   };
 
   // Carga un servicio existente al formulario para editarlo (incluye su kit).
@@ -2289,9 +2304,19 @@ export default function AdminTablesPage() {
                                 return <span className="block text-[9px] text-gray-400 font-semibold">{bits.join(" · ")}</span>;
                               })()}
                             </span>
-                            <button type="button" onClick={() => handleRemoveKitComp(i)} className="p-0.5 text-red-400 hover:text-red-300 shrink-0" title="Quitar del kit">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-start gap-0.5 shrink-0">
+                              <div className="flex flex-col">
+                                <button type="button" onClick={() => handleMoveKitComp(i, -1)} disabled={i === 0} className="p-0.5 text-gray-500 hover:text-white disabled:opacity-20 transition-colors" title="Subir posición">
+                                  <ChevronUp className="w-3 h-3" />
+                                </button>
+                                <button type="button" onClick={() => handleMoveKitComp(i, 1)} disabled={i === formComponents.length - 1} className="p-0.5 text-gray-500 hover:text-white disabled:opacity-20 transition-colors" title="Bajar posición">
+                                  <ChevronDown className="w-3 h-3" />
+                                </button>
+                              </div>
+                              <button type="button" onClick={() => handleRemoveKitComp(i)} className="p-0.5 text-red-400 hover:text-red-300 shrink-0" title="Quitar del kit">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                           {/* Línea 2: cantidad / precio / subtotal */}
                           <div className="flex items-center gap-2">

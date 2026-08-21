@@ -64,22 +64,26 @@ interface InstallationKitSource {
   quantity: number;
   source: "repuesto" | "certificado";
 }
-function buildInstallationItems(srv: {
-  id: string;
-  name: string;
-  price: number;
-  is_installation?: boolean;
-  installation_components?: InstallationKitSource[];
-}): Array<{ item_type: "repuesto" | "servicio"; inventory_item_id?: string; description: string; quantity: number; unit_price: number }> {
+function buildInstallationItems(
+  srv: {
+    id: string;
+    name: string;
+    price: number;
+    is_installation?: boolean;
+    installation_components?: InstallationKitSource[];
+  },
+  groupId: string
+): Array<{ item_type: "repuesto" | "servicio"; inventory_item_id?: string; description: string; quantity: number; unit_price: number; installation_group: string; installation_price?: number }> {
   if (!srv.is_installation || !Array.isArray(srv.installation_components) || srv.installation_components.length === 0) return [];
   const compSum = srv.installation_components.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
   const labor = Number((Number(srv.price) - compSum).toFixed(2));
-  const items = srv.installation_components.map((c) => ({
+  const items: Array<{ item_type: "repuesto" | "servicio"; inventory_item_id?: string; description: string; quantity: number; unit_price: number; installation_group: string; installation_price?: number }> = srv.installation_components.map((c) => ({
     item_type: (c.source === "repuesto" ? "repuesto" : "servicio") as "repuesto" | "servicio",
     ...(c.source === "repuesto" ? { inventory_item_id: c.id } : {}),
     description: c.source === "repuesto" ? c.description : (String(c.description).toUpperCase().includes("CERTIFIC") ? c.description : "CERTIFICACION - " + c.description),
     quantity: Math.max(1, Number(c.quantity) || 1),
     unit_price: Number(c.unit_price) || 0,
+    installation_group: groupId,
   }));
   if (labor > 0) {
     items.push({
@@ -87,6 +91,8 @@ function buildInstallationItems(srv: {
       description: "MANO DE OBRA - " + srv.name,
       quantity: 1,
       unit_price: labor,
+      installation_group: groupId,
+      installation_price: Number(srv.price) || 0,
     });
   }
   return items;
@@ -289,6 +295,8 @@ export default function WorkshopOperationsPage() {
     quantity: number;
     unit_price: number;
     subtotal: number;
+    installation_group?: string;
+    installation_price?: number;
   }>>([]);
 
   // Edit individual item modal state
@@ -546,7 +554,8 @@ export default function WorkshopOperationsPage() {
       if (!srv) return;
       // === INSTALACIÓN: expande el paquete en sus componentes + mano de obra ===
       if (srv.is_installation) {
-        const kitItems = buildInstallationItems(srv);
+        const groupId = "inst-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8);
+        const kitItems = buildInstallationItems(srv, groupId);
         if (kitItems.length === 0) {
           notify("warning", "Este servicio es instalación pero no tiene componentes configurados en la tabla maestra.");
           return;
@@ -558,6 +567,8 @@ export default function WorkshopOperationsPage() {
           description: it.description,
           quantity: it.quantity,
           unit_price: it.unit_price,
+          installation_group: it.installation_group,
+          installation_price: it.installation_price,
           subtotal: Number((it.unit_price * it.quantity).toFixed(2)),
         }));
         setPendingServicesCart((prev) => [...prev, ...expanded]);
@@ -785,6 +796,11 @@ export default function WorkshopOperationsPage() {
     const targetOrderId = activeOrderModal;
 
     if (modalMode === "parts") {
+      // Si la OT tiene una instalación, los repuestos que se piden entran al paquete:
+      // la mano de obra se recalcula y el precio total de la instalación NO cambia.
+      const instGroup = (workOrders.find((o) => o.id === targetOrderId)?.items || []).find(
+        (i) => String(i.description || "").toUpperCase().includes("MANO DE OBRA")
+      )?.installation_group;
       if (pendingPartsCart.length > 0) {
         addMultipleWorkOrderItems(
           targetOrderId,
@@ -795,6 +811,7 @@ export default function WorkshopOperationsPage() {
             quantity: p.quantity,
             unit_price: p.unit_price,
             observation: p.observation || undefined,
+            ...(instGroup ? { installation_group: instGroup } : {}),
           }))
         );
         updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
@@ -822,6 +839,7 @@ export default function WorkshopOperationsPage() {
               quantity: Number(partQty) || 1,
               unit_price: Number(customItemPrice) || item.unit_price || 0,
               observation: partObservation.trim() || undefined,
+              ...(instGroup ? { installation_group: instGroup } : {}),
             });
             updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
             setStatusFilter("esperando_repuestos");
@@ -839,6 +857,7 @@ export default function WorkshopOperationsPage() {
             quantity: Number(partQty) || 1,
             unit_price: Number(customItemPrice) || 0,
             observation: partObservation.trim() || undefined,
+            ...(instGroup ? { installation_group: instGroup } : {}),
           });
           updateWorkOrderStatus(targetOrderId, "esperando_repuestos");
           setStatusFilter("esperando_repuestos");
@@ -871,6 +890,7 @@ export default function WorkshopOperationsPage() {
             quantity: p.quantity,
             unit_price: p.unit_price,
             ...(p.item_type === "repuesto" && p.inventory_item_id ? { inventory_item_id: p.inventory_item_id } : {}),
+            ...(p.installation_group ? { installation_group: p.installation_group, installation_price: p.installation_price } : {}),
           }))
         );
         updateWorkOrderStatus(targetOrderId, "en_servicio");
@@ -889,7 +909,7 @@ export default function WorkshopOperationsPage() {
         const srv = workshopServices.find((s) => s.id === selectedServiceId);
         if (srv) {
           // === INSTALACIÓN: agrega componentes + mano de obra calculada ===
-          const kitItems = buildInstallationItems(srv);
+          const kitItems = buildInstallationItems(srv, "inst-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8));
           if (kitItems.length > 0) {
             addMultipleWorkOrderItems(targetOrderId, kitItems);
           } else {
@@ -2641,6 +2661,10 @@ export default function WorkshopOperationsPage() {
                       return (
                         <div className="rounded-xl bg-indigo-950/40 border border-indigo-500/30 p-3 space-y-1.5">
                           <div className="text-[11px] font-black text-indigo-300 uppercase tracking-wider">⚙ Instalación — se agregará automáticamente al confirmar</div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-gray-400">Precio total del paquete (fijo)</span>
+                            <span className="text-white font-mono font-bold">S/ {(Number(isrv.price) || 0).toFixed(2)}</span>
+                          </div>
                           {comps.map((c, i) => (
                             <div key={i} className="flex justify-between text-[11px]">
                               <span className="text-gray-300">{c.source === "repuesto" ? "📦" : "🛡"} {c.description} ×{c.quantity}</span>

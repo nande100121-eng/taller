@@ -373,6 +373,11 @@ export interface WorkOrderItem {
   dispatched?: boolean;
   requested_at?: string;
   dispatched_at?: string;
+  // INSTALACIÓN: grupo del paquete y precio FIJO total del paquete (se guardan en
+  // los ítems expandidos del kit). Al añadir/quitar/editar componentes, la mano de
+  // obra se recalcula = precio fijo − Σ(componentes) para que el total NO cambie.
+  installation_group?: string;
+  installation_price?: number;
 }
 
 export interface WorkOrder {
@@ -402,6 +407,47 @@ export interface WorkOrder {
   // saveSupabaseWorkOrder NO los vuelva a conservar desde la DB - fix: eliminar
   // un repuesto entregado en Taller lo volvía a re-agregar).
   removedItemIds?: string[];
+}
+
+// ===== INSTALACIONES: rebalanceo de la MANO DE OBRA del paquete =====
+// Mantiene el precio total del paquete FIJO (installation_price) y ajusta SOLO el
+// ítem "MANO DE OBRA" = precio fijo − Σ(subtotales de los demás ítems del mismo
+// grupo). Si los componentes superan el precio fijo, la mano de obra queda en S/ 0
+// (el excedente se cobra aparte y el total sube). Se aplica en cada acción que
+// agrega, edita o elimina ítems de una OT (add/update/removeWorkOrderItem).
+export function rebalanceInstallationLabor(order: WorkOrder): WorkOrder {
+  const items = order.items || [];
+  if (items.length === 0) return order;
+  const groups = new Map<string, WorkOrderItem[]>();
+  items.forEach((it) => {
+    if (it.installation_group) {
+      const g = it.installation_group;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(it);
+    }
+  });
+  if (groups.size === 0) return order;
+  let changed = false;
+  const newItems = items.map((it) => {
+    const g = it.installation_group;
+    if (!g) return it;
+    const isLabor = String(it.description || "").toUpperCase().includes("MANO DE OBRA");
+    if (!isLabor) return it;
+    const fixed = Number(it.installation_price) || 0;
+    const groupItems = groups.get(g) || [];
+    const otherSum = groupItems
+      .filter((x) => x.id !== it.id)
+      .reduce((s, x) => s + (Number(x.subtotal) || 0), 0);
+    const labor = Math.max(0, Number((fixed - otherSum).toFixed(2)));
+    const currentSub = Number((Number(it.unit_price) * Number(it.quantity)).toFixed(2));
+    if (Math.abs(labor - currentSub) > 0.01) {
+      changed = true;
+      const qty = Math.max(1, Number(it.quantity) || 1);
+      return { ...it, unit_price: labor, subtotal: Number((labor * qty).toFixed(2)) };
+    }
+    return it;
+  });
+  return changed ? { ...order, items: newItems } : order;
 }
 
 export interface InventoryItem {
@@ -2179,10 +2225,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           dispatched_at: isService ? nowISO : undefined,
           requested_at: nowISO,
         };
-        const updatedOrder = {
+        const updatedOrder = rebalanceInstallationLabor({
           ...o,
           items: [...o.items, newItem],
-        };
+        });
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
 
@@ -2281,10 +2327,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             requested_at: nowISO,
           };
         });
-        const updatedOrder = {
+        const updatedOrder = rebalanceInstallationLabor({
           ...o,
           items: [...o.items, ...newItems],
-        };
+        });
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
 
@@ -2381,7 +2427,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             updated_at: new Date().toISOString(),
           };
         });
-        const updatedOrder = { ...o, items: updatedItems };
+        const updatedOrder = rebalanceInstallationLabor({ ...o, items: updatedItems });
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
         return updatedOrder;
@@ -2401,13 +2447,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       }, "store:removeWorkOrderItem");
       const updatedOrders = state.workOrders.map((o) => {
         if (o.id !== orderId) return o;
-        const updatedOrder = {
+        const updatedOrder = rebalanceInstallationLabor({
           ...o,
           items: o.items.filter((i) => i.id !== itemId),
           // Marca el ítem como eliminado para que el merge de saveSupabaseWorkOrder
           // NO lo conserve desde la DB (bug: el repuesto entregado "volvía" al eliminar).
           removedItemIds: [...(o.removedItemIds || []), itemId],
-        };
+        });
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
         return updatedOrder;
