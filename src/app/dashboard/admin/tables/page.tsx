@@ -284,6 +284,19 @@ export default function AdminTablesPage() {
   // Selected row IDs for bulk deletion
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  // LIMPIEZA AUTOMÁTICA DE SELECCIÓN: si una fila seleccionada ya no existe en la
+  // lista (borrada individualmente, en lote, o desde otra tablet vía realtime), se
+  // quita de selectedIds para que el botón "Eliminar Seleccionados (N)" no siga
+  // mostrando un conteo de filas que ya no están (bug reportado en Tabla Maestra).
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.length === 0) return prev;
+      const alive = new Set((workOrders || []).map((o) => o.id));
+      const next = prev.filter((id) => alive.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [workOrders]);
+
   // Editing Workshop Order Modal State (Modificación de Fecha, Hora y Registro Completo)
   const [editingWorkshopOrder, setEditingWorkshopOrder] = useState<{
     orderId: string;
@@ -1157,6 +1170,7 @@ export default function AdminTablesPage() {
     if (modalConfig.actionType === "single" && modalConfig.targetId) {
       deleteWorkOrder(modalConfig.targetId);
       notify("success", "Registro eliminado correctamente de la Tabla Maestra.");
+      setSelectedIds((prev) => prev.filter((id) => id !== modalConfig.targetId));
     } else if (modalConfig.actionType === "bulk") {
       deleteMultipleWorkOrders(selectedIds);
       notify("success", `Se eliminaron ${selectedIds.length} filas seleccionadas.`);
