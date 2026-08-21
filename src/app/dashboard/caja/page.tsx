@@ -200,6 +200,9 @@ export default function CajaPage() {
     totalDue: number;            // Saldo total pendiente de la factura
     paidSoFar: number;           // Monto ya abonado (historial)
     amount: number;              // Abono de este pago (total o parcial)
+    // DESCUENTO asignado a UN recurso (solicitud 20/08): en vez de repartir el
+    // descuento proporcionalmente, el cajero marca a qué recurso se aplica.
+    discountAmount: number;      // Monto del descuento de la card (0 si no hay)
     paymentDate: string;         // Fecha del pago/abono (por defecto hoy, editable)
     paymentMethod: string;
     paymentDestination: string;
@@ -215,6 +218,8 @@ export default function CajaPage() {
         pendingAmount: number; // Saldo pendiente del recurso
         payAmount: number;
         selected: boolean;
+        // Monto del descuento absorbido por ESTE recurso (0 = sin descuento)
+        discountApplied?: number;
       }>;
     })[];
     splitTicketMode?: "single" | "perMethod";
@@ -234,6 +239,8 @@ export default function CajaPage() {
       pendingAmount?: number; // Saldo pendiente del recurso (abonos: total - pagado previo)
       payAmount: number;
       selected: boolean;
+      // Monto del descuento absorbido por ESTE recurso (0 = sin descuento)
+      discountApplied?: number;
     }>;
     // Modo EDICIÓN de un comprobante existente (abierto desde el historial de la card):
     // el mismo modal sirve para crear y para editar (guarda en el mismo registro).
@@ -1863,12 +1870,25 @@ export default function CajaPage() {
     }
     if (resList.length === 0) return undefined;
 
-    // FIX DESCUENTO (BWV-501): aplicar el descuento PROPORCIONALMENTE a cada recurso
-    // para que la suma de recursos = neto a cobrar (500 - 20 = 480) y no el bruto (500).
+    // DESCUENTO ASIGNADO A UN RECURSO (solicitud 20/08): ya NO se reparte
+    // proporcionalmente. Los recursos conservan su monto BRUTO y el descuento se
+    // aplica COMPLETO al PRIMER recurso (por defecto); el cajero puede cambiarlo
+    // en el modal marcando otro recurso (discountApplied).
     const grossRes = resList.reduce((s: number, r: any) => s + (Number(r.fullAmount) || 0), 0);
-    const dFactor = discountFactorFor(wo, inv, grossRes);
-    if (dFactor !== 1) {
-      resList = resList.map((r: any) => ({ ...r, fullAmount: Math.round((Number(r.fullAmount) || 0) * dFactor * 100) / 100 }));
+    const discountAmt = (wo?.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+    let discountAssigned = false;
+    if (discountAmt > 0) {
+      resList = resList.map((r: any, ri: number) => {
+        if (!discountAssigned && (Number(r.fullAmount) || 0) >= discountAmt) {
+          discountAssigned = true;
+          return { ...r, discountApplied: Math.round(discountAmt * 100) / 100 };
+        }
+        return r;
+      });
+      // Si ningún recurso individual cubre el descuento, se deja sin asignar
+      // (el cajero lo asigna manualmente en el modal).
     }
 
     // Abonado PREVIO por recurso desde el historial con vínculo (rec.resources).
@@ -1886,7 +1906,9 @@ export default function CajaPage() {
     const pendientes = resList
       .map((rs) => {
         const paid = paidByDesc.get(String(rs.description || "").trim().toLowerCase()) || 0;
-        const pending = Math.max(0, rs.fullAmount - paid);
+        // El recurso que absorbe el descuento ve reducido su saldo pendiente efectivo
+        const disc = Number((rs as any).discountApplied) || 0;
+        const pending = Math.max(0, rs.fullAmount - paid - disc);
         return { ...rs, pendingAmount: pending };
       })
       .filter((rs) => rs.pendingAmount > 0.01);
@@ -1904,6 +1926,7 @@ export default function CajaPage() {
         category: rs.category,
         fullAmount: rs.fullAmount,
         pendingAmount: rs.pendingAmount,
+        discountApplied: Number((rs as any).discountApplied) || 0,
         payAmount: Math.round(assigned * 100) / 100,
         selected: assigned > 0.01,
       };
@@ -1950,12 +1973,17 @@ export default function CajaPage() {
       .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
       .reduce((s, r) => s + (Number(r.payAmount) || 0), 0)
       .toFixed(2));
+    // Monto del descuento de la card (para asignarlo a UN recurso en el modal)
+    const discountForModal = (wo?.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
     setPartialPaymentModal({
       isOpen: true,
       workOrder: wo,
       invoice: inv,
       totalDue,
       paidSoFar,
+      discountAmount: discountForModal,
       // Con recursos preseleccionados, el monto arranca en su suma; si no hay recursos
       // (factura pre-17/08) se usa el saldo y el monto es editable manual.
       amount: initialSplitResources.length > 0 ? initialMarkedSum : balance, // Por defecto: abonar el saldo total
@@ -2220,6 +2248,46 @@ export default function CajaPage() {
     setPartialPaymentModal(null);
   };
 
+  // Mueve el descuento del abono a OTRO recurso (solicitud 20/08): el cajero indica
+  // a qué recurso se aplica el descuento. NO permite asignarlo a un recurso cuyo
+  // monto (fullAmount) sea MENOR que el descuento (validación pedida).
+  const moveAbonoDiscount = (targetKey: string) => {
+    if (!partialPaymentModal) return;
+    const disc = Number(partialPaymentModal.discountAmount) || 0;
+    if (disc <= 0) return;
+    const splits = (partialPaymentModal.paymentSplits || []).map((sp, si) => {
+      const srs: any[] = Array.isArray((sp as any).splitResources) ? (sp as any).splitResources : [];
+      const next = srs.map((rs: any) => {
+        const fullAmt = Number(rs.fullAmount) || 0;
+        const wasCarrier = Number(rs.discountApplied) > 0;
+        if (rs.key === targetKey) {
+          if (wasCarrier) {
+            // Quitar el descuento de este recurso (volver a su saldo bruto)
+            return { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) };
+          }
+          // Asignar el descuento SOLO si el recurso lo cubre
+          if (fullAmt < disc - 0.005) return rs; // no permitir: monto menor al descuento
+          return { ...rs, discountApplied: disc, pendingAmount: Math.max(0, fullAmt - disc) };
+        }
+        // Si otro recurso era el portador y este no, se limpia (solo UN recurso lleva el descuento)
+        return wasCarrier ? { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) } : rs;
+      });
+      const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
+      return { ...sp, splitResources: next, amount: newAmount };
+    });
+    const pool = (partialPaymentModal.resourceSelection || []).map((rs: any) => {
+      const fullAmt = Number(rs.fullAmount) || 0;
+      const wasCarrier = Number(rs.discountApplied) > 0;
+      if (rs.key === targetKey) {
+        if (wasCarrier) return { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) };
+        if (fullAmt < disc - 0.005) return rs;
+        return { ...rs, discountApplied: disc, pendingAmount: Math.max(0, fullAmt - disc) };
+      }
+      return wasCarrier ? { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) } : rs;
+    });
+    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: splits, resourceSelection: pool });
+  };
+
   // Abrir modal de edición de un pago del historial (mismo modal de abono en modo
   // EDICIÓN: fecha, comprobante, método y recursos precargados del registro).
   const handleOpenEditPaymentRecord = (rec: PaymentRecord, invoiceId?: string) => {
@@ -2285,6 +2353,10 @@ export default function CajaPage() {
       totalDue: Number(invEdit.grand_total) || 0,
       paidSoFar: invoicePaidSoFar(invEdit),
       amount: Number(rec.amount) || 0,
+      // Descuento de la card (para permitir reasignarlo a otro recurso al editar)
+      discountAmount: (woEdit?.discount_amount && woEdit.discount_amount > 0)
+        ? Number(woEdit.discount_amount)
+        : (invEdit?.discounts ? (typeof invEdit.discounts === "number" ? invEdit.discounts : Number(invEdit.discounts) || 0) : 0),
       paymentDate: (rec.date || "").slice(0, 10) || getPeruDateString(),
       paymentMethod: (rec.method || "").trim() === "Sin Método" ? "" : defaultMethodFrom(rec.method) || (rec.method || "Efectivo"),
       paymentDestination: rec.destination || invEdit.payment_destination || "EMPRESA",
@@ -5744,6 +5816,11 @@ export default function CajaPage() {
                                       {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
                                       {rs.description}
                                       <span className="text-gray-500"> (S/ {rs.fullAmount.toFixed(2)})</span>
+                                      {Number(rs.discountApplied) > 0 && (
+                                        <span className="ml-1 text-[9px] text-fuchsia-300 font-black bg-fuchsia-500/15 border border-fuchsia-500/40 rounded px-1 py-px">
+                                          -S/ {Number(rs.discountApplied).toFixed(2)} dcto
+                                        </span>
+                                      )}
                                       {usedOther && !rs.selected ? (
                                         <span className="ml-1 text-[9px] text-rose-300 font-bold">usado en otro comprobante</span>
                                       ) : paidOther > 0 && (
@@ -5772,6 +5849,32 @@ export default function CajaPage() {
                                         }}
                                         className="w-20 px-2 py-1 bg-reygas-dark border border-white/10 rounded-lg text-emerald-400 font-mono font-bold text-xs text-right focus:border-purple-400"
                                       />
+                                    )}
+                                    {/* Asignar el DESCUENTO a ESTE recurso (solo si la card tiene
+                                        descuento). El recurso marcado absorbe el monto completo; NO se
+                                        permite asignarlo a un recurso cuyo monto sea menor al descuento. */}
+                                    {Number(partialPaymentModal.discountAmount) > 0 && (
+                                      <button
+                                        type="button"
+                                        disabled={Number(rs.discountApplied) <= 0 && (Number(rs.fullAmount) || 0) < (Number(partialPaymentModal.discountAmount) || 0) - 0.005}
+                                        onClick={() => moveAbonoDiscount(rs.key)}
+                                        title={
+                                          Number(rs.discountApplied) > 0
+                                            ? "Quitar el descuento de este recurso"
+                                            : (Number(rs.fullAmount) || 0) < (Number(partialPaymentModal.discountAmount) || 0)
+                                              ? "Este recurso es menor al descuento: no se puede asignar"
+                                              : `Aplicar el descuento de S/ ${Number(partialPaymentModal.discountAmount).toFixed(2)} a este recurso`
+                                        }
+                                        className={`px-1.5 py-1 rounded-md transition-colors shrink-0 border text-[10px] font-black ${
+                                          Number(rs.discountApplied) > 0
+                                            ? "bg-fuchsia-500/25 text-fuchsia-300 border-fuchsia-500/50"
+                                            : (Number(rs.fullAmount) || 0) < (Number(partialPaymentModal.discountAmount) || 0)
+                                              ? "bg-gray-900/40 text-gray-600 border-white/5 cursor-not-allowed"
+                                              : "bg-purple-500/15 text-purple-300 border-purple-500/30 hover:bg-purple-500/30"
+                                        }`}
+                                      >
+                                        🛡
+                                      </button>
                                     )}
                                     {/* Eliminar ESTE recurso del comprobante (quita la fila; el
                                         Monto Total y el monto global se recalculan) */}
