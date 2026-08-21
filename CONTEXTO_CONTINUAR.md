@@ -1,7 +1,7 @@
 # REYGAS — CONTEXTO PARA CONTINUAR (ACTUALIZADO)
 
-> Exportado: 20/08/2026 (sesión larga con ~30 cambios desplegados).
-> Último commit en `main`: `848eeff` — producción: https://taller-two-gamma.vercel.app (deploy taller-motyt2a4y)
+> Exportado: 20/08/2026 (sesión larga con ~40+ cambios desplegados).
+> Último commit en `main`: `6db0905` — producción: https://taller-two-gamma.vercel.app
 > **MODO AHORRO ACTIVADO**: respuestas compactas, tsc 1x por lote, 1 commit+push+deploy por lote, lecturas quirúrgicas (grep + solo zona a editar), sin verificación redundante del usuario.
 
 ---
@@ -23,16 +23,21 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 **ReyGas (repo GitHub `nande100121-eng/taller`)** — Sistema web de gestión integral de un taller de gas vehicular (GNV/GLP) en Perú.
 
 - **Stack**: Next.js 14.2.4 (App Router), React 18, TypeScript 5.5, TailwindCSS 3.4, Zustand 4.5, Supabase (cloud-first + realtime), date-fns, lucide-react
-- **Hardware**: Tablet industrial Chainway P80 + lector SEISA (skill `reygas-performance-cloud-hardware`)
-- **Despliegue**: Vercel (`taller` / nande3), producción: https://taller-two-gamma.vercel.app
+- **Hardware**: Tablet industrial Chainway P80 + lector SEISA
+- **Despliegue**: Vercel (git push auto-deploy), producción: https://taller-two-gamma.vercel.app
 
 ### REGLAS OBLIGATORIAS DEL USUARIO (nunca violar)
 - **Publicar cada cambio**: `npx tsc --noEmit` → commit en `main` → `git push origin main` (Vercel auto-deploy por git).
-- **NO usar `npx vercel --prod`** (doble deploy gasta el límite diario de 100 deploys). Solo git push. Verificar con `npx vercel ls --scope nande3` (read-only).
-- **NUNCA modificar los CSV del usuario** (`registro taller *.csv`, `DEUDA 17.08.26.csv`): al hacer `git add` stagear SOLO archivos fuente, nunca los CSV ni scripts de trabajo.
+- **NO usar `npx vercel --prod`** (doble deploy gasta el límite diario). Solo git push.
+- **NUNCA modificar los CSV del usuario** (`registro taller *.csv`, `DEUDA 17.08.26.csv`): stagear SOLO archivos fuente, nunca CSV ni scripts de trabajo.
 - Responder en español.
 
-### Skills estándar (en el nuevo entorno: `reygas-supabase-congruence`, `reygas-ui-design-system`, `reygas-reports-system`, `reygas-printing`, `reygas-performance-cloud-hardware`)
+### Skills estándar (OBLIGATORIO consultarlos según la tarea)
+- **`reygas-supabase-congruence`**: SIEMPRE que se cree/modifique una acción que guarde, actualice, borre o sincronice datos en Supabase (toast de confirmación, realtime, persistencia 100% cloud).
+- **`reygas-ui-design-system`**: SIEMPRE que se agregue/modifique cualquier UI (modales glassmórficos, botones, formularios, calendarios, tablas).
+- **`reygas-reports-system`**: SIEMPRE que se cree/modifique cualquier reporte (Reporte Diario, VENTAS POR CONCEPTO, liquidaciones).
+- **`reygas-printing`**: SIEMPRE que se agregue/modifique impresión (recibos térmicos, reportes A4, códigos de barras).
+- **`reygas-performance-cloud-hardware`**: optimización de rendimiento, sync Cloud-First, tablets Chainway P80.
 
 ---
 
@@ -44,17 +49,19 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 ### Archivos núcleo
 | Archivo | Rol |
 |---|---|
-| `src/lib/store/app-store.ts` | Store Zustand persist (`reygas-store-cache-v2`): workOrders, invoices, payment_history, sync con Supabase, acciones de pago (confirmInvoicePayment, registerInvoicePayment, updatePaymentRecord, clearInvoicePayments) |
-| `src/lib/supabase/services.ts` | Persistencia: saveSupabaseWorkOrder/Invoice, fetchSupabaseDayReport, fetchMasterTablePage, fetchCappedOperationalData, deleteSupabaseWorkOrder (CASCADA), saveSupabaseCertification, merge site_content |
+| `src/lib/store/app-store.ts` | Store Zustand persist (`reygas-store-cache-v2`): workOrders, invoices, payment_history, sync, acciones de pago, applyRemoteWorkOrderLocal/Invoice/Vehicle (realtime fila directa) |
+| `src/lib/supabase/services.ts` | Persistencia: saveSupabaseWorkOrder (MERGE defensivo de items), saveSupabaseInvoice (filtro anti-duplicado de correlativo), deleteSupabaseWorkOrder (CASCADA), deleteSupabaseInvoice (CASCADA), fetchCappedOperationalData (ventana PAGE=400 + reconstrucción descuento/historial), fetchSupabaseDayReport |
+| `src/lib/system-log.ts` | **LOG LOCAL en localStorage** (`reygas-syslog-local`, buffer FIFO 3000, flush 2s): logSystemEvent, logTiming, logTimingThreshold, getLocalLogs, exportLocalLogs. NO usa Supabase (evita saturación) |
 | `src/lib/utils/date-utils.ts` | Hora PERÚ: getPeruDateString, buildPeruISOString ("YYYY-MM-DDTHH:mm:00-05:00"), toPeruDateKey, toPeruAnchoredISO |
 | `src/lib/deuda-csv.ts` | Deuda oficial (DEUDA 17.08.26.csv): DEBT_CSV_BY_RECEIPT, matchDebtCsvByInvoice |
 | `src/lib/workshop-csv-lookup.ts` | Registro taller CSV (WORKSHOP_CSV_LOOKUP, WORKSHOP_DAY_RECORDS) |
 | `src/lib/report-concept-split.ts` | Reparto manual por boleta (MANUAL_CONCEPT_SPLIT_BY_RECEIPT) — SOLO comprobantes históricos |
-| `src/components/DailyWorkshopReportModal.tsx` | Reporte diario (REPORTE DEL DÍA, VENTAS POR CONCEPTO, YAPES & TRANSFERENCIAS, TOTAL GENERAL) |
-| `src/app/dashboard/caja/page.tsx` | Caja: cards de cobro, modal de pago (paymentModal), modal de ABONO (partialPaymentModal) con vínculo recurso->pago |
-| `src/app/dashboard/taller/page.tsx` | Taller: cards con diagnóstico/observación INLINE, fechas Quinquenal/Chip con MiniDatePicker inline, botones |
+| `src/components/DailyWorkshopReportModal.tsx` | Reporte diario (REPORTE DEL DÍA, VENTAS POR CONCEPTO, YAPES & TRANSFERENCIAS, TOTAL GENERAL) + realtime report-day-realtime |
+| `src/components/ui/mini-date-picker.tsx` | Calendario unificado: popup con **createPortal al body** (escapa overflow-hidden y backdrop-blur), stopPropagation, popupRef (click dentro no cierra), log calendario.abrir/seleccionar |
+| `src/components/providers/supabase-sync-provider.tsx` | Realtime cross-device: postgres_changes aplica fila directa (applyRemote*) SIN refetch completo; BroadcastChannel local como refuerzo; heartbeat 5 min; focus/visibility sync operativo |
+| `src/app/dashboard/caja/page.tsx` | Caja: cards de cobro, modal pago/abono, historial SIEMPRE visible, etiquetas de saldo con total real de la OT |
+| `src/app/dashboard/taller/page.tsx` | Taller: stepper "Enviar a Cobrar" con modal glassmórfico de confirmación; diagnóstico/observación INLINE; logs del flujo |
 | `src/app/dashboard/porteria/page.tsx` | Portería: ingreso de vehículos (Monto solo en Venta Directa) |
-| `src/components/providers/supabase-sync-provider.tsx` | Realtime: maneja DELETE de OTs/facturas localmente |
 
 ---
 
@@ -65,55 +72,76 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 - Día PERUANO en queries: `[díaT05:00:00, día+1T05:00:00)` UTC (el día Perú empieza 05:00 UTC).
 - Al reconstruir timestamps: `toPeruAnchoredISO`; al filtrar por día: `toPeruDateKey`.
 
-### Vínculo recurso → pago (nueva forma de pago, desde 17/08/2026)
-- `PaymentResource` (app-store.ts): { id?, description, category: "servicio"|"repuesto"|"certificado", amount, receipt_number?, receipt_type? }
-- `PaymentSplit` tiene `resources?: PaymentResource[]`; `PaymentRecord` tiene `resources?`.
-- `Invoice` tiene `resource_payments?: PaymentResource[]`.
-- El modal de ABONO (Caja): cada método/comprobante del desglose lleva SU PROPIA lista `splitResources` (key, description, category, fullAmount, pendingAmount, payAmount, selected). El "Monto Total" del método = suma de recursos marcados. Recursos usados en otro comprobante → tachados/no disponibles (solo saldo restante).
+### Vínculo recurso → pago (desde 17/08/2026)
+- `PaymentResource`: { id?, description, category: "servicio"|"repuesto"|"certificado", amount, receipt_number?, receipt_type? }
+- `PaymentSplit.resources?`, `PaymentRecord.resources?`, `Invoice.resource_payments?`.
 - Se persiste en site_content: `inv_resources_<id>` (y por work_order_id).
-- VENTAS POR CONCEPTO usa `resource_payments`/recursos directos si existen; si no, matching por suma exacta de ítems de la card; si no, fallback proporcional.
+- VENTAS POR CONCEPTO usa recursos directos; fallback por suma exacta de ítems; fallback report-concept-split.
 
-### Borrado en cascada (implementado en `848eeff`)
-- `deleteSupabaseWorkOrder(id)`, `deleteSupabaseMultipleWorkOrders(ids)`, `clearSupabaseWorkOrders()`: borran OTs + facturas (por work_order_id) + snapshots site_content (`inv_full_`, `inv_breakdown_`, `inv_payhistory_`, `inv_resources_` por id y por woId) + certificaciones (tabla + `cert_<id>` por key y section_key).
-- Motivo: al borrar desde Tabla Maestra quedaban 148 facturas huérfanas del 17/08 (ya limpiadas manualmente).
+### Facturas y snapshots
+- La tabla `invoices` guarda `payment_history` como NULL: el historial vive en snapshots `inv_payhistory_<id>` / `inv_full_<id>` (por id y por work_order_id).
+- `saveSupabaseInvoice` filtra correlativos duplicados (resolveUniqueReceiptNumber) y descarta facturas fantasma (id === `inv-<woId>`).
+- `deleteSupabaseInvoice(id, woId)` borra tabla + snapshots + invalida cache de historial (evita que reviva).
+
+### Descuento (NO es columna de work_orders)
+- `discount_amount` vive en el snapshot `wo_mod_<id>`; `fetchCappedOperationalData` lo reconstruye (fix BCT-750).
+- Al eliminar el ÚLTIMO pago, `deletePaymentRecord` borra la factura completa en cascada y sincroniza el total con la OT.
 
 ---
 
-## 4. CAMBIOS RECIENTES DESPLEGADOS (20/08/2026, en orden)
+## 4. CAMBIOS RECIENTES DESPLEGADOS (20/08/2026, en orden — sesión actual)
 
-1. `b16ee75` fix(reporte): VENTAS POR CONCEPTO solo cuenta lo cobrado en parciales (BEF-098).
-2. `52d5567` fix(reporte): VENTAS POR CONCEPTO asigna ítems reales de la card a cada ticket (AUH-440: ticket 275=cert 180, ticket 276=serv 50+rep 40).
-3. `19d9c62` fix(sync): merge de items ya no descarta ítems sin id (card perdía certificación AUH-440).
-4. `40f76aa` feat(caja): vínculo recurso->pago desde 17/08 (selección de recursos al cobrar + edición de pagos) + reporte usa vínculo directo.
-5. `39bc751` feat(caja): abonos de créditos vinculan recursos (saldo pendiente por recurso, pago parcial por recurso, próximos abonos solo muestran pendientes).
-6. `d712d06` fix(caja): cards pagadas muestran historial (reconstruido desde desglose/recursos) + modo solo-vincular (linkOnly).
-7. `fd806c6` fix(sync): saveSupabaseInvoice repara work_order_id inválido ("x") desde snapshot/OT real (AFT-598).
-8. `99286ff` feat(caja): rediseño modal de abono — fecha primero → comprobante → método → recursos vinculables → observaciones; editar comprobante abre el mismo modal desde historial.
-9. `3b11d6d` feat(taller/porteria): diagnóstico y observación INLINE en card (sin modal); fechas Quinquenal/Chip con MiniDatePicker inline; quité botón Diagnóstico y doble botón de certificación; Portería: Monto solo en Venta Directa.
-10. `89b6c11` feat(caja): en el desglose de métodos del abono, cada método lleva sus recursos (Monto Total = suma de marcados); recursos usados en otro comprobante se tachan/no disponibles o solo saldo.
-11. `848eeff` fix(sync): borrado en cascada de OTs (facturas, snapshots, certificaciones).
+1. `d566117` feat(log): cobertura TOTAL del store (descuento, crear/editar OT, editar/eliminar item, despachar, técnico, diagnóstico, certificación, vehículo).
+2. `47a76de` feat(log): medición de tiempos (logTiming/logTimingThreshold) — syncs, guardados OT/factura, render Caja, latencia realtime→store.
+3. `b5b1650` fix(caja): sync operativo reconstruye discount_amount/allow_modifications desde snapshots wo_mod_ (BCT-750).
+4. `95353ee` **perf(web)**: log LOCAL en localStorage (sin Supabase); realtime SIN refetch completo (fila directa applyRemote* en <100ms); render Caja optimizado; PAGE 1000→400.
+5. `a993285` fix(ui): popup del calendario con posición calculada (escapaba overflow-hidden).
+6. `73a2548` fix(ui): calendario con **createPortal al body** (escapa overflow-hidden Y backdrop-blur que descolocaba el fixed) + stopPropagation (no expande card Portería) + log calendario.abrir/seleccionar; **visor de Log local en Configuración** (Ver Log + Descargar JSON + filtro).
+7. `6db0905` fix(ui): click en fecha del calendario ya selecciona (handler "click fuera" verifica también popupRef).
+
+### Otros fixes previos de la sesión (flujo cobro/realtime)
+- `738090d` fix(caja): abono de VENTA no engancha factura de otra venta por placa genérica (bug detectado vía log).
+- `6c23d04` feat(realtime): sync operativo ligero (BroadcastChannel + syncOperationalOnly 2s) — luego optimizado en 95353ee.
+- `c9b4da5` fix(caja): syncOperationalOnly no pisa historial local con null (editar fecha pago).
+- `24ebade` fix(caja): reconstruir historial desde snapshots en fetchCapped (editar fecha de pago).
+- `7d52fdc` fix(sync): merge defensivo de items en saveSupabaseWorkOrder (nunca revierte despacho, gana updated_at más reciente).
+- `66fe131` feat(flujo): "Enviar a Cobrar" con confirmación en Taller; habilitar edición desde Caja vuelve la OT a en_servicio (card desaparece).
+- `451b2b9` feat(caja): eliminar último pago borra factura en cascada; Historial de Pagos SIEMPRE visible; no muestra comprobante CSV viejo.
+- `50b63bb` fix(caja): etiquetas crédito/saldo usan total real de la OT (no credit_amount viejo).
+- `fd7759e` fix(caja): card muestra precio ACTUAL de la OT tras cambio en Taller (BAG-123).
+- `e19e048` fix(caja): al eliminar último pago la factura sincroniza total con la OT; registerInvoicePayment usa total actual sin pagos.
+- `b04b11d` feat(log): cada evento registra source (página/componente) + invalidar cache historial al guardar factura.
+- `79b58ee` feat(log): sistema de log interno en Supabase (syslog_) — LUEGO movido a local en 95353ee.
+- `498aa13` fix(caja): filtro anti-duplicado de correlativo al guardar factura (toast warning + siguiente libre).
+- `d7e9906` fix(caja): al eliminar pago la card ya no lo muestra (fallbacks solo si payment_history undefined; delete limpia resource_payments; protección 3s).
+- `b2ea472` fix(caja): OT pagada sin factura crea factura al agregar material desde Taller (Pedir Repuesto).
+- `780a99b` fix(caja/reporte): OT marcada pagado sin factura crea factura con ticket automático.
+- `080f4fa` feat(porteria): venta de repuesto sin precio (material se define en Pedir Repuesto).
 
 ### Estado de la base (20/08)
-- **17/08/2026 LIMPIADO** (a petición del usuario para re-ingresar con la nueva forma de pago): 0 OTs (solo 2 GASTO), 0 facturas, 0 snapshots huérfanos. El usuario re-ingresará los datos.
+- 17/08 REINGRESADO por el usuario con la nueva forma de pago (flujo Portería→Taller→Caja).
 - 18/08 intacto (34 OTs, 21 facturas).
-- AFT-598 reparado (work_order_id correcto, boleta TK01-00004599).
-- AUH-440: card muestra 270 (fix merge ítems sin id) y VENTAS POR CONCEPTO 50/40/180.
+- Correlativo actualizado en Supabase: tickets hasta TK01-00004621 (siguiente 4622), boletas 275, facturas 290.
 
 ---
 
 ## 5. PENDIENTES / PRÓXIMOS PASOS POSIBLES
 
-- Re-ingresar datos del 17/08 con la nueva forma de pago y verificar VENTAS POR CONCEPTO + TOTAL GENERAL (CUADRADO).
-- El usuario probará el flujo y reportará inconsistencias (bugs) → corregir con modo ahorro.
-- NO hay tareas pendientes de código conocidas más allá de los fixes que reporte el usuario.
+- El usuario probará el flujo completo y reportará inconsistencias → corregir con modo ahorro.
+- Optimizaciones adicionales propuestas (pendientes de aprobación):
+  - Almacén: reducir carga inicial del inventario completo (`fetchAllSupabaseTable("inventory_items")`).
+  - Consolidar logs de `card_estado`/`sync.operational` (registrar solo cambios reales).
+- El log ahora es LOCAL (localStorage): para diagnosticar pedir al usuario Configuración → Log Interno → Ver Log/Descargar JSON, o que copie las líneas relevantes.
 
 ---
 
 ## 6. ERRORES COMUNES / TRAMPAS AL EDITAR
 
-- `tsc` falla si hay `)`/llaves desbalanceadas al insertar JSX con IIFE dentro de `return (` → usar fragmento `<>``</>` si hay 2+ hijos, o verificar balance con contador node (ignorando strings).
-- `saveSupabaseInvoice` omite facturas fantasma (id === `inv-<woId>`).
-- `updateWorkOrder`/store solo tocan listas del store (ventana reciente): para Tabla Maestra usar `saveSupabaseWorkOrder` directo.
-- Al `git add`: nunca stagear CSVs (cambian solos por el usuario).
-- Verificar deploy con `npx vercel ls --scope nande3 --json` (mira meta.githubCommitSha) y `npx vercel inspect taller-two-gamma.vercel.app`.
+- `tsc` falla si hay `)`/llaves desbalanceadas al insertar JSX con IIFE dentro de `return (` → usar fragmento `<>...</>` si hay 2+ hijos, o verificar balance.
+- Al editar archivos con template literals anidados (backticks dentro del código del programa): construir el contenido por concatenación de líneas, no con template anidado (falla con "Expected ;").
+- `saveSupabaseInvoice` omite facturas fantasma (id === `inv-<woId>`) y descarta correlativos duplicados.
+- El `MiniDatePicker` usa **createPortal al body**: cualquier fix de cierre debe verificar `popupRef` además de `containerRef` (si no, el click dentro cierra el popup antes de seleccionar).
+- El popup del calendario NO debe volver a `absolute` (el glass-panel con backdrop-blur lo descoloca) ni quedar dentro de overflow-hidden.
+- El log NO está en Supabase (es local): no consultar `site_content like syslog_%` para el log actual.
+- Al `git add`: nunca stagear CSVs (cambian solos por el usuario) ni scripts temporales `.tmp-*.mjs` — borrarlos antes del commit.
 - Si push no dispara deploy: `git commit --allow-empty -m "chore: re-trigger vercel deploy"` + push.
