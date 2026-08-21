@@ -6,6 +6,7 @@ import { useAppStore, WorkOrder } from "@/lib/store/app-store";
 import { fetchSupabaseDayReport } from "@/lib/supabase/services";
 import { supabase } from "@/lib/supabase/client";
 import { getPeruDateString, formatPeruDate, toPeruDateKey } from "@/lib/utils/date-utils";
+import { parseCorrelative } from "@/lib/utils/receipt-utils";
 import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
@@ -403,38 +404,6 @@ export function WorkshopDailyReportView({
     }
     return res;
   };
-
-  // Abonos del día: pagos parciales recibidos HOY sobre facturas de días anteriores.
-  // Son ingresos reales de la jornada aunque la factura se haya emitido antes.
-  const abonosDelDia = useMemo(() => {
-    let efectivo = 0;
-    let yape = 0;
-    let transferencia = 0;
-    let culqi = 0;
-    let count = 0;
-    (dayPayments || []).forEach((p: any) => {
-      count += 1;
-      const amt = Number(p.amount) || 0;
-      const bd = Array.isArray(p.payment_breakdown) ? p.payment_breakdown : [];
-      if (bd.length > 0) {
-        (bd as any[]).forEach((s: any) => {
-          const sm = (s.method || "").toUpperCase();
-          const a = Number(s.amount) || 0;
-          if (sm.includes("YAPE") || sm.includes("PLIN")) yape += a;
-          else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) transferencia += a;
-          else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS")) culqi += a;
-          else efectivo += a;
-        });
-      } else {
-        const m = (p.method || "EFECTIVO").toUpperCase();
-        if (m.includes("YAPE") || m.includes("PLIN")) yape += amt;
-        else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) transferencia += amt;
-        else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS")) culqi += amt;
-        else efectivo += amt;
-      }
-    });
-    return { efectivo, yape, transferencia, culqi, count, total: efectivo + yape + transferencia + culqi };
-  }, [dayPayments]);
 
   // Consolidated Rows for the Day's Table
   const consolidatedRows = useMemo(() => {
@@ -1119,6 +1088,63 @@ export function WorkshopDailyReportView({
     [consolidatedRows]
   );
 
+  // BUG FIX (18/08/2026, BBL-219 / VENTA duplicadas): los ABONOS del día se leen de
+  // payment_history y se agregan como filas "ABONO" en la liquidación, pero si la
+  // factura se emitió el MISMO día, su cobro ya aparece como fila de la OT/factura
+  // con sus recursos. Antes se duplicaba la placa: una fila con recurso + una fila
+  // "abono" con el mismo comprobante y monto. Aquí se filtran los pagos cuya
+  // (placa + correlativo + monto) ya está cubierta por una fila reportable del día.
+  const dayPaymentsDeduped = useMemo(() => {
+    const covered = new Set<string>();
+    reportableRows.forEach((r: any) => {
+      const rn = String(r.receiptNumber || "").trim();
+      if (!rn || rn === "0") return;
+      const { folio } = parseCorrelative(rn);
+      if (!folio) return;
+      covered.add(`${String(r.plate || "").toUpperCase()}|${folio}|${(Number(r.total) || 0).toFixed(2)}`);
+    });
+    return (dayPayments || []).filter((p: any) => {
+      const rn = String(p.receipt_number || "").trim();
+      if (!rn || rn === "0") return true; // abono sin comprobante no colisiona
+      const { folio } = parseCorrelative(rn);
+      if (!folio) return true;
+      const key = `${String(p.plate || "").toUpperCase()}|${folio}|${(Number(p.amount) || 0).toFixed(2)}`;
+      return !covered.has(key);
+    });
+  }, [reportableRows, dayPayments]);
+
+  // Abonos del día: pagos parciales recibidos HOY sobre facturas de días anteriores.
+  // Son ingresos reales de la jornada aunque la factura se haya emitido antes.
+  const abonosDelDia = useMemo(() => {
+    let efectivo = 0;
+    let yape = 0;
+    let transferencia = 0;
+    let culqi = 0;
+    let count = 0;
+    (dayPaymentsDeduped || []).forEach((p: any) => {
+      count += 1;
+      const amt = Number(p.amount) || 0;
+      const bd = Array.isArray(p.payment_breakdown) ? p.payment_breakdown : [];
+      if (bd.length > 0) {
+        (bd as any[]).forEach((s: any) => {
+          const sm = (s.method || "").toUpperCase();
+          const a = Number(s.amount) || 0;
+          if (sm.includes("YAPE") || sm.includes("PLIN")) yape += a;
+          else if (sm.includes("TRANSFER") || sm.includes("BANCO") || sm.includes("BCP") || sm.includes("BBVA")) transferencia += a;
+          else if (sm.includes("TARJETA") || sm.includes("CULQI") || sm.includes("CULQUI") || sm.includes("POS")) culqi += a;
+          else efectivo += a;
+        });
+      } else {
+        const m = (p.method || "EFECTIVO").toUpperCase();
+        if (m.includes("YAPE") || m.includes("PLIN")) yape += amt;
+        else if (m.includes("TRANSFER") || m.includes("BANCO") || m.includes("BCP") || m.includes("BBVA")) transferencia += amt;
+        else if (m.includes("TARJETA") || m.includes("CULQI") || m.includes("CULQUI") || m.includes("POS")) culqi += amt;
+        else efectivo += amt;
+      }
+    });
+    return { efectivo, yape, transferencia, culqi, count, total: efectivo + yape + transferencia + culqi };
+  }, [dayPaymentsDeduped]);
+
   // Liquidación del día: SOLO ingresos reales (facturas cobradas + abonos recibidos hoy).
   // Excluye pendientes/crédito y montos truncos (esos van a la pestaña Saldos Pendientes).
   const liquidacionRows = useMemo(() => {
@@ -1127,7 +1153,7 @@ export function WorkshopDailyReportView({
       .filter((r) => r.payState !== "pendiente" && !r.isTrunco)
       .map((r) => ({ ...r }));
 
-    (dayPayments || []).forEach((p: any) => {
+    (dayPaymentsDeduped || []).forEach((p: any) => {
       const amt = Number(p.amount) || 0;
       const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", amt);
       const ef = bd.efectivo;
@@ -1180,7 +1206,7 @@ export function WorkshopDailyReportView({
       r.itemNumber = i + 1;
     });
     return rows;
-  }, [reportableRows, dayPayments]);
+  }, [reportableRows, dayPaymentsDeduped]);
 
   // Saldos pendientes por placa: agrupa facturas con saldo > 0 y su historial de
   // pagos (abonos) para el sub-informe gerencial de cuentas por cobrar.
@@ -1459,7 +1485,7 @@ export function WorkshopDailyReportView({
     // propios métodos (EFECTIVO/YAPE/...), no solo como monto global: así la columna
     // EFECTIVO incluye abonos como el ticket TK01-00004588 (S/ 200 Efectivo) y el total
     // COBRADO coincide con el TOTAL.
-    (dayPayments || []).forEach((p: any) => {
+    (dayPaymentsDeduped || []).forEach((p: any) => {
       const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", Number(p.amount) || 0);
       cobradoEfectivo += bd.efectivo;
       cobradoYapes += bd.yape;
@@ -1482,7 +1508,7 @@ export function WorkshopDailyReportView({
       totalLiquidacion,
       totalAbonos,
     };
-  }, [reportableRows, abonosDelDia, dayPayments]);
+  }, [reportableRows, abonosDelDia, dayPaymentsDeduped]);
 
   // Category Breakdown: Servicios vs Repuestos vs Certificaciones
   const categoryBreakdown = useMemo(() => {
@@ -1607,7 +1633,7 @@ export function WorkshopDailyReportView({
 
     // ABONOS del día (pagos sobre facturas de otros días): también se distribuyen
     // por destino en la matriz electrónica (igual que el Reporte del Día y los totales).
-    (dayPayments || []).forEach((p: any) => {
+    (dayPaymentsDeduped || []).forEach((p: any) => {
       const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", Number(p.amount) || 0);
       const dest = (p.destination || "EMPRESA").toUpperCase();
       if (bd.yape > 0) yapeRows.push({ yape: bd.yape, yapeDestino: bd.yapeDestino || dest });
@@ -1673,7 +1699,7 @@ export function WorkshopDailyReportView({
       totalTransf,
       grandElectronicTotal,
     };
-  }, [reportableRows, dayPayments]);
+  }, [reportableRows, dayPaymentsDeduped]);
 
   // Technician Productivity Metrics
   const techPerformance = useMemo(() => {
