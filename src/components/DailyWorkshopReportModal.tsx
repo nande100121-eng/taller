@@ -748,27 +748,47 @@ export function WorkshopDailyReportView({
         // 180 = certificado, ticket 90 = filtro 40 + mantenimiento 30 + calibración 20).
         // Si no calza exacto, cae al reparto proporcional anterior (fallback).
         const invResources: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
-        const ticketCatSplits = invResources.length > 0
-          ? comprobantes.map((rc) => {
-              const rn = String(rc.receipt_number || "").trim();
-              const own = invResources.filter((x: any) => {
-                const xrn = String(x.receipt_number || "").trim();
-                if (rn && xrn) return xrn === rn;
-                return true; // sin N° en el vínculo: el recurso aplica al pago completo
-              });
-              const split = { serv: 0, rep: 0, cert: 0 };
-              own.forEach((x: any) => {
-                const amt = Number(x.amount) || 0;
-                if (String(x.category || "").toLowerCase() === "repuesto") split.rep += amt;
-                else if (String(x.category || "").toLowerCase() === "certificado") split.cert += amt;
-                else split.serv += amt;
-              });
-              return split;
-            })
-          : matchTicketsToItems(
-              comprobantes.map((rc) => Number(rc.amount) || 0),
-              buildCategoryItems(wo)
+        // BUG FIX (ticket 4586 duplicado en VENTAS POR CONCEPTO): cuando VARIOS pagos
+        // comparten el MISMO correlativo (ej. pago mixto: S/ 100 + S/ 10, ambos con el
+        // ticket 4586), el vínculo por N° asignaba TODOS los recursos del 4586 a CADA
+        // pago -> Servicios/Almacén duplicaban el monto (220 en vez de 110). Reglas:
+        //   (a) si el pago trae SUS PROPIOS recursos (rec.resources del historial), se
+        //       usan tal cual (vínculo recurso->pago 1:1);
+        //   (b) si no, los recursos/ítems se reparten PROPORCIONALMENTE al monto entre
+        //       los pagos que comparten el mismo N° de comprobante.
+        const ticketCatSplits = comprobantes.map((rc) => {
+          const rn = String(rc.receipt_number || "").trim();
+          let own: any[] = Array.isArray((rc as any).resources) ? (rc as any).resources : [];
+          if (own.length === 0) {
+            const sameReceipt = comprobantes.filter(
+              (c2: any) => String(c2.receipt_number || "").trim() === rn
             );
+            const totalSame = sameReceipt.reduce((s: number, c2: any) => s + (Number(c2.amount) || 0), 0) || 1;
+            const share = sameReceipt.length > 1 ? (Number(rc.amount) || 0) / totalSame : 1;
+            // Fuente: recursos de la factura del correlativo; si el vínculo está
+            // incompleto (suma < monto pagado del correlativo), usar los ítems
+            // REALES de la card para no perder monto en el reporte.
+            const matchedRes = invResources.filter((x: any) => {
+              const xrn = String(x.receipt_number || "").trim();
+              if (rn && xrn) return xrn === rn;
+              return true;
+            });
+            const matchedResSum = matchedRes.reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+            const source = matchedRes.length > 0 && matchedResSum >= totalSame - 0.5
+              ? matchedRes
+              : buildCategoryItems(wo);
+            own = source.map((x: any) => ({ ...x, amount: (Number(x.amount) || 0) * share }));
+          }
+          const split = { serv: 0, rep: 0, cert: 0 };
+          own.forEach((x: any) => {
+            const amt = Number(x.amount) || 0;
+            const cat = String(x.category || x.cat || "").toLowerCase();
+            if (cat === "repuesto" || cat === "rep") split.rep += amt;
+            else if (cat === "certificado" || cat === "cert") split.cert += amt;
+            else split.serv += amt;
+          });
+          return split;
+        });
         comprobantes.forEach((rec, si) => {
           const recAmount = Number(rec.amount) || 0;
           const subBd = breakdownFromSources(
