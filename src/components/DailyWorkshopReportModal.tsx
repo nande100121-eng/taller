@@ -1212,8 +1212,13 @@ export function WorkshopDailyReportView({
       if (abonoRes.length > 0) {
         abonoRes.forEach((x: any) => {
           const xa = Number(x.amount) || 0;
-          if (String(x.category || "").toLowerCase() === "repuesto") ar += xa;
-          else if (String(x.category || "").toLowerCase() === "certificado") ac += xa;
+          // RESPETA redirect_category (redirección manual del cajero en Caja): un
+          // recurso de categoría "servicio" redirigido a Almacén/Certificados cuenta
+          // en ESE concepto (bug: el abono del día caía a Servicios aunque el cajero
+          // lo hubiera redirigido a Almacén — AZX-546 TK01-00004607).
+          const xcat = String(x.redirect_category || x.category || x.cat || "").toLowerCase();
+          if (xcat === "repuesto" || xcat === "rep") ar += xa;
+          else if (xcat === "certificado" || xcat === "cert") ac += xa;
           else as += xa;
         });
       }
