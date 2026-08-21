@@ -267,6 +267,16 @@ export interface SiteContent {
   }>;
 }
 
+// Componente de una INSTALACIÓN: repuesto (del catálogo de Almacén) o certificado
+// (del catálogo de servicios con categoría Certificación) incluido en el paquete.
+export interface InstallationComponent {
+  id: string;             // id del ítem origen (repuesto del almacén o servicio de certificación)
+  description: string;
+  unit_price: number;
+  quantity: number;
+  source: "repuesto" | "certificado";
+}
+
 export interface WorkshopService {
   id: string;
   name: string;
@@ -274,6 +284,12 @@ export interface WorkshopService {
   price: number;
   description?: string;
   is_active?: boolean;
+  // INSTALACIÓN: servicio tipo "paquete" que incluye repuestos y/o certificados del
+  // catálogo. Al jalarlo en Taller se agregan automáticamente sus componentes y un
+  // ítem "MANO DE OBRA" calculado = price − Σ(componentes). Así Caja distribuye cada
+  // parte a VENTAS POR CONCEPTO (repuesto / certificado / servicio).
+  is_installation?: boolean;
+  installation_components?: InstallationComponent[];
 }
 
 // Tipo de Combustible configurable (opciones del select en Portería y Taller).

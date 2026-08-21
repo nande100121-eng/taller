@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAppStore, WorkOrder, WorkshopService, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
+import { useAppStore, WorkOrder, WorkshopService, InstallationComponent, ScheduleRecord, Technician, generateDefaultUsername, generateUUID } from "@/lib/store/app-store";
 import { parseCSVRows, parseISODate, parseWorkshopRow } from "@/lib/csv-parser";
 import { formatPeruDate, getPeruDateString, buildPeruISOString } from "@/lib/utils/date-utils";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
 import { formatPlate, titleCase } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom } from "@/lib/utils/payment-method";
+import { isCertificationService } from "@/lib/utils/service-catalog";
 
 // Convierte "S/ 410", "410", "S/ 50.00" o 410 a número. Devuelve 0 si no es válido.
 function parseAmt(raw: any): number {
@@ -77,6 +78,7 @@ export default function AdminTablesPage() {
     addWorkshopService,
     updateWorkshopService,
     deleteWorkshopService,
+    inventoryItems,
     workOrders,
     invoices,
     vehicles,
@@ -118,6 +120,72 @@ export default function AdminTablesPage() {
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"taller" | "personal" | "servicios" | "programacion">("taller");
+
+  // ===== SERVICIOS: formulario (crear/editar) + kit de INSTALACIÓN =====
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [serviceFormSeed, setServiceFormSeed] = useState<WorkshopService | null>(null);
+  const [formIsInstallation, setFormIsInstallation] = useState(false);
+  const [formPrice, setFormPrice] = useState<number>(80);
+  const [formComponents, setFormComponents] = useState<InstallationComponent[]>([]);
+  const [kitPartSel, setKitPartSel] = useState<string>("");
+  const [kitPartQty, setKitPartQty] = useState(1);
+  const [kitCertSel, setKitCertSel] = useState<string>("");
+  const [kitCertQty, setKitCertQty] = useState(1);
+
+  // Catálogo de certificados (servicios del catálogo con categoría Certificación).
+  const certificationCatalogs = React.useMemo(() => {
+    const list = (workshopServices || []).filter((s) => isCertificationService(s));
+    if (list.length > 0) return list;
+    return [
+      { id: "ws-cert-1", name: "Certificado Anual GNV", category: "Certificación", price: 80, is_active: true },
+      { id: "ws-cert-2", name: "Certificado Anual GLP", category: "Certificación", price: 80, is_active: true },
+      { id: "ws-cert-3", name: "Prueba Hidrostática de Cilindro GNV", category: "Certificación", price: 180, is_active: true },
+      { id: "ws-cert-4", name: "Desbloqueo de Chip GNV", category: "Certificación", price: 25, is_active: true },
+    ];
+  }, [workshopServices]);
+
+  // Añade un repuesto del catálogo de Almacén al kit de la instalación.
+  const handleAddKitPart = () => {
+    const item = inventoryItems.find((i) => i.id === kitPartSel);
+    if (!item) return;
+    setFormComponents((prev) => [
+      ...prev,
+      { id: item.id, description: item.name, unit_price: Number(item.unit_price) || 0, quantity: Math.max(1, kitPartQty), source: "repuesto" },
+    ]);
+  };
+
+  // Añade un certificado del catálogo al kit de la instalación.
+  const handleAddKitCert = () => {
+    const cs = certificationCatalogs.find((c) => c.id === kitCertSel);
+    if (!cs) return;
+    setFormComponents((prev) => [
+      ...prev,
+      { id: cs.id, description: cs.name, unit_price: Number(cs.price) || 0, quantity: Math.max(1, kitCertQty), source: "certificado" },
+    ]);
+  };
+
+  const handleUpdateKitComp = (idx: number, patch: Partial<InstallationComponent>) => {
+    setFormComponents((prev) => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  };
+  const handleRemoveKitComp = (idx: number) => {
+    setFormComponents((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Carga un servicio existente al formulario para editarlo (incluye su kit).
+  const handleEditService = (srv: WorkshopService) => {
+    setEditingServiceId(srv.id);
+    setServiceFormSeed(srv);
+    setFormPrice(Number(srv.price) || 0);
+    setFormIsInstallation(!!srv.is_installation);
+    setFormComponents(Array.isArray(srv.installation_components) ? srv.installation_components.map((c) => ({ ...c })) : []);
+  };
+  const handleCancelEditService = () => {
+    setEditingServiceId(null);
+    setServiceFormSeed(null);
+    setFormPrice(80);
+    setFormIsInstallation(false);
+    setFormComponents([]);
+  };
 
   // Search and Date Filters for Master Workshop Table
   const [searchTerm, setSearchTerm] = useState("");
@@ -2088,51 +2156,155 @@ export default function AdminTablesPage() {
           <div className="lg:col-span-4 glass-panel p-6 rounded-2xl border border-white/10 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-3">
               <Wrench className="w-5 h-5 text-indigo-400" />
-              <span>{techForm.full_name ? "Editar Servicio" : "Nuevo Servicio de Taller"}</span>
+              <span>{editingServiceId ? "Editar Servicio" : "Nuevo Servicio de Taller"}</span>
             </h2>
 
             <form
+              key={editingServiceId || "new"}
               onSubmit={(e) => {
                 e.preventDefault();
                 const form = e.currentTarget;
                 const name = (form.elements.namedItem("serviceName") as HTMLInputElement).value;
                 const category = (form.elements.namedItem("serviceCategory") as HTMLInputElement).value;
-                const price = parseFloat((form.elements.namedItem("servicePrice") as HTMLInputElement).value) || 0;
                 const desc = (form.elements.namedItem("serviceDesc") as HTMLTextAreaElement).value;
 
-                addWorkshopService({
+                const payload: Partial<WorkshopService> = {
                   name,
                   category: category || "Mantenimiento",
-                  price,
+                  price: Number(formPrice) || 0,
                   description: desc,
                   is_active: true,
-                });
-                notify("success", `Servicio "${name}" registrado con precio S/ ${price.toFixed(2)}.`);
-                form.reset();
+                };
+                if (formIsInstallation) {
+                  payload.is_installation = true;
+                  payload.installation_components = formComponents.map((c) => ({ ...c }));
+                } else {
+                  payload.is_installation = false;
+                  payload.installation_components = undefined;
+                }
+
+                if (editingServiceId) {
+                  updateWorkshopService(editingServiceId, payload);
+                  notify("success", `Servicio "${name}" actualizado con precio S/ ${(Number(formPrice) || 0).toFixed(2)}.`);
+                  handleCancelEditService();
+                } else {
+                  addWorkshopService(payload as WorkshopService);
+                  notify("success", `Servicio "${name}" registrado con precio S/ ${(Number(formPrice) || 0).toFixed(2)}.`);
+                  form.reset();
+                  setFormPrice(80);
+                  setFormIsInstallation(false);
+                  setFormComponents([]);
+                }
               }}
               className="space-y-4"
             >
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Nombre del Servicio de Taller *</label>
-                <input name="serviceName" type="text" required placeholder="Ej: Calibración Computarizada 5ta Gen" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
+                <input name="serviceName" type="text" required defaultValue={serviceFormSeed?.name || ""} placeholder="Ej: Calibración Computarizada 5ta Gen" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Categoría</label>
-                <input name="serviceCategory" type="text" defaultValue="Mantenimiento" placeholder="Ej: Diagnóstico, Inyección, Calibración..." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
+                <input name="serviceCategory" type="text" defaultValue={serviceFormSeed?.category || "Mantenimiento"} placeholder="Ej: Diagnóstico, Inyección, Calibración..." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white focus:border-indigo-400" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Precio Estándar en Taller (S/) *</label>
-                <input name="servicePrice" type="number" step="0.1" min="0" required defaultValue="80" placeholder="0.00" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono focus:border-indigo-400" />
+                <input type="number" step="0.1" min="0" required value={formPrice} onChange={(e) => setFormPrice(parseFloat(e.target.value) || 0)} placeholder="0.00" className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-sm text-white font-mono focus:border-indigo-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Permite S/ 0 para servicios de cortesía o revisión inicial gratuita.</p>
               </div>
+
+              {/* INSTALACIÓN: paquete con repuestos + certificados + mano de obra */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/30 cursor-pointer select-none">
+                <input type="checkbox" checked={formIsInstallation} onChange={(e) => setFormIsInstallation(e.target.checked)} className="mt-0.5 w-4 h-4 accent-indigo-500" />
+                <span className="text-xs">
+                  <span className="font-black text-indigo-300">⚙ Es una INSTALACIÓN (paquete)</span>
+                  <span className="block text-gray-400 mt-0.5">Incluye repuestos y/o certificados del catálogo. Al jalarla en Taller se agregan automáticamente sus componentes + la mano de obra calculada (total − componentes) para que Caja la distribuya en VENTAS POR CONCEPTO.</span>
+                </span>
+              </label>
+
+              {formIsInstallation && (
+                <div className="rounded-xl bg-black/30 border border-white/10 p-3 space-y-3">
+                  <div className="text-[10px] font-black text-indigo-300 uppercase tracking-wider">Componentes del kit</div>
+                  <div>
+                    <div className="flex gap-2 items-center">
+                      <select value={kitPartSel} onChange={(e) => setKitPartSel(e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-gray-200 focus:border-indigo-400">
+                        <option value="">📦 Elegir repuesto del catálogo...</option>
+                        {inventoryItems.map((it) => (
+                          <option key={it.id} value={it.id}>{it.name} — S/ {Number(it.unit_price || 0).toFixed(2)}</option>
+                        ))}
+                      </select>
+                      <input type="number" min="1" value={kitPartQty} onChange={(e) => setKitPartQty(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white text-center" title="Cantidad" />
+                      <button type="button" onClick={handleAddKitPart} disabled={!kitPartSel} className="px-2 py-1.5 rounded-lg bg-emerald-600/70 hover:bg-emerald-500 disabled:opacity-30 text-white text-[10px] font-black transition-colors shrink-0">+ Añadir</button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex gap-2 items-center">
+                      <select value={kitCertSel} onChange={(e) => setKitCertSel(e.target.value)} className="flex-1 min-w-0 px-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-gray-200 focus:border-indigo-400">
+                        <option value="">🛡 Elegir certificado del catálogo...</option>
+                        {certificationCatalogs.map((cs) => (
+                          <option key={cs.id} value={cs.id}>{cs.name} — S/ {Number(cs.price || 0).toFixed(2)}</option>
+                        ))}
+                      </select>
+                      <input type="number" min="1" value={kitCertQty} onChange={(e) => setKitCertQty(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white text-center" title="Cantidad" />
+                      <button type="button" onClick={handleAddKitCert} disabled={!kitCertSel} className="px-2 py-1.5 rounded-lg bg-cyan-600/70 hover:bg-cyan-500 disabled:opacity-30 text-white text-[10px] font-black transition-colors shrink-0">+ Añadir</button>
+                    </div>
+                  </div>
+                  {formComponents.length > 0 && (
+                    <div className="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                      {formComponents.map((c, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[11px] bg-white/5 border border-white/10 rounded-lg px-2 py-1">
+                          <span className="shrink-0">{c.source === "repuesto" ? "📦" : "🛡"}</span>
+                          <span className="flex-1 min-w-0 truncate text-gray-200 font-bold">{c.description}</span>
+                          <input type="number" min="1" value={c.quantity} onChange={(e) => handleUpdateKitComp(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="w-12 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-white text-center" title="Cantidad" />
+                          <input type="number" min="0" step="0.1" value={c.unit_price} onChange={(e) => handleUpdateKitComp(i, { unit_price: parseFloat(e.target.value) || 0 })} className="w-20 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-emerald-300 font-mono text-right" title="Precio unitario" />
+                          <span className="text-gray-400 font-mono w-16 text-right shrink-0">S/ {(c.quantity * c.unit_price).toFixed(2)}</span>
+                          <button type="button" onClick={() => handleRemoveKitComp(i)} className="p-0.5 text-red-400 hover:text-red-300 shrink-0" title="Quitar del kit">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(() => {
+                    const compSum = formComponents.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+                    const labor = Number((Number(formPrice) - compSum).toFixed(2));
+                    return (
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-2.5 py-2 space-y-0.5">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-gray-300">Total componentes ({formComponents.length})</span>
+                          <span className="text-white font-mono font-bold">S/ {compSum.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-gray-300">Precio total del servicio</span>
+                          <span className="text-white font-mono font-bold">S/ {(Number(formPrice) || 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] border-t border-amber-500/20 pt-1">
+                          <span className="text-amber-300 font-black">🔧 Mano de obra (diferencia)</span>
+                          <span className={"font-mono font-black " + (labor >= 0 ? "text-amber-300" : "text-red-400")}>S/ {Math.max(0, labor).toFixed(2)}</span>
+                        </div>
+                        {labor < 0 && (
+                          <p className="text-[10px] text-red-400 font-bold">⚠ El precio del servicio es MENOR que la suma de componentes: la mano de obra quedaría en S/ 0.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Descripción / Alcance del Servicio</label>
-                <textarea name="serviceDesc" rows={3} placeholder="Ej: Incluye escaneo de sensores, ajuste de tiempos de inyección y prueba de ruta." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400" />
+                <textarea name="serviceDesc" rows={3} defaultValue={serviceFormSeed?.description || ""} placeholder="Ej: Incluye escaneo de sensores, ajuste de tiempos de inyección y prueba de ruta." className="w-full px-3 py-2 bg-reygas-dark border border-white/10 rounded-lg text-xs text-white focus:border-indigo-400" />
               </div>
-              <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-colors shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
-                <Plus className="w-4 h-4" />
-                <span>Guardar Servicio en Catálogo</span>
-              </button>
+              <div className="flex gap-2">
+                <button type="submit" className={"flex-1 py-3 text-white font-bold rounded-xl text-sm transition-colors shadow-lg flex items-center justify-center gap-2 " + (editingServiceId ? "bg-amber-600 hover:bg-amber-500 shadow-amber-600/30" : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30")}>
+                  <Plus className="w-4 h-4" />
+                  <span>{editingServiceId ? "Guardar Cambios" : "Guardar Servicio en Catálogo"}</span>
+                </button>
+                {editingServiceId && (
+                  <button type="button" onClick={handleCancelEditService} className="px-4 py-3 bg-white/5 hover:bg-white/10 text-gray-300 font-bold rounded-xl text-sm transition-colors" title="Cancelar edición">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 
@@ -2184,6 +2356,18 @@ export default function AdminTablesPage() {
                       <tr key={srv.id} className="hover:bg-white/5 transition-colors">
                         <td className="p-3 font-bold text-white">
                           <input type="text" value={srv.name} onChange={(e) => updateWorkshopService(srv.id, { name: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-white font-bold rounded" />
+                          {srv.is_installation && (() => {
+                            const comps = Array.isArray(srv.installation_components) ? srv.installation_components : [];
+                            const repCount = comps.filter((c) => c.source === "repuesto").length;
+                            const certCount = comps.filter((c) => c.source === "certificado").length;
+                            const compSum = comps.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+                            const labor = Math.max(0, Number((Number(srv.price) - compSum).toFixed(2)));
+                            return (
+                              <div className="text-[9px] text-indigo-300 font-bold mt-1">
+                                ⚙ Instalación · {repCount} rep · {certCount} cert · MO S/ {labor.toFixed(2)}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="p-3 text-gray-300">
                           <input type="text" value={srv.category || "General"} onChange={(e) => updateWorkshopService(srv.id, { category: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-300 rounded" />
@@ -2198,9 +2382,14 @@ export default function AdminTablesPage() {
                           <input type="text" value={srv.description || ""} placeholder="Descripción breve..." onChange={(e) => updateWorkshopService(srv.id, { description: e.target.value })} className="w-full bg-transparent border-b border-transparent hover:border-white/20 focus:border-indigo-400 px-1.5 py-1 text-gray-400 rounded" />
                         </td>
                         <td className="p-3 text-center">
-                          <button onClick={() => { deleteWorkshopService(srv.id); notify("warning", `Servicio "${srv.name}" eliminado del catálogo.`); }} className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors" title="Eliminar este servicio del catálogo">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button onClick={() => handleEditService(srv)} className="p-1.5 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 rounded-lg transition-colors" title="Editar este servicio (incluye kit de instalación)">
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => { deleteWorkshopService(srv.id); notify("warning", `Servicio "${srv.name}" eliminado del catálogo.`); }} className="p-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-lg transition-colors" title="Eliminar este servicio del catálogo">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))

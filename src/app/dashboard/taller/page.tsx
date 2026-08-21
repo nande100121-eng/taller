@@ -47,11 +47,51 @@ import { getPeruDateString, formatPeruDateTime, buildPeruISOString, toPeruDateKe
 import { TrendingUp, FileSpreadsheet } from "lucide-react";
 import { capitalizeFirst } from "@/lib/utils/text-format";
 import { logSystemEvent } from "@/lib/system-log";
+import { isCertificationService } from "@/lib/utils/service-catalog";
 
 const DailyWorkshopReportModal = dynamic(
   () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
   { ssr: false }
 );
+// ===== INSTALACIONES: expande un servicio tipo "paquete" en sus componentes =====
+// (repuestos del almacen + certificados del catalogo) mas el item de MANO DE OBRA
+// calculado = price - suma(componentes). Asi el pago distribuye cada parte a
+// VENTAS POR CONCEPTO (repuesto / certificado / servicio).
+interface InstallationKitSource {
+  id: string;
+  description: string;
+  unit_price: number;
+  quantity: number;
+  source: "repuesto" | "certificado";
+}
+function buildInstallationItems(srv: {
+  id: string;
+  name: string;
+  price: number;
+  is_installation?: boolean;
+  installation_components?: InstallationKitSource[];
+}): Array<{ item_type: "repuesto" | "servicio"; inventory_item_id?: string; description: string; quantity: number; unit_price: number }> {
+  if (!srv.is_installation || !Array.isArray(srv.installation_components) || srv.installation_components.length === 0) return [];
+  const compSum = srv.installation_components.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+  const labor = Number((Number(srv.price) - compSum).toFixed(2));
+  const items = srv.installation_components.map((c) => ({
+    item_type: (c.source === "repuesto" ? "repuesto" : "servicio") as "repuesto" | "servicio",
+    ...(c.source === "repuesto" ? { inventory_item_id: c.id } : {}),
+    description: c.source === "repuesto" ? c.description : (String(c.description).toUpperCase().includes("CERTIFIC") ? c.description : "CERTIFICACION - " + c.description),
+    quantity: Math.max(1, Number(c.quantity) || 1),
+    unit_price: Number(c.unit_price) || 0,
+  }));
+  if (labor > 0) {
+    items.push({
+      item_type: "servicio",
+      description: "MANO DE OBRA - " + srv.name,
+      quantity: 1,
+      unit_price: labor,
+    });
+  }
+  return items;
+}
+
 
 export default function WorkshopOperationsPage() {
   const {
@@ -238,10 +278,13 @@ export default function WorkshopOperationsPage() {
     observation?: string; // OBSERVACIÓN / DETALLE DEL PRODUCTO (se muestra en Almacén)
   }>>([]);
 
-  // Multi-item SERVICES cart in modal (igual que repuestos: permite añadir VARIOS servicios)
+  // Multi-item SERVICES cart in modal (igual que repuestos: permite añadir VARIOS
+  // servicios). Para INSTALACIONES el carrito guarda TAMBIÉN los componentes del kit
+  // (repuestos con item_type "repuesto" + certificados + la mano de obra calculada).
   const [pendingServicesCart, setPendingServicesCart] = useState<Array<{
     id: string;
-    item_type: "servicio";
+    item_type: "servicio" | "repuesto";
+    inventory_item_id?: string;
     description: string;
     quantity: number;
     unit_price: number;
@@ -271,21 +314,7 @@ export default function WorkshopOperationsPage() {
 
   // Filtered Services for Certification and Workshop Services
   const certificationServices = React.useMemo(() => {
-    const list = workshopServices.filter((s) => {
-      const cat = (s.category || "").toLowerCase().trim();
-      const name = s.name.toLowerCase();
-      return (
-        cat === "certificación" ||
-        cat === "certificacion" ||
-        name.includes("certificado") ||
-        name.includes("certificacion") ||
-        name.includes("anual gnv") ||
-        name.includes("anual glp") ||
-        name.includes("hidrostática") ||
-        name.includes("hidrostatica") ||
-        name.includes("chip")
-      );
-    });
+    const list = workshopServices.filter((s) => isCertificationService(s));
     if (list.length > 0) return list;
     return [
       { id: "ws-cert-1", name: "Certificado Anual GNV", category: "Certificación", price: 80 },
@@ -511,6 +540,31 @@ export default function WorkshopOperationsPage() {
     if (requisitionType === "servicio") {
       const srv = workshopServices.find((s) => s.id === selectedServiceId);
       if (!srv) return;
+      // === INSTALACIÓN: expande el paquete en sus componentes + mano de obra ===
+      if (srv.is_installation) {
+        const kitItems = buildInstallationItems(srv);
+        if (kitItems.length === 0) {
+          notify("warning", "Este servicio es instalación pero no tiene componentes configurados en la tabla maestra.");
+          return;
+        }
+        const expanded = kitItems.map((it, i) => ({
+          id: "cart-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6) + "-" + i,
+          item_type: it.item_type,
+          inventory_item_id: it.inventory_item_id,
+          description: it.description,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          subtotal: Number((it.unit_price * it.quantity).toFixed(2)),
+        }));
+        setPendingServicesCart((prev) => [...prev, ...expanded]);
+        logSystemEvent("info", "taller.instalacion_expandida", {
+          woId: activeOrderModal ? String(activeOrderModal).slice(0, 8) : null,
+          srv: srv.name,
+          items: kitItems.length,
+        }, "Taller:modal-servicio");
+        setPartQty(1);
+        return;
+      }
       const qty = Number(partQty) || 1;
       const price = Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price) || 0;
       const existingIdx = pendingServicesCart.findIndex((p) => p.description === srv.name && p.unit_price === price);
@@ -801,10 +855,11 @@ export default function WorkshopOperationsPage() {
         addMultipleWorkOrderItems(
           targetOrderId,
           pendingServicesCart.map((p) => ({
-            item_type: "servicio" as const,
+            item_type: p.item_type || ("servicio" as const),
             description: p.description,
             quantity: p.quantity,
             unit_price: p.unit_price,
+            ...(p.item_type === "repuesto" && p.inventory_item_id ? { inventory_item_id: p.inventory_item_id } : {}),
           }))
         );
         updateWorkOrderStatus(targetOrderId, "en_servicio");
@@ -822,12 +877,18 @@ export default function WorkshopOperationsPage() {
         }
         const srv = workshopServices.find((s) => s.id === selectedServiceId);
         if (srv) {
-          addWorkOrderItem(targetOrderId, {
-            item_type: "servicio",
-            description: srv.name,
-            quantity: Number(partQty) || 1,
-            unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
-          });
+          // === INSTALACIÓN: agrega componentes + mano de obra calculada ===
+          const kitItems = buildInstallationItems(srv);
+          if (kitItems.length > 0) {
+            addMultipleWorkOrderItems(targetOrderId, kitItems);
+          } else {
+            addWorkOrderItem(targetOrderId, {
+              item_type: "servicio",
+              description: srv.name,
+              quantity: Number(partQty) || 1,
+              unit_price: Number(customItemPrice !== undefined && customItemPrice !== null ? customItemPrice : srv.price),
+            });
+          }
           updateWorkOrderStatus(targetOrderId, "en_servicio");
           setStatusFilter("en_servicio");
           setWebAlert({
@@ -2534,7 +2595,7 @@ export default function WorkshopOperationsPage() {
                       >
                         {workshopOnlyServices.map((srv) => (
                           <option key={srv.id} value={srv.id}>
-                            {srv.name} ({srv.category || "Servicio"}) — S/ {srv.price.toFixed(2)}
+                            {(srv.is_installation ? "⚙ " : "") + srv.name} ({srv.category || "Servicio"}) — S/ {srv.price.toFixed(2)}
                           </option>
                         ))}
                       </select>
@@ -2559,6 +2620,29 @@ export default function WorkshopOperationsPage() {
                         Puede ingresar S/ 0 si el servicio no tiene costo adicional (revisión/garantía).
                       </p>
                     </div>
+
+                    {(() => {
+                      const isrv = workshopServices.find((s) => s.id === selectedServiceId);
+                      if (!isrv || !isrv.is_installation) return null;
+                      const comps = Array.isArray(isrv.installation_components) ? isrv.installation_components : [];
+                      const compSum = comps.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+                      const labor = Number((Number(isrv.price) - compSum).toFixed(2));
+                      return (
+                        <div className="rounded-xl bg-indigo-950/40 border border-indigo-500/30 p-3 space-y-1.5">
+                          <div className="text-[11px] font-black text-indigo-300 uppercase tracking-wider">⚙ Instalación — se agregará automáticamente al confirmar</div>
+                          {comps.map((c, i) => (
+                            <div key={i} className="flex justify-between text-[11px]">
+                              <span className="text-gray-300">{c.source === "repuesto" ? "📦" : "🛡"} {c.description} ×{c.quantity}</span>
+                              <span className="text-white font-mono font-bold">S/ {((Number(c.unit_price) || 0) * (Number(c.quantity) || 1)).toFixed(2)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-[11px] border-t border-indigo-500/20 pt-1.5">
+                            <span className="text-amber-300 font-black">🔧 Mano de obra (diferencia)</span>
+                            <span className={"font-mono font-black " + (labor >= 0 ? "text-amber-300" : "text-red-400")}>S/ {Math.max(0, labor).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="space-y-3">
