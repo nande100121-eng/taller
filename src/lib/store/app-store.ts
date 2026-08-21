@@ -3693,9 +3693,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         }, "store:updatePaymentRecord");
         return state;
       }
-      const history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
+      let history: PaymentRecord[] = Array.isArray(targetInvoice.payment_history)
         ? [...targetInvoice.payment_history]
         : [];
+      // Defensivo: si el caché local trae el MISMO pago duplicado (mismo id, de sesiones
+      // previas con bugs de doble guardado), se conserva UNO solo — la edición nunca
+      // duplica montos ni persiste un historial inflado (causa del falso "supera saldo").
+      const seenIds = new Set<string>();
+      history = history.filter((p) => {
+        const k = p && p.id ? String(p.id) : "";
+        if (!k) return true;
+        if (seenIds.has(k)) return false;
+        seenIds.add(k);
+        return true;
+      });
       const idx = history.findIndex((p) => p.id === recordId);
       if (idx < 0) {
         logSystemEvent("warn", "payment.record_update.skip_record_not_found", {

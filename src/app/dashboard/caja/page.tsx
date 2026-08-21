@@ -2159,7 +2159,12 @@ export default function CajaPage() {
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
     }
-    if (amount > balance + 0.01) {
+    // EN EDICIÓN NO se valida contra el saldo: el cajero está CORRIGIENDO el comprobante
+    // (monto, método, fecha, recursos) y el nuevo monto REEMPLAZA al anterior — no es un
+    // abono adicional. El saldo se recalcula en el store al guardar (total - historial).
+    // Antes esto bloqueaba con "Excede el saldo pendiente (S/ 0.00) en S/ X" cuando el
+    // historial local traía el pago ya contado (o duplicado de sesiones previas).
+    if (!isEditingRecord && amount > balance + 0.01) {
       logSystemEvent("warn", "abono.submit.blocked", { reason: "supera_saldo", amount, balance }, "caja:abono-submit");
       notify("warning", `El abono (S/ ${amount.toFixed(2)}) supera el saldo pendiente (S/ ${balance.toFixed(2)}).`);
       return;
@@ -2170,14 +2175,26 @@ export default function CajaPage() {
     let paymentBreakdown: PaymentSplit[] | undefined = undefined;
 
     if (partialPaymentModal.isSplitPayment && partialPaymentModal.paymentSplits && partialPaymentModal.paymentSplits.length > 0) {
-      const totalSplits = partialPaymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      // EN EDICIÓN: el monto de cada método se sincroniza con la suma de sus recursos
+      // marcados (si los tiene) — los ajustes de montos del cajero se guardan tal cual.
+      let splits = partialPaymentModal.paymentSplits;
+      if (isEditingRecord) {
+        splits = splits.map((sp) => {
+          const srs: any[] = Array.isArray((sp as any).splitResources) ? (sp as any).splitResources : [];
+          if (srs.length > 0) {
+            const s = srs.filter((r: any) => r.selected).reduce((sum: number, r: any) => sum + (Number(r.payAmount) || 0), 0);
+            return { ...sp, amount: Math.round(s * 100) / 100 };
+          }
+          return sp;
+        });
+      }
+      const totalSplits = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const diff = Math.abs(amount - totalSplits);
-      if (diff > 0.05) {
+      if (!isEditingRecord && diff > 0.05) {
         logSystemEvent("warn", "abono.submit.blocked", { reason: "suma_splits", amount, totalSplits }, "caja:abono-submit");
         notify("warning", `La suma de los abonos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el monto a abonar (S/ ${amount.toFixed(2)}).`);
         return;
       }
-      let splits = partialPaymentModal.paymentSplits;
       if (partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante") {
         // Pago mixto multi-ticket: cada método lleva su propio TIPO (Ticket/Boleta/Factura) y N° de comprobante
         splits = splits.map((s) => {
@@ -2282,7 +2299,7 @@ export default function CajaPage() {
     // Consistencia: la suma de los recursos marcados debe coincidir con el monto del
     // abono (permite abono parcial de un recurso: el monto asignado es lo que se paga).
     const abonoResSum = abonoResources.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-    if (abonoResources.length > 0 && Math.abs(abonoResSum - amount) > 0.05) {
+    if (!isEditingRecord && abonoResources.length > 0 && Math.abs(abonoResSum - amount) > 0.05) {
       logSystemEvent("warn", "abono.submit.blocked", { reason: "suma_recursos", amount, abonoResSum, nResources: abonoResources.length }, "caja:abono-submit");
       notify("warning", `La suma de los recursos marcados (S/ ${abonoResSum.toFixed(2)}) no coincide con el monto del abono (S/ ${amount.toFixed(2)}). Ajuste los montos de los recursos.`);
       return;
