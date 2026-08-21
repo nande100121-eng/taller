@@ -298,6 +298,10 @@ export default function WorkshopOperationsPage() {
   const [editItemPrice, setEditItemPrice] = useState(0);
   const [editItemPriceStr, setEditItemPriceStr] = useState<string>("");
   const [editItemObservation, setEditItemObservation] = useState("");
+  // Origen del repuesto al editarlo: "catalog" (selector del catálogo + vincula
+  // inventory_item_id) o "manual" (texto libre).
+  const [editItemSource, setEditItemSource] = useState<"catalog" | "manual">("manual");
+  const [editItemCatalogId, setEditItemCatalogId] = useState<string>("");
 
   const filteredInventoryItems = React.useMemo(() => {
     if (!partsSearchQuery.trim()) return inventoryItems;
@@ -694,6 +698,10 @@ export default function WorkshopOperationsPage() {
     setEditItemPrice(item.unit_price || 0);
     setEditItemPriceStr(item.unit_price != null ? String(item.unit_price) : "");
     setEditItemObservation(item.observation || "");
+    // Si el repuesto vino del catálogo (tiene inventory_item_id), abre en modo
+    // "Del Catálogo" con ese ítem preseleccionado; si no, abre en "Manual".
+    setEditItemSource(item.item_type === "repuesto" && item.inventory_item_id ? "catalog" : "manual");
+    setEditItemCatalogId(item.inventory_item_id || "");
   };
 
   const handleSaveEditItem = () => {
@@ -702,11 +710,14 @@ export default function WorkshopOperationsPage() {
       notify("warning", "Ingrese un precio unitario válido antes de guardar el ítem.");
       return;
     }
+    const isRep = editingItem.item.item_type === "repuesto";
+    const invId = isRep && editItemSource === "catalog" && editItemCatalogId ? editItemCatalogId : undefined;
     updateWorkOrderItem(editingItem.orderId, editingItem.item.id, {
       description: editItemDescription.trim() || editingItem.item.description,
       quantity: Number(editItemQty) || 1,
       unit_price: Number(editItemPrice) || 0,
       observation: editItemObservation.trim() || undefined,
+      ...(isRep ? { inventory_item_id: invId } : {}),
     });
     setEditingItem(null);
     setWebAlert({
@@ -3030,17 +3041,72 @@ export default function WorkshopOperationsPage() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">
-                  Descripción / Nombre del Ítem *
-                </label>
-                <input
-                  type="text"
-                  value={editItemDescription}
-                  onChange={(e) => setEditItemDescription(capitalizeFirst(e.target.value))}
-                  className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-bold focus:border-amber-400 focus:outline-none"
-                />
-              </div>
+              {editingItem.item.item_type === "repuesto" && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                    Origen del Repuesto
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/40 border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setEditItemSource("catalog")}
+                      className={"py-2 rounded-lg text-[11px] font-black transition-colors " + (editItemSource === "catalog" ? "bg-amber-500/25 text-amber-300 border border-amber-500/40" : "text-gray-400 hover:text-white border border-transparent")}
+                    >
+                      📦 Del Catálogo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditItemSource("manual")}
+                      className={"py-2 rounded-lg text-[11px] font-black transition-colors " + (editItemSource === "manual" ? "bg-amber-500/25 text-amber-300 border border-amber-500/40" : "text-gray-400 hover:text-white border border-transparent")}
+                    >
+                      ✏️ Manual
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {editingItem.item.item_type === "repuesto" && editItemSource === "catalog" ? (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Seleccionar Repuesto del Catálogo *
+                  </label>
+                  <select
+                    value={editItemCatalogId}
+                    onChange={(e) => {
+                      const it = inventoryItems.find((x) => x.id === e.target.value);
+                      setEditItemCatalogId(e.target.value);
+                      if (it) {
+                        setEditItemDescription(it.name);
+                        setEditItemPrice(Number(it.unit_price) || 0);
+                        setEditItemPriceStr(it.unit_price != null ? String(it.unit_price) : "");
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-bold focus:border-amber-400 focus:outline-none"
+                  >
+                    <option value="">— Elegir repuesto del catálogo —</option>
+                    {inventoryItems.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}{it.brand ? " · " + it.brand : ""}{it.serial_number ? " · S/N " + it.serial_number : ""} — S/ {Number(it.unit_price || 0).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Escriba con el teclado para saltar al repuesto. Al elegirlo se cargan nombre y precio del catálogo y queda vinculado a Almacén.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-300 mb-1">
+                    Descripción / Nombre del Ítem *
+                  </label>
+                  <input
+                    type="text"
+                    value={editItemDescription}
+                    onChange={(e) => setEditItemDescription(capitalizeFirst(e.target.value))}
+                    className="w-full px-3.5 py-2.5 bg-reygas-dark border border-white/15 rounded-xl text-sm text-white font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
