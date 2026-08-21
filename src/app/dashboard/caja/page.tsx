@@ -11,6 +11,7 @@ import { getWorkshopCSVRecord, WORKSHOP_CSV_LOOKUP } from "@/lib/workshop-csv-lo
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
 import { getPeruDateString, formatPeruDateTime, formatPeruDate, buildPeruISOString, toPeruDateKey } from "@/lib/utils/date-utils";
+import { parseCorrelative, matchesReceiptSeries, RECEIPT_SERIES, formatReceiptNumber } from "@/lib/utils/receipt-utils";
 import { formatPlate, titleCase, capitalizeFirst } from "@/lib/utils/text-format";
 import { cleanMethodDisplay, defaultMethodFrom, sanitizeMethod } from "@/lib/utils/payment-method";
 import { logSystemEvent, logTiming } from "@/lib/system-log";
@@ -110,6 +111,9 @@ export default function CajaPage() {
   const [visibleLimit, setVisibleLimit] = useState<number>(30);
   // Cards de placas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  // Paneles laterales colapsados POR DEFECTO (Gastos del Día / Últimos Correlativos)
+  const [showGastosPanel, setShowGastosPanel] = useState<boolean>(false);
+  const [showCorrelativosPanel, setShowCorrelativosPanel] = useState<boolean>(false);
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
 
@@ -866,8 +870,9 @@ export default function CajaPage() {
   // Helper to extract numeric correlative from a receipt string
   const parseReceiptNumber = (raw?: string) => {
     if (!raw) return 0;
-    const clean = raw.replace(/[^0-9]/g, "");
-    return parseInt(clean, 10) || 0;
+    // FIX CORRELATIVOS: el folio es la parte numérica tras el guion (TK01-00004545 -> 4545),
+    // NO todos los dígitos del string (que mezclaba la serie y daba 1000004545).
+    return parseCorrelative(raw).folio;
   };
 
   // Maximum correlative present in the workshop register (tabla "registro taller" / CSV) per receipt type
@@ -878,16 +883,19 @@ export default function CajaPage() {
       const rec = WORKSHOP_CSV_LOOKUP[key];
       const numStr = String(rec.receiptNumber || "").trim();
       if (!numStr || numStr === "0") continue;
-      const clean = parseInt(numStr.replace(/\D/g, ""), 10);
-      if (isNaN(clean) || clean >= 99999999) continue;
       const rt = String(rec.receiptType || "").toUpperCase();
-      if (rt.includes("FACTURA")) {
-        if (clean > max.Factura) max.Factura = clean;
-      } else if (rt.includes("BOLETA")) {
-        if (clean > max.Boleta) max.Boleta = clean;
-      } else if (rt.includes("TICKET")) {
-        if (clean > max.Ticket) max.Ticket = clean;
-      }
+      let kind: "Ticket" | "Boleta" | "Factura" | null = null;
+      if (rt.includes("FACTURA")) kind = "Factura";
+      else if (rt.includes("BOLETA")) kind = "Boleta";
+      else if (rt.includes("TICKET")) kind = "Ticket";
+      if (!kind) continue;
+      // FIX CORRELATIVOS: solo series TK01/B001/F001 (o folios históricos sin prefijo)
+      if (!matchesReceiptSeries(numStr, kind)) continue;
+      const { folio } = parseCorrelative(numStr);
+      if (folio <= 0 || folio >= 99999999) continue;
+      if (kind === "Factura" && folio > max.Factura) max.Factura = folio;
+      else if (kind === "Boleta" && folio > max.Boleta) max.Boleta = folio;
+      else if (kind === "Ticket" && folio > max.Ticket) max.Ticket = folio;
     }
     return max;
   }, []);
@@ -909,8 +917,7 @@ export default function CajaPage() {
         inv.receipt_number &&
         inv.receipt_number !== "0" &&
         ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("ticket")) ||
-          inv.receipt_number.toUpperCase().startsWith("TK") ||
-          inv.receipt_number.toUpperCase().startsWith("T"))
+          matchesReceiptSeries(inv.receipt_number, "Ticket"))
     );
     const sortedTickets = [...ticketInvoices].sort((a, b) => {
       const numA = parseReceiptNumber(a.receipt_number);
@@ -926,7 +933,7 @@ export default function CajaPage() {
         inv.receipt_number &&
         inv.receipt_number !== "0" &&
         ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("boleta")) ||
-          inv.receipt_number.toUpperCase().startsWith("B"))
+          matchesReceiptSeries(inv.receipt_number, "Boleta"))
     );
     const sortedBoletas = [...boletaInvoices].sort((a, b) => {
       const numA = parseReceiptNumber(a.receipt_number);
@@ -942,7 +949,7 @@ export default function CajaPage() {
         inv.receipt_number &&
         inv.receipt_number !== "0" &&
         ((inv.receipt_type && inv.receipt_type.toLowerCase().includes("factura")) ||
-          inv.receipt_number.toUpperCase().startsWith("F"))
+          matchesReceiptSeries(inv.receipt_number, "Factura"))
     );
     const sortedFacturas = [...facturaInvoices].sort((a, b) => {
       const numA = parseReceiptNumber(a.receipt_number);
@@ -2793,9 +2800,14 @@ export default function CajaPage() {
         </div>
       </div>
 
-      {/* Gastos del Día (egresos de caja) */}
+      {/* Gastos del Día (egresos de caja) — colapsada POR DEFECTO */}
       <div className="space-y-2.5 bg-reygas-dark/80 p-4 rounded-2xl border border-rose-500/20 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setShowGastosPanel((v) => !v)}
+          className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left"
+          title={showGastosPanel ? "Contraer panel" : "Expandir panel"}
+        >
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400">
               <ReceiptText className="w-4 h-4" />
@@ -2809,13 +2821,18 @@ export default function CajaPage() {
               </span>
             </div>
           </div>
-          <span className="text-sm font-mono font-black text-rose-300">
-            {dayExpenses.length > 0
-              ? `− S/ ${dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toFixed(2)} (${dayExpenses.length})`
-              : "S/ 0.00"}
+          <span className="flex items-center gap-2">
+            <span className="text-sm font-mono font-black text-rose-300">
+              {dayExpenses.length > 0
+                ? `− S/ ${dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toFixed(2)} (${dayExpenses.length})`
+                : "S/ 0.00"}
+            </span>
+            <span className={`p-1 rounded-lg transition-colors ${showGastosPanel ? "bg-rose-500/20 text-rose-300" : "bg-white/5 text-gray-400"}`}>
+              {showGastosPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </span>
           </span>
-        </div>
-        {dayExpenses.length > 0 ? (
+        </button>
+        {showGastosPanel && (dayExpenses.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {dayExpenses.map((e) => (
               <div key={e.id} className="flex items-start justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
@@ -2841,12 +2858,17 @@ export default function CajaPage() {
           </div>
         ) : (
           <p className="text-[11px] text-gray-500 italic">Sin gastos registrados para esta fecha. Usa el botón <strong className="text-rose-300">Gastos</strong> para registrar uno.</p>
-        )}
+        ))}
       </div>
 
-      {/* Últimos Correlativos Registrados & Filtro Rápido */}
+      {/* Últimos Correlativos Registrados & Filtro Rápido — colapsada POR DEFECTO */}
       <div className="space-y-2.5 bg-reygas-dark/80 p-4 rounded-2xl border border-white/10 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setShowCorrelativosPanel((v) => !v)}
+          className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left"
+          title={showCorrelativosPanel ? "Contraer panel" : "Expandir panel"}
+        >
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
               <Receipt className="w-4 h-4" />
@@ -2856,21 +2878,28 @@ export default function CajaPage() {
                 Últimos Correlativos Emitidos & Filtro Rápido
               </span>
               <span className="text-[11px] text-gray-400">
-                Haz clic en una tarjeta para filtrar por tipo de comprobante o ver el último folio emitido.
+                Haz clic para expandir: filtra por tipo de comprobante o ver el último folio emitido.
               </span>
             </div>
           </div>
-          {receiptTypeFilter !== "TODOS" && (
-            <button
-              onClick={() => setReceiptTypeFilter("TODOS")}
-              className="text-xs text-amber-300 hover:text-white font-black flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95 shrink-0 self-start sm:self-auto"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Mostrar Todos los Comprobantes (Filtro {receiptTypeFilter} Activo)</span>
-            </button>
-          )}
-        </div>
+          <span className="flex items-center gap-2 shrink-0">
+            {receiptTypeFilter !== "TODOS" && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setReceiptTypeFilter("TODOS"); }}
+                className="text-xs text-amber-300 hover:text-white font-black flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-3 py-1.5 rounded-xl transition-all shadow-md active:scale-95"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Mostrar Todos (Filtro {receiptTypeFilter} Activo)</span>
+              </button>
+            )}
+            <span className={`p-1 rounded-lg transition-colors ${showCorrelativosPanel ? "bg-amber-500/20 text-amber-300" : "bg-white/5 text-gray-400"}`}>
+              {showCorrelativosPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </span>
+          </span>
+        </button>
 
+        {showCorrelativosPanel && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Card Ticket */}
           <button
@@ -2986,6 +3015,7 @@ export default function CajaPage() {
             </div>
           </button>
         </div>
+        )}
       </div>
 
       {/* ========================================================================= */}

@@ -45,6 +45,7 @@ import {
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
 import { getPeruDateString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
+import { parseCorrelative, matchesReceiptSeries, RECEIPT_SERIES } from "@/lib/utils/receipt-utils";
 import { logSystemEvent, logTiming } from "@/lib/system-log";
 
 // Ahora (fecha/hora actual) ANCLADA a Perú (-05:00): las fechas de pago/emisión
@@ -883,20 +884,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       if (!numStr) return;
 
       const upper = numStr.toUpperCase();
-      const isFactura = inv.receipt_type === "Factura" || upper.startsWith("F0") || upper.startsWith("F1") || upper.startsWith("FA");
-      const isBoleta = inv.receipt_type === "Boleta" || upper.startsWith("B0") || upper.startsWith("B1") || upper.startsWith("BO");
-      const isTicket = inv.receipt_type === "Ticket" || upper.startsWith("TK") || upper.startsWith("T0") || (!isFactura && !isBoleta);
-
+      // FIX CORRELATIVOS (solicitud 20/08): el correlativo debe pertenecer a la SERIE
+      // esperada del tipo (TK01 para ticket, B001 para boleta, F001 para factura) y el
+      // folio se extrae de la parte numérica tras el guion (TK01-00004545 -> 4545, NO
+      // 1000004545). Solo así la secuencia continúa desde el último folio real.
       let matches = false;
-      if (type === "Factura" && isFactura) matches = true;
-      else if (type === "Boleta" && isBoleta) matches = true;
-      else if (type === "Ticket" && isTicket) matches = true;
+      if (type === "Factura" && matchesReceiptSeries(numStr, "Factura")) matches = true;
+      else if (type === "Boleta" && matchesReceiptSeries(numStr, "Boleta")) matches = true;
+      else if (type === "Ticket" && matchesReceiptSeries(numStr, "Ticket")) matches = true;
 
       if (matches) {
-        // Extract trailing numbers or numerical part
-        const clean = parseInt(numStr.replace(/\D/g, ""), 10);
-        if (!isNaN(clean) && clean > maxExistingInDb && clean < 99999999) {
-          maxExistingInDb = clean;
+        const { folio } = parseCorrelative(numStr);
+        if (folio > 0 && folio > maxExistingInDb && folio < 99999999) {
+          maxExistingInDb = folio;
         }
       }
     });
@@ -915,9 +915,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         (type === "Boleta" && recTypeUpper.includes("BOLETA")) ||
         (type === "Ticket" && (recTypeUpper.includes("TICKET") || (!recTypeUpper.includes("FACTURA") && !recTypeUpper.includes("BOLETA"))));
       if (!matchesType) continue;
-      const clean = parseInt(numStr.replace(/\D/g, ""), 10);
-      if (!isNaN(clean) && clean > maxExistingInDb && clean < 99999999) {
-        maxExistingInDb = clean;
+      // FIX CORRELATIVOS: solo series TK01/B001/F001 (o folios históricos sin prefijo)
+      if (!matchesReceiptSeries(numStr, type)) continue;
+      const { folio } = parseCorrelative(numStr);
+      if (folio > 0 && folio > maxExistingInDb && folio < 99999999) {
+        maxExistingInDb = folio;
       }
     }
 
