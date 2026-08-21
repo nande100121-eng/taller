@@ -2379,6 +2379,40 @@ export default function CajaPage() {
     setRedirectMenuKey(null);
   };
 
+  // Selecciona o DESelecciona TODOS los recursos disponibles de un comprobante/método
+  // (modal abonar/editar saldo). Respeta los recursos usados en OTRO método (quedan
+  // intactos) y recalcula el monto del método y el abono global.
+  const setAllSplitResources = (splitIdx: number, selectAll: boolean) => {
+    if (!partialPaymentModal) return;
+    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) => {
+      if (i !== splitIdx) return p;
+      const list: any[] = Array.isArray((p as any).splitResources) ? (p as any).splitResources : [];
+      const next = list.map((r2: any) => {
+        // Misma lógica de saldo que la fila: lo ya pagado en OTROS métodos.
+        const paidOther = (partialPaymentModal.paymentSplits || [])
+          .filter((_, oi) => oi !== splitIdx)
+          .reduce((acc: number, pp: any) => acc + ((Array.isArray(pp.splitResources) ? pp.splitResources : []).filter((o: any) => o.key === r2.key && o.selected).reduce((s: number, o: any) => s + (Number(o.payAmount) || 0), 0)), 0);
+        const pendingBase = (() => {
+          const base = (partialPaymentModal.resourceSelection || []).find((b: any) => b.key === r2.key);
+          return Number(base?.pendingAmount) || Number(base?.fullAmount) || Number(r2.pendingAmount) || Number(r2.fullAmount) || 0;
+        })();
+        const saldoRestante = Math.max(0, pendingBase - paidOther);
+        const usedOther = saldoRestante <= 0.01;
+        const disabled = usedOther && !r2.selected;
+        if (disabled) return r2; // recurso usado en otro método: no tocar
+        if (selectAll) {
+          return { ...r2, selected: true, payAmount: Math.min(Number(r2.fullAmount) || 0, saldoRestante) };
+        }
+        return { ...r2, selected: false, payAmount: 0 };
+      });
+      const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
+      return { ...p, splitResources: next, amount: newAmount };
+    });
+    // Monto global del abono = suma de recursos marcados en TODOS los métodos
+    const totalGlobal = Number(updated.reduce((acc: number, sp: any) => acc + (Array.isArray(sp.splitResources) ? sp.splitResources.filter((r3: any) => r3.selected).reduce((s3: number, r3: any) => s3 + (Number(r3.payAmount) || 0), 0) : 0), 0).toFixed(2));
+    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated, amount: totalGlobal > 0 ? totalGlobal : partialPaymentModal.amount });
+  };
+
   // Actualiza un campo de un recurso (descripción/monto/categoría de un recurso manual).
   const updateManualResource = (splitIdx: number, key: string, patch: any) => {
     if (!partialPaymentModal) return;
@@ -6001,7 +6035,23 @@ export default function CajaPage() {
                           <div className="mt-2 p-2.5 rounded-xl bg-black/30 border border-white/10 space-y-1.5">
                             <div className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
                               <span>🔗 Recursos de este comprobante</span>
-                              <span className="flex items-center gap-2">
+                              <span className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setAllSplitResources(idx, true)}
+                                  className="px-1.5 py-0.5 rounded-md bg-purple-500/15 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-[9px] font-black transition-colors shrink-0"
+                                  title="Seleccionar TODOS los recursos disponibles de este comprobante"
+                                >
+                                  ✓ Todos
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAllSplitResources(idx, false)}
+                                  className="px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-white/15 text-gray-300 border border-white/10 text-[9px] font-black transition-colors shrink-0"
+                                  title="Quitar la selección de TODOS los recursos de este comprobante"
+                                >
+                                  ✕ Quitar
+                                </button>
                                 <span className="font-mono text-emerald-300">S/ {srsSum.toFixed(2)}</span>
                                 <button
                                   type="button"
