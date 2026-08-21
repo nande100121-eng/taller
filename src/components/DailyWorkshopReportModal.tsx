@@ -463,6 +463,9 @@ export function WorkshopDailyReportView({
       catServ?: number;
       catRep?: number;
       catCert?: number;
+      // Fila generada desde la card del Taller (con items/recursos): el reparto
+      // manual por N° de comprobante NO debe pisar su desglose por concepto.
+      hasCardSplit?: boolean;
     }> = [];
 
     let count = 1;
@@ -858,6 +861,7 @@ export function WorkshopDailyReportView({
             isInvoice: true,
             orderStatus: "finalizado",
             receiptNumber: String(rec.receipt_number || ""),
+            hasCardSplit: true, // fila de la card (items/recursos): el reparto manual NO la pisa
             catServ: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.serv : (catSplit.total > 0 ? recAmount * (catSplit.serv / catSplit.total) : recAmount),
             catRep: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.rep : (catSplit.total > 0 ? recAmount * (catSplit.rep / catSplit.total) : 0),
             catCert: ticketCatSplits && ticketCatSplits[si] ? ticketCatSplits[si]!.cert : (catSplit.total > 0 ? recAmount * (catSplit.cert / catSplit.total) : 0),
@@ -886,6 +890,7 @@ export function WorkshopDailyReportView({
           isInvoice: Boolean(inv?.id),
           orderStatus: wo.status,
           receiptNumber: (inv?.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || (csvRec?.receiptNumber && csvRec.receiptNumber !== "0" ? csvRec.receiptNumber : "") || "",
+          hasCardSplit: true, // fila de la card (items/recursos): el reparto manual NO la pisa
           // VÍNCULO DIRECTO (desde 17/08/2026): si el pago se registró marcando qué
           // recursos cubría, VENTAS POR CONCEPTO usa ese vínculo (cero inferencias).
           // Fallback: reparto por ítems reales de la card / proporcional.
@@ -1449,7 +1454,13 @@ export function WorkshopDailyReportView({
       const manualKey = normalizeReceiptKey(r.receiptNumber || "");
       // El reparto manual solo aplica al día definido por el usuario (17/08/2026):
       // así no choca con comprobantes del mismo número en otros días.
-      const manual = selectedDate === "2026-08-17" && manualKey ? MANUAL_CONCEPT_SPLIT_BY_RECEIPT[manualKey] : undefined;
+      // BUG FIX (ticket 4586 mostrando 110 en vez de 100/10): el reparto manual NO debe
+      // pisar las filas que vienen de la card (hasCardSplit: tienen items/recursos con
+      // el reparto correcto por método de pago). El manual queda SOLO para los registros
+      // históricos de la Tabla Maestra (sin card), que es su propósito original.
+      const manual = selectedDate === "2026-08-17" && manualKey && !(r as any).hasCardSplit
+        ? MANUAL_CONCEPT_SPLIT_BY_RECEIPT[manualKey]
+        : undefined;
       if (manual) {
         if (manual.serv > 0) {
           servTotal += manual.serv;
