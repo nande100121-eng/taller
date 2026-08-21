@@ -859,6 +859,13 @@ export default function WorkshopOperationsPage() {
     setActiveOrderModal(null);
   };
 
+  // Estados FINALES: cuando el taller terminó el servicio y el vehículo se liberó
+  // (pagado/finalizado/entregado), la card solo vive en el día de su ingreso.
+  // Los estados ACTIVOS (ingresado, diagnóstico, repuestos, en servicio, por cobrar,
+  // pendiente) siguen "en el taller" aunque hayan ingresado en días anteriores.
+  const isFinalWorkshopStatus = (status: string) =>
+    ["pagado_autorizado", "finalizado", "entregado"].includes(status);
+
   // Orders filtered by date
   const dateScopedOrders = React.useMemo(() => {
     return workOrders.filter((wo) => {
@@ -867,7 +874,13 @@ export default function WorkshopOperationsPage() {
       if (timeFilter === "todos") return true;
       // Fecha de PERÚ: convierte el timestamp (aunque venga en UTC crudo) al día real
       const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
-      return orderDateStr === queryDate;
+      if (orderDateStr === queryDate) return true;
+      // FIX (solicitud 20/08): los vehículos que quedaron ACTIVOS en días anteriores
+      // (ingresados el 17 y aún en servicio/diagnóstico/repuestos/cobro) deben seguir
+      // apareciendo en los días posteriores según su estado actual, porque todavía
+      // están en el taller y se liberarán cuando el servicio termine y se pague.
+      if (!isFinalWorkshopStatus(wo.status)) return true;
+      return false;
     });
   }, [workOrders, timeFilter, queryDate]);
 
@@ -882,7 +895,11 @@ export default function WorkshopOperationsPage() {
     const todayOrders = workOrders.filter((wo) => {
       if (isGasto(wo)) return false;
       const d = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
-      return d === todayTarget;
+      // Mismo criterio que dateScopedOrders: el día exacto + vehículos ACTIVOS de días
+      // anteriores (aún en el taller) para que los contadores/filtros coincidan con las cards.
+      if (d === todayTarget) return true;
+      if (!isFinalWorkshopStatus(wo.status)) return true;
+      return false;
     });
 
     const activeList = timeFilter === "hoy" ? todayOrders : workOrders.filter((wo) => !isGasto(wo));
