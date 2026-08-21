@@ -3128,6 +3128,19 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       }, "services:saveSupabaseInvoice");
       return;
     }
+    // ANTI-FACTURA FANTASMA: si la OT vinculada fue BORRADA (tombstone wo_deleted_<id>),
+    // NO se guarda/crea su factura (un dispositivo con la OT en caché podía re-crearla
+    // DESPUÉS del borrado -> factura fantasma que quedaba huérfana en la base).
+    if (inv.work_order_id && await isWorkOrderDeleted(inv.work_order_id)) {
+      logSystemEvent("warn", "invoice.save.skipped_ot_borrada", {
+        invId: String(inv.id).slice(0, 26),
+        woId: String(inv.work_order_id).slice(0, 8),
+        plate: inv.vehicle_plate || "",
+        receipt: inv.receipt_number || "",
+        total: inv.grand_total,
+      }, "services:saveSupabaseInvoice");
+      return;
+    }
     // BUG FIX (AFT-598): un work_order_id INVÁLIDO ("x" o 1-2 caracteres, p. ej. desde
     // una confirmación con OT corrupta) rompía el vínculo OT<->factura: la Tabla Maestra
     // mostraba la placa SIN número de boleta. Se recupera el UUID correcto desde el
