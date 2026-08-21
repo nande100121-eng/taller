@@ -131,29 +131,18 @@ export default function AdminTablesPage() {
   const [kitPartQty, setKitPartQty] = useState(1);
   const [kitCertSel, setKitCertSel] = useState<string>("");
   const [kitCertQty, setKitCertQty] = useState(1);
-  // Búsqueda (nombre/marca/serie) y orden A-Z del selector de repuestos del kit.
-  const [kitPartQuery, setKitPartQuery] = useState("");
+  // Orden A-Z del selector de repuestos del kit. (El buscador por texto se quitó:
+  // el select nativo ya salta a la opción según lo que se escribe con el teclado.)
   const [kitPartSortAZ, setKitPartSortAZ] = useState(false);
 
-  // Repuestos del catálogo filtrados por texto (nombre, marca, serie, SKU, categoría)
-  // y opcionalmente ordenados alfabéticamente.
+  // Repuestos del catálogo opcionalmente ordenados alfabéticamente.
   const kitPartsFiltered = React.useMemo(() => {
     let list = (inventoryItems || []).slice();
-    const q = kitPartQuery.trim().toLowerCase();
-    if (q) {
-      list = list.filter((it) =>
-        String(it.name || "").toLowerCase().includes(q) ||
-        String(it.brand || "").toLowerCase().includes(q) ||
-        String(it.serial_number || "").toLowerCase().includes(q) ||
-        String(it.sku_barcode || "").toLowerCase().includes(q) ||
-        String(it.category || "").toLowerCase().includes(q)
-      );
-    }
     if (kitPartSortAZ) {
       list = list.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" }));
     }
     return list;
-  }, [inventoryItems, kitPartQuery, kitPartSortAZ]);
+  }, [inventoryItems, kitPartSortAZ]);
 
   // Catálogo de certificados (servicios del catálogo con categoría Certificación).
   const certificationCatalogs = React.useMemo(() => {
@@ -2248,17 +2237,7 @@ export default function AdminTablesPage() {
                 <div className="rounded-xl bg-black/30 border border-white/10 p-3 space-y-3">
                   <div className="text-[10px] font-black text-indigo-300 uppercase tracking-wider">Componentes del kit</div>
                   <div>
-                    <div className="flex gap-2 items-center mb-1.5">
-                      <div className="relative flex-1 min-w-0">
-                        <Search className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={kitPartQuery}
-                          onChange={(e) => setKitPartQuery(e.target.value)}
-                          placeholder="Buscar repuesto por nombre, marca o serie..."
-                          className="w-full pl-6 pr-2 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white focus:border-indigo-400"
-                        />
-                      </div>
+                    <div className="flex gap-2 items-center mb-1.5 justify-end">
                       <button
                         type="button"
                         onClick={() => setKitPartSortAZ((v) => !v)}
@@ -2280,9 +2259,6 @@ export default function AdminTablesPage() {
                       <input type="number" min="1" value={kitPartQty} onChange={(e) => setKitPartQty(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 px-1.5 py-1.5 bg-reygas-dark border border-white/10 rounded-lg text-[11px] text-white text-center" title="Cantidad" />
                       <button type="button" onClick={handleAddKitPart} disabled={!kitPartSel} className="px-2 py-1.5 rounded-lg bg-emerald-600/70 hover:bg-emerald-500 disabled:opacity-30 text-white text-[10px] font-black transition-colors shrink-0">+ Añadir</button>
                     </div>
-                    {kitPartsFiltered.length === 0 && (
-                      <p className="text-[10px] text-gray-500 italic mt-1">Sin resultados para la búsqueda.</p>
-                    )}
                   </div>
                   <div>
                     <div className="flex gap-2 items-center">
