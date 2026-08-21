@@ -276,7 +276,11 @@ export function initGlobalLogging() {
       } catch {}
     }, true);
 
-    // ---- RED: cada petición/respuesta a Supabase REST ----
+    // ---- RED: peticiones/respuestas a Supabase REST ----
+    // ANTI-RUIDO (el log se inundaba con los GET de sync y empujaba fuera las acciones
+    // reales): se registra (a) TODOS los writes (POST/PATCH/DELETE = cada guardado),
+    // (b) TODOS los errores (status != 200 o fallo de red), y (c) los GET lentos
+    // (>1500ms). Los GET 200 rápidos de sync se omiten: no son acciones ni errores.
     const origFetch = window.fetch.bind(window);
     (window as any).fetch = (input: any, init?: RequestInit) => {
       try {
@@ -287,12 +291,18 @@ export function initGlobalLogging() {
         return origFetch(input, init)
           .then((res: Response) => {
             try {
-              logSystemEvent("info", "net.rest", {
-                m: method,
-                p: url.split("/rest/v1/")[1] ? url.split("/rest/v1/")[1].split("?")[0].slice(0, 70) : url.slice(0, 70),
-                s: res.status,
-                ms: Date.now() - start,
-              }, "net");
+              const ms = Date.now() - start;
+              const isWrite = method !== "GET";
+              const isErr = res.status >= 400;
+              const slow = ms > 1500;
+              if (isWrite || isErr || slow) {
+                logSystemEvent(isErr ? "warn" : "info", isWrite ? "net.write" : "net.rest", {
+                  m: method,
+                  p: url.split("/rest/v1/")[1] ? url.split("/rest/v1/")[1].split("?")[0].slice(0, 70) : url.slice(0, 70),
+                  s: res.status,
+                  ms,
+                }, "net");
+              }
             } catch {}
             return res;
           })
