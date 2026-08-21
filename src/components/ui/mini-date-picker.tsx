@@ -32,6 +32,7 @@ export default function MiniDatePicker({
 }: MiniDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
 
   // Parse current value or default today
@@ -113,10 +114,16 @@ export default function MiniDatePicker({
     }
   }, [isOpen, align]);
 
-  // Close when clicking outside
+  // Close when clicking outside (el popup vive en un PORTAL al body, por eso se
+  // verifica TAMBIÉN popupRef: un click dentro del calendario NO debe cerrarlo antes
+  // de seleccionar el día — bug: al hacer click en una fecha no se seleccionaba porque
+  // el mousedown del "click fuera" cerraba el popup primero).
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const inButton = containerRef.current && containerRef.current.contains(target);
+      const inPopup = popupRef.current && popupRef.current.contains(target);
+      if (!inButton && !inPopup) {
         setIsOpen(false);
       }
     };
@@ -209,6 +216,7 @@ export default function MiniDatePicker({
 
       {isOpen && popupPos && typeof document !== "undefined" && createPortal(
         <div
+          ref={popupRef}
           style={{ position: "fixed", top: popupPos.top, left: popupPos.left, zIndex: 9999 }}
           className="p-4 bg-reygas-dark border border-amber-500/40 rounded-2xl shadow-2xl backdrop-blur-xl w-64 animate-fadeIn text-xs"
         >
