@@ -16,6 +16,7 @@ import {
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
   deleteSupabaseInvoice,
+  emitCloudSavedToast,
   fetchSupabaseErpData,
   fetchCappedOperationalData,
   deleteSupabaseInventoryItem,
@@ -3575,17 +3576,55 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         // Registrar el pago en el HISTORIAL (además del desglose): así la card muestra
         // el pago aunque la factura ya esté pagada, y se puede ver/editar qué recursos
         // cubrió (vínculo recurso -> pago desde 17/08/2026).
+        // BUG FIX (card con 2+ comprobantes que superan el total, sin alerta): el pago
+        // nuevo se registraba SIEMPRE por el total completo (computedGrandTotal). Si la
+        // factura ya tenía pagos/abonos previos (historial en el store O inferido desde
+        // el crédito: total - credit_amount = monto ya cobrado), la suma del historial
+        // superaba el total y la card mostraba 2+ comprobantes. Ahora el monto del pago
+        // es el SALDO pendiente (total - ya cobrado); si ya está pagada, se rechaza con
+        // aviso (nunca duplicar el cobro).
+        const prevHistory: PaymentRecord[] = Array.isArray(targetInvoice.payment_history) ? targetInvoice.payment_history : [];
+        let prevPaid = prevHistory.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+        const creditHint = Number(targetInvoice.credit_amount) || 0;
+        if (prevPaid <= 0.01 && creditHint > 0.01 && creditHint < computedGrandTotal - 0.01) {
+          // Sin historial local (pestaña/tablet recién abierta) pero con saldo pendiente
+          // registrado en la factura: el monto ya cobrado se infiere (total - crédito),
+          // igual que lo hace la card para mostrar el saldo.
+          prevPaid = computedGrandTotal - creditHint;
+        }
+        let confirmAmount = computedGrandTotal;
+        if (prevPaid > 0.01) {
+          const saldo = Math.max(0, computedGrandTotal - prevPaid);
+          if (saldo <= 0.01) {
+            logSystemEvent("warn", "payment.confirm.ya_pagado.rechazado", {
+              invoiceId: String(targetInvoice.id).slice(0, 26),
+              woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+              prevPaid,
+              total: computedGrandTotal,
+            }, "store:confirmInvoicePayment");
+            emitCloudSavedToast(`⚠️ Esta OT ya está pagada (S/ ${prevPaid.toFixed(2)}). No se registró un pago duplicado.`, "warning");
+            return state;
+          }
+          confirmAmount = saldo;
+          logSystemEvent("info", "payment.confirm.saldo_ajustado", {
+            invoiceId: String(targetInvoice.id).slice(0, 26),
+            woId: String(targetInvoice.work_order_id || "").slice(0, 8),
+            prevPaid,
+            total: computedGrandTotal,
+            saldo,
+          }, "store:confirmInvoicePayment");
+          emitCloudSavedToast(`Se cobró el saldo pendiente (S/ ${saldo.toFixed(2)}); ya había S/ ${prevPaid.toFixed(2)} cobrados.`, "warning");
+        }
         const confirmRec: PaymentRecord = {
           id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           date: nowISO,
-          amount: computedGrandTotal,
-          method: sanitizeMethod(paymentMethod || targetInvoice.payment_method || "Efectivo", computedGrandTotal) || "Efectivo",
+          amount: confirmAmount,
+          method: sanitizeMethod(paymentMethod || targetInvoice.payment_method || "Efectivo", confirmAmount) || "Efectivo",
           destination: paymentDestination || targetInvoice.payment_destination || "EMPRESA",
           receipt_number: receiptNumber !== undefined ? receiptNumber : (targetInvoice.receipt_number || undefined),
           receipt_type: receiptType !== undefined ? receiptType : (targetInvoice.receipt_type || undefined),
           resources: Array.isArray(resources) && resources.length > 0 ? resources : undefined,
         };
-        const prevHistory: PaymentRecord[] = Array.isArray(targetInvoice.payment_history) ? targetInvoice.payment_history : [];
         const historyAfter = [...prevHistory, confirmRec];
 
         const updated: Invoice = {
