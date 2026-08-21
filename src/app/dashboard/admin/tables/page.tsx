@@ -2330,8 +2330,10 @@ export default function AdminTablesPage() {
                   {(() => {
                     const compSum = formComponents.reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
                     const labor = Number((Number(formPrice) - compSum).toFixed(2));
+                    const repSum = formComponents.filter((c) => c.source === "repuesto").reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+                    const certSum = formComponents.filter((c) => c.source === "certificado").reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
                     return (
-                      <div className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-2.5 py-2 space-y-0.5">
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-2.5 py-2 space-y-1.5">
                         <div className="flex justify-between text-[11px]">
                           <span className="text-gray-300">Total componentes ({formComponents.length})</span>
                           <span className="text-white font-mono font-bold">S/ {compSum.toFixed(2)}</span>
@@ -2340,9 +2342,21 @@ export default function AdminTablesPage() {
                           <span className="text-gray-300">Precio total del servicio</span>
                           <span className="text-white font-mono font-bold">S/ {(Number(formPrice) || 0).toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between text-[11px] border-t border-amber-500/20 pt-1">
-                          <span className="text-amber-300 font-black">🔧 Mano de obra (diferencia)</span>
-                          <span className={"font-mono font-black " + (labor >= 0 ? "text-amber-300" : "text-red-400")}>S/ {Math.max(0, labor).toFixed(2)}</span>
+                        {/* Distribución por concepto, igual que en VENTAS POR CONCEPTO */}
+                        <div className="border-t border-amber-500/20 pt-1.5 space-y-1">
+                          <div className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Distribución en VENTAS POR CONCEPTO</div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-gray-300">📦 Almacén (repuestos)</span>
+                            <span className="text-emerald-300 font-mono font-bold">S/ {repSum.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-gray-300">🛡 Certificados</span>
+                            <span className="text-purple-300 font-mono font-bold">S/ {certSum.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-gray-300">🔧 Servicios (mano de obra)</span>
+                            <span className={"font-mono font-bold " + (labor >= 0 ? "text-teal-300" : "text-red-400")}>S/ {Math.max(0, labor).toFixed(2)}</span>
+                          </div>
                         </div>
                         {labor < 0 && (
                           <p className="text-[10px] text-red-400 font-bold">⚠ El precio del servicio es MENOR que la suma de componentes: la mano de obra quedaría en S/ 0.</p>
