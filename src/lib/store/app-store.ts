@@ -2525,20 +2525,32 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         it?.dispatched === true &&
         !localItems.some((l: any) => itemKey(l) === itemKey(it) && l.dispatched === true)
       );
+      // FLUJO TALLER->CAJA: un cambio de status a un estado FINAL (por_cobrar,
+      // pendiente_pago, pagado_autorizado, finalizado, entregado) hace aparecer/ocultar
+      // la card en Caja. Si difiere del status local, NUNCA se descarta (misma regla
+      // que item nuevo/despacho): la card de Caja debe aparecer al instante.
+      const CASHIER_CRITICAL_STATUSES = ["por_cobrar", "pendiente_pago", "pagado_autorizado", "finalizado", "entregado"];
+      const hasCriticalStatusChange =
+        !!existing &&
+        CASHIER_CRITICAL_STATUSES.includes(wo.status) &&
+        existing.status !== wo.status;
       const recentLocal = hasRecentLocalMutation("workOrders", 400);
-      if (recentLocal && !hasNewRemoteItem && !hasRemoteDispatch) {
+      if (recentLocal && !hasNewRemoteItem && !hasRemoteDispatch && !hasCriticalStatusChange) {
         logSystemEvent("info", "realtime.workorder.apply.dropped", {
           woId: String(wo.id).slice(0, 8),
           reason: "guard-antieco-400ms",
           hasNewRemoteItem,
           hasRemoteDispatch,
+          hasCriticalStatusChange,
         }, "store:applyRemoteWorkOrderLocal");
         return state;
       }
-      if (hasNewRemoteItem || hasRemoteDispatch) {
+      if (hasNewRemoteItem || hasRemoteDispatch || hasCriticalStatusChange) {
         logSystemEvent("info", "realtime.workorder.apply.remote", {
           woId: String(wo.id).slice(0, 8),
           plate: wo.vehicle_plate || "",
+          status: wo.status || "",
+          statusChange: hasCriticalStatusChange ? (existing.status || "?") + "->" + wo.status : undefined,
           newItems: hasNewRemoteItem ? items.filter((it: any) => it && !localKeys.has(itemKey(it))).map((it: any) => String(it.description || "").slice(0, 16)).slice(0, 4) : [],
           dispatched: hasRemoteDispatch ? items.filter((it: any) => it?.dispatched === true).map((it: any) => String(it.description || "").slice(0, 16)).slice(0, 4) : [],
         }, "store:applyRemoteWorkOrderLocal");
