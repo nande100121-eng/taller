@@ -919,12 +919,15 @@ export default function WorkshopOperationsPage() {
 
   const displayedOrders = filteredOrders.slice(0, visibleLimit);
 
+  // FOCUS CARD (UX 20/08): solo UNA card expandida a la vez — la que se está
+  // trabajando. Al expandir una card se colapsan las demás.
   const toggleCollapse = (id: string) => {
     setExpandedOrders((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
       } else {
+        next.clear(); // focus: esta card es la única expandida
         next.add(id);
       }
       return next;
@@ -936,6 +939,46 @@ export default function WorkshopOperationsPage() {
   const expandAll = () => {
     setExpandedOrders(new Set(filteredOrders.map((o) => o.id)));
   };
+
+  // FOCUS CARD: si hay una card expandida y su ESTADO cambia (stepper del pipeline,
+  // Enviar a Cobrar, etc.), se activa el filtro al NUEVO estado para que la card
+  // nunca desaparezca de la lista, y se hace scroll suave para seguir trabajándola.
+  const focusOrder = expandedOrders.size === 1
+    ? workOrders.find((o) => o.id === Array.from(expandedOrders)[0])
+    : undefined;
+  const prevFocusStatusRef = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    if (!focusOrder) {
+      prevFocusStatusRef.current = undefined;
+      return;
+    }
+    const st = focusOrder.status || "";
+    if (prevFocusStatusRef.current && prevFocusStatusRef.current !== st) {
+      setStatusFilter(st);
+      setTimeout(() => {
+        document.getElementById(`taller-card-${focusOrder.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 120);
+    }
+    prevFocusStatusRef.current = st;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusOrder?.id, focusOrder?.status]);
+
+  // Al INGRESAR una OT NUEVA de HOY desde Portería (realtime cross-device), mostrar
+  // las cards COLAPSADAS (el usuario decide cuál expandir). Las OTs que reviven de
+  // un sync operativo (ya conocidas o de otros días) NO colapsan nada.
+  const knownOrderIdsRef = React.useRef<string[]>([]);
+  React.useEffect(() => {
+    const todayKey = getPeruDateString();
+    const ids = workOrders.map((o) => o.id);
+    const hasNewToday = workOrders.some(
+      (o) => !knownOrderIdsRef.current.includes(o.id) && toPeruDateKey(o.entry_time || "") === todayKey
+    );
+    if (hasNewToday && knownOrderIdsRef.current.length > 0) {
+      setExpandedOrders(new Set());
+    }
+    knownOrderIdsRef.current = ids;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workOrders]);
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -1180,6 +1223,7 @@ export default function WorkshopOperationsPage() {
             return (
               <div
                 key={wo.id}
+                id={`taller-card-${wo.id}`}
                 className={`glass-panel p-6 rounded-2xl border transition-all space-y-6 ${isLocked
                   ? "border-emerald-500/40 bg-emerald-950/10"
                   : wo.allow_modifications && isPaid
