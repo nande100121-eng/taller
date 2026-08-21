@@ -25,6 +25,7 @@ import {
   deleteSupabaseWorkOrder,
   deleteSupabaseMultipleWorkOrders,
   clearSupabaseWorkOrders,
+  clearWorkOrderDeletedMarker,
   saveSupabaseBulkWorkshopData,
   saveSupabaseCertification,
   deleteSupabaseCertification,
@@ -1312,7 +1313,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           // OPTIMIZACIÓN: se omiten las claves pesadas (snapshots inv_full_*/wo_mod_*/tech_perms_*/etc.)
           // que nadie lee desde siteContent del store: sus datos llegan ya reconstruidos en las
           // listas workOrders/invoices/vehicles. Evita duplicar ~100MB en memoria por dispositivo.
-          const CMS_HEAVY_PREFIXES = ["inv_full_", "inv_payhistory_", "inv_breakdown_", "wo_mod_", "tech_perms_", "tech_perms_name_", "sched_", "cert_", "appt_", "tool_loan_"];
+          const CMS_HEAVY_PREFIXES = ["inv_full_", "inv_payhistory_", "inv_breakdown_", "wo_mod_", "wo_deleted_", "tech_perms_", "tech_perms_name_", "sched_", "cert_", "appt_", "tool_loan_"];
           const CMS_SKIP_KEYS = ["all_technicians", "all_inventory_records", "all_schedule_records", "master_workshop_backup", "attendance_logs_all", "tool_loans_all"];
           Object.keys(sanitizedCms as any).forEach((section) => {
             if (CMS_SECTIONS.includes(section)) return;
@@ -3259,6 +3260,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
   importBulkWorkshopData: async ({ vehicles: newVehicles, workOrders: newOrders, invoices: newInvoices }) => {
     const res = await saveSupabaseBulkWorkshopData(newVehicles, newOrders, newInvoices);
+    // Re-importación (CSV/Tabla Maestra): si una OT borrada vuelve a importarse,
+    // se quita su tombstone para permitir guardarla de nuevo.
+    (newOrders || []).forEach((o: any) => { if (o && o.id) clearWorkOrderDeletedMarker(o.id); });
     set((state) => {
       // Merge vehicles by plate with latest non-empty attributes
       const vehicleMap = new Map(state.vehicles.map((v) => [v.plate, v]));

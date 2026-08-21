@@ -419,9 +419,37 @@ function enqueueWorkOrderSave(orderId: string, task: () => Promise<void>): Promi
   return guarded;
 }
 
+// ===== TOMBSTONE DE BORRADO (fix: "la OT se borra pero al refrescar reaparece") =====
+// Al borrar una OT se escribe wo_deleted_<id> y saveSupabaseWorkOrder se NIEGA a
+// re-upsertarla. Así, un dispositivo/pestaña con la OT en caché (Taller, sync de
+// 30s, heartbeat de 5 min, otra tablet) NO puede re-crearla en la nube.
+const deletedWoIds = new Set<string>();
+export function markWorkOrderDeletedLocal(id: string) { if (id) deletedWoIds.add(id); }
+export function clearWorkOrderDeletedMarker(id: string) {
+  if (id) deletedWoIds.delete(id);
+  try { supabase.from("site_content").delete().eq("key", `wo_deleted_${id}`).then(() => {}); } catch {}
+}
+async function isWorkOrderDeleted(id: string): Promise<boolean> {
+  if (deletedWoIds.has(id)) return true;
+  try {
+    const res = await supabase.from("site_content").select("key").eq("key", `wo_deleted_${id}`).maybeSingle();
+    if (res?.data) { deletedWoIds.add(id); return true; }
+  } catch { /* noop */ }
+  return false;
+}
+
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
   // Serializa por OT: espera a que termine el guardado anterior de la misma OT.
   await enqueueWorkOrderSave(order.id, async () => {
+    // TOMBSTONE: si el usuario borró esta OT, NO se re-upserta (una tablet con caché
+    // viejo no debe "revivirla" en la nube al guardar cualquier cosa de ella).
+    if (await isWorkOrderDeleted(order.id)) {
+      logSystemEvent("warn", "workorder.save.skipped_deleted", {
+        woId: String(order.id || "").slice(0, 8),
+        plate: order.vehicle_plate || "",
+      }, "services:saveSupabaseWorkOrder");
+      return;
+    }
   const saveStart = Date.now();
   try {
     markLocalMutation("workOrders");
@@ -698,6 +726,15 @@ export async function deleteSupabaseWorkOrder(id: string) {
     }
     // 4) La OT misma
     const { error } = await supabase.from("work_orders").delete().eq("id", id);
+    // 5) Snapshots + TOMBSTONE: se eliminan wo_mod_/wo_removed_ y se escribe
+    // wo_deleted_<id> para que NINGÚN dispositivo con caché viejo re-cree la OT
+    // al guardar (bug: "se borra pero al refrescar vuelve a aparecer").
+    await supabase.from("site_content").delete().eq("key", `wo_mod_${id}`);
+    await supabase.from("site_content").delete().eq("key", `wo_removed_${id}`);
+    try {
+      await saveSupabaseSiteContent(`wo_deleted_${id}`, { deleted: true, at: new Date().toISOString() }, "work_orders", false);
+    } catch {}
+    markWorkOrderDeletedLocal(id);
     broadcastRealtimeChange("work_order_deleted");
     if (error) console.warn("Supabase work order delete warning:", error.message);
   } catch (err) {
@@ -725,6 +762,16 @@ export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
       await supabase.from("site_content").delete().eq("section_key", `cert_${cid}`);
     }
     const { error } = await supabase.from("work_orders").delete().in("id", ids);
+    // Snapshots + tombstones de TODAS las OTs borradas (mismo fix anti-resurrección).
+    for (const id of ids) {
+      await supabase.from("site_content").delete().eq("key", `wo_mod_${id}`);
+      await supabase.from("site_content").delete().eq("key", `wo_removed_${id}`);
+      try {
+        await saveSupabaseSiteContent(`wo_deleted_${id}`, { deleted: true, at: new Date().toISOString() }, "work_orders", false);
+      } catch {}
+      markWorkOrderDeletedLocal(id);
+    }
+    broadcastRealtimeChange("work_order_deleted");
     if (error) console.warn("Supabase multiple work orders delete warning:", error.message);
   } catch (err) {
     console.warn("Supabase multiple work orders delete deferred:", err);
