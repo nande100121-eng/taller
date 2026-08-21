@@ -818,6 +818,16 @@ export function WorkshopDailyReportView({
             else if (cat === "certificado" || cat === "cert") split.cert += amt;
             else split.serv += amt;
           });
+          if (sameRcCount > 1) {
+            logSystemEvent("info", "reporte.concepto.split_resultado", {
+              plate: (wo.vehicle_plate || "").toUpperCase(),
+              receipt: rn,
+              pagoAmt: recAmt,
+              serv: split.serv,
+              rep: split.rep,
+              cert: split.cert,
+            }, "reporte:ticketCatSplits");
+          }
           return split;
         });
         comprobantes.forEach((rec, si) => {
