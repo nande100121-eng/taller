@@ -758,16 +758,34 @@ export function WorkshopDailyReportView({
         //       los pagos que comparten el mismo N° de comprobante.
         const ticketCatSplits = comprobantes.map((rc) => {
           const rn = String(rc.receipt_number || "").trim();
-          let own: any[] = Array.isArray((rc as any).resources) ? (rc as any).resources : [];
+          const recAmt = Number(rc.amount) || 0;
+          let own: any[] = [];
+          // 1) Fuente EXACTA: splitResources del payment_breakdown (el reparto que el
+          //    cajero marcó en el modal, con payAmount por recurso). Evita el duplicado
+          //    cuando 2 métodos comparten el MISMO correlativo (ej. TK01-00004586:
+          //    Efectivo 100 = servicio 100; Yape 260 = servicio 10 + repuestos 250).
+          const bdSplit = (Array.isArray((inv as any)?.payment_breakdown) ? (inv as any).payment_breakdown : [])
+            .find((s: any) => String(s.receipt_number || "").trim() === rn && Math.abs((Number(s.amount) || 0) - recAmt) < 0.05);
+          if (bdSplit && Array.isArray(bdSplit.splitResources)) {
+            own = bdSplit.splitResources
+              .filter((x: any) => (Number(x.payAmount) || Number(x.amount) || 0) > 0)
+              .map((x: any) => ({ ...x, amount: Number(x.payAmount) || Number(x.amount) || 0 }));
+          }
+          // 2) recursos propios del pago (p.resources): SOLO si no están inflados con el
+          //    total completo del correlativo (historial mal registrado: cada pago con
+          //    todos los recursos -> suma > monto del pago).
+          if (own.length === 0) {
+            const recRes: any[] = Array.isArray((rc as any).resources) ? (rc as any).resources : [];
+            const recResSum = recRes.reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+            if (recRes.length > 0 && recResSum <= recAmt + 0.5) own = recRes;
+          }
+          // 3) Reparto proporcional al monto entre los pagos del mismo correlativo (fallback)
           if (own.length === 0) {
             const sameReceipt = comprobantes.filter(
               (c2: any) => String(c2.receipt_number || "").trim() === rn
             );
             const totalSame = sameReceipt.reduce((s: number, c2: any) => s + (Number(c2.amount) || 0), 0) || 1;
-            const share = sameReceipt.length > 1 ? (Number(rc.amount) || 0) / totalSame : 1;
-            // Fuente: recursos de la factura del correlativo; si el vínculo está
-            // incompleto (suma < monto pagado del correlativo), usar los ítems
-            // REALES de la card para no perder monto en el reporte.
+            const share = sameReceipt.length > 1 ? recAmt / totalSame : 1;
             const matchedRes = invResources.filter((x: any) => {
               const xrn = String(x.receipt_number || "").trim();
               if (rn && xrn) return xrn === rn;

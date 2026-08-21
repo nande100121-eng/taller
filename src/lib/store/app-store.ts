@@ -3902,13 +3902,31 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const resourcesForRec = (s: any, idx: number): PaymentResource[] | undefined => {
         if (!Array.isArray(resources) || resources.length === 0) return undefined;
         if (!multiReceipt) return resources as PaymentResource[];
+        // BUG FIX (pago mixto con el MISMO correlativo en 2 métodos): el filtro por N°
+        // de comprobante asignaba TODOS los recursos del correlativo a CADA split (los
+        // duplicaba en el historial, inflando VENTAS POR CONCEPTO). Reglas nuevas:
+        //   (a) si el split trae SUS propios recursos repartidos (splitResources con
+        //       payAmount, armados en el modal de Caja), se usan tal cual (vínculo 1:1);
+        //   (b) si no, los recursos del correlativo se reparten PROPORCIONALMENTE al
+        //       monto entre los splits que comparten el mismo N° de comprobante.
+        const ownSplits = Array.isArray((s as any)?.splitResources)
+          ? (s as any).splitResources
+            .filter((x: any) => (Number(x.payAmount) || Number(x.amount) || 0) > 0)
+            .map((x: any) => ({ ...x, amount: Number(x.payAmount) || Number(x.amount) || 0 }))
+          : [];
+        if (ownSplits.length > 0) return ownSplits;
         const rn = String((s as any)?.receipt_number || "").trim();
+        const sameRc = bdSplits.filter(
+          (s2: any) => String(s2?.receipt_number || "").trim() === rn && (Number(s2.amount) || 0) > 0
+        );
+        const totalRc = sameRc.reduce((sum: number, s2: any) => sum + (Number(s2.amount) || 0), 0);
+        const share = sameRc.length > 1 && totalRc > 0 ? (Number((s as any)?.amount) || 0) / totalRc : 1;
         const own = (resources as PaymentResource[]).filter((x) => {
           const xrn = String((x as any).receipt_number || "").trim();
           if (rn && xrn) return xrn === rn;
           return false;
         });
-        return own.length > 0 ? own : (idx === 0 ? resources as PaymentResource[] : undefined);
+        return own.length > 0 ? own.map((x: any) => ({ ...x, amount: (Number(x.amount) || 0) * share })) : (idx === 0 ? resources as PaymentResource[] : undefined);
       };
       const recordsToAdd: PaymentRecord[] = multiReceipt
         ? bdSplits.map((s, idx) => {
