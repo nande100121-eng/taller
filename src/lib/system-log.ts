@@ -32,8 +32,10 @@ export function getCurrentLogPage(): string {
 
 // ===== ALMACENAMIENTO LOCAL =====
 const LOG_STORAGE_KEY = "reygas-syslog-local";
-// FIFO ampliado: el log debe captar TODAS las acciones/respuestas (debug total).
-const LOG_MAX_ENTRIES = 10000;
+// FIFO ampliado: el log debe captar TODAS las acciones/respuestas/clics (debug total).
+// Aunque el FIFO conserva solo las más recientes (localStorage finito), el "Descargar
+// log" exporta todo lo capturado en vivo; nada se omite al momento de registrar.
+const LOG_MAX_ENTRIES = 12000;
 const LOG_FLUSH_INTERVAL = 2000; // persistir cada 2s como máximo
 
 interface LogEntry {
@@ -214,14 +216,67 @@ export function logFlow(level: LogLevel, action: string, details?: Record<string
 // =====================================================================
 let networkLogInstalled = false;
 
-/** Instala la captura global: (1) errores globales (window.error +
- *  unhandledrejection) y (2) interceptor de red que registra CADA petición a
- *  Supabase REST (método, ruta, status HTTP, duración) y sus fallos. Local. */
+/** Instala la captura global SIN OMITIR NADA:
+ *  (1) errores globales (window.error + unhandledrejection);
+ *  (2) CADA CLIC de la web (ui.click: tag, id, name, texto, clase, ruta del elemento);
+ *  (3) CADA CAMBIO de campo/select (ui.change: tag, id, name, valor);
+ *  (4) interceptor de red: CADA petición a Supabase REST (método, ruta, status, ms).
+ *  Todo queda en localStorage del dispositivo — NUNCA se sube a la nube. */
 export function initGlobalLogging() {
   if (typeof window === "undefined" || networkLogInstalled) return;
   networkLogInstalled = true;
   try {
     initGlobalErrorLogger();
+
+    // ---- CLICS: todo lo que el usuario toca/pulsa (también en tablet: tap = click) ----
+    const compactTarget = (t: any): Record<string, unknown> | null => {
+      try {
+        if (!t || !t.tagName) return null;
+        const info: Record<string, unknown> = { tag: String(t.tagName).toLowerCase() };
+        if (t.id) info.id = String(t.id).slice(0, 40);
+        const nameAttr = t.getAttribute && t.getAttribute("name");
+        if (nameAttr) info.name = String(nameAttr).slice(0, 40);
+        const txt = (t.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+        if (txt) info.txt = txt;
+        const cls = typeof t.className === "string" ? t.className.split(/\s+/).slice(0, 3).join(".") : "";
+        if (cls) info.cls = cls.slice(0, 40);
+        // ruta: sube hasta 3 ancestros (tag + #id) para ubicar el elemento
+        let path = "";
+        let el: HTMLElement | null = t;
+        for (let i = 0; i < 3 && el; i++) {
+          const seg = String(el.tagName || "").toLowerCase() + (el.id ? "#" + String(el.id).slice(0, 20) : "");
+          path = path ? seg + ">" + path : seg;
+          el = el.parentElement;
+        }
+        info.path = path.slice(0, 70);
+        return info;
+      } catch {
+        return null;
+      }
+    };
+    document.addEventListener("click", (e: Event) => {
+      const info = compactTarget(e.target);
+      if (info) logSystemEvent("info", "ui.click", info, "ui");
+    }, true);
+
+    // ---- CAMBIOS de campos (input/select/textarea): qué se escribió/se eligió ----
+    document.addEventListener("change", (e: Event) => {
+      try {
+        const t = e.target as any;
+        if (!t || !t.tagName) return;
+        const info: Record<string, unknown> = { tag: String(t.tagName).toLowerCase() };
+        if (t.id) info.id = String(t.id).slice(0, 40);
+        const nameAttr = t.getAttribute && t.getAttribute("name");
+        if (nameAttr) info.name = String(nameAttr).slice(0, 40);
+        if (t.type) info.type = String(t.type).slice(0, 20);
+        let val = t.value;
+        if (typeof val === "string") val = val.trim().slice(0, 60);
+        if (val !== undefined && val !== "") info.val = val;
+        logSystemEvent("info", "ui.change", info, "ui");
+      } catch {}
+    }, true);
+
+    // ---- RED: cada petición/respuesta a Supabase REST ----
     const origFetch = window.fetch.bind(window);
     (window as any).fetch = (input: any, init?: RequestInit) => {
       try {

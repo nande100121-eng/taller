@@ -905,19 +905,21 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>()(persist((set, get) => {
-  // ===== LOG LOCAL DE CADA ACCIÓN DEL STORE (captura total) =====
-  // Registra en el log interno (localStorage) cada set() con las claves que cambiaron,
-  // EXCEPTO las listas pesadas (workOrders/invoices/vehicles/...) que cambian en cada
-  // sync y saturarían el FIFO. Así cada clic/acción del usuario queda registrado.
+  // ===== LOG LOCAL DE CADA ACCIÓN DEL STORE (captura total, SIN OMITIR NADA) =====
+  // Registra en el log interno (localStorage) CADA set() con TODAS las claves que
+  // cambiaron (incluidas workOrders/invoices/vehicles/etc. — solo sus NOMBRES, nunca
+  // los valores completos para no saturar el almacenamiento local).
   const baseSet = set;
   const setWithLog: typeof set = ((partial: any) => {
     try {
       const prev = get();
       const next = typeof partial === "function" ? (partial as any)(prev) : partial;
-      const HEAVY = ["workOrders", "invoices", "vehicles", "inventoryItems", "siteContent", "certifications", "scheduleRecords", "attendanceLogs", "toolLoans", "technicians", "appointments", "workshopServices", "recentIngresos", "isSyncing", "hasSyncedOnce"];
-      const changed = Object.keys(next || {}).filter((k) => (next as any)[k] !== (prev as any)[k] && !HEAVY.includes(k));
+      const changed = Object.keys(next || {}).filter((k) => (next as any)[k] !== (prev as any)[k]);
       if (changed.length > 0) {
-        logSystemEvent("info", "store.set", { keys: changed.slice(0, 12), n: changed.length }, "store:set");
+        // Marca con "*" las listas pesadas para saber cuándo cambian (sync vs acción real).
+        const HEAVY = ["workOrders", "invoices", "vehicles", "inventoryItems", "siteContent", "certifications", "scheduleRecords", "attendanceLogs", "toolLoans", "technicians", "appointments", "workshopServices", "recentIngresos"];
+        const keys = changed.slice(0, 15).map((k) => (HEAVY.includes(k) ? k + "*" : k));
+        logSystemEvent("info", "store.set", { keys, n: changed.length }, "store:set");
       }
     } catch { /* noop */ }
     return baseSet(partial);
