@@ -10,6 +10,7 @@ import { parseMethodPairs } from "@/lib/utils/payment-method";
 import { getWorkshopDayRecords, getWorkshopCSVRecord, WorkshopCSVRecord } from "@/lib/workshop-csv-lookup";
 import { MANUAL_CONCEPT_SPLIT_BY_RECEIPT, normalizeReceiptKey } from "@/lib/report-concept-split";
 import { matchDebtCsvByInvoice } from "@/lib/deuda-csv";
+import { logSystemEvent } from "@/lib/system-log";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
 import { titleCase, capitalizeFirst } from "@/lib/utils/text-format";
@@ -759,6 +760,18 @@ export function WorkshopDailyReportView({
         const ticketCatSplits = comprobantes.map((rc) => {
           const rn = String(rc.receipt_number || "").trim();
           const recAmt = Number(rc.amount) || 0;
+          // DIAGNÓSTICO (correlativo compartido): registrar qué datos usa el reporte
+          const sameRcCount = comprobantes.filter((c2: any) => String(c2.receipt_number || "").trim() === rn).length;
+          if (sameRcCount > 1) {
+            logSystemEvent("info", "reporte.concepto.correlativo_compartido", {
+              plate: (wo.vehicle_plate || "").toUpperCase(),
+              receipt: rn,
+              pagoAmt: recAmt,
+              pagoMethod: rc.method || "",
+              pagoRes: (Array.isArray((rc as any).resources) ? (rc as any).resources : []).map((x: any) => (x.description || "") + ":" + (x.category || "") + ":" + (Number(x.amount) || 0)).slice(0, 8),
+              payhistoryLen: comprobantes.length,
+            }, "reporte:ticketCatSplits");
+          }
           let own: any[] = [];
           // 1) Fuente EXACTA: splitResources del payment_breakdown (el reparto que el
           //    cajero marcó en el modal, con payAmount por recurso). Evita el duplicado
