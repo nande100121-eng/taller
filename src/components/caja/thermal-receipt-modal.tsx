@@ -27,6 +27,9 @@ interface ThermalReceiptModalProps {
   multiTicket?: boolean;
   pagoResumen?: { montoTotal: number; montoActual: number; montoPagadoAcumulado: number };
   issuedAt?: string;
+  /** Modo "TICKET POR PAGAR" (botón de la card de Taller): sin correlativo, sin forma
+   *  de pago, sin desglose de impuestos (solo TOTAL), placa en negrita. */
+  ticketPorPagar?: boolean;
 }
 
 export default function ThermalReceiptModal({
@@ -49,7 +52,9 @@ export default function ThermalReceiptModal({
   multiTicket,
   pagoResumen,
   issuedAt,
+  ticketPorPagar,
 }: ThermalReceiptModalProps) {
+  const isPorPagar = ticketPorPagar === true;
   const receiptRef = useRef<HTMLDivElement>(null);
   const [copiedEscPos, setCopiedEscPos] = useState(false);
   const [sunatData, setSunatData] = useState<{ razonSocial?: string; direccion?: string } | null>(null);
@@ -146,11 +151,12 @@ export default function ThermalReceiptModal({
 
   // Pago mixto multi-ticket: cada método tiene su propio N° de ticket/comprobante
   const useMultiTickets =
-    (multiTicket === true) ||
-    (multiTicket !== false &&
-      effectiveSplits.length > 1 &&
-      effectiveSplits.every((s) => s.receipt_number) &&
-      new Set(effectiveSplits.map((s) => s.receipt_number)).size > 1);
+    !isPorPagar &&
+    ((multiTicket === true) ||
+      (multiTicket !== false &&
+        effectiveSplits.length > 1 &&
+        effectiveSplits.every((s) => s.receipt_number) &&
+        new Set(effectiveSplits.map((s) => s.receipt_number)).size > 1));
 
   // Items
   const effectiveItems =
@@ -299,6 +305,9 @@ export default function ThermalReceiptModal({
 
     // Build tax & totals rows for a given ticket total
     const buildTotalsHtml = (total: number) => {
+      // TICKET POR PAGAR: sin desglose de impuestos (OP. GRAVADAS/EXONERADAS/IGV...);
+      // solo el TOTAL se imprime (en el bloque de totales de buildPaper).
+      if (isPorPagar) return "";
       const opG = total > 0 ? total / 1.18 : 0;
       const igv = total - opG;
       const rows = [
@@ -322,7 +331,9 @@ export default function ThermalReceiptModal({
 
     // Document type label (per ticket type)
     const buildDocTypeLabel = (type: "Ticket" | "Boleta" | "Factura") =>
-      type === "Factura"
+      isPorPagar
+        ? "TICKET POR PAGAR"
+        : type === "Factura"
         ? "FACTURA ELECTRÓNICA"
         : type === "Boleta"
         ? "BOLETA DE VENTA ELECTRÓNICA"
@@ -330,7 +341,7 @@ export default function ThermalReceiptModal({
 
     // QR section per ticket (only for Boleta / Factura)
     const buildQrSection = (num: string, total: number, type: "Ticket" | "Boleta" | "Factura") => {
-      if (type === "Ticket") return "";
+      if (isPorPagar || type === "Ticket") return "";
       const igv = total > 0 ? total - total / 1.18 : 0;
       const qr = buildSunatFiscalQrString({
         rucEmisor: "20600982860",
@@ -350,7 +361,7 @@ export default function ThermalReceiptModal({
 
     // Footer (per ticket type)
     const buildFooterHtml = (type: "Ticket" | "Boleta" | "Factura") =>
-      type === "Ticket"
+      isPorPagar || type === "Ticket"
         ? '<div style="text-align:center;font-size:9px;padding-top:4px;font-weight:bold;">Gracias por su preferencia</div>'
         : '<div style="text-align:center;font-size:8.5px;padding-top:4px;line-height:1.15;">' +
           '<div style="font-weight:bold;">Representación impresa de la ' + (type === "Factura" ? "Factura" : "Boleta de Venta") + " Electrónica</div>" +
@@ -418,16 +429,16 @@ export default function ThermalReceiptModal({
         "</div>" +
         '<div style="border-top:1px dashed #000;padding-top:4px;margin-top:4px;text-align:center;font-weight:bold;">' +
         '<div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:900;">' + buildDocTypeLabel(type) + "</div>" +
-        '<div style="font-size:11.5px;font-family:Courier New,monospace;letter-spacing:1px;font-weight:bold;">' + num + "</div>" +
+        (isPorPagar ? "" : '<div style="font-size:11.5px;font-family:Courier New,monospace;letter-spacing:1px;font-weight:bold;">' + num + "</div>") +
         "</div>" +
         '<div style="border-top:1px dashed #000;padding-top:3px;margin-top:3px;font-size:10px;line-height:1.35;">' +
         "<div><b>CLIENTE:</b> " + effectiveClient + "</div>" +
         buildDocRowHtml(type) +
         addressHtml +
         "<div><b>FECHA DE EMISIÓN:</b> " + dateFormatted + "</div>" +
-        buildPaymentMethodHtml(splits, methodLabel) +
+        (isPorPagar ? "" : buildPaymentMethodHtml(splits, methodLabel)) +
         "<div><b>MONEDA:</b> SOLES</div>" +
-        "<div><b>PLACA:</b> " + (effectivePlate || "S/P") + "</div>" +
+        '<div' + (isPorPagar ? ' style="font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;"' : "") + '><b>PLACA:</b> ' + (effectivePlate || "S/P") + "</div>" +
         noteHtml +
         observationHtml +
         "</div>" +
@@ -484,7 +495,16 @@ export default function ThermalReceiptModal({
         return paper + (i < effectiveSplits.length - 1 ? '<div style="page-break-after:always;"></div>' : "");
       }).join("");
     } else {
-      papersHtml = buildPaper(effectiveNumber, paymentMethod || "Efectivo", effectiveTotal, effectiveSplits, undefined, effectiveType, pagoResumen || undefined);
+      // TICKET POR PAGAR: sin correlativo (num vacío), sin desglose de métodos y como Ticket.
+      papersHtml = buildPaper(
+        isPorPagar ? "" : effectiveNumber,
+        paymentMethod || "Efectivo",
+        effectiveTotal,
+        isPorPagar ? [] : effectiveSplits,
+        undefined,
+        isPorPagar ? "Ticket" : effectiveType,
+        isPorPagar ? undefined : pagoResumen
+      );
     }
 
     doc.open();
@@ -493,7 +513,7 @@ export default function ThermalReceiptModal({
       "<html>" +
       "<head>" +
       '<meta charset="utf-8" />' +
-      "<title>" + effectiveType + " - " + effectiveNumber + "</title>" +
+      "<title>" + (isPorPagar ? "TICKET POR PAGAR" : effectiveType + " - " + effectiveNumber) + "</title>" +
       "<style>" +
       "  @page { size: 80mm auto; margin: 0; }" +
       "  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }" +
@@ -536,7 +556,7 @@ export default function ThermalReceiptModal({
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
             <h3 className="text-sm font-black text-white uppercase tracking-wider">
-              {viewType}: {viewNumber}
+              {isPorPagar ? "TICKET POR PAGAR" : (viewType + ": " + viewNumber)}
               {useMultiTickets && (
                 <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-purple-600/40 text-purple-200 border border-purple-500/40 font-bold">
                   {previewIdx + 1} de {effectiveSplits.length}
@@ -632,13 +652,17 @@ export default function ThermalReceiptModal({
             {/* 2. Document Title & Correlative (Centered & Bold) */}
             <div className="border-t border-dashed border-black pt-1 text-center font-bold">
               <div className="text-xs uppercase font-black tracking-wider">
-                {viewType === "Factura"
+                {isPorPagar
+                  ? "TICKET POR PAGAR"
+                  : viewType === "Factura"
                   ? "FACTURA ELECTRÓNICA"
                   : viewType === "Boleta"
                   ? "BOLETA DE VENTA ELECTRÓNICA"
                   : "TICKET DE VENTA"}
               </div>
-              <div className="text-xs font-bold font-mono tracking-wider">{viewNumber}</div>
+              {!isPorPagar && (
+                <div className="text-xs font-bold font-mono tracking-wider">{viewNumber}</div>
+              )}
             </div>
 
             {/* 3. Client & Document Info */}
@@ -663,23 +687,27 @@ export default function ThermalReceiptModal({
               <div>
                 <strong>FECHA DE EMISIÓN:</strong> {dateFormatted}
               </div>
-              <div>
-                <strong>FORMA DE PAGO:</strong> {viewSplits.length > 1 ? "MIXTO" : viewMethod}
-              </div>
-              {viewSplits.length > 1 && (
-                <div className="pl-2 space-y-0.5 text-[9px] border-l-2 border-black/30 my-0.5">
-                  {viewSplits.map((p, idx) => (
-                    <div key={idx} className="flex justify-between text-gray-800">
-                      <span>• {p.method} ({p.destination}):</span>
-                      <span className="font-mono font-bold">S/ {Number(p.amount).toFixed(2)}</span>
+              {!isPorPagar && (
+                <>
+                  <div>
+                    <strong>FORMA DE PAGO:</strong> {viewSplits.length > 1 ? "MIXTO" : viewMethod}
+                  </div>
+                  {viewSplits.length > 1 && (
+                    <div className="pl-2 space-y-0.5 text-[9px] border-l-2 border-black/30 my-0.5">
+                      {viewSplits.map((p, idx) => (
+                        <div key={idx} className="flex justify-between text-gray-800">
+                          <span>• {p.method} ({p.destination}):</span>
+                          <span className="font-mono font-bold">S/ {Number(p.amount).toFixed(2)}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
               <div>
                 <strong>MONEDA:</strong> SOLES
               </div>
-              <div>
+              <div className={isPorPagar ? "font-black text-[11px] uppercase tracking-wide" : ""}>
                 <strong>PLACA:</strong> {effectivePlate || "S/P"}
               </div>
               {effectiveObservations ? (
@@ -732,50 +760,60 @@ export default function ThermalReceiptModal({
 
             {/* 5. Tax Breakdown / Totals (Prices aligned to right margin with comfort padding) */}
             <div className="border-t border-dashed border-black pt-1 space-y-0.5 text-[10px]">
-              <div className="flex justify-between">
-                <span>OP. GRAVADAS:</span>
-                <span className="text-right pr-1 font-bold">S/ {viewOpGravadas.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>OP. EXONERADAS:</span>
-                <span className="text-right pr-1">S/ 0.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>OP. INAFECTAS:</span>
-                <span className="text-right pr-1">S/ 0.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>OP. GRATUITAS:</span>
-                <span className="text-right pr-1">S/ 0.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>SUBTOTAL:</span>
-                <span className="text-right pr-1 font-bold">S/ {(viewOpGravadas + effectiveDiscount).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>DESCUENTOS:</span>
-                <span className="text-right pr-1">S/ {effectiveDiscount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>IGV 18.0%:</span>
-                <span className="text-right pr-1 font-bold">S/ {viewIgv.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>ICBPER:</span>
-                <span className="text-right pr-1">S/ 0.00</span>
-              </div>
-              <div className="flex justify-between">
-                <span>ADELANTOS:</span>
-                <span className="text-right pr-1">S/ 0.00</span>
-              </div>
-              <div className="flex justify-between font-black text-xs border-t border-b border-black py-1 mt-0.5">
-                <span>TOTAL:</span>
-                <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
-              </div>
+              {isPorPagar ? (
+                /* TICKET POR PAGAR: sin op. gravadas/exoneradas/IGV; solo el TOTAL. */
+                <div className="flex justify-between font-black text-sm border-t border-b border-black py-1.5 mt-0.5">
+                  <span>TOTAL:</span>
+                  <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span>OP. GRAVADAS:</span>
+                    <span className="text-right pr-1 font-bold">S/ {viewOpGravadas.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>OP. EXONERADAS:</span>
+                    <span className="text-right pr-1">S/ 0.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>OP. INAFECTAS:</span>
+                    <span className="text-right pr-1">S/ 0.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>OP. GRATUITAS:</span>
+                    <span className="text-right pr-1">S/ 0.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>SUBTOTAL:</span>
+                    <span className="text-right pr-1 font-bold">S/ {(viewOpGravadas + effectiveDiscount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>DESCUENTOS:</span>
+                    <span className="text-right pr-1">S/ {effectiveDiscount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IGV 18.0%:</span>
+                    <span className="text-right pr-1 font-bold">S/ {viewIgv.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ICBPER:</span>
+                    <span className="text-right pr-1">S/ 0.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ADELANTOS:</span>
+                    <span className="text-right pr-1">S/ 0.00</span>
+                  </div>
+                  <div className="flex justify-between font-black text-xs border-t border-b border-black py-1 mt-0.5">
+                    <span>TOTAL:</span>
+                    <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* 6. SUNAT Dynamic Fiscal QR Code (ONLY for Boleta and Factura, NOT for Ticket) */}
-            {viewType !== "Ticket" && (
+            {!isPorPagar && viewType !== "Ticket" && (
               <div className="flex flex-col items-center justify-center py-2 border-b border-dashed border-black space-y-1">
                 <img
                   src={viewQrUrl}
@@ -796,11 +834,11 @@ export default function ThermalReceiptModal({
             {/* 8. Footer Legal Notes */}
             <div className="pt-1 text-center space-y-0.5 text-[8.5px] text-black leading-tight">
               <div className="font-bold">
-                {viewType === "Ticket"
+                {isPorPagar || viewType === "Ticket"
                   ? "Gracias por su preferencia"
                   : "Representación impresa de la " + (viewType === "Factura" ? "Factura" : "Boleta de Venta") + " Electrónica"}
               </div>
-              {viewType !== "Ticket" && (
+              {!isPorPagar && viewType !== "Ticket" && (
                 <>
                   <div>Autorizado mediante Resolución de Superintendencia</div>
                   <div>Consulte su comprobante en: https://consulta.sunat.gob.pe</div>
@@ -818,7 +856,7 @@ export default function ThermalReceiptModal({
         {/* Modal Bottom Action Bar */}
         <div className="p-4 bg-reygas-surface border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
           {/* ESC/POS Raw Command Tool (Only for Boleta/Factura) */}
-          {effectiveType !== "Ticket" ? (
+          {!isPorPagar && effectiveType !== "Ticket" ? (
             <button
               onClick={handleCopyEscPos}
               className="px-3.5 py-2 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow"

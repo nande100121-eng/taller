@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import dynamic from "next/dynamic";
-import { useAppStore, WorkOrderStatus } from "@/lib/store/app-store";
+import { useAppStore, WorkOrderStatus, WorkOrder } from "@/lib/store/app-store";
 import {
   Wrench,
   UserCheck,
@@ -41,6 +41,7 @@ import {
   Send,
   CheckCircle2,
   AlertTriangle,
+  Printer,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -52,6 +53,10 @@ import { isCertificationService } from "@/lib/utils/service-catalog";
 
 const DailyWorkshopReportModal = dynamic(
   () => import("@/components/DailyWorkshopReportModal").then((m) => m.DailyWorkshopReportModal),
+  { ssr: false }
+);
+const ThermalReceiptModal = dynamic(
+  () => import("@/components/caja/thermal-receipt-modal"),
   { ssr: false }
 );
 // ===== INSTALACIONES: expande un servicio tipo "paquete" en sus componentes =====
@@ -172,6 +177,8 @@ export default function WorkshopOperationsPage() {
   const [deleteModalOrder, setDeleteModalOrder] = useState<{ id: string; plate: string; entryTime?: string } | null>(null);
   // Modal de confirmación "Enviar a Cobrar" (diseño glassmórfico de la web, no window.confirm)
   const [sendToCashierConfirm, setSendToCashierConfirm] = useState<{ id: string; plate: string } | null>(null);
+  // Modal "Imprimir Ticket por Pagar" desde la card del taller (sin correlativo)
+  const [porPagarModal, setPorPagarModal] = useState<{ workOrder: WorkOrder; total: number } | null>(null);
 
   // Editar FECHA/HORA DE INGRESO de la OT (corrección de errores)
   const [editEntryOrder, setEditEntryOrder] = useState<{ id: string; plate: string; entryTime: string } | null>(null);
@@ -1905,6 +1912,15 @@ export default function WorkshopOperationsPage() {
                               <span>{(wo.discount_amount && wo.discount_amount > 0) ? `Desc. -S/ ${wo.discount_amount.toFixed(2)}` : "+ Descuento"}</span>
                             </button>
 
+                            <button
+                              type="button"
+                              onClick={() => setPorPagarModal({ workOrder: wo, total: cardTotal })}
+                              className="py-2 px-2 bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1 border border-cyan-500/30 transition-colors shadow"
+                              title="Imprimir Ticket por Pagar (sin correlativo, con el detalle y total de lo asignado a la card)"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Ticket por Pagar</span>
+                            </button>
 
                           </div>
                         )}
@@ -3504,6 +3520,23 @@ export default function WorkshopOperationsPage() {
         onClose={() => setReportModalOpen(false)}
         initialTab="taller"
       />
+
+      {/* TICKET POR PAGAR: impresión desde la card del taller (sin correlativo,
+          sin forma de pago, detalle de repuestos/certificados/servicios + TOTAL) */}
+      {porPagarModal && (
+        <ThermalReceiptModal
+          isOpen
+          onClose={() => setPorPagarModal(null)}
+          workOrder={porPagarModal.workOrder}
+          receiptType="Ticket"
+          receiptNumber=""
+          plate={porPagarModal.workOrder.vehicle_plate}
+          grandTotal={porPagarModal.total}
+          items={porPagarModal.workOrder.items.map((it) => ({ ...it }))}
+          discountAmount={porPagarModal.workOrder.discount_amount || 0}
+          ticketPorPagar
+        />
+      )}
     </div>
   );
 }
