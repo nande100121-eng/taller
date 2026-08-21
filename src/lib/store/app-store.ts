@@ -458,6 +458,9 @@ export interface PaymentResource {
   amount: number;          // Monto cobrado por este recurso en este pago
   receipt_number?: string; // Comprobante que cubre este recurso (si el pago es multi-ticket)
   receipt_type?: string;
+  // Redirección manual a concepto para VENTAS POR CONCEPTO (Servicios / Almacén /
+  // Certificados). Por defecto NO hay redirección: el reporte usa la categoría natural.
+  redirect_category?: "servicio" | "repuesto" | "certificado";
 }
 
 export interface PaymentSplit {

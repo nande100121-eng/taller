@@ -58,6 +58,7 @@ import {
   ChevronUp,
   ReceiptText,
   Wallet,
+  CornerUpRight,
 } from "lucide-react";
 
 const ThermalReceiptModal = dynamic(
@@ -116,6 +117,8 @@ export default function CajaPage() {
   const [showCorrelativosPanel, setShowCorrelativosPanel] = useState<boolean>(false);
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
+  // Menú de redirección a concepto (Servicios/Almacén/Certificados) abierto por recurso
+  const [redirectMenuKey, setRedirectMenuKey] = useState<string | null>(null);
 
   // HISTORIAL EN VIVO desde Supabase: cuando el store local no tiene el payment_history
   // de una factura (por quedar fuera de la ventana de 1000 pagadas recientes, ej. pagos
@@ -1437,6 +1440,7 @@ export default function CajaPage() {
         pendingAmount: pendingAmt,
         payAmount: Math.round(initPay * 100) / 100,
         selected: initPay > 0.01,
+        redirectCategory: (prev as any)?.redirect_category,
       };
     }) : [];
 
@@ -1639,6 +1643,7 @@ export default function CajaPage() {
         amount: Number(r.payAmount) || 0,
         receipt_number: assignedReceiptNum || undefined,
         receipt_type: finalReceiptType || undefined,
+        redirect_category: (r as any).redirectCategory,
       }));
     const hasResourceSelection = selectedResources.length > 0;
     const resourceTotal = selectedResources.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -1903,23 +1908,24 @@ export default function CajaPage() {
     // ese pago previo queda sin asignar y los recursos muestran su saldo pendiente.
     const history: any[] = Array.isArray((inv as any)?.payment_history) ? (inv as any).payment_history : [];
     const paidByDesc = new Map<string, number>();
+    const redirectByDesc = new Map<string, string>();
     history.forEach((p: any) => {
       if (!Array.isArray(p.resources)) return;
       p.resources.forEach((x: any) => {
         const k = String(x.description || "").trim().toLowerCase();
         paidByDesc.set(k, (paidByDesc.get(k) || 0) + (Number(x.amount) || 0));
+        if (x.redirect_category) redirectByDesc.set(k, String(x.redirect_category));
       });
     });
-    const pendientes = resList
-      .map((rs) => {
-        const paid = paidByDesc.get(String(rs.description || "").trim().toLowerCase()) || 0;
-        // El recurso que absorbe el descuento ve reducido su saldo pendiente efectivo
-        const disc = Number((rs as any).discountApplied) || 0;
-        const pending = Math.max(0, rs.fullAmount - paid - disc);
-        return { ...rs, pendingAmount: pending };
-      })
-      .filter((rs) => rs.pendingAmount > 0.01);
-    if (pendientes.length === 0) return undefined;
+    // Se devuelven TODOS los recursos (aunque estén cubiertos): la sección
+    // "Recursos de este comprobante" debe verse siempre y permitir añadir/vincular.
+    const pendientes = resList.map((rs) => {
+      const paid = paidByDesc.get(String(rs.description || "").trim().toLowerCase()) || 0;
+      // El recurso que absorbe el descuento ve reducido su saldo pendiente efectivo
+      const disc = Number((rs as any).discountApplied) || 0;
+      const pending = Math.max(0, rs.fullAmount - paid - disc);
+      return { ...rs, pendingAmount: pending, redirectCategory: redirectByDesc.get(String(rs.description || "").trim().toLowerCase()) };
+    });
 
     // Reparte el monto de este abono entre los recursos pendientes (greedy en orden):
     // si el abono no alcanza a cubrir un recurso completo, se asigna el monto parcial.
@@ -1936,6 +1942,7 @@ export default function CajaPage() {
         discountApplied: Number((rs as any).discountApplied) || 0,
         payAmount: Math.round(assigned * 100) / 100,
         selected: assigned > 0.01,
+        redirectCategory: (rs as any).redirectCategory,
       };
     });
   };
@@ -1970,8 +1977,45 @@ export default function CajaPage() {
     // Recursos disponibles para vincular en este abono (solo desde 17/08/2026).
     // Se incrustan en CADA split del desglose: cada método/comprobante lleva su
     // propia lista y su Monto Total = suma de los recursos marcados en ese split.
-    const abonoResourcesPool = buildAbonoResourceSelection(wo, inv, balance) || [];
-    const initialSplitResources = abonoResourcesPool.map((r) => ({ ...r }));
+    const abonoResourcesPool = buildAbonoResourceSelection(wo, inv, balance);
+    // Recursos del comprobante: SIEMPRE se muestran. Si el pool viene vacío se
+    // construye un fallback desde la OT (items + certificación) SIN preseleccionar,
+    // para que la sección "Recursos de este comprobante" nunca desaparezca y se
+    // puedan añadir/vincular recursos manualmente.
+    const initialSplitResources = (() => {
+      if (abonoResourcesPool && abonoResourcesPool.length > 0) return abonoResourcesPool.map((r) => ({ ...r }));
+      const fallback: any[] = [];
+      (Array.isArray(wo?.items) ? wo.items : []).forEach((it: any) => {
+        const amt = Number(it.subtotal) || 0;
+        if (amt <= 0) return;
+        const descUp = String(it.description || "").toUpperCase();
+        const isCertTxt = /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(descUp);
+        const cat = isCertTxt ? "certificado" : (String(it.item_type || "").toLowerCase() === "repuesto" || it.inventory_item_id ? "repuesto" : "servicio");
+        fallback.push({
+          key: `fb-res-${fallback.length}-${String(it.description || "").slice(0, 20).replace(/\s+/g, "-")}`,
+          description: it.description,
+          category: cat,
+          fullAmount: amt,
+          pendingAmount: amt,
+          payAmount: 0,
+          selected: false,
+          redirectCategory: undefined,
+        });
+      });
+      if (wo?.requires_certification && Number(wo.certification_price) > 0) {
+        fallback.push({
+          key: `fb-res-cert-${fallback.length}`,
+          description: `CERTIFICACIÓN (${wo.certification_type || "GNV/GLP"})`,
+          category: "certificado",
+          fullAmount: Number(wo.certification_price) || 0,
+          pendingAmount: Number(wo.certification_price) || 0,
+          payAmount: 0,
+          selected: false,
+          redirectCategory: undefined,
+        });
+      }
+      return fallback;
+    })();
     // Los recursos vienen PRESELECCIONADOS con su saldo pendiente (el reparto del balance
     // los deja marcados): el monto inicial del abono = suma de los recursos ya marcados,
     // para que la etiqueta muestre "A abonar: S/ 90.00 · Saldo restante: S/ 0.00" desde
@@ -1991,9 +2035,9 @@ export default function CajaPage() {
       totalDue,
       paidSoFar,
       discountAmount: discountForModal,
-      // Con recursos preseleccionados, el monto arranca en su suma; si no hay recursos
-      // (factura pre-17/08) se usa el saldo y el monto es editable manual.
-      amount: initialSplitResources.length > 0 ? initialMarkedSum : balance, // Por defecto: abonar el saldo total
+      // Con recursos preseleccionados, el monto arranca en su suma; si no hay nada
+      // marcado se usa el saldo y el monto es editable manual.
+      amount: initialMarkedSum > 0 ? initialMarkedSum : balance, // Por defecto: abonar el saldo total
       paymentDate: getPeruDateString(), // Fecha del pago: hoy por defecto, editable
       // Método limpio (nunca "Mixto (Mixto (...))" anidado) para no re-guardar basura
       paymentMethod: defaultMethodFrom(inv?.payment_method),
@@ -2004,9 +2048,10 @@ export default function CajaPage() {
           id: `split-1`,
           method: defaultMethodFrom(inv?.payment_method),
           destination: inv?.payment_destination || eligibleDestinations[0] || "EMPRESA",
-          amount: initialSplitResources.length > 0 ? initialMarkedSum : balance,
-          // Recursos de ESTE comprobante: se van sumando al Monto Total del split
-          splitResources: initialSplitResources.length > 0 ? initialSplitResources : undefined,
+          amount: initialMarkedSum > 0 ? initialMarkedSum : balance,
+          // Recursos de ESTE comprobante: se van sumando al Monto Total del split.
+          // Siempre es un array (aunque esté vacío) para que la sección se vea.
+          splitResources: initialSplitResources,
         },
       ],
       receiptNumber: previewNum,
@@ -2016,7 +2061,7 @@ export default function CajaPage() {
       customerAddress: inv?.customer_address || "-",
       observation: inv?.debt_observation || inv?.observations || wo.observations || "",
       responsible: inv?.debt_responsible || "",
-      resourceSelection: abonoResourcesPool.length > 0 ? abonoResourcesPool : undefined,
+      resourceSelection: (abonoResourcesPool && abonoResourcesPool.length > 0) ? abonoResourcesPool : undefined,
     });
   };
 
@@ -2152,6 +2197,7 @@ export default function CajaPage() {
               amount: Number(r2.payAmount) || 0,
               receipt_number: recNum || undefined,
               receipt_type: recType || undefined,
+              redirect_category: (r2 as any).redirectCategory,
             });
           });
       });
@@ -2165,6 +2211,7 @@ export default function CajaPage() {
             amount: Number(r.payAmount) || 0,
             receipt_number: assignedReceiptNum || undefined,
             receipt_type: finalReceiptType || undefined,
+            redirect_category: (r as any).redirectCategory,
           });
         });
     }
@@ -2300,6 +2347,74 @@ export default function CajaPage() {
     setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: splits, resourceSelection: pool });
   };
 
+  // Añade un recurso MANUAL a un comprobante (si se borraron todos o falta uno):
+  // se edita su descripción/monto/categoría inline en el modal.
+  const addManualResource = (splitIdx: number) => {
+    if (!partialPaymentModal) return;
+    const newRes = {
+      key: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      description: "NUEVO RECURSO",
+      category: "servicio" as const,
+      fullAmount: 0,
+      pendingAmount: 0,
+      payAmount: 0,
+      selected: false,
+      manual: true,
+      redirectCategory: undefined,
+    };
+    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+      i === splitIdx
+        ? { ...p, splitResources: [...(Array.isArray((p as any).splitResources) ? (p as any).splitResources : []), newRes] }
+        : p
+    );
+    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+    setRedirectMenuKey(null);
+  };
+
+  // Actualiza un campo de un recurso (descripción/monto/categoría de un recurso manual).
+  const updateManualResource = (splitIdx: number, key: string, patch: any) => {
+    if (!partialPaymentModal) return;
+    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+      i === splitIdx
+        ? {
+            ...p,
+            splitResources: (Array.isArray((p as any).splitResources) ? (p as any).splitResources : []).map((r: any) =>
+              r.key === key ? { ...r, ...patch } : r
+            ),
+          }
+        : p
+    );
+    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+  };
+
+  // Redirección a concepto para VENTAS POR CONCEPTO (Servicios/Almacén/Certificados).
+  // Por defecto NO hay redirección (undefined); elegir la misma opción la quita.
+  const setResourceRedirect = (splitIdx: number, key: string, cat: "servicio" | "repuesto" | "certificado" | undefined) => {
+    if (!partialPaymentModal) return;
+    const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
+      i === splitIdx
+        ? {
+            ...p,
+            splitResources: (Array.isArray((p as any).splitResources) ? (p as any).splitResources : []).map((r: any) =>
+              r.key === key ? { ...r, redirectCategory: cat } : r
+            ),
+          }
+        : p
+    );
+    setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated });
+    setRedirectMenuKey(null);
+  };
+
+  // Redirección a concepto en el modal de COBRO (paymentModal.resourceSelection).
+  const setPaymentRedirect = (key: string, cat: "servicio" | "repuesto" | "certificado" | undefined) => {
+    if (!paymentModal) return;
+    const sel = (paymentModal.resourceSelection || []).map((r: any) =>
+      r.key === key ? { ...r, redirectCategory: cat } : r
+    );
+    setPaymentModal({ ...paymentModal, resourceSelection: sel });
+    setRedirectMenuKey(null);
+  };
+
   // Abrir modal de edición de un pago del historial (mismo modal de abono en modo
   // EDICIÓN: fecha, comprobante, método y recursos precargados del registro).
   const handleOpenEditPaymentRecord = (rec: PaymentRecord, invoiceId?: string) => {
@@ -2310,7 +2425,7 @@ export default function CajaPage() {
     // Reconstruye la selección de recursos del registro: los que ya estaban vinculados
     // aparecen marcados con su monto; los demás quedan visibles para poder añadirlos.
     const recRes: any[] = Array.isArray(rec.resources) ? rec.resources : [];
-    const resList: Array<{ key: string; description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number; pendingAmount: number; payAmount: number; selected: boolean }> = [];
+    const resList: Array<{ key: string; description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number; pendingAmount: number; payAmount: number; selected: boolean; redirectCategory?: string }> = [];
     // DEDUP por descripción normalizada: evita que la CERTIFICACIÓN aparezca dos veces
     // cuando la OT tiene el ítem "CERTIFICACIÓN..." en items Y además requires_certification
     // (bug D1O-690: el recurso se duplicaba en el modal de edición).
@@ -2336,6 +2451,7 @@ export default function CajaPage() {
         pendingAmount: amt,
         payAmount: prev ? (Number(prev.amount) || 0) : 0,
         selected: prev ? (Number(prev.amount) || 0) > 0 : false,
+        redirectCategory: (prev as any)?.redirect_category,
       });
     });
     if (woEdit.requires_certification && Number(woEdit.certification_price) > 0) {
@@ -2355,6 +2471,7 @@ export default function CajaPage() {
           pendingAmount: Number(woEdit.certification_price) || 0,
           payAmount: prevCert ? (Number(prevCert.amount) || 0) : 0,
           selected: prevCert ? (Number(prevCert.amount) || 0) > 0 : false,
+          redirectCategory: (prevCert as any)?.redirect_category,
         });
       }
     }
@@ -3825,6 +3942,44 @@ export default function CajaPage() {
                             title="Monto a pagar de este recurso (puede ser parcial; no supera el saldo pendiente)"
                           />
                         )}
+                        {/* Redirección a concepto para VENTAS POR CONCEPTO (Servicios/
+                            Almacén/Certificados). Por defecto sin redirección. */}
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setRedirectMenuKey(redirectMenuKey === it.key ? null : it.key)}
+                            className={"p-1 rounded-md transition-colors border " + (it.redirectCategory
+                              ? "bg-amber-500/25 text-amber-300 border-amber-500/50"
+                              : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/15 hover:text-white")}
+                            title={it.redirectCategory
+                              ? "Redirigido a " + (it.redirectCategory === "repuesto" ? "Almacén (Repuestos)" : it.redirectCategory === "certificado" ? "Certificados" : "Servicios") + " — pulse para cambiar o quitar"
+                              : "Redirigir este recurso a un concepto de VENTAS POR CONCEPTO (por defecto: sin redirección)"}
+                          >
+                            <CornerUpRight className="w-3 h-3" />
+                          </button>
+                          {redirectMenuKey === it.key && (
+                            <div className="absolute right-0 top-full z-30 mt-1 w-44 rounded-xl glass-panel bg-reygas-dark/95 border border-white/15 shadow-2xl p-1.5 space-y-0.5">
+                              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-1.5 pb-1">Redirigir a concepto</div>
+                              {([{ v: "servicio", label: "🔧 Servicios" }, { v: "repuesto", label: "📦 Almacén (Repuestos)" }, { v: "certificado", label: "🛡 Certificados" }] as const).map((opt) => (
+                                <button
+                                  key={opt.v}
+                                  type="button"
+                                  onClick={() => setPaymentRedirect(it.key, it.redirectCategory === opt.v ? undefined : opt.v)}
+                                  className={"w-full text-left px-2 py-1 rounded-lg text-[11px] font-bold transition-colors " + (it.redirectCategory === opt.v ? "bg-amber-500/25 text-amber-300" : "text-gray-300 hover:bg-white/10 hover:text-white")}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => setPaymentRedirect(it.key, undefined)}
+                                className="w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors"
+                              >
+                                ✖ Sin redirección (por defecto)
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -5800,16 +5955,27 @@ export default function CajaPage() {
                         {/* RECURSOS DE ESTE MÉTODO/COMPROBANTE: marcar aquí hace subir el
                             Monto Total. Recurso usado en otro método = tachado/no disponible;
                             si se usó parcial, solo se ofrece el saldo restante. */}
-                        {Array.isArray((split as any).splitResources) && (split as any).splitResources.length > 0 && (
+                        {(() => {
+                          const srs: any[] = Array.isArray((split as any).splitResources) ? (split as any).splitResources : [];
+                          const srsSum = srs.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0);
+                          return (
                           <div className="mt-2 p-2.5 rounded-xl bg-black/30 border border-white/10 space-y-1.5">
                             <div className="text-[10px] font-bold text-purple-300 uppercase tracking-wider flex items-center justify-between">
                               <span>🔗 Recursos de este comprobante</span>
-                              <span className="font-mono text-emerald-300">
-                                S/ {(split as any).splitResources.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2)}
+                              <span className="flex items-center gap-2">
+                                <span className="font-mono text-emerald-300">S/ {srsSum.toFixed(2)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => addManualResource(idx)}
+                                  className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[9px] font-black transition-colors shrink-0"
+                                  title="Añadir un recurso a este comprobante (útil si borró todos)"
+                                >
+                                  + Añadir recurso
+                                </button>
                               </span>
                             </div>
                             <div className="max-h-32 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                              {(split as any).splitResources.map((rs: any, rsi: number) => {
+                              {srs.map((rs: any, rsi: number) => {
                                 // Saldo pendiente REAL del recurso: pendingAmount original menos lo
                                 // ya pagado en OTROS métodos. Si otro método tomó un pago PARCIAL,
                                 // este método puede tomar el saldo restante (no se tacha).
@@ -5847,6 +6013,39 @@ export default function CajaPage() {
                                     >
                                       <Check className="w-2.5 h-2.5" />
                                     </button>
+                                    {rs.manual ? (
+                                      <span className="flex-1 flex items-center gap-1.5 min-w-0">
+                                        <select
+                                          value={rs.category}
+                                          onChange={(e) => updateManualResource(idx, rs.key, { category: e.target.value })}
+                                          className="w-24 shrink-0 px-1 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-gray-200 font-bold focus:border-purple-400"
+                                          title="Categoría del recurso (Servicios / Repuestos / Certificados)"
+                                        >
+                                          <option value="servicio">🔧 Servicio</option>
+                                          <option value="repuesto">📦 Repuesto</option>
+                                          <option value="certificado">🛡 Certificado</option>
+                                        </select>
+                                        <input
+                                          type="text"
+                                          value={rs.description}
+                                          onChange={(e) => updateManualResource(idx, rs.key, { description: e.target.value })}
+                                          className="flex-1 min-w-0 px-1.5 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-white font-bold focus:border-purple-400"
+                                          title="Descripción del recurso"
+                                        />
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={rs.fullAmount || ""}
+                                          onChange={(e) => {
+                                            const v = Math.max(0, parseFloat(e.target.value) || 0);
+                                            updateManualResource(idx, rs.key, { fullAmount: v, pendingAmount: v });
+                                          }}
+                                          className="w-20 shrink-0 px-1.5 py-0.5 bg-reygas-dark border border-white/10 rounded text-[10px] text-emerald-300 font-mono font-bold text-right focus:border-purple-400"
+                                          title="Monto del recurso"
+                                        />
+                                      </span>
+                                    ) : (
                                     <span className={`flex-1 truncate ${rs.selected ? "text-white" : usedOther ? "text-gray-500 line-through" : "text-gray-400"}`}>
                                       {rs.category === "certificado" ? "🛡 " : rs.category === "repuesto" ? "📦 " : "🔧 "}
                                       {rs.description}
@@ -5862,6 +6061,7 @@ export default function CajaPage() {
                                         <span className="ml-1 text-[9px] text-cyan-300 font-bold">saldo restante S/ {saldoRestante.toFixed(2)}</span>
                                       )}
                                     </span>
+                                    )}
                                     {rs.selected && (
                                       <input
                                         type="number"
@@ -5911,6 +6111,45 @@ export default function CajaPage() {
                                         🛡
                                       </button>
                                     )}
+                                    {/* Redirección a concepto para VENTAS POR CONCEPTO
+                                        (Servicios/Almacén/Certificados). Por defecto NO hay
+                                        redirección; elegir la misma opción la quita. */}
+                                    <div className="relative shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => setRedirectMenuKey(redirectMenuKey === rs.key ? null : rs.key)}
+                                        className={"p-1 rounded-md transition-colors border " + (rs.redirectCategory
+                                          ? "bg-amber-500/25 text-amber-300 border-amber-500/50"
+                                          : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/15 hover:text-white")}
+                                        title={rs.redirectCategory
+                                          ? "Redirigido a " + (rs.redirectCategory === "repuesto" ? "Almacén (Repuestos)" : rs.redirectCategory === "certificado" ? "Certificados" : "Servicios") + " — pulse para cambiar o quitar"
+                                          : "Redirigir este recurso a un concepto de VENTAS POR CONCEPTO (por defecto: sin redirección)"}
+                                      >
+                                        <CornerUpRight className="w-3 h-3" />
+                                      </button>
+                                      {redirectMenuKey === rs.key && (
+                                        <div className="absolute right-0 top-full z-30 mt-1 w-44 rounded-xl glass-panel bg-reygas-dark/95 border border-white/15 shadow-2xl p-1.5 space-y-0.5">
+                                          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-1.5 pb-1">Redirigir a concepto</div>
+                                          {([{ v: "servicio", label: "🔧 Servicios" }, { v: "repuesto", label: "📦 Almacén (Repuestos)" }, { v: "certificado", label: "🛡 Certificados" }] as const).map((opt) => (
+                                            <button
+                                              key={opt.v}
+                                              type="button"
+                                              onClick={() => setResourceRedirect(idx, rs.key, rs.redirectCategory === opt.v ? undefined : opt.v)}
+                                              className={"w-full text-left px-2 py-1 rounded-lg text-[11px] font-bold transition-colors " + (rs.redirectCategory === opt.v ? "bg-amber-500/25 text-amber-300" : "text-gray-300 hover:bg-white/10 hover:text-white")}
+                                            >
+                                              {opt.label}
+                                            </button>
+                                          ))}
+                                          <button
+                                            type="button"
+                                            onClick={() => setResourceRedirect(idx, rs.key, undefined)}
+                                            className="w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors"
+                                          >
+                                            ✖ Sin redirección (por defecto)
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
                                     {/* Eliminar ESTE recurso del comprobante (quita la fila; el
                                         Monto Total y el monto global se recalculan) */}
                                     <button
@@ -5919,7 +6158,7 @@ export default function CajaPage() {
                                         const next = (split as any).splitResources.filter((r2: any) => r2.key !== rs.key);
                                         const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
                                         const updated = (partialPaymentModal.paymentSplits || []).map((p, i) =>
-                                          i === idx ? { ...p, splitResources: next.length > 0 ? next : undefined, amount: newAmount } : p
+                                          i === idx ? { ...p, splitResources: next, amount: newAmount } : p
                                         );
                                         const totalGlobal = Number(updated.reduce((acc: number, sp: any) => acc + (Array.isArray(sp.splitResources) ? sp.splitResources.filter((r3: any) => r3.selected).reduce((s3: number, r3: any) => s3 + (Number(r3.payAmount) || 0), 0) : 0), 0).toFixed(2));
                                         setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: updated, amount: totalGlobal > 0 ? totalGlobal : partialPaymentModal.amount });
@@ -5933,8 +6172,14 @@ export default function CajaPage() {
                                 );
                               })}
                             </div>
+                            {srs.length === 0 && (
+                              <div className="text-[10px] text-gray-500 italic py-0.5">
+                                Sin recursos en este comprobante. Pulse "+ Añadir recurso" para agregar uno.
+                              </div>
+                            )}
                           </div>
-                        )}
+                          );
+                        })()}
                         </>
                       );
                     })}

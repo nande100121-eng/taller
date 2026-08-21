@@ -2,7 +2,7 @@
 
 > Exportado: 20/08/2026 — ACTUALIZADO tras sesión de fixes (fechas Perú, descuento, repuestos eliminados, reporte).
 > Último commit en `main`: `9d90129` (build del fix reporte `17e931a`) — producción: https://taller-two-gamma.vercel.app
-> **Deploy del último fix (17e931a) ya finalizó en Vercel según el usuario — VERIFICAR bundle prod (SHA 17e931a o 9d90129) pendiente** (último intento dio DEPLOYMENT_NOT_FOUND/404 por propagación).
+> **Deploy del fix 17e931a/9d90129 VERIFICADO en bundle prod (21/08)**: chunk del reporte `547.152f73faf892f746.js` contiene el dedup `dayPaymentsDeduped` (Set placa|folio|monto con parseCorrelative) y `abonosDelDia` consume la lista deduped. Deployment Vercel live: `dpl_HuuuHdbjztW8Dg5i4z3wwGSS8Jgf`.
 > **MODO AHORRO ACTIVADO**: respuestas compactas, tsc 1x por lote, 1 commit+push+deploy por lote, lecturas quirúrgicas (grep + solo zona a editar), sin verificación redundante del usuario.
 
 ---
@@ -143,7 +143,7 @@ El usuario pidió optimizar consumo de crédito de la API. Reglas para TODA la s
 
 ## 5. PENDIENTES / PRÓXIMOS PASOS POSIBLES
 
-- **VERIFICAR deploy del fix 17e931a/9d90129 en prod** (usuario confirmó que el deploy finalizó en Vercel; falta confirmar el SHA en el bundle de prod tras la propagación del edge).
+- ~~VERIFICAR deploy del fix 17e931a/9d90129 en prod~~ → **HECHO (21/08)**: dedup confirmado en chunk `547.152f73faf892f746.js` (clave `placa|folio|monto` con `parseCorrelative`); deployment live `dpl_HuuuHdbjztW8Dg5i4z3wwGSS8Jgf`.
 
 - El usuario probará el flujo completo y reportará inconsistencias → corregir con modo ahorro.
 - Optimizaciones adicionales propuestas (pendientes de aprobación):

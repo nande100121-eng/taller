@@ -32,7 +32,9 @@ import {
   Layers,
   Sparkles,
   FileSpreadsheet,
+  Info,
   AlertTriangle,
+  ArrowUpRight,
   Coins,
   CheckCircle2,
   Award,
@@ -547,6 +549,36 @@ export function WorkshopDailyReportView({
       return result;
     };
 
+    // Clasifica recursos por concepto para VENTAS POR CONCEPTO, respetando la
+    // redirección manual (redirect_category) que el cajero asigna en Caja. Escala a
+    // `cap` (lo cobrado en la fila) para que la suma de conceptos = ingreso del día
+    // (BEF-098: abono S/ 1000 de un total S/ 2800 -> VENTAS POR CONCEPTO muestra 1000,
+    // el saldo va a Saldos Pendientes, nunca como ingreso).
+    const catSplitFromResources = (list: any[], cap: number) => {
+      let s = 0, r = 0, c = 0;
+      (list || []).forEach((x: any) => {
+        const amt = Number(x.amount) || 0;
+        const cat = String(x.redirect_category || x.category || x.cat || "").toLowerCase();
+        if (cat === "repuesto" || cat === "rep") r += amt;
+        else if (cat === "certificado" || cat === "cert") c += amt;
+        else s += amt;
+      });
+      const sum = s + r + c;
+      if (sum <= 0.001) return null;
+      const scale = sum > cap + 0.01 && cap > 0 ? Math.min(1, cap / sum) : 1;
+      return {
+        catServ: Math.round(s * scale * 100) / 100,
+        catRep: Math.round(r * scale * 100) / 100,
+        catCert: Math.round(c * scale * 100) / 100,
+      };
+    };
+    // Recursos de los pagos cobrados HOY (p.resources del historial del día): son
+    // exactamente lo cobrado por concepto en la fecha seleccionada.
+    const dayPayResources = (history: any[]) =>
+      (history || [])
+        .filter((r: any) => toPeruDateKey(r?.date) === selectedDate)
+        .flatMap((r: any) => (Array.isArray(r.resources) ? r.resources : []));
+
     // 1. First Priority: Load exact day records from workshop CSV lookup (e.g. 14/08/2026, 15/08/2026, etc.)
     const csvDayRecords = getWorkshopDayRecords(selectedDate);
 
@@ -798,7 +830,7 @@ export function WorkshopDailyReportView({
           const split = { serv: 0, rep: 0, cert: 0 };
           own.forEach((x: any) => {
             const amt = Number(x.amount) || 0;
-            const cat = String(x.category || x.cat || "").toLowerCase();
+            const cat = String(x.redirect_category || x.category || x.cat || "").toLowerCase();
             if (cat === "repuesto" || cat === "rep") split.rep += amt;
             else if (cat === "certificado" || cat === "cert") split.cert += amt;
             else split.serv += amt;
@@ -877,17 +909,17 @@ export function WorkshopDailyReportView({
           // recursos cubría, VENTAS POR CONCEPTO usa ese vínculo (cero inferencias).
           // Fallback: reparto por ítems reales de la card / proporcional.
           ...(() => {
+            // 1) Fuente EXACTA: recursos de los pagos cobrados HOY (BEF-098: abono S/ 1000,
+            //    el vínculo trae lo cobrado; el total de la OT queda como saldo pendiente).
+            const dayRes = dayPayResources(histForPayDay);
+            const direct = catSplitFromResources(dayRes, paidAmount);
+            if (direct) return direct;
+            // 2) Vínculo global de la factura (resource_payments): puede cubrir TODA la OT;
+            //    si la fila es parcial se escala a lo cobrado HOY (suma = ingreso del día).
             const rp: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
-            if (rp.length > 0) {
-              let s = 0, r = 0, c = 0;
-              rp.forEach((x: any) => {
-                const amt = Number(x.amount) || 0;
-                if (String(x.category || "").toLowerCase() === "repuesto") r += amt;
-                else if (String(x.category || "").toLowerCase() === "certificado") c += amt;
-                else s += amt;
-              });
-              return { catServ: s, catRep: r, catCert: c };
-            }
+            const globalSplit = catSplitFromResources(rp, paidAmount);
+            if (globalSplit) return globalSplit;
+            // 3) Fallback: reparto proporcional por ítems reales de la card / por el todo.
             return {
               catServ: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.serv / catSplit.total) : (payState === "parcial" ? paidAmount : totalAmount),
               catRep: catSplit.total > 0 ? (payState === "parcial" ? paidAmount : totalAmount) * (catSplit.rep / catSplit.total) : 0,
@@ -1044,6 +1076,16 @@ export function WorkshopDailyReportView({
           isInvoice: true,
           orderStatus: isPending ? "pendiente" : "finalizado",
           receiptNumber: (inv.receipt_number && String(inv.receipt_number) !== "0" ? String(inv.receipt_number) : "") || "",
+          // VENTAS POR CONCEPTO: usa los recursos de los pagos cobrados HOY (o el
+          // vínculo global escalado a lo cobrado), respetando redirect_category.
+          ...(() => {
+            const dayRes = dayPayResources(histForPay);
+            const direct = catSplitFromResources(dayRes, paidAmount);
+            if (direct) return direct;
+            const rp: any[] = Array.isArray((inv as any)?.resource_payments) ? (inv as any).resource_payments : [];
+            const globalSplit = catSplitFromResources(rp, paidAmount);
+            return globalSplit || undefined;
+          })(),
         });
       }
     });
@@ -1636,8 +1678,8 @@ export function WorkshopDailyReportView({
     (dayPaymentsDeduped || []).forEach((p: any) => {
       const bd = breakdownFromSources(p.method || "EFECTIVO", p.payment_breakdown, p.destination || "EMPRESA", Number(p.amount) || 0);
       const dest = (p.destination || "EMPRESA").toUpperCase();
-      if (bd.yape > 0) yapeRows.push({ yape: bd.yape, yapeDestino: bd.yapeDestino || dest });
-      if (bd.transferencia > 0) transfRows.push({ transferencia: bd.transferencia, transfDestino: bd.transfDestino || dest });
+      if (bd.yape > 0) yapeRows.push({ yape: bd.yape, yapeDestino: bd.yapeDestino || dest, plate: (p as any).plate || "ABONO", receiptNumber: (p as any).receipt_number || "" });
+      if (bd.transferencia > 0) transfRows.push({ transferencia: bd.transferencia, transfDestino: bd.transfDestino || dest, plate: (p as any).plate || "ABONO", receiptNumber: (p as any).receipt_number || "" });
     });
     const sortDests = (a: string, b: string) => (a === "EMPRESA" ? -1 : b === "EMPRESA" ? 1 : a.localeCompare(b));
     let yapeStaff = Array.from(new Set(yapeRows.map((r) => r.yapeDestino || "EMPRESA"))).sort(sortDests);
@@ -1650,6 +1692,9 @@ export function WorkshopDailyReportView({
       rowIdx: number;
       yapeValues: Record<string, number>;
       transfValues: Record<string, number>;
+      // Referencia del monto: a qué placa/comprobante pertenece (para el tooltip).
+      yRef?: { plate: string; receiptNumber: string };
+      tRef?: { plate: string; receiptNumber: string };
     }> = [];
 
     const sumYapesByCol: Record<string, number> = {};
@@ -1682,6 +1727,8 @@ export function WorkshopDailyReportView({
         rowIdx: i + 1,
         yapeValues: yObj,
         transfValues: tObj,
+        yRef: yRow ? { plate: String(yRow.plate || "ABONO").toUpperCase(), receiptNumber: String(yRow.receiptNumber || "") } : undefined,
+        tRef: tRow ? { plate: String(tRow.plate || "ABONO").toUpperCase(), receiptNumber: String(tRow.receiptNumber || "") } : undefined,
       });
     }
 
@@ -1929,9 +1976,15 @@ export function WorkshopDailyReportView({
                           {formatPEN(r.total)}
                         </td>
                         <td className="py-2 px-2 text-center font-black text-cyan-300 bg-cyan-950/20 border-r border-white/5">
-                          {r.plate}
+                          <span
+                            className={"inline-flex items-center gap-1 " + (r.payState === "parcial" ? "cursor-help" : "")}
+                            title={r.payState === "parcial" ? "Pago parcial: cobrado S/ " + formatPEN(r.total) + " de S/ " + formatPEN((Number(r.total) || 0) + (Number(r.pendingAmount) || 0)) + " - saldo S/ " + formatPEN(r.pendingAmount) : undefined}
+                          >
+                            {r.plate}
+                            {r.payState === "parcial" && <Info className="w-3 h-3 text-amber-300 shrink-0" />}
+                          </span>
                           {r.payState === "parcial" && (
-                            <span className="block text-[9px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/30 rounded px-1 mt-0.5">
+                            <span className="hidden print:block text-[9px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/30 rounded px-1 mt-0.5">
                               ⏳ parcial (saldo S/ {formatPEN(r.pendingAmount)})
                             </span>
                           )}
@@ -2093,26 +2146,38 @@ export function WorkshopDailyReportView({
                       {/* Yape Columns */}
                       {electronicMatrix.yapeStaff.map((col) => {
                         const val = row.yapeValues[col] || 0;
+                        const ref = row.yRef;
                         return (
                           <td
                             key={"y_val_" + col}
-                            className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-purple-300 bg-purple-950/20" : "text-gray-700"
-                              }`}
+                            title={val > 0 && ref ? "Yape vinculado a la placa " + ref.plate + " con comprobante " + (ref.receiptNumber || "S/N") : undefined}
+                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-purple-300 bg-purple-950/20 cursor-help" : "text-gray-700")}
                           >
-                            {val > 0 ? formatPEN(val) : "-"}
+                            {val > 0 ? (
+                              <span className="inline-flex items-center gap-1">
+                                {formatPEN(val)}
+                                {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-purple-400/80 shrink-0" /> : null}
+                              </span>
+                            ) : "-"}
                           </td>
                         );
                       })}
                       {/* Transfer Columns */}
                       {electronicMatrix.transfStaff.map((col) => {
                         const val = row.transfValues[col] || 0;
+                        const ref = row.tRef;
                         return (
                           <td
                             key={"t_val_" + col}
-                            className={`py-1 px-1 text-right border-r border-white/5 ${val > 0 ? "font-bold text-blue-300 bg-blue-950/20" : "text-gray-700"
-                              }`}
+                            title={val > 0 && ref ? "Transferencia vinculada a la placa " + ref.plate + " con comprobante " + (ref.receiptNumber || "S/N") : undefined}
+                            className={"py-1 px-1 text-right border-r border-white/5 " + (val > 0 ? "font-bold text-blue-300 bg-blue-950/20 cursor-help" : "text-gray-700")}
                           >
-                            {val > 0 ? formatPEN(val) : "-"}
+                            {val > 0 ? (
+                              <span className="inline-flex items-center gap-1">
+                                {formatPEN(val)}
+                                {ref ? <ArrowUpRight className="w-2.5 h-2.5 text-blue-400/80 shrink-0" /> : null}
+                              </span>
+                            ) : "-"}
                           </td>
                         );
                       })}
@@ -2355,7 +2420,13 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span className="font-black text-teal-300">S/ {Number(it.total).toFixed(2)}</span>
+                                <span
+                                  className="inline-flex items-center gap-1 font-black text-teal-300 cursor-help"
+                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                >
+                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-teal-400/70 shrink-0" /> : null}
+                                  S/ {Number(it.total).toFixed(2)}
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -2388,7 +2459,13 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span className="font-black text-emerald-300">S/ {Number(it.total).toFixed(2)}</span>
+                                <span
+                                  className="inline-flex items-center gap-1 font-black text-emerald-300 cursor-help"
+                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                >
+                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-emerald-400/70 shrink-0" /> : null}
+                                  S/ {Number(it.total).toFixed(2)}
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -2421,7 +2498,13 @@ export function WorkshopDailyReportView({
                               <div key={i} className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
                                 <span className="text-gray-300 truncate max-w-[45%]">{it.plate} · {it.description}</span>
                                 <span className="text-gray-400">🧾 {it.receiptNumber || "S/N"}</span>
-                                <span className="font-black text-purple-300">S/ {Number(it.total).toFixed(2)}</span>
+                                <span
+                                  className="inline-flex items-center gap-1 font-black text-purple-300 cursor-help"
+                                  title={it.receiptNumber ? "Este monto pertenece a la factura " + it.receiptNumber + " de " + it.plate : undefined}
+                                >
+                                  {it.receiptNumber ? <ArrowUpRight className="w-3 h-3 text-purple-400/70 shrink-0" /> : null}
+                                  S/ {Number(it.total).toFixed(2)}
+                                </span>
                               </div>
                             ))}
                           </div>
