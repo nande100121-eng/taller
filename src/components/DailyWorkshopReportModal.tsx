@@ -495,14 +495,19 @@ export function WorkshopDailyReportView({
       });
       // Certificación marcada en la card (+ Certificación)
       const cert = certFromItems + (wo.requires_certification ? Number(wo.certification_price) || 0 : 0);
-      return { serv, rep, cert, total: serv + rep + cert };
+      // FIX DESCUENTO (BWV-501): aplicar el descuento PROPORCIONALMENTE a los conceptos
+      // para que VENTAS POR CONCEPTO coincida con el neto cobrado (500 - 20 = 480).
+      const grossTotal = serv + rep + cert;
+      const disc = Number((wo as any)?.discount_amount) || 0;
+      const factor = grossTotal > 0 && disc > 0 ? Math.max(0, grossTotal - disc) / grossTotal : 1;
+      return { serv: serv * factor, rep: rep * factor, cert: cert * factor, total: (serv + rep + cert) * factor };
     };
 
     // Ítems REALES de la card con su categoría (para repartir VENTAS POR CONCEPTO
     // por lo asignado en el Taller y NO por proporciones inventadas del total).
     const buildCategoryItems = (wo: any) => {
       const items = Array.isArray(wo.items) ? wo.items : [];
-      const out: Array<{ amount: number; cat: 'serv' | 'rep' | 'cert' }> = [];
+      let out: Array<{ amount: number; cat: 'serv' | 'rep' | 'cert' }> = [];
       items.forEach((it: any) => {
         const amt = Number(it.subtotal) || Number(it.quantity) * Number(it.unit_price) || 0;
         if (amt <= 0) return;
@@ -514,6 +519,14 @@ export function WorkshopDailyReportView({
       });
       const certExtra = wo.requires_certification ? Number(wo.certification_price) || 0 : 0;
       if (certExtra > 0) out.push({ amount: certExtra, cat: 'cert' });
+      // FIX DESCUENTO: reducir cada ítem proporcionalmente (BWV-501: 500 -> 480) para que
+      // el reparto por concepto sume el neto cobrado y coincida con REPORTE DEL DÍA.
+      const grossTotal = out.reduce((s: number, x) => s + (Number(x.amount) || 0), 0);
+      const disc = Number((wo as any)?.discount_amount) || 0;
+      const factor = grossTotal > 0 && disc > 0 ? Math.max(0, grossTotal - disc) / grossTotal : 1;
+      if (factor !== 1) {
+        out = out.map((x) => ({ ...x, amount: Math.round((Number(x.amount) || 0) * factor * 100) / 100 }));
+      }
       return out;
     };
 

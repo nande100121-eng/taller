@@ -1406,7 +1406,11 @@ export default function CajaPage() {
       else if (woItem && (String(woItem.item_type || "").toLowerCase() === "repuesto" || woItem.inventory_item_id)) category = "repuesto";
       else if (woItem && String(woItem.item_type || "").toLowerCase() === "servicio") category = "servicio";
       const prev = existingResources.find((x: any) => String(x.description || "") === String(b.description || ""));
-      const fullAmt = Number(b.subtotal) || 0;
+      // FIX DESCUENTO: el recurso se ofrece con su monto ya descontado proporcionalmente
+      // (BWV-501: 110 -> 105.60, etc.) para que la selección sume el neto (480) y no el bruto (500).
+      const grossBreakdown = breakdown.reduce((s: number, x: any) => s + (Number(x.subtotal) || 0), 0);
+      const dFactor = discountFactorFor(wo, inv, grossBreakdown);
+      const fullAmt = Math.round((Number(b.subtotal) || 0) * dFactor * 100) / 100;
       const alreadyPaid = paidByDesc.get(String(b.description || "").trim().toLowerCase()) || 0;
       const pendingAmt = Math.max(0, fullAmt - alreadyPaid);
       const prevPay = prev ? (Number(prev.amount) || 0) : 0;
@@ -1823,11 +1827,25 @@ export default function CajaPage() {
   // reparte el monto de este abono entre los recursos pendientes, permitiendo que un
   // abono parcial cubra solo parte de un recurso (el resto queda pendiente para el
   // próximo abono, que verá SOLO los recursos aún por pagar).
+  // Factor de descuento PROPORCIONAL: si la card tiene descuento (ej. 500 - 20 = 480),
+  // cada recurso se reduce en la misma proporción para que la suma de recursos coincida
+  // con el monto a cobrar (neto). Se usa en abonos y en el modal de pago.
+  const discountFactorFor = (wo: any, inv?: any, gross?: number) => {
+    const discount = (wo?.discount_amount && wo.discount_amount > 0)
+      ? Number(wo.discount_amount)
+      : (inv?.discounts ? (typeof inv.discounts === "number" ? inv.discounts : Number(inv.discounts) || 0) : 0);
+    if (discount <= 0) return 1;
+    const g = (gross && gross > 0)
+      ? gross
+      : (wo.items || []).reduce((s: number, i: any) => s + (Number(i.subtotal) || 0), 0) + (wo.requires_certification ? (Number(wo.certification_price) || 0) : 0);
+    return g > 0 ? Math.max(0, g - discount) / g : 1;
+  };
+
   const buildAbonoResourceSelection = (wo: any, inv?: any, maxAmount: number = 0) => {
     const linkKey = toPeruDateKey((inv as any)?.issued_at || (wo as any).entry_time || "");
     if (linkKey < "2026-08-17") return undefined;
     const items: any[] = Array.isArray(wo?.items) ? wo.items : [];
-    const resList: Array<{ description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number }> = [];
+    let resList: Array<{ description: string; category: "servicio" | "repuesto" | "certificado"; fullAmount: number }> = [];
     items.forEach((it: any) => {
       const amt = Number(it.subtotal) || 0;
       if (amt <= 0) return;
@@ -1844,6 +1862,14 @@ export default function CajaPage() {
       });
     }
     if (resList.length === 0) return undefined;
+
+    // FIX DESCUENTO (BWV-501): aplicar el descuento PROPORCIONALMENTE a cada recurso
+    // para que la suma de recursos = neto a cobrar (500 - 20 = 480) y no el bruto (500).
+    const grossRes = resList.reduce((s: number, r: any) => s + (Number(r.fullAmount) || 0), 0);
+    const dFactor = discountFactorFor(wo, inv, grossRes);
+    if (dFactor !== 1) {
+      resList = resList.map((r: any) => ({ ...r, fullAmount: Math.round((Number(r.fullAmount) || 0) * dFactor * 100) / 100 }));
+    }
 
     // Abonado PREVIO por recurso desde el historial con vínculo (rec.resources).
     // Los abonos registrados sin vínculo (antes del 17/08) no descuentan recursos:
