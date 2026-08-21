@@ -580,6 +580,17 @@ export default function WorkshopOperationsPage() {
       if (!srv) return;
       // === INSTALACIÓN: expande el paquete en sus componentes + mano de obra ===
       if (srv.is_installation) {
+        // ANTI-DOBLE: si el carrito ya tiene la mano de obra de ESTA instalación,
+        // se bloquea el agregado (evita duplicar el kit por doble clic/tap).
+        const srvUp = String(srv.name || "").toUpperCase();
+        const alreadyInCart = pendingServicesCart.some((p) => {
+          const d = String(p.description || "").toUpperCase();
+          return d.includes("MANO DE OBRA") && d.includes(srvUp);
+        });
+        if (alreadyInCart) {
+          notify("warning", "La instalación '" + srv.name + "' ya está en la lista. No se agregó de nuevo (se evitaría duplicar el kit).");
+          return;
+        }
         const groupId = "inst-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8);
         const kitItems = buildInstallationItems(srv, groupId);
         if (kitItems.length === 0) {

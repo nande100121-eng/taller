@@ -31,7 +31,8 @@ import {
   Terminal,
   X,
   Fuel,
-  UserCheck
+  UserCheck,
+  Copy
 } from "lucide-react";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { getLocalLogs, exportLocalLogs, BUILD_SHA } from "@/lib/system-log";
@@ -1155,6 +1156,39 @@ export default function ConfiguracionPage() {
             >
               <Download className="w-3.5 h-3.5" />
               Descargar JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const logs = getLocalLogs(400);
+                const text = JSON.stringify(logs, null, 1);
+                const done = () => notify("success", "Log copiado al portapapeles (últimas 400 entradas). Pégalo en el chat para diagnóstico.");
+                try {
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(done).catch(() => {
+                      const ta = document.createElement("textarea");
+                      ta.value = text;
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand("copy");
+                      document.body.removeChild(ta);
+                      done();
+                    });
+                  } else {
+                    const ta = document.createElement("textarea");
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    done();
+                  }
+                } catch { /* noop */ }
+              }}
+              className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-bold border border-cyan-500/40 flex items-center gap-2 transition-colors"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar Log
             </button>
           </div>
         </div>

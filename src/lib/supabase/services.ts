@@ -3221,29 +3221,40 @@ export async function saveSupabaseInvoice(inv: Invoice) {
       debt_responsible: inv.debt_responsible || null,
     };
 
-    const { error } = await supabase.from("invoices").upsert(payload);
-    if (error) {
-      logSystemEvent("error", "invoice.save.upsert_error", {
+    try {
+      const { error } = await supabase.from("invoices").upsert(payload);
+      if (error) {
+        logSystemEvent("error", "invoice.save.upsert_error", {
+          invId: String(inv.id).slice(0, 26),
+          woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
+          receipt: inv.receipt_number || "",
+          error: error.message,
+        }, "services:saveSupabaseInvoice");
+        console.warn("Supabase invoice upsert notice, trying core columns fallback:", error.message);
+        await supabase.from("invoices").upsert({
+          id: inv.id,
+          work_order_id: inv.work_order_id,
+          vehicle_plate: inv.vehicle_plate || "",
+          client_name: inv.client_name || "",
+          customer_doc: inv.customer_doc || null,
+          labor_fee: typeof inv.labor_fee === "number" ? inv.labor_fee : 0,
+          parts_total: typeof inv.parts_total === "number" ? inv.parts_total : 0,
+          certification_fee: typeof inv.certification_fee === "number" ? inv.certification_fee : 0,
+          grand_total: typeof inv.grand_total === "number" ? inv.grand_total : 0,
+          payment_status: inv.payment_status || "pagado",
+          payment_method: inv.payment_method || "",
+          issued_at: inv.issued_at || new Date().toISOString(),
+        });
+      }
+    } catch (upsertErr) {
+      // EXCEPCIÓN de red/API en el upsert: se registra y SE CONTINÚA con los
+      // snapshots (abajo), para que el historial del pago nunca se pierda de la card.
+      logSystemEvent("error", "invoice.save.upsert_throw", {
         invId: String(inv.id).slice(0, 26),
         woId: inv.work_order_id ? String(inv.work_order_id).slice(0, 8) : null,
         receipt: inv.receipt_number || "",
-        error: error.message,
+        err: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
       }, "services:saveSupabaseInvoice");
-      console.warn("Supabase invoice upsert notice, trying core columns fallback:", error.message);
-      await supabase.from("invoices").upsert({
-        id: inv.id,
-        work_order_id: inv.work_order_id,
-        vehicle_plate: inv.vehicle_plate || "",
-        client_name: inv.client_name || "",
-        customer_doc: inv.customer_doc || null,
-        labor_fee: typeof inv.labor_fee === "number" ? inv.labor_fee : 0,
-        parts_total: typeof inv.parts_total === "number" ? inv.parts_total : 0,
-        certification_fee: typeof inv.certification_fee === "number" ? inv.certification_fee : 0,
-        grand_total: typeof inv.grand_total === "number" ? inv.grand_total : 0,
-        payment_status: inv.payment_status || "pagado",
-        payment_method: inv.payment_method || "",
-        issued_at: inv.issued_at || new Date().toISOString(),
-      });
     }
 
     // Always persist full snapshot in site_content to guarantee 100% cloud resilience
