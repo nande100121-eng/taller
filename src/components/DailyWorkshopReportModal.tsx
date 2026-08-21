@@ -1020,7 +1020,24 @@ export function WorkshopDailyReportView({
       }
     });
 
-    return rows;
+    // BUG FIX (correlativo duplicado por re-ingreso): el MISMO N° de comprobante
+    // aparecía en varias filas (ej. ticket 4586 en 3 OTs idénticas de BBP-699 del
+    // 30/09/2025: ANUAL GNV S/ 80 x3) y el REPORTE DEL DÍA / VENTAS POR CONCEPTO
+    // sumaban el monto varias veces (descuadre). Se deduplican filas con la MISMA
+    // placa + MISMO correlativo + MISMO monto (queda una sola). Los abonos parciales
+    // del mismo correlativo con montos DISTINTOS (ej. 100 + 10) NO se tocan.
+    const seenRowKeys = new Set<string>();
+    const deduped: any[] = [];
+    rows.forEach((r: any) => {
+      const rn = String(r.receiptNumber || "").trim();
+      if (!rn || rn === "0") { deduped.push(r); return; }
+      const key = `${String(r.plate || "").toUpperCase()}|${rn}|${(Number(r.total) || 0).toFixed(2)}`;
+      if (seenRowKeys.has(key)) return;
+      seenRowKeys.add(key);
+      deduped.push(r);
+    });
+    deduped.forEach((r: any, i: number) => { r.itemNumber = i + 1; });
+    return deduped;
   }, [selectedDate, dayOrders, dayInvoices, invoicesByWorkOrderId, technicians]);
 
   // Filas reportables: SOLO servicios/repuestos con MONTO > 0 Y número de comprobante
