@@ -401,7 +401,27 @@ export async function clearSupabaseInventory() {
 // ---------------------------------------------------------------------
 // WORK ORDERS SUPABASE SYNC
 // ---------------------------------------------------------------------
+// COLA DE GUARDADO POR OT (fix realtime: "despacho se revirtió").
+// saveSupabaseWorkOrder hace SELECT -> merge defensivo -> upsert en varios RTTs.
+// Si dos guardados de la MISMA OT se solapan (confirmar varios repuestos seguidos,
+// dos pestañas, sync de 30s vs guardado local), el SELECT del segundo lee el estado
+// VIEJO (dispatched:false) y su upsert pisa el despacho recién confirmado -> la card
+// "vuelve a pedir confirmar". Con esta cola los guardados de una OT se ejecutan en
+// serie: cada SELECT-merge-upsert ve el commit anterior (merge defensivo ya protege
+// dispatched con OR: nunca se revierte true->false por una copia vieja).
+const woSaveQueues = new Map<string, Promise<void>>();
+
+function enqueueWorkOrderSave(orderId: string, task: () => Promise<void>): Promise<void> {
+  const prev = woSaveQueues.get(orderId) || Promise.resolve();
+  const next = prev.then(task, task); // corre aunque el anterior haya fallado
+  const guarded = next.catch(() => {}); // la cola nunca queda en estado rechazado
+  woSaveQueues.set(orderId, guarded);
+  return guarded;
+}
+
 export async function saveSupabaseWorkOrder(order: WorkOrder) {
+  // Serializa por OT: espera a que termine el guardado anterior de la misma OT.
+  await enqueueWorkOrderSave(order.id, async () => {
   const saveStart = Date.now();
   try {
     markLocalMutation("workOrders");
@@ -647,6 +667,7 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     }, "services:saveSupabaseWorkOrder");
     console.warn("Supabase work order deferred:", err);
   }
+  }); // <- fin del guardado serializado por OT
 }
 
 export async function deleteSupabaseWorkOrder(id: string) {

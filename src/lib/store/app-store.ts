@@ -2617,6 +2617,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           ...i,
           dispatched: true,
           dispatched_at: i.dispatched_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         }));
         const updatedOrder = { ...o, items: updatedItems };
         saveSupabaseWorkOrder(updatedOrder);
