@@ -2131,9 +2131,32 @@ export function WorkshopDailyReportView({
                     <Layers className="w-4 h-4 text-cyan-300" />
                     <span>VENTAS POR CONCEPTO</span>
                   </button>
-                  <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
-                    S/ {formatPEN(categoryBreakdown.grandTotal)}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="bg-black/30 text-teal-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                      S/ {formatPEN(categoryBreakdown.grandTotal)}
+                    </span>
+                    {(() => {
+                      // AUDITORÍA (mismo patrón que la tabla YAPES & TRANSFERENCIAS):
+                      // si VENTAS POR CONCEPTO no cuadra con el TOTAL del REPORTE DEL DÍA,
+                      // se marca VERIFICAR ⚠ para que un descuadre no pase desapercibido
+                      // (ej. ticket con 2 pagos del mismo correlativo que duplicaba montos).
+                      const isC = Math.abs(categoryBreakdown.grandTotal - displayedTotalFacturado) < 0.05;
+                      return (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-black flex items-center gap-1 border ${isC
+                            ? "bg-emerald-600/30 text-emerald-300 border-emerald-500/50"
+                            : "bg-rose-600/40 text-rose-300 border-rose-500/60 animate-pulse"
+                            }`}
+                          title={isC
+                            ? "VENTAS POR CONCEPTO cuadra con el TOTAL del Reporte del Día"
+                            : `Diferencia: S/ ${formatPEN(Math.abs(categoryBreakdown.grandTotal - displayedTotalFacturado))}. Revisar repartos o duplicados.`}
+                        >
+                          {isC ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                          <span>{isC ? "CUADRADO ✔" : "VERIFICAR ⚠"}</span>
+                        </span>
+                      );
+                    })()}
+                  </div>
                   {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
                   <button
                     type="button"
