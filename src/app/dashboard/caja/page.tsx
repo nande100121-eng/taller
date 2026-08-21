@@ -2251,40 +2251,45 @@ export default function CajaPage() {
   // Mueve el descuento del abono a OTRO recurso (solicitud 20/08): el cajero indica
   // a qué recurso se aplica el descuento. NO permite asignarlo a un recurso cuyo
   // monto (fullAmount) sea MENOR que el descuento (validación pedida).
+  // Al ASIGNAR el descuento a un recurso, su payAmount se reduce automáticamente en
+  // el descuento (si estaba al bruto o más); al QUITARLO, se le suma lo descontado
+  // (restaurando su monto bruto si estaba descontado). Así el "A abonar" de abajo
+  // refleja siempre el neto real y nunca excede el saldo pendiente sin avisar.
   const moveAbonoDiscount = (targetKey: string) => {
     if (!partialPaymentModal) return;
     const disc = Number(partialPaymentModal.discountAmount) || 0;
     if (disc <= 0) return;
+    const applyDisc = (rs: any) => {
+      const fullAmt = Number(rs.fullAmount) || 0;
+      const pending = Math.max(0, fullAmt);
+      const wasCarrier = Number(rs.discountApplied) > 0;
+      if (rs.key === targetKey) {
+        if (wasCarrier) {
+          // QUITAR descuento: sumar lo descontado al payAmount (restaurar bruto)
+          const prevDisc = Number(rs.discountApplied) || 0;
+          const restoredPay = Math.min(pending, (Number(rs.payAmount) || 0) + prevDisc);
+          return { ...rs, discountApplied: 0, pendingAmount: pending, payAmount: restoredPay, selected: restoredPay > 0.01 };
+        }
+        // ASIGNAR descuento: restar el descuento al payAmount automáticamente
+        if (fullAmt < disc - 0.005) return rs; // no permitir: monto menor al descuento
+        const newPending = Math.max(0, fullAmt - disc);
+        // Si el recurso estaba marcado a su bruto (o más), se descuenta; si estaba
+        // parcial, se limita al nuevo saldo.
+        const newPay = Math.min(Number(rs.payAmount) || 0, newPending);
+        return { ...rs, discountApplied: disc, pendingAmount: newPending, payAmount: Math.round(newPay * 100) / 100, selected: newPay > 0.01 };
+      }
+      // Otro recurso era el portador y este no: se limpia sumando lo descontado
+      return wasCarrier
+        ? { ...rs, discountApplied: 0, pendingAmount: pending, payAmount: Math.round(Math.min(pending, (Number(rs.payAmount) || 0) + (Number(rs.discountApplied) || 0)) * 100) / 100, selected: (Number(rs.payAmount) || 0) > 0.01 }
+        : rs;
+    };
     const splits = (partialPaymentModal.paymentSplits || []).map((sp, si) => {
       const srs: any[] = Array.isArray((sp as any).splitResources) ? (sp as any).splitResources : [];
-      const next = srs.map((rs: any) => {
-        const fullAmt = Number(rs.fullAmount) || 0;
-        const wasCarrier = Number(rs.discountApplied) > 0;
-        if (rs.key === targetKey) {
-          if (wasCarrier) {
-            // Quitar el descuento de este recurso (volver a su saldo bruto)
-            return { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) };
-          }
-          // Asignar el descuento SOLO si el recurso lo cubre
-          if (fullAmt < disc - 0.005) return rs; // no permitir: monto menor al descuento
-          return { ...rs, discountApplied: disc, pendingAmount: Math.max(0, fullAmt - disc) };
-        }
-        // Si otro recurso era el portador y este no, se limpia (solo UN recurso lleva el descuento)
-        return wasCarrier ? { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) } : rs;
-      });
+      const next = srs.map(applyDisc);
       const newAmount = Number(next.filter((r2: any) => r2.selected).reduce((s2: number, r2: any) => s2 + (Number(r2.payAmount) || 0), 0).toFixed(2));
       return { ...sp, splitResources: next, amount: newAmount };
     });
-    const pool = (partialPaymentModal.resourceSelection || []).map((rs: any) => {
-      const fullAmt = Number(rs.fullAmount) || 0;
-      const wasCarrier = Number(rs.discountApplied) > 0;
-      if (rs.key === targetKey) {
-        if (wasCarrier) return { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) };
-        if (fullAmt < disc - 0.005) return rs;
-        return { ...rs, discountApplied: disc, pendingAmount: Math.max(0, fullAmt - disc) };
-      }
-      return wasCarrier ? { ...rs, discountApplied: 0, pendingAmount: Math.max(0, fullAmt) } : rs;
-    });
+    const pool = (partialPaymentModal.resourceSelection || []).map(applyDisc);
     setPartialPaymentModal({ ...partialPaymentModal, paymentSplits: splits, resourceSelection: pool });
   };
 
@@ -5915,14 +5920,27 @@ export default function CajaPage() {
                       const saldoPendiente = Math.max(0, (partialPaymentModal.totalDue || 0) - (partialPaymentModal.paidSoFar || 0));
                       const saldoRestante = Math.max(0, saldoPendiente - sum);
                       const isBalanced = saldoRestante <= 0.01;
+                      const isOver = sum > saldoPendiente + 0.01;
+                      // ¿Hay descuento en la card pero NO aplicado a ningún recurso?
+                      const discPending = (Number(partialPaymentModal.discountAmount) || 0) > 0 &&
+                        !(partialPaymentModal.paymentSplits || []).some((sp: any) =>
+                          (Array.isArray(sp.splitResources) ? sp.splitResources : []).some((r: any) => Number(r.discountApplied) > 0)
+                        );
                       return (
-                        <div className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs font-bold ${isBalanced
-                          ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-300"
-                          : "bg-amber-950/50 border-amber-500/30 text-amber-300"
+                        <div className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs font-bold ${
+                          isBalanced
+                            ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-300"
+                            : isOver
+                              ? "bg-rose-950/60 border-rose-500/40 text-rose-300"
+                              : "bg-amber-950/50 border-amber-500/30 text-amber-300"
                           }`}>
                           <span>
                             A abonar: <span className="font-mono font-black">S/ {sum.toFixed(2)}</span>
-                            {!isBalanced && (
+                            {isOver ? (
+                              <span className="text-[10px] text-rose-200/90 ml-1">
+                                · Excede el saldo pendiente (S/ {saldoPendiente.toFixed(2)}) en S/ {(sum - saldoPendiente).toFixed(2)}
+                              </span>
+                            ) : !isBalanced && (
                               <span className="text-[10px] text-amber-200/80 ml-1">
                                 · Saldo restante: S/ {saldoRestante.toFixed(2)}
                               </span>
@@ -5931,6 +5949,14 @@ export default function CajaPage() {
                           {isBalanced ? (
                             <span className="flex items-center gap-1">
                               <Check className="w-3.5 h-3.5" /> Cuadrado
+                            </span>
+                          ) : isOver ? (
+                            <span className="text-[10px] text-rose-200 font-black flex items-center gap-1">
+                              {discPending ? (
+                                <>⚠ Aplique el descuento a un recurso (🛡) para no exceder</>
+                              ) : (
+                                <>⚠ Excede el saldo — desmarque recursos o ajuste montos</>
+                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-amber-200/90">Abono parcial</span>
