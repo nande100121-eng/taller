@@ -1994,7 +1994,11 @@ export default function CajaPage() {
       ? (Number(partialPaymentModal.editingRecordAmount) || 0)
       : 0;
     const balance = Math.max(0, partialPaymentModal.totalDue - Math.max(0, paidSoFarReal - editingExcluded));
-    if (amount <= 0) {
+    // MODO EDICIÓN (comprobante existente del historial, ej. card de monto 0): se permite
+    // guardar solo el cambio de fecha/método SIN marcar recursos (el monto a guardar es
+    // el del registro editado). El bloqueo de "marque un recurso" solo aplica a abonos nuevos.
+    const isEditingRecord = !!(partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id);
+    if (amount <= 0 && !isEditingRecord) {
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
     }
@@ -2103,7 +2107,7 @@ export default function CajaPage() {
           });
         });
     }
-    if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0) {
+    if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0 && !(isEditingRecord && amount <= 0)) {
       notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) que cubra este abono.");
       return;
     }
@@ -2123,8 +2127,10 @@ export default function CajaPage() {
     // MODO EDICIÓN (comprobante existente desde el historial): actualiza el registro,
     // no crea uno nuevo ni reimprime comprobante.
     if (partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id) {
+      // Card de monto 0 (edición solo de fecha): conserva el monto del registro editado
+      const editAmount = amount > 0 ? amount : (Number(partialPaymentModal.editingRecordAmount) || 0);
       updatePaymentRecord(partialPaymentModal.invoice.id, partialPaymentModal.editingRecordId, {
-        amount,
+        amount: editAmount,
         date: paymentDateTime,
         method: sanitizeMethod(finalMethod, amount) || "Efectivo",
         destination: finalDest || "EMPRESA",
