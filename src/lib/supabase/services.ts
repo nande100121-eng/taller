@@ -1765,7 +1765,12 @@ async function resolveUniqueReceiptNumber(
     .limit(5000);
   let maxNum = 0;
   (all || []).forEach((r) => {
-    const clean = parseInt(String(r.receipt_number || "").replace(/\D/g, ""), 10);
+    // BUG FIX (correlativo): "TK01-00004611".replace(/\D/g,"") incluía el "01" de la
+    // serie ("0100004611" -> 100004611, descartado por el tope) y el máximo real
+    // quedaba en 0, asignando números absurdos (TK01-00000005). Se extrae el número
+    // SOLO de la parte posterior al último guion: "00004611" -> 4611.
+    const parts = String(r.receipt_number || "").split("-");
+    const clean = parseInt((parts[parts.length - 1] || "").replace(/\D/g, ""), 10);
     if (!isNaN(clean) && clean > maxNum && clean < 99999999) maxNum = clean;
   });
   const series = isFactura ? "F001" : isBoleta ? "B001" : "TK01";

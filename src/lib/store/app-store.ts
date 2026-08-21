@@ -912,11 +912,26 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   const baseSet = set;
   const setWithLog: typeof set = ((partial: any) => {
     try {
+      if (typeof partial === "function") {
+        // IMPORTANTE (fix crítico): el updater se invoca UNA sola vez y el RESULTADO
+        // (partial) se pasa a baseSet. Antes se llamaba 2 veces (una para el diff y otra
+        // en baseSet) y los efectos del updater (saveSupabaseInvoice/WorkOrder, logs) se
+        // ejecutaban DOS veces -> factura/abono duplicados, instalación doble, 2 filas en
+        // el reporte. Ahora: una sola ejecución real.
+        const prev = get();
+        const next = (partial as any)(prev);
+        const changed = Object.keys(next || {}).filter((k) => (next as any)[k] !== (prev as any)[k]);
+        if (changed.length > 0) {
+          const HEAVY = ["workOrders", "invoices", "vehicles", "inventoryItems", "siteContent", "certifications", "scheduleRecords", "attendanceLogs", "toolLoans", "technicians", "appointments", "workshopServices", "recentIngresos"];
+          const keys = changed.slice(0, 15).map((k) => (HEAVY.includes(k) ? k + "*" : k));
+          logSystemEvent("info", "store.set", { keys, n: changed.length }, "store:set");
+        }
+        return baseSet(next);
+      }
       const prev = get();
-      const next = typeof partial === "function" ? (partial as any)(prev) : partial;
+      const next = partial;
       const changed = Object.keys(next || {}).filter((k) => (next as any)[k] !== (prev as any)[k]);
       if (changed.length > 0) {
-        // Marca con "*" las listas pesadas para saber cuándo cambian (sync vs acción real).
         const HEAVY = ["workOrders", "invoices", "vehicles", "inventoryItems", "siteContent", "certifications", "scheduleRecords", "attendanceLogs", "toolLoans", "technicians", "appointments", "workshopServices", "recentIngresos"];
         const keys = changed.slice(0, 15).map((k) => (HEAVY.includes(k) ? k + "*" : k));
         logSystemEvent("info", "store.set", { keys, n: changed.length }, "store:set");
