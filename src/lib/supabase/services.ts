@@ -454,8 +454,40 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     // en el dispositivo que guarda (broadcast/toast salen antes, la card llega antes).
     const tMergeStart = Date.now();
     const tSnapStart = Date.now();
+
+    // FIX ELIMINAR REPUESTO CROSS-DEVICE (F2Z-050): los removedItemIds viven en el
+    // snapshot GLOBAL wo_removed_<id> (site_content), NO solo en la OT local. Si otra
+    // tablet (Taller) eliminó un ítem y esta tablet (Almacén) guarda con su copia vieja
+    // que aún lo contiene, el merge lo trataría como "ítem nuevo" y lo reintroduciría.
+    // Se lee el registro global ANTES del snapshot para excluir esos ítems del snapshot
+    // y del merge (el snapshot wo_mod_ NO debe volver a incluir el ítem eliminado).
+    let globalRemoved: string[] = [];
+    try {
+      const removedRes = await supabase
+        .from("site_content")
+        .select("section_key, value")
+        .eq("section_key", `wo_removed_${order.id}`)
+        .maybeSingle();
+      const removedRaw = removedRes?.data?.value;
+      if (removedRaw) {
+        let rv: any = removedRaw;
+        if (typeof rv === "string") { try { rv = JSON.parse(rv); } catch { rv = null; } }
+        if (rv && Array.isArray(rv.ids)) globalRemoved = rv.ids.filter((x: any) => typeof x === "string");
+        else if (Array.isArray(rv)) globalRemoved = rv.filter((x: any) => typeof x === "string");
+      }
+    } catch { /* noop */ }
+
+    // Unión: removidos locales (esta tablet) + removidos globales (otras tablets).
+    const removedSet = new Set<string>([...(globalRemoved || []), ...((order as any)?.removedItemIds || [])]);
+    // Los ítems marcados eliminados NO entran al snapshot ni al payload aunque la copia
+    // local de esta tablet aún los tenga (Almacén con cache viejo).
+    const cleanItemsForSave: any[] = (Array.isArray(order.items) ? order.items : []).filter(
+      (it: any) => !(it && it.id && removedSet.has(it.id))
+    );
+
     const snapshotPromise = saveSupabaseSiteContent(`wo_mod_${order.id}`, {
       ...order,
+      items: cleanItemsForSave,
       diagnostic_notes: diagText,
       updated_at: new Date().toISOString(),
     }, "work_orders", false);
@@ -465,7 +497,8 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
       if (dbRaw) {
         let dbItems: any[] = [];
         try { dbItems = typeof dbRaw === "string" ? JSON.parse(dbRaw) : dbRaw; } catch { dbItems = []; }
-        const localItems: any[] = Array.isArray(order.items) ? order.items : [];
+        // localItems ya viene filtrado contra removedSet (calculado arriba, antes del snapshot).
+        const localItems: any[] = cleanItemsForSave;
         if (localItems.length > 0 || dbItems.length > 0) {
           const dbMap = new Map<string, any>();
           const keyOf = (it: any) => it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
@@ -474,7 +507,6 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
           // que no estaban en la versión local -> un repuesto entregado borrado en Taller
           // "volvía" en el siguiente guardado. Los ítems registrados en removedItemIds se
           // EXCLUYEN del preservado (borrado intencional, no cache viejo).
-          const removedSet = new Set<string>((order as any)?.removedItemIds || []);
           dbItems.forEach((it: any) => { if (it && removedSet.has(it.id)) dbMap.delete(keyOf(it)); });
           const mergedItems = localItems.map((it: any) => {
             const k = keyOf(it);
@@ -550,6 +582,25 @@ export async function saveSupabaseWorkOrder(order: WorkOrder) {
     const upsertMs = Date.now() - tUpsertStart;
     await snapshotPromise;
     const snapshotMs = Date.now() - tSnapStart;
+
+    // Persistir el registro GLOBAL de ítems eliminados (wo_removed_<id>): sin esto, la
+    // copia vieja de Otra tablet (Almacén) reintroducía el repuesto eliminado en Taller
+    // al guardar la OT. El merge ya lo filtró; aquí se deja la lista unida en la nube
+    // para que cualquier dispositivo la respete (borrado intencional, no cache viejo).
+    if (removedSet.size > 0) {
+      try {
+        await supabase.from("site_content").upsert({
+          section_key: `wo_removed_${order.id}`,
+          key: `wo_removed_${order.id}`,
+          value: JSON.stringify({ ids: Array.from(removedSet) }),
+          content: { ids: Array.from(removedSet) },
+          category: "work_orders",
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "section_key" });
+      } catch (e2) {
+        console.warn("saveSupabaseWorkOrder removed registry warning:", e2);
+      }
+    }
 
     broadcastRealtimeChange("work_order_updated");
     const logItems = (Array.isArray(order.items) ? order.items : []).map((it: any) => ({
@@ -2283,6 +2334,10 @@ export async function fetchSupabaseErpData() {
     const invPayhistoryMap = new Map<string, any[]>();
     const invFullMap = new Map<string, any>();
     const woModMap = new Map<string, any>();
+    // Registro GLOBAL de ítems eliminados por OT (wo_removed_<id>): aplica a la
+    // reconstrucción para que un ítem borrado en Taller NO reaparezca desde el snapshot
+    // wo_mod_ viejo de Almacén ni desde la columna items (fix F2Z-050 cross-device).
+    const woRemovedMap = new Map<string, Set<string>>();
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -2400,6 +2455,15 @@ export async function fetchSupabaseErpData() {
           try {
             const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
             if (val && typeof val === "object") woModMap.set(woKey, val);
+          } catch { }
+        } else if (k && k.startsWith("wo_removed_")) {
+          const woKey = k.replace("wo_removed_", "");
+          try {
+            const val = typeof row.value === "string" ? JSON.parse(row.value) : (row.value || row.content);
+            const ids: string[] = val && Array.isArray(val.ids)
+              ? val.ids.filter((x: any) => typeof x === "string")
+              : (Array.isArray(val) ? val.filter((x: any) => typeof x === "string") : []);
+            if (ids.length > 0) woRemovedMap.set(woKey, new Set(ids));
           } catch { }
         }
       });
@@ -2589,6 +2653,13 @@ export async function fetchSupabaseErpData() {
             parsed = typeof itemsSource === "string" ? JSON.parse(itemsSource || "[]") : itemsSource || [];
           } catch {
             parsed = [];
+          }
+          // FIX ELIMINAR REPUESTO (F2Z-050 cross-device): excluir los ítems eliminados
+          // globalmente (wo_removed_<id>) para que NO reaparezcan en la reconstrucción
+          // aunque el snapshot wo_mod_ viejo aún los tenga.
+          const woRemovedIds = woRemovedMap.get(o.id);
+          if (woRemovedIds && woRemovedIds.size > 0) {
+            parsed = parsed.filter((it: any) => !(it && it.id && woRemovedIds.has(it.id)));
           }
           const orderDateStr = (o.entry_time || "").slice(0, 10);
           const isMigratedOrBilled =

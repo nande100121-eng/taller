@@ -2564,11 +2564,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         }, "store:applyRemoteWorkOrderLocal");
       }
       if (existing) {
-        // Merge de items por clave (conserva ítems locales recién agregados sin duplicar)
+        // Merge de items por clave. FIX ELIMINAR REPUESTO (F2Z-050 cross-device):
+        // la fila remota es AUTORITATIVA para la LISTA de items: un ítem que ya no
+        // viene en el payload fue ELIMINADO en otra tablet (Taller) y NO debe
+        // conservarse en esta (Almacén), o el siguiente guardado lo reintroduciría.
+        // La protección anti-cache viejo sigue viva en saveSupabaseWorkOrder (preserva
+        // en DB los ítems que existen allí pero no en la versión local).
         const itemsMap = new Map<string, any>();
-        localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
         (items || []).forEach((it: any) => {
-          if (it) itemsMap.set(itemKey(it), { ...itemsMap.get(itemKey(it)), ...it });
+          if (it) itemsMap.set(itemKey(it), { ...(existing.items || []).find((l: any) => itemKey(l) === itemKey(it)), ...it });
         });
         items = Array.from(itemsMap.values());
       }
