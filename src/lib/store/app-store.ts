@@ -1399,7 +1399,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           const remoteOrders = erpData.workOrders;
           const localOrders = state.workOrders;
           const mergedOrders = new Map<string, any>();
-          localOrders.forEach((wo) => mergedOrders.set(wo.id, wo));
+          // TOMBSTONE (fix "se borra pero reaparece"): las OTs borradas en cualquier
+          // dispositivo (wo_deleted_<id>) se DROPEAN del estado local — no deben seguir
+          // apareciendo como fantasma aunque se haya perdido el evento realtime.
+          const deletedRemote = new Set<string>((erpData as any)?.deletedWorkOrderIds || []);
+          localOrders.forEach((wo) => {
+            if (wo && wo.id && !deletedRemote.has(wo.id)) mergedOrders.set(wo.id, wo);
+          });
           remoteOrders.forEach((wo) => {
             if (wo && wo.id) {
               const local = mergedOrders.get(wo.id);
@@ -1551,7 +1557,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const remoteOrders = capped.workOrders;
         const localOrders = state.workOrders;
         const mergedOrders = new Map<string, any>();
-        localOrders.forEach((wo) => mergedOrders.set(wo.id, wo));
+        // TOMBSTONE: dropea localmente las OTs borradas en otro dispositivo (mismo fix).
+        const deletedRemote = new Set<string>((capped as any)?.deletedWorkOrderIds || []);
+        localOrders.forEach((wo) => {
+          if (wo && wo.id && !deletedRemote.has(wo.id)) mergedOrders.set(wo.id, wo);
+        });
         remoteOrders.forEach((wo) => {
           if (wo && wo.id) {
             // BUG FIX (crash web): fetchCappedOperationalData devuelve items como STRING

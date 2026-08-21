@@ -124,6 +124,13 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         eventType: msg.payload?.eventType || "",
       };
       const eventType = msg.payload?.eventType || "";
+      if (eventType.includes("work_order_deleted")) {
+        // BORRADO EN TIEMPO REAL: quita la card inmediatamente en esta tablet/pestaña
+        // (refuerzo del postgres_changes DELETE; llega por WebSocket a TODOS).
+        const ids = Array.isArray((msg.payload as any)?.deletedIds) ? (msg.payload as any).deletedIds : [];
+        (ids as string[]).forEach((oid) => useAppStore.getState().removeDeletedWorkOrderLocal(oid));
+        return;
+      }
       if (eventType.includes("service")) {
         syncServicesOnly();
       } else if (eventType.includes("cert")) {
@@ -165,6 +172,11 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (msg.senderId === CLIENT_SESSION_ID) return;
         if (Date.now() - getLastLocalMutationTime() < 800) return;
         const et = String(msg.eventType || "");
+        if (et.includes("work_order_deleted")) {
+          const ids = Array.isArray(msg.deletedIds) ? msg.deletedIds : [];
+          (ids as string[]).forEach((oid) => useAppStore.getState().removeDeletedWorkOrderLocal(oid));
+          return;
+        }
         if (et.includes("service")) syncServicesOnly();
         else if (et.includes("fuel")) syncFuelTypesOnly();
         else if (et.includes("cert")) syncCertificationsOnly();

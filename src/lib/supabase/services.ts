@@ -735,7 +735,9 @@ export async function deleteSupabaseWorkOrder(id: string) {
       await saveSupabaseSiteContent(`wo_deleted_${id}`, { deleted: true, at: new Date().toISOString() }, "work_orders", false);
     } catch {}
     markWorkOrderDeletedLocal(id);
-    broadcastRealtimeChange("work_order_deleted");
+    // Broadcast INMEDIATO con el id: todas las tablets/pestañas conectadas quitan la
+    // card al instante (postgres_changes DELETE es la vía principal; este refuerza).
+    broadcastRealtimeChange("work_order_deleted", { deletedIds: [id] });
     if (error) console.warn("Supabase work order delete warning:", error.message);
   } catch (err) {
     console.warn("Supabase work order delete deferred:", err);
@@ -771,7 +773,7 @@ export async function deleteSupabaseMultipleWorkOrders(ids: string[]) {
       } catch {}
       markWorkOrderDeletedLocal(id);
     }
-    broadcastRealtimeChange("work_order_deleted");
+    broadcastRealtimeChange("work_order_deleted", { deletedIds: ids });
     if (error) console.warn("Supabase multiple work orders delete warning:", error.message);
   } catch (err) {
     console.warn("Supabase multiple work orders delete deferred:", err);
@@ -1689,10 +1691,10 @@ async function queryAppointmentsWithMissingGuard(): Promise<{ data: any[] | null
 //    conectados (latencia <50ms). Este es el mecanismo PRINCIPAL y obligatorio.
 // 2) BroadcastChannel nativo del navegador -> EXTRA solo para pestañas del mismo
 //    navegador (no se suspende con el tab-throttling). Nunca reemplaza al canal cloud.
-export async function broadcastRealtimeChange(eventType: string = "db_update") {
+export async function broadcastRealtimeChange(eventType: string = "db_update", detail?: Record<string, unknown>) {
   try {
     markLocalMutation();
-    const payload = { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now() };
+    const payload = { eventType, senderId: CLIENT_SESSION_ID, timestamp: Date.now(), ...(detail || {}) };
     // 1) PRINCIPAL: Canal Realtime de Supabase (otras tablets / otros dispositivos), <50ms.
     const channel = getSharedRealtimeChannel();
     if ((channel as any).state === "joined") {
@@ -2132,7 +2134,7 @@ export function invalidateCappedHistoryCache() {
   cappedHistoryCache = null;
 }
 
-export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[] }> {
+export async function fetchCappedOperationalData(): Promise<{ workOrders: any[]; invoices: any[]; vehicles: any[]; deletedWorkOrderIds?: string[] }> {
   const fetchStart = Date.now();
   try {
     // CARGA LIGERA (mantiene la web rápida): PostgREST limita a 1000 filas por request.
@@ -2144,7 +2146,7 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
 
     // 1. Fase paralela: órdenes recientes (400), TODAS las facturas pendientes/crédito
     //    (solo ~50 filas: es la deuda real), facturas pagadas recientes (400) y vehículos (400).
-    const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes, csvInvRes] = await Promise.all([
+    const [ordersRes, pendingInvRes, paidInvRes, vehiclesRes, csvInvRes, deletedRes] = await Promise.all([
       safeQuery<any[]>(supabase.from("work_orders").select("*").order("entry_time", { ascending: false }).limit(PAGE)),
       safeQuery<any[]>(
         supabase
@@ -2166,10 +2168,19 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
           .select("*")
           .in("receipt_number", Object.keys(DEBT_CSV_BY_RECEIPT))
       ),
+      // TOMBSTONES de OTs borradas: ligerísimo (solo wo_deleted_*); permite al sync
+      // operativo DROPear fantasmas locales de OTs borradas en otro dispositivo.
+      safeQuery<any[]>(supabase.from("site_content").select("key").like("key", "wo_deleted_%")),
     ]);
 
     const recentOrders = ordersRes?.data || [];
     const vehicles = vehiclesRes?.data || [];
+    // ids de OTs borradas (tombstones) para que el sync dropee fantasmas locales.
+    const deletedWoIdSet = new Set<string>();
+    (deletedRes?.data || []).forEach((row: any) => {
+      const k = row.key || row.section_key || "";
+      if (k.startsWith("wo_deleted_")) deletedWoIdSet.add(k.replace("wo_deleted_", ""));
+    });
 
     // 2. Fusionar facturas: pendientes/crédito primero (deuda nunca se pierde), luego pagadas recientes
     const invMap = new Map<string, any>();
@@ -2370,6 +2381,7 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
         workOrders: await fetchAllSupabaseTable("work_orders"),
         invoices: await fetchAllSupabaseTable("invoices"),
         vehicles: await fetchAllSupabaseTable("vehicles"),
+        deletedWorkOrderIds: Array.from(deletedWoIdSet),
       };
     }
 
@@ -2380,7 +2392,7 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
       invoices: cappedInvoices.length,
       vehicles: vehicles.length,
     }, "services:fetchCappedOperationalData");
-    return { workOrders, invoices: cappedInvoices, vehicles };
+    return { workOrders, invoices: cappedInvoices, vehicles, deletedWorkOrderIds: Array.from(deletedWoIdSet) };
   } catch (err) {
     logTiming("sync.operational.error.duration", fetchStart, {
       err: err instanceof Error ? err.message : String(err),
@@ -2390,6 +2402,7 @@ export async function fetchCappedOperationalData(): Promise<{ workOrders: any[];
       workOrders: await fetchAllSupabaseTable("work_orders"),
       invoices: await fetchAllSupabaseTable("invoices"),
       vehicles: await fetchAllSupabaseTable("vehicles"),
+      deletedWorkOrderIds: [],
     };
   }
 }
@@ -2441,6 +2454,10 @@ export async function fetchSupabaseErpData() {
     // reconstrucción para que un ítem borrado en Taller NO reaparezca desde el snapshot
     // wo_mod_ viejo de Almacén ni desde la columna items (fix F2Z-050 cross-device).
     const woRemovedMap = new Map<string, Set<string>>();
+    // TOMBSTONES de OTs borradas (wo_deleted_<id>): el sync los usa para DROPear
+    // fantasmas locales (una OT borrada en otra tablet no debe seguir apareciendo
+    // en este dispositivo aunque se haya perdido el evento realtime).
+    const deletedWoIdSet = new Set<string>();
 
     if (contentRes.data) {
       contentRes.data.forEach((row: any) => {
@@ -2568,6 +2585,9 @@ export async function fetchSupabaseErpData() {
               : (Array.isArray(val) ? val.filter((x: any) => typeof x === "string") : []);
             if (ids.length > 0) woRemovedMap.set(woKey, new Set(ids));
           } catch { }
+        } else if (k && k.startsWith("wo_deleted_")) {
+          const woKey = k.replace("wo_deleted_", "");
+          if (woKey) deletedWoIdSet.add(woKey);
         }
       });
     }
@@ -2935,6 +2955,7 @@ export async function fetchSupabaseErpData() {
       technicians: finalTechnicians,
       inventoryItems: finalInventory,
       workOrders: formattedOrders.length > 0 ? formattedOrders : null,
+      deletedWorkOrderIds: Array.from(deletedWoIdSet),
       // Citas: merge de la tabla con los snapshots appt_* de site_content (patrón roster).
       // La tabla aporta lo más reciente; site_content aporta campos extendidos que no son
       // columna (ej. responsible de la Tabla de Programación) para que sobrevivan en
