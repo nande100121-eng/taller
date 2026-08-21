@@ -1239,8 +1239,48 @@ export function WorkshopDailyReportView({
       byPlate.set(plate, entry);
     });
 
+    // FIX (F2Z-050 17/08): las OTs en estado de COBRO PENDIENTE (por_cobrar /
+    // pendiente_pago) SIN factura vinculada (ej. se eliminó la factura de un mal
+    // abono) también deben aparecer en Saldos Pendientes. Antes solo se agrupaban
+    // por facturas y la placa quedaba invisible en el reporte.
+    (dayOrders || []).forEach((wo: any) => {
+      const st = String(wo.status || "");
+      if (st !== "por_cobrar" && st !== "pendiente_pago") return;
+      if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return;
+      // Ya tiene factura con saldo (cubierta arriba) o factura pagada: no duplicar.
+      if (invoicesByWorkOrderId.get(wo.id)) return;
+      const itemsSum = (Array.isArray(wo.items) ? wo.items : []).reduce(
+        (s: number, it: any) => s + (Number(it.subtotal) || Number(it.quantity) * Number(it.unit_price) || 0),
+        0
+      );
+      const certFee = wo.requires_certification ? (Number(wo.certification_price) || 0) : 0;
+      const total = Math.max(0, itemsSum + certFee);
+      if (total <= 0) return;
+      const plate = (wo.vehicle_plate || "S/P").toUpperCase().trim();
+      const entry: PendingPlateEntry = byPlate.get(plate) || {
+        plate,
+        client: "",
+        totalDebt: 0,
+        invoiceCount: 0,
+        invoices: [],
+      };
+      entry.totalDebt += total;
+      entry.invoiceCount += 1;
+      entry.invoices.push({
+        invoice_id: `wo-${wo.id}`,
+        work_order_id: wo.id,
+        issued_at: wo.entry_time || "",
+        grand_total: total,
+        paid: 0,
+        balance: total,
+        description: "OT pendiente de cobro (sin comprobante)",
+        payments: [],
+      });
+      byPlate.set(plate, entry);
+    });
+
     return Array.from(byPlate.values()).sort((a, b) => b.totalDebt - a.totalDebt);
-  }, [invoices]);
+  }, [invoices, dayOrders, invoicesByWorkOrderId]);
 
   // Deuda pendiente por día (SEMANA de la fecha seleccionada) para el gráfico de curvas.
   // debt(día) = Σ de facturas emitidas hasta ese día de (total - pagado hasta ese día).
