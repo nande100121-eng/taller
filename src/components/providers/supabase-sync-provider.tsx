@@ -9,7 +9,7 @@ import {
   getLastLocalMutationTime,
   hasRecentLocalMutation,
 } from "@/lib/supabase/services";
-import { logTiming } from "@/lib/system-log";
+import { logTiming, initGlobalLogging } from "@/lib/system-log";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
@@ -22,6 +22,12 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncScheduleOnly = useAppStore((state) => state.syncScheduleOnly);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // CAPTURA TOTAL LOCAL: instala (una sola vez) el log de errores globales y el
+  // interceptor de red (cada petición/respuesta a Supabase queda en el log local).
+  useEffect(() => {
+    initGlobalLogging();
+  }, []);
 
   // Debounce corto para el sync operativo ligero (realtime entre pestañas)
   const opTimerRef = useRef<NodeJS.Timeout | null>(null);

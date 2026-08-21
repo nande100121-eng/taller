@@ -32,7 +32,8 @@ export function getCurrentLogPage(): string {
 
 // ===== ALMACENAMIENTO LOCAL =====
 const LOG_STORAGE_KEY = "reygas-syslog-local";
-const LOG_MAX_ENTRIES = 3000;
+// FIFO ampliado: el log debe captar TODAS las acciones/respuestas (debug total).
+const LOG_MAX_ENTRIES = 10000;
 const LOG_FLUSH_INTERVAL = 2000; // persistir cada 2s como máximo
 
 interface LogEntry {
@@ -205,4 +206,57 @@ export function initGlobalErrorLogger() {
 /** Conveniencia: log de entrada a cada acción clave del flujo. */
 export function logFlow(level: LogLevel, action: string, details?: Record<string, unknown> | null, source?: string) {
   logSystemEvent(level, action, details, source);
+}
+
+// =====================================================================
+// CAPTURA TOTAL LOCAL ("que el log capte TODO, cada acción y cada respuesta").
+// TODO queda en localStorage del dispositivo — NUNCA se sube a la nube.
+// =====================================================================
+let networkLogInstalled = false;
+
+/** Instala la captura global: (1) errores globales (window.error +
+ *  unhandledrejection) y (2) interceptor de red que registra CADA petición a
+ *  Supabase REST (método, ruta, status HTTP, duración) y sus fallos. Local. */
+export function initGlobalLogging() {
+  if (typeof window === "undefined" || networkLogInstalled) return;
+  networkLogInstalled = true;
+  try {
+    initGlobalErrorLogger();
+    const origFetch = window.fetch.bind(window);
+    (window as any).fetch = (input: any, init?: RequestInit) => {
+      try {
+        const url = typeof input === "string" ? input : (input && input.url) || "";
+        if (!url.includes("supabase.co/rest/v1")) return origFetch(input, init);
+        const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+        const start = Date.now();
+        return origFetch(input, init)
+          .then((res: Response) => {
+            try {
+              logSystemEvent("info", "net.rest", {
+                m: method,
+                p: url.split("/rest/v1/")[1] ? url.split("/rest/v1/")[1].split("?")[0].slice(0, 70) : url.slice(0, 70),
+                s: res.status,
+                ms: Date.now() - start,
+              }, "net");
+            } catch {}
+            return res;
+          })
+          .catch((err: any) => {
+            try {
+              logSystemEvent("warn", "net.rest.error", {
+                m: method,
+                p: url.split("/rest/v1/")[1] ? url.split("/rest/v1/")[1].split("?")[0].slice(0, 70) : url.slice(0, 70),
+                err: err instanceof Error ? err.message : String(err),
+                ms: Date.now() - start,
+              }, "net");
+            } catch {}
+            throw err;
+          });
+      } catch {
+        return origFetch(input, init);
+      }
+    };
+  } catch {
+    // noop: el log jamás debe romper el sistema
+  }
 }

@@ -904,7 +904,26 @@ interface AppState {
   addAttendanceLogs: (logs: Omit<AttendanceLog, "id">[]) => void;
 }
 
-export const useAppStore = create<AppState>()(persist((set, get) => ({
+export const useAppStore = create<AppState>()(persist((set, get) => {
+  // ===== LOG LOCAL DE CADA ACCIÓN DEL STORE (captura total) =====
+  // Registra en el log interno (localStorage) cada set() con las claves que cambiaron,
+  // EXCEPTO las listas pesadas (workOrders/invoices/vehicles/...) que cambian en cada
+  // sync y saturarían el FIFO. Así cada clic/acción del usuario queda registrado.
+  const baseSet = set;
+  const setWithLog: typeof set = ((partial: any) => {
+    try {
+      const prev = get();
+      const next = typeof partial === "function" ? (partial as any)(prev) : partial;
+      const HEAVY = ["workOrders", "invoices", "vehicles", "inventoryItems", "siteContent", "certifications", "scheduleRecords", "attendanceLogs", "toolLoans", "technicians", "appointments", "workshopServices", "recentIngresos", "isSyncing", "hasSyncedOnce"];
+      const changed = Object.keys(next || {}).filter((k) => (next as any)[k] !== (prev as any)[k] && !HEAVY.includes(k));
+      if (changed.length > 0) {
+        logSystemEvent("info", "store.set", { keys: changed.slice(0, 12), n: changed.length }, "store:set");
+      }
+    } catch { /* noop */ }
+    return baseSet(partial);
+  }) as typeof set;
+  set = setWithLog;
+  return ({
   notification: null,
   notify: (type, message) => {
     set({ notification: { id: Date.now(), type, message } });
@@ -4613,8 +4632,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     saveSupabaseAttendanceLogs(merged);
     set({ attendanceLogs: merged });
   },
-}),
-{
+});
+}, {
   name: "reygas-store-cache-v2", // v2: limpia cachés con registros eliminados en la nube (card duplicada BVZ-412)
   // Storage con escritura diferida (máximo 1 write cada 3s): serializar ~1-2MB de caché
   // en cada set() bloquearía el hilo principal de la tablet. El último estado pendiente
