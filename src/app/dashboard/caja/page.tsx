@@ -2077,6 +2077,14 @@ export default function CajaPage() {
   const handleConfirmPartialPaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!partialPaymentModal) return;
+    logSystemEvent("info", "abono.submit.start", {
+      woId: partialPaymentModal.workOrder?.id ? String(partialPaymentModal.workOrder.id).slice(0, 8) : null,
+      plate: partialPaymentModal.workOrder?.vehicle_plate || "",
+      amount: partialPaymentModal.amount,
+      totalDue: partialPaymentModal.totalDue,
+      splits: (partialPaymentModal.paymentSplits || []).length,
+      editingRecordId: partialPaymentModal.editingRecordId || null,
+    }, "caja:abono-submit");
 
     // El monto del abono se DERIVA de la suma de recursos marcados: en PAGO MIXTO
     // se suman los recursos de TODOS los métodos (splitResources); en Pago Único
@@ -2113,10 +2121,12 @@ export default function CajaPage() {
     // el del registro editado). El bloqueo de "marque un recurso" solo aplica a abonos nuevos.
     const isEditingRecord = !!(partialPaymentModal.editingRecordId && partialPaymentModal.invoice?.id);
     if (amount <= 0 && !isEditingRecord) {
+      logSystemEvent("warn", "abono.submit.blocked", { reason: "sin_monto", amount, balance }, "caja:abono-submit");
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
     }
     if (amount > balance + 0.01) {
+      logSystemEvent("warn", "abono.submit.blocked", { reason: "supera_saldo", amount, balance }, "caja:abono-submit");
       notify("warning", `El abono (S/ ${amount.toFixed(2)}) supera el saldo pendiente (S/ ${balance.toFixed(2)}).`);
       return;
     }
@@ -2129,6 +2139,7 @@ export default function CajaPage() {
       const totalSplits = partialPaymentModal.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const diff = Math.abs(amount - totalSplits);
       if (diff > 0.05) {
+        logSystemEvent("warn", "abono.submit.blocked", { reason: "suma_splits", amount, totalSplits }, "caja:abono-submit");
         notify("warning", `La suma de los abonos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el monto a abonar (S/ ${amount.toFixed(2)}).`);
         return;
       }
@@ -2231,6 +2242,7 @@ export default function CajaPage() {
     // abono (permite abono parcial de un recurso: el monto asignado es lo que se paga).
     const abonoResSum = abonoResources.reduce((s, x) => s + (Number(x.amount) || 0), 0);
     if (abonoResources.length > 0 && Math.abs(abonoResSum - amount) > 0.05) {
+      logSystemEvent("warn", "abono.submit.blocked", { reason: "suma_recursos", amount, abonoResSum, nResources: abonoResources.length }, "caja:abono-submit");
       notify("warning", `La suma de los recursos marcados (S/ ${abonoResSum.toFixed(2)}) no coincide con el monto del abono (S/ ${amount.toFixed(2)}). Ajuste los montos de los recursos.`);
       return;
     }
