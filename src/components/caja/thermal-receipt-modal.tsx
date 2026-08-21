@@ -306,8 +306,17 @@ export default function ThermalReceiptModal({
     // Build tax & totals rows for a given ticket total
     const buildTotalsHtml = (total: number) => {
       // TICKET POR PAGAR: sin desglose de impuestos (OP. GRAVADAS/EXONERADAS/IGV...);
-      // solo el TOTAL se imprime (en el bloque de totales de buildPaper).
-      if (isPorPagar) return "";
+      // solo el TOTAL se imprime (en el bloque de totales de buildPaper); antes del
+      // TOTAL, si la card tiene descuento, se muestra la línea DESCUENTO.
+      if (isPorPagar) {
+        if (effectiveDiscount > 0) {
+          return "<tr>" +
+            '<td style="padding:1px 0;font-size:10.5px;font-weight:bold;">DESCUENTO:</td>' +
+            '<td style="text-align:right;padding:1px 4px 1px 0;font-size:10.5px;font-weight:bold;">- S/ ' + effectiveDiscount.toFixed(2) + "</td>" +
+            "</tr>";
+        }
+        return "";
+      }
       const opG = total > 0 ? total / 1.18 : 0;
       const igv = total - opG;
       const rows = [
@@ -761,11 +770,20 @@ export default function ThermalReceiptModal({
             {/* 5. Tax Breakdown / Totals (Prices aligned to right margin with comfort padding) */}
             <div className="border-t border-dashed border-black pt-1 space-y-0.5 text-[10px]">
               {isPorPagar ? (
-                /* TICKET POR PAGAR: sin op. gravadas/exoneradas/IGV; solo el TOTAL. */
-                <div className="flex justify-between font-black text-sm border-t border-b border-black py-1.5 mt-0.5">
-                  <span>TOTAL:</span>
-                  <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
-                </div>
+                /* TICKET POR PAGAR: sin op. gravadas/exoneradas/IGV; solo el TOTAL,
+                   y el DESCUENTO antes (solo si la card tiene descuento). */
+                <>
+                  {effectiveDiscount > 0 && (
+                    <div className="flex justify-between font-bold text-[10px]">
+                      <span>DESCUENTO:</span>
+                      <span className="text-right pr-1">- S/ {effectiveDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-black text-sm border-t border-b border-black py-1.5 mt-0.5">
+                    <span>TOTAL:</span>
+                    <span className="text-right pr-1 font-black">S/ {viewTotal.toFixed(2)}</span>
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="flex justify-between">
