@@ -415,9 +415,43 @@ export interface WorkOrder {
 // grupo). Si los componentes superan el precio fijo, la mano de obra queda en S/ 0
 // (el excedente se cobra aparte y el total sube). Se aplica en cada acción que
 // agrega, edita o elimina ítems de una OT (add/update/removeWorkOrderItem).
-export function rebalanceInstallationLabor(order: WorkOrder): WorkOrder {
-  const items = order.items || [];
+export function rebalanceInstallationLabor(order: WorkOrder, catalog?: WorkshopService[]): WorkOrder {
+  let items = Array.isArray(order.items) ? [...order.items] : [];
   if (items.length === 0) return order;
+
+  // === BACKFILL AUTO-REPARADOR (fix: instalaciones creadas antes del etiquetado
+  // por grupo — la mano de obra no se ajustaba al añadir/quitar componentes).
+  // Si hay EXACTAMENTE UN ítem "MANO DE OBRA" SIN grupo y el catálogo tiene el
+  // servicio de instalación por su nombre, se reconstruye el grupo: el labor guarda
+  // el precio FIJO del catálogo y TODOS los repuestos/certificados sin grupo de la
+  // OT entran al paquete. Así el rebalanceo vuelve a funcionar sin re-crear la OT.
+  const untaggedLabors = items.filter(
+    (it) => String(it.description || "").toUpperCase().includes("MANO DE OBRA") && !it.installation_group
+  );
+  if (untaggedLabors.length === 1 && Array.isArray(catalog) && catalog.length > 0) {
+    const labor = untaggedLabors[0];
+    const srvName = String(labor.description || "")
+      .replace(/^MANO\s*DE\s*OBRA\s*[-·:]\s*/i, "")
+      .trim();
+    const srv = catalog.find(
+      (s) => s.is_installation && s.name && String(s.name).trim().toLowerCase() === srvName.toLowerCase()
+    );
+    if (srv) {
+      const g = "inst-backfill-" + String(labor.id || "x").slice(-10);
+      items = items.map((it) => {
+        if (it.id === labor.id) {
+          return { ...it, installation_group: g, installation_price: Number(srv.price) || 0 };
+        }
+        if (!it.installation_group) {
+          const descUp = String(it.description || "").toUpperCase();
+          const isPart = it.item_type === "repuesto" || /CERTIFIC|ANUAL|HIDROST|CHIP|CONVERS|QUINQUENAL/.test(descUp);
+          if (isPart) return { ...it, installation_group: g };
+        }
+        return it;
+      });
+    }
+  }
+
   const groups = new Map<string, WorkOrderItem[]>();
   items.forEach((it) => {
     if (it.installation_group) {
@@ -2228,7 +2262,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const updatedOrder = rebalanceInstallationLabor({
           ...o,
           items: [...o.items, newItem],
-        });
+        }, get().workshopServices);
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
 
@@ -2330,7 +2364,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const updatedOrder = rebalanceInstallationLabor({
           ...o,
           items: [...o.items, ...newItems],
-        });
+        }, get().workshopServices);
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
 
@@ -2427,7 +2461,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
             updated_at: new Date().toISOString(),
           };
         });
-        const updatedOrder = rebalanceInstallationLabor({ ...o, items: updatedItems });
+        const updatedOrder = rebalanceInstallationLabor({ ...o, items: updatedItems }, get().workshopServices);
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
         return updatedOrder;
@@ -2453,7 +2487,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           // Marca el ítem como eliminado para que el merge de saveSupabaseWorkOrder
           // NO lo conserve desde la DB (bug: el repuesto entregado "volvía" al eliminar).
           removedItemIds: [...(o.removedItemIds || []), itemId],
-        });
+        }, get().workshopServices);
         saveSupabaseWorkOrder(updatedOrder);
         broadcastRealtimeChange("work_orders_updated");
         return updatedOrder;
