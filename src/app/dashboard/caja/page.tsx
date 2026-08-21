@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { useAppStore, PaymentSplit, PaymentRecord, PaymentResource } from "@/lib/store/app-store";
 import {
@@ -117,8 +118,15 @@ export default function CajaPage() {
   const [showCorrelativosPanel, setShowCorrelativosPanel] = useState<boolean>(false);
   // Confirmación en dos pasos para "Borrar todos los pagos" de una card
   const [confirmClearCard, setConfirmClearCard] = useState<string | null>(null);
-  // Menú de redirección a concepto (Servicios/Almacén/Certificados) abierto por recurso
+  // Menú de redirección a concepto (Servicios/Almacén/Certificados) abierto por recurso.
+  // Se renderiza con createPortal al body como position:fixed (patrón mini-date-picker)
+  // para que NO quede recortado detrás de la sección por el overflow del contenedor de
+  // recursos / del modal (bug reportado: las opciones salían detrás y no se veían).
   const [redirectMenuKey, setRedirectMenuKey] = useState<string | null>(null);
+  const [redirectMenuPos, setRedirectMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [redirectMenuCtx, setRedirectMenuCtx] = useState<{ kind: "payment" | "resource"; key: string; splitIdx?: number; redirectCategory?: string } | null>(null);
+  const redirectAnchorRef = React.useRef<HTMLElement | null>(null);
+  const redirectMenuRef = React.useRef<HTMLDivElement | null>(null);
 
   // HISTORIAL EN VIVO desde Supabase: cuando el store local no tiene el payment_history
   // de una factura (por quedar fuera de la ventana de 1000 pagadas recientes, ej. pagos
@@ -2415,6 +2423,59 @@ export default function CajaPage() {
     setRedirectMenuKey(null);
   };
 
+  // Abre el menú "Redirigir a concepto" en la POSICIÓN del botón (viewport) y recuerda
+  // el contexto (modal de cobro vs. recurso de abono) para saber qué handler usar.
+  const openRedirectMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    kind: "payment" | "resource",
+    key: string,
+    splitIdx: number | undefined,
+    currentCat: string | undefined
+  ) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    redirectAnchorRef.current = el;
+    const rect = el.getBoundingClientRect();
+    const menuW = 176; // w-44
+    const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, rect.right - menuW));
+    setRedirectMenuPos({ top: rect.bottom + 4, left });
+    setRedirectMenuCtx({ kind, key, splitIdx, redirectCategory: currentCat });
+    setRedirectMenuKey((prev) => (prev === key ? null : key));
+  };
+
+  // Cierra el menú al hacer click fuera, con Escape, o al scrollear/redimensionar
+  // (vive en un portal al body: el scroll del modal ya no lo arrastra, se reposiciona).
+  useEffect(() => {
+    if (!redirectMenuKey) return;
+    const onDown = (ev: MouseEvent) => {
+      const t = ev.target as Node;
+      const inMenu = redirectMenuRef.current && redirectMenuRef.current.contains(t);
+      const inAnchor = redirectAnchorRef.current && redirectAnchorRef.current.contains(t);
+      if (!inMenu && !inAnchor) setRedirectMenuKey(null);
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setRedirectMenuKey(null);
+    };
+    const recompute = () => {
+      const el = redirectAnchorRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const menuW = 176;
+      const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, rect.right - menuW));
+      setRedirectMenuPos({ top: rect.bottom + 4, left });
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", recompute, true);
+    window.addEventListener("resize", recompute);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", recompute, true);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [redirectMenuKey]);
+
   // Abrir modal de edición de un pago del historial (mismo modal de abono en modo
   // EDICIÓN: fecha, comprobante, método y recursos precargados del registro).
   const handleOpenEditPaymentRecord = (rec: PaymentRecord, invoiceId?: string) => {
@@ -3947,7 +4008,7 @@ export default function CajaPage() {
                         <div className="relative shrink-0">
                           <button
                             type="button"
-                            onClick={() => setRedirectMenuKey(redirectMenuKey === it.key ? null : it.key)}
+                            onClick={(e) => openRedirectMenu(e, "payment", it.key, undefined, it.redirectCategory)}
                             className={"p-1 rounded-md transition-colors border " + (it.redirectCategory
                               ? "bg-amber-500/25 text-amber-300 border-amber-500/50"
                               : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/15 hover:text-white")}
@@ -3957,28 +4018,6 @@ export default function CajaPage() {
                           >
                             <CornerUpRight className="w-3 h-3" />
                           </button>
-                          {redirectMenuKey === it.key && (
-                            <div className="absolute right-0 top-full z-30 mt-1 w-44 rounded-xl glass-panel bg-reygas-dark/95 border border-white/15 shadow-2xl p-1.5 space-y-0.5">
-                              <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-1.5 pb-1">Redirigir a concepto</div>
-                              {([{ v: "servicio", label: "🔧 Servicios" }, { v: "repuesto", label: "📦 Almacén (Repuestos)" }, { v: "certificado", label: "🛡 Certificados" }] as const).map((opt) => (
-                                <button
-                                  key={opt.v}
-                                  type="button"
-                                  onClick={() => setPaymentRedirect(it.key, it.redirectCategory === opt.v ? undefined : opt.v)}
-                                  className={"w-full text-left px-2 py-1 rounded-lg text-[11px] font-bold transition-colors " + (it.redirectCategory === opt.v ? "bg-amber-500/25 text-amber-300" : "text-gray-300 hover:bg-white/10 hover:text-white")}
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                              <button
-                                type="button"
-                                onClick={() => setPaymentRedirect(it.key, undefined)}
-                                className="w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors"
-                              >
-                                ✖ Sin redirección (por defecto)
-                              </button>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -6117,7 +6156,7 @@ export default function CajaPage() {
                                     <div className="relative shrink-0">
                                       <button
                                         type="button"
-                                        onClick={() => setRedirectMenuKey(redirectMenuKey === rs.key ? null : rs.key)}
+                                        onClick={(e) => openRedirectMenu(e, "resource", rs.key, idx, rs.redirectCategory)}
                                         className={"p-1 rounded-md transition-colors border " + (rs.redirectCategory
                                           ? "bg-amber-500/25 text-amber-300 border-amber-500/50"
                                           : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/15 hover:text-white")}
@@ -6127,28 +6166,6 @@ export default function CajaPage() {
                                       >
                                         <CornerUpRight className="w-3 h-3" />
                                       </button>
-                                      {redirectMenuKey === rs.key && (
-                                        <div className="absolute right-0 top-full z-30 mt-1 w-44 rounded-xl glass-panel bg-reygas-dark/95 border border-white/15 shadow-2xl p-1.5 space-y-0.5">
-                                          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-1.5 pb-1">Redirigir a concepto</div>
-                                          {([{ v: "servicio", label: "🔧 Servicios" }, { v: "repuesto", label: "📦 Almacén (Repuestos)" }, { v: "certificado", label: "🛡 Certificados" }] as const).map((opt) => (
-                                            <button
-                                              key={opt.v}
-                                              type="button"
-                                              onClick={() => setResourceRedirect(idx, rs.key, rs.redirectCategory === opt.v ? undefined : opt.v)}
-                                              className={"w-full text-left px-2 py-1 rounded-lg text-[11px] font-bold transition-colors " + (rs.redirectCategory === opt.v ? "bg-amber-500/25 text-amber-300" : "text-gray-300 hover:bg-white/10 hover:text-white")}
-                                            >
-                                              {opt.label}
-                                            </button>
-                                          ))}
-                                          <button
-                                            type="button"
-                                            onClick={() => setResourceRedirect(idx, rs.key, undefined)}
-                                            className="w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors"
-                                          >
-                                            ✖ Sin redirección (por defecto)
-                                          </button>
-                                        </div>
-                                      )}
                                     </div>
                                     {/* Eliminar ESTE recurso del comprobante (quita la fila; el
                                         Monto Total y el monto global se recalculan) */}
@@ -6355,6 +6372,49 @@ export default function CajaPage() {
         onClose={() => setReportModalOpen(false)}
         initialTab="caja"
       />
+
+      {/* ========================================================================= */}
+      {/* MENÚ "REDIRIGIR A CONCEPTO" EN PORTAL AL BODY (position:fixed, z-9999).     */}
+      {/* Escapa de contenedores overflow del modal (bug: el menú absolute se recortaba */}
+      {/* detrás de la sección y no se veían las opciones). Mismo patrón que el        */}
+      {/* mini-date-picker (popup de fechas).                                          */}
+      {/* ========================================================================= */}
+      {redirectMenuKey && redirectMenuCtx && redirectMenuPos && typeof document !== "undefined" && createPortal(
+        <div
+          ref={redirectMenuRef}
+          className="fixed z-[9999] w-44 rounded-xl glass-panel bg-reygas-dark/95 border border-white/15 shadow-2xl p-1.5 space-y-0.5"
+          style={{ top: redirectMenuPos.top, left: redirectMenuPos.left }}
+        >
+          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wider px-1.5 pb-1">Redirigir a concepto</div>
+          {([{ v: "servicio", label: "🔧 Servicios" }, { v: "repuesto", label: "📦 Almacén (Repuestos)" }, { v: "certificado", label: "🛡 Certificados" }] as const).map((opt) => (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => {
+                if (redirectMenuCtx.kind === "payment") {
+                  setPaymentRedirect(redirectMenuCtx.key, redirectMenuCtx.redirectCategory === opt.v ? undefined : opt.v);
+                } else {
+                  setResourceRedirect(redirectMenuCtx.splitIdx as number, redirectMenuCtx.key, redirectMenuCtx.redirectCategory === opt.v ? undefined : opt.v);
+                }
+              }}
+              className={"w-full text-left px-2 py-1 rounded-lg text-[11px] font-bold transition-colors " + (redirectMenuCtx.redirectCategory === opt.v ? "bg-amber-500/25 text-amber-300" : "text-gray-300 hover:bg-white/10 hover:text-white")}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              if (redirectMenuCtx.kind === "payment") setPaymentRedirect(redirectMenuCtx.key, undefined);
+              else setResourceRedirect(redirectMenuCtx.splitIdx as number, redirectMenuCtx.key, undefined);
+            }}
+            className="w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-white/10 hover:text-gray-300 transition-colors"
+          >
+            ✖ Sin redirección (por defecto)
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
