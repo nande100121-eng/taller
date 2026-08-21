@@ -98,6 +98,30 @@ function buildInstallationItems(
   return items;
 }
 
+// Devuelve los paquetes de instalación de una OT cuya suma de componentes
+// (repuestos + certificados) SUPERÓ el precio fijo (mano de obra negativa).
+function installationLaborIssues(wo: any): Array<{ name: string; labor: number }> {
+  const items = Array.isArray(wo?.items) ? wo.items : [];
+  const groups = new Map<string, any[]>();
+  items.forEach((it: any) => {
+    if (it.installation_group) {
+      const g = it.installation_group;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(it);
+    }
+  });
+  const issues: Array<{ name: string; labor: number }> = [];
+  groups.forEach((gItems) => {
+    const laborItem = gItems.find((it) => String(it.description || "").toUpperCase().includes("MANO DE OBRA"));
+    if (!laborItem) return;
+    const fixed = Number(laborItem.installation_price) || 0;
+    const otherSum = gItems.filter((it) => it.id !== laborItem.id).reduce((s, it) => s + (Number(it.subtotal) || 0), 0);
+    const labor = Number((fixed - otherSum).toFixed(2));
+    if (labor < 0) issues.push({ name: laborItem.description, labor });
+  });
+  return issues;
+}
+
 
 export default function WorkshopOperationsPage() {
   const {
@@ -560,6 +584,11 @@ export default function WorkshopOperationsPage() {
           notify("warning", "Este servicio es instalación pero no tiene componentes configurados en la tabla maestra.");
           return;
         }
+        // Si el kit del catálogo ya supera el precio fijo, avisar que la MO quedaría en S/ 0.
+        const kitSum = (srv.installation_components || []).reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+        if (kitSum > Number(srv.price)) {
+          notify("warning", "⚠ La suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor.");
+        }
         const expanded = kitItems.map((it, i) => ({
           id: "cart-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6) + "-" + i,
           item_type: it.item_type,
@@ -731,11 +760,23 @@ export default function WorkshopOperationsPage() {
       ...(isRep ? { inventory_item_id: invId } : {}),
     });
     setEditingItem(null);
+    warnInstallationExcess(editingItem.orderId);
     setWebAlert({
       open: true,
       title: "Ítem Actualizado",
       message: "Los datos del repuesto o servicio fueron actualizados correctamente.",
     });
+  };
+
+  // Avisa si algún paquete de instalación de la OT quedó con los componentes
+  // (repuestos + certificados) por ENCIMA del precio fijo: la mano de obra sería
+  // negativa y se recorta a S/ 0. El usuario debe ajustar precios/cantidades.
+  const warnInstallationExcess = (orderId: string) => {
+    const wo = useAppStore.getState().workOrders.find((o) => o.id === orderId);
+    const issues = installationLaborIssues(wo);
+    if (issues.length > 0) {
+      notify("warning", "⚠ La suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor.");
+    }
   };
 
   const handleOpenDiscountModal = (orderId: string, currentDiscount?: number) => {
@@ -911,6 +952,10 @@ export default function WorkshopOperationsPage() {
           // === INSTALACIÓN: agrega componentes + mano de obra calculada ===
           const kitItems = buildInstallationItems(srv, "inst-" + Date.now() + "-" + Math.random().toString(36).substring(2, 8));
           if (kitItems.length > 0) {
+            const kitSum = (srv.installation_components || []).reduce((s, c) => s + (Number(c.unit_price) || 0) * (Number(c.quantity) || 1), 0);
+            if (kitSum > Number(srv.price)) {
+              notify("warning", "⚠ La suma de repuestos + certificados supera el precio fijo de la instalación. Ajusta los precios de los repuestos para que la mano de obra sea S/ 0.00 o mayor.");
+            }
             addMultipleWorkOrderItems(targetOrderId, kitItems);
           } else {
             addWorkOrderItem(targetOrderId, {
@@ -949,6 +994,7 @@ export default function WorkshopOperationsPage() {
         });
       }
     }
+    warnInstallationExcess(targetOrderId);
     setActiveOrderModal(null);
   };
 
