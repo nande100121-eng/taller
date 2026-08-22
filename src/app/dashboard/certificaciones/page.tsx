@@ -1225,40 +1225,40 @@ export default function CertificacionesPage() {
       {/* MODAL: MANUAL CERTIFICATE CREATION */}
       {isManualModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-reygas-dark border border-teal-500/50 max-w-lg w-full rounded-3xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 max-w-xl w-full rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl shadow-black/90 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
                   <Award className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-white">Emitir Nueva Certificación Particular</h3>
+                  <h3 className="text-lg font-black text-white">Emitir Nueva Certificación Particular</h3>
                   <p className="text-xs text-gray-400">Ingreso manual de inspección vehicular reglamentaria</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsManualModalOpen(false)}
-                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10"
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateManualCert} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleCreateManualCert} className="space-y-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Placa Vehicular *</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Placa Vehicular *</label>
                   <input
                     type="text"
                     required
                     placeholder="Ej. ABC-123"
                     value={manualForm.vehicle_plate}
                     onChange={(e) => setManualForm({ ...manualForm, vehicle_plate: formatPlate(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold uppercase focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono font-bold uppercase text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Tipo de Certificación *</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Tipo de Certificación *</label>
                   <select
                     required
                     value={manualForm.certification_type}
@@ -1271,7 +1271,7 @@ export default function CertificacionesPage() {
                         price: srv && typeof srv.price === "number" ? srv.price : manualForm.price,
                       });
                     }}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-bold focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-bold text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                   >
                     {/* Opciones del CATÁLOGO DE SERVICIOS (solo categoría Certificación) */}
                     {workshopServices.filter((s) => isCertificationService(s)).map((s) => (
@@ -1288,32 +1288,32 @@ export default function CertificacionesPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Propietario / Cliente *</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Propietario / Cliente *</label>
                   <input
                     type="text"
                     required
                     placeholder="Nombre del cliente"
                     value={manualForm.client_name}
                     onChange={(e) => setManualForm({ ...manualForm, client_name: titleCase(e.target.value) })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Teléfono</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Teléfono</label>
                   <input
                     type="tel"
                     placeholder="Ej. 987654321 (opcional)"
                     value={manualForm.client_phone}
                     onChange={(e) => setManualForm({ ...manualForm, client_phone: e.target.value.replace(/[^0-9+]/g, "") })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-300 font-bold mb-1">Precio Cobrado (S/) *</label>
+                <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Precio Cobrado (S/) *</label>
                 <input
                   type="number"
                   required
@@ -1321,18 +1321,18 @@ export default function CertificacionesPage() {
                   step="0.1"
                   value={manualForm.price}
                   onChange={(e) => setManualForm({ ...manualForm, price: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold focus:border-teal-400"
+                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono font-bold text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                 />
               </div>
 
               {/* Responsable de la SOLICITUD (permiso del roster: Resp. Certificaciones) */}
               <div>
-                <label className="block text-gray-300 font-bold mb-1">Responsable de Solicitud *</label>
+                <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Responsable de Solicitud *</label>
                 <select
                   required
                   value={manualForm.responsible}
                   onChange={(e) => setManualForm({ ...manualForm, responsible: e.target.value })}
-                  className="w-full px-3 py-2 bg-white border border-white/10 rounded-xl text-black font-bold focus:border-teal-400"
+                  className="w-full px-3.5 py-2.5 bg-white border border-white/15 rounded-xl text-black font-bold text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                 >
                   <option value="" disabled>— Seleccione responsable —</option>
                   {certificationResponsibles.map((t) => (
@@ -1347,12 +1347,12 @@ export default function CertificacionesPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 uppercase font-bold">📅 Fechas de Inspección</span>
+                <span className="text-[11px] text-gray-400 uppercase font-bold">📅 Fechas de Inspección</span>
                 <button
                   type="button"
                   onClick={handleConsultInfogasManual}
                   disabled={consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
-                  className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                  className="px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-wait"
                   title="Consultar chip/quinquenal en Infogas por placa y autocompletar las fechas"
                 >
                   {consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
@@ -1361,39 +1361,39 @@ export default function CertificacionesPage() {
                   <span>{consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") ? "Consultando..." : "Consultar Infogas"}</span>
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Fecha de Anual (Vencimiento)</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Fecha de Anual (Vencimiento)</label>
                   <input
                     type="date"
                     value={manualForm.expiry_date}
                     onChange={(e) => setManualForm({ ...manualForm, expiry_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Fecha de Quinquenal</label>
+                  <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Fecha de Quinquenal</label>
                   <input
                     type="text"
                     placeholder="Ej. 12/08/2026"
                     value={manualForm.quinquennial_date}
                     onChange={(e) => setManualForm({ ...manualForm, quinquennial_date: e.target.value })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
+                    className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none placeholder-gray-500 transition-all"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setIsManualModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-black rounded-xl shadow-lg shadow-teal-600/30 flex items-center gap-2 transition-transform hover:scale-105"
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-lg shadow-amber-500/30 flex items-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Registrar Certificado</span>

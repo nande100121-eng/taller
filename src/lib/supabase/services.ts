@@ -47,23 +47,28 @@ export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> |
     // fetchSupabaseErpData. Se conservan TODAS las secciones CMS (cualquier categoría)
     // y solo se excluyen las claves con prefijos de snapshot. Select de columnas
     // mínimas (el parseo lee row.value; content es duplicada JSONB de value).
-    const { data, error } = await supabase
-      .from("site_content")
-      .select("section_key, key, value, content")
-      .not("section_key", "like", "inv_full_%")
-      .not("section_key", "like", "inv_payhistory_%")
-      .not("section_key", "like", "inv_breakdown_%")
-      .not("section_key", "like", "inv_resources_%")
-      .not("section_key", "like", "wo_mod_%")
-      .not("section_key", "like", "wo_deleted_%")
-      .not("section_key", "like", "wo_removed_%")
-      .not("section_key", "like", "tech_perms_%")
-      .not("section_key", "like", "sched_%")
-      .not("section_key", "like", "cert_%")
-      .not("section_key", "like", "appt_%")
-      .not("section_key", "like", "tool_loan_%")
-      .not("section_key", "eq", "master_workshop_backup");
-    if (error || !data || data.length === 0) return null;
+    // PAGINADO: el select sin .range() se corta en las primeras 1000 filas (orden de
+    // insercion) y site_content supera las 5000; sin paginar, secciones CMS recientes
+    // (services, workshopServices, tech_perms_*, cert_*, appt_*...) quedaban FUERA.
+    const data = await fetchAllSiteContentRows(() =>
+      supabase
+        .from("site_content")
+        .select("section_key, key, value, content")
+        .not("section_key", "like", "inv_full_%")
+        .not("section_key", "like", "inv_payhistory_%")
+        .not("section_key", "like", "inv_breakdown_%")
+        .not("section_key", "like", "inv_resources_%")
+        .not("section_key", "like", "wo_mod_%")
+        .not("section_key", "like", "wo_deleted_%")
+        .not("section_key", "like", "wo_removed_%")
+        .not("section_key", "like", "tech_perms_%")
+        .not("section_key", "like", "sched_%")
+        .not("section_key", "like", "cert_%")
+        .not("section_key", "like", "appt_%")
+        .not("section_key", "like", "tool_loan_%")
+        .not("section_key", "eq", "master_workshop_backup")
+    );
+    if (!data || data.length === 0) return null;
 
     const result: any = {};
     data.forEach((row) => {
@@ -1017,6 +1022,46 @@ async function fetchAllSupabaseTable(tableName: string, concurrency = 5) {
     return allRecords;
   } catch (err) {
     console.warn(`Supabase pagination fetch deferred for table ${tableName}:`, err);
+    return [];
+  }
+}
+
+// Pagina TODAS las filas de site_content que cumplan el filtro de la consulta dada.
+// FIX del tope de 1000 filas: un select sin .range() devuelve solo las primeras 1000
+// filas en ORDEN DE INSERCIÓN (dominado por wo_deleted_*, inv_payhistory_*, syslog_*...),
+// dejando FUERA los snapshots recientes (tech_perms_*, all_technicians, cert_*, appt_*,
+// sched_*, wo_mod_*, wo_removed_*...) -> flags de permisos de tecnicos y fallbacks
+// de reconstruccion llegaban vacios (el checkbox Resp. Certificaciones no persistia).
+async function fetchAllSiteContentRows(
+  build: () => any
+): Promise<any[]> {
+  const PAGE_SIZE = 1000;
+  try {
+    const { data: firstBatch, error: firstErr } = await build().range(0, PAGE_SIZE - 1);
+    if (firstErr || !firstBatch || firstBatch.length === 0) return firstBatch || [];
+    if (firstBatch.length < PAGE_SIZE) return firstBatch;
+
+    let allRecords = [...firstBatch];
+    let offset = PAGE_SIZE;
+    outer: while (true) {
+      const tasks: Array<PromiseLike<any>> = [];
+      for (let i = 0; i < 5; i++) {
+        tasks.push(build().range(offset + i * PAGE_SIZE, offset + i * PAGE_SIZE + PAGE_SIZE - 1));
+      }
+      const results = await Promise.all(tasks);
+      let lastCount = 0;
+      for (const res of results) {
+        if (res.error || !res.data || res.data.length === 0) break outer;
+        allRecords = allRecords.concat(res.data);
+        lastCount = res.data.length;
+      }
+      if (lastCount < PAGE_SIZE) break;
+      offset += 5 * PAGE_SIZE;
+    }
+
+    return allRecords;
+  } catch (err) {
+    console.warn("Supabase site_content pagination fetch deferred:", err);
     return [];
   }
 }
@@ -2024,14 +2069,28 @@ export async function fetchSupabaseInventory(): Promise<InventoryItem[] | null> 
 // Ultra-fast granular fetch for Technicians (~15ms)
 export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
   try {
-    const [techRes, contentRes] = await Promise.all([
+    // FIX 1000-FILAS: el select general de site_content se corta en las primeras 1000
+    // filas (orden de insercion: wo_deleted_*, inv_*, syslog_*...), dejando FUERA los
+    // snapshots tech_perms_*/all_technicians -> los flags de permisos llegaban undefined
+    // y el checkbox Resp. Certificaciones no persistia visualmente. Ahora se consultan
+    // SOLO las claves de tecnicos (~30 filas): rapido y siempre completo.
+    const [techRes, permsRes, allTechsRes] = await Promise.all([
       safeQuery<any[]>(
         supabase
           .from("technicians")
           .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
-      safeQuery<any[]>(supabase.from("site_content").select("*")),
+      safeQuery<any[]>(
+        supabase.from("site_content").select("*").like("section_key", "tech_perms_%")
+      ),
+      safeQuery<any[]>(
+        supabase.from("site_content").select("*").eq("section_key", "all_technicians")
+      ),
     ]);
+    const contentRes = {
+      data: [...(permsRes.data || []), ...(allTechsRes.data || [])] as any[],
+      error: null,
+    };
 
     const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
     const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
@@ -2591,13 +2650,19 @@ export async function fetchSupabaseErpData() {
       // SÍ se mantienen (críticos para borrado cross-device y reconstrucción).
       // select de solo las columnas que el parseo usa (value + fallback content) para
       // reducir el payload (~40% menos); el código siempre lee row.value primero.
+      // PAGINADO (fix tope 1000 filas): sin .range(), el select de site_content se
+      // cortaba en las primeras 1000 filas en orden de insercion y los snapshots
+      // recientes (tech_perms_*, all_technicians, cert_*, appt_*, sched_*, wo_deleted_*...)
+      // quedaban fuera -> fallbacks vacios y flags de permisos perdidos.
       safeQuery<any[]>(
-        supabase
-          .from("site_content")
-          .select("section_key, key, value, content, category")
-          .not("key", "eq", "master_workshop_backup")
-          .not("section_key", "eq", "master_workshop_backup")
-          .not("section_key", "like", "inv_full_%")
+        fetchAllSiteContentRows(() =>
+          supabase
+            .from("site_content")
+            .select("section_key, key, value, content, category")
+            .not("key", "eq", "master_workshop_backup")
+            .not("section_key", "eq", "master_workshop_backup")
+            .not("section_key", "like", "inv_full_%")
+        )
       ),
     ]);
 
