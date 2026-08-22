@@ -24,6 +24,7 @@ import {
   Upload,
   Sparkles,
   AlertCircle,
+  AlertTriangle,
   Check,
   X,
   Edit3,
@@ -47,6 +48,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { formatPeruDateTime, getPeruDateString, formatPeruDate, buildPeruISOString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
+import { logSystemEvent } from "@/lib/system-log";
 
 export default function PorteriaPage() {
   const {
@@ -527,6 +529,32 @@ export default function PorteriaPage() {
     if (isVentaDirecta && !entryForm.problem_description.trim()) {
       notify("warning", "Ingrese el motivo o detalle de los repuestos a vender.");
       return;
+    }
+
+    // BLOQUEO DE INGRESO DUPLICADO (A3Z-265): si la placa ya tiene una OT ACTIVA
+    // (no finalizada/entregada) en el store, NO se registra otro ingreso. El portero
+    // debe atender la OT existente primero. Muestra el estado y la fecha para que
+    // verifique en Taller/Caja.
+    if (!isVentaDirecta && plate) {
+      const cleanPlate = plate.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const activeOrder = (workOrders || []).find((wo) => {
+        if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
+        if (wo.status === "finalizado") return false;
+        return wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanPlate;
+      });
+      if (activeOrder) {
+        logSystemEvent("warn", "porteria.ingreso_bloqueado_duplicado", {
+          plate,
+          woId: String(activeOrder.id || "").slice(0, 8),
+          status: activeOrder.status || "",
+          entry: activeOrder.entry_time || "",
+        }, "Portería:handleRegisterEntry");
+        notify(
+          "warning",
+          "⚠️ " + plate + " YA tiene un ingreso en Taller (" + plateOrderStatusLabel(activeOrder.status) + ") del " + formatPeruDateTime(activeOrder.entry_time) + ". No se registró un ingreso duplicado. Atienda la OT existente."
+        );
+        return;
+      }
     }
 
     // Build ISO timestamp from chosen date and time in Peru timezone
@@ -1117,10 +1145,10 @@ export default function PorteriaPage() {
                       </div>
                     )}
                     {plateActiveWorkOrder && (
-                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 text-[11px] font-bold leading-snug">
-                        <Wrench className="w-3.5 h-3.5 shrink-0 mt-px text-cyan-400" />
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/15 border border-red-500/50 text-red-200 text-[11px] font-bold leading-snug">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px text-red-400" />
                         <span>
-                          Esta placa tiene un ingreso en Taller del{" "}
+                          ⚠️ <strong>YA REGISTRADO</strong>: esta placa tiene un ingreso en Taller del{" "}
                           <span className="text-white font-mono">
                             {formatPeruDateTime(plateActiveWorkOrder.entry_time)}
                           </span>
@@ -1135,7 +1163,7 @@ export default function PorteriaPage() {
                           ) : (
                             <> — en proceso de atención</>
                           )}
-                          .
+                          . No se registrará otro ingreso duplicado.
                         </span>
                       </div>
                     )}
