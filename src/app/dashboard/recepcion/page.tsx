@@ -501,7 +501,7 @@ export default function RecepcionPage() {
   // ===== Tabla de Programación de Citas (semanal): búsqueda por placa, filtros rápidos, CSV e informe diario =====
   const [plateSearch, setPlateSearch] = useState("");
   const deferredPlateSearch = React.useDeferredValue(plateSearch);
-  const [quickFilter, setQuickFilter] = useState<"todas" | "hoy" | "semana" | "pendientes" | "confirmadas" | "completadas" | "canceladas">("todas");
+  const [quickFilter, setQuickFilter] = useState<"todas" | "hoy" | "semana" | "pendientes" | "confirmadas" | "completadas" | "canceladas" | "no_asistieron">("todas");
   // Filtro por FECHA: al elegir una fecha se muestran solo las cards de citas de ese día.
   const [citasDateFilter, setCitasDateFilter] = useState<string>("");
   // Cards de citas colapsadas POR DEFECTO (se guardan los ids EXPANDIDOS; vacío = todas colapsadas)
@@ -728,6 +728,9 @@ export default function RecepcionPage() {
       case "completadas":
         list = list.filter((a) => a.status === "completado");
         break;
+      case "no_asistieron":
+        list = list.filter((a) => a.status === "no_asistio");
+        break;
       case "canceladas":
         list = list.filter((a) => a.status === "cancelado");
         break;
@@ -751,6 +754,7 @@ export default function RecepcionPage() {
     pendientes: dailyAppointments.filter((a) => a.status === "pendiente").length,
     completadas: dailyAppointments.filter((a) => a.status === "completado").length,
     canceladas: dailyAppointments.filter((a) => a.status === "cancelado").length,
+    no_asistidas: dailyAppointments.filter((a) => a.status === "no_asistio").length,
   }), [dailyAppointments]);
 
   const changeReportDate = (delta: number) => {
@@ -934,6 +938,7 @@ export default function RecepcionPage() {
                 { key: "confirmadas", label: "✅ Confirmadas" },
                 { key: "completadas", label: "✔️ Completadas" },
                 { key: "canceladas", label: "🚫 Canceladas" },
+                { key: "no_asistieron", label: "🚷 No Asistieron" },
               ] as const).map((chip) => {
                 const count = chip.key === "todas" ? appointments.length
                   : chip.key === "hoy" ? appointments.filter((a) => (a.scheduled_date || "").slice(0, 10) === getPeruDateString()).length
@@ -943,7 +948,7 @@ export default function RecepcionPage() {
                       const we = (() => { const d = new Date(ws + "T12:00:00"); d.setDate(d.getDate() + 6); return d.toISOString().slice(0, 10); })();
                       return appointments.filter((a) => { const d = (a.scheduled_date || "").slice(0, 10); return d >= ws && d <= we; }).length;
                     })()
-                  : appointments.filter((a) => a.status === (chip.key === "pendientes" ? "pendiente" : chip.key === "confirmadas" ? "confirmado" : chip.key === "completadas" ? "completado" : "cancelado")).length;
+                  : appointments.filter((a) => a.status === (chip.key === "pendientes" ? "pendiente" : chip.key === "confirmadas" ? "confirmado" : chip.key === "completadas" ? "completado" : chip.key === "no_asistieron" ? "no_asistio" : "cancelado")).length;
                 const isActive = quickFilter === chip.key;
                 return (
                   <button
@@ -1030,12 +1035,14 @@ export default function RecepcionPage() {
                               ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                               : app.status === "completado"
                                 ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                                : app.status === "cancelado"
-                                  ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                                  : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                : app.status === "no_asistio"
+                                  ? "bg-gray-600/30 text-gray-300 border border-gray-500/40"
+                                  : app.status === "cancelado"
+                                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                    : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                               }`}
                           >
-                            {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status}
+                            {app.status === "pendiente" ? "⏳ Pendiente de Fecha" : app.status === "no_asistio" ? "🚫 No Asistió" : app.status === "completado" ? "Completado" : app.status === "cancelado" ? "Cancelado" : app.status === "confirmado" ? "Confirmado" : app.status}
                           </span>
                           <button
                             type="button"
@@ -1471,6 +1478,7 @@ export default function RecepcionPage() {
                     <option value="pendiente">Pendiente</option>
                     <option value="confirmado">Confirmado</option>
                     <option value="completado">Completado</option>
+                    <option value="no_asistio">No asistió</option>
                     <option value="cancelado">Cancelado</option>
                   </select>
                 </div>
@@ -2206,8 +2214,8 @@ export default function RecepcionPage() {
                       <td className="px-3 py-2 text-gray-300">{app.service_type}</td>
                       <td className="px-3 py-2 text-gray-300">{app.responsible || "-"}</td>
                       <td className="px-3 py-2">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${app.status === "confirmado" ? "bg-emerald-500/20 text-emerald-400" : app.status === "completado" ? "bg-blue-500/20 text-blue-400" : app.status === "cancelado" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400"}`}>
-                          {app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : "Cancelada"}
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${app.status === "confirmado" ? "bg-emerald-500/20 text-emerald-400" : app.status === "completado" ? "bg-blue-500/20 text-blue-400" : app.status === "no_asistio" ? "bg-gray-600/40 text-gray-300" : app.status === "cancelado" ? "bg-red-500/20 text-red-400" : "bg-amber-500/20 text-amber-400"}`}>
+                          {app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : app.status === "no_asistio" ? "No Asistió" : "Cancelada"}
                         </span>
                       </td>
                     </tr>
@@ -2256,13 +2264,13 @@ export default function RecepcionPage() {
                     <td style={{ padding: 4, fontWeight: 700 }}>{app.plate}</td>
                     <td style={{ padding: 4 }}>{app.service_type}</td>
                     <td style={{ padding: 4 }}>{app.responsible || "-"}</td>
-                    <td style={{ padding: 4 }}>{app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : "Cancelada"}</td>
+                    <td style={{ padding: 4 }}>{app.status === "pendiente" ? "Pendiente" : app.status === "confirmado" ? "Confirmada" : app.status === "completado" ? "Completada" : app.status === "no_asistio" ? "No Asistió" : "Cancelada"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <div style={{ marginTop: 10, fontSize: 11 }}>
-              <b>Total: {dailyCounts.total} cita(s)</b> — Pendientes: {dailyCounts.pendientes} | Confirmadas: {dailyCounts.confirmadas} | Completadas: {dailyCounts.completadas} | Canceladas: {dailyCounts.canceladas}
+              <b>Total: {dailyCounts.total} cita(s)</b> — Pendientes: {dailyCounts.pendientes} | Confirmadas: {dailyCounts.confirmadas} | Completadas: {dailyCounts.completadas} | Canceladas: {dailyCounts.canceladas} | No Asistieron: {dailyCounts.no_asistidas}
             </div>
             <div style={{ marginTop: 14, fontSize: 10, borderTop: "1px solid #000", paddingTop: 6 }}>
               Generado el {formatPeruDateTime(new Date())} — ReyGas Autogás Equipment

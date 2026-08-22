@@ -672,6 +672,27 @@ export default function PorteriaPage() {
     setRescheduleModal(null);
   };
 
+  // Marcar cita como NO ASISTIO: guarda el estado en Supabase (historial persistente).
+  const handleNoShowPrompt = (app: Appointment) => {
+    setConfirmModal({
+      isOpen: true,
+      title: "Marcar Cita como No Asistio",
+      message: "El vehiculo " + app.plate + " (" + app.client_name + ") no llego para su cita del " + formatPeruDate(app.scheduled_date) + "? El estado quedara guardado en el historial.",
+      confirmLabel: "Si, No Asistio",
+      cancelLabel: "Volver",
+      danger: true,
+      onConfirm: () => {
+        updateAppointmentStatus(app.id, "no_asistio");
+        logSystemEvent("info", "porteria.cita.no_asistio", {
+          appId: String(app.id).slice(0, 20),
+          plate: app.plate,
+          fecha: app.scheduled_date,
+        }, "porteria:citas");
+        notify("warning", "Cita de " + app.plate + " marcada como No Asistio (guardada en el historial).");
+      },
+    });
+  };
+
   // Trigger styled confirmation modal for cancelling appointment
   const handleCancelAppointmentPrompt = (app: Appointment) => {
     setConfirmModal({
@@ -710,7 +731,7 @@ export default function PorteriaPage() {
   // "completado" (cita ya atendida / vehículo ya ingresó).
   const filteredAppointments = useMemo(() => {
     return appointments.filter((app) => {
-      if (app.status === "cancelado" || app.status === "completado") {
+      if (app.status === "cancelado" || app.status === "completado" || app.status === "no_asistio") {
         return false;
       }
       if (dateFilterMode === "dia") {
@@ -720,6 +741,22 @@ export default function PorteriaPage() {
       return true;
     });
   }, [appointments, dateFilterMode, selectedDate]);
+
+  // HISTORIAL de citas: no asistieron / anuladas / completadas (guardadas en Supabase).
+  const historyApps = useMemo(() => {
+    const histStatuses = new Set(["no_asistio", "cancelado", "completado"]);
+    return appointments
+      .filter((a) => histStatuses.has(a.status))
+      .filter((a) => (dateFilterMode === "dia" ? (a.scheduled_date || "").slice(0, 10) === selectedDate : true))
+      .sort((a, b) => String(b.scheduled_date || "").localeCompare(String(a.scheduled_date || "")))
+      .slice(0, 12);
+  }, [appointments, dateFilterMode, selectedDate]);
+
+  const APP_HISTORY_LABEL: Record<string, { label: string; cls: string }> = {
+    no_asistio: { label: "NO ASISTIO", cls: "bg-red-900/50 text-red-300 border border-red-500/40" },
+    cancelado: { label: "ANULADA", cls: "bg-red-950/40 text-red-400 border border-red-500/20" },
+    completado: { label: "COMPLETADA", cls: "bg-blue-500/20 text-blue-300 border border-blue-500/30" },
+  };
 
   // Estados que significan que el vehículo AÚN está siendo atendido en el taller:
   // SOLO estos bloquean un ingreso duplicado. "Por Pagar" (por_cobrar/pendiente_pago,
@@ -942,8 +979,8 @@ export default function PorteriaPage() {
                           {app.plate}
                         </span>
                         <span className="text-xs font-bold text-white">{app.client_name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                          CONFIRMADO
+                        <span className={"text-[10px] px-2 py-0.5 rounded-full font-bold border " + (app.status === "confirmado" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30")}>
+                          {app.status === "confirmado" ? "CONFIRMADO" : "PENDIENTE"}
                         </span>
                       </div>
                       <p className="text-xs text-gray-300 font-medium">
@@ -972,6 +1009,15 @@ export default function PorteriaPage() {
 
                       <button
                         type="button"
+                        onClick={() => handleNoShowPrompt(app)}
+                        className="px-3.5 py-2 bg-gray-700/60 hover:bg-gray-600 text-gray-200 text-xs font-extrabold rounded-xl border border-white/15 flex items-center gap-1.5 transition-transform hover:scale-105 active:scale-95"
+                        title="Marcar como No Asistio (se guarda en el historial)"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>No asistio</span>
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleCancelAppointmentPrompt(app)}
                         className="p-2 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-xl border border-red-500/20 transition-colors"
                         title="Anular Cita"
@@ -983,6 +1029,37 @@ export default function PorteriaPage() {
                 ))
               )}
             </div>
+            {/* HISTORIAL de citas: no asistieron / anuladas / completadas (guardado en Supabase) */}
+            {historyApps.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <History className="w-4 h-4 text-gray-400" />
+                  <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">
+                    {"Historial" + (dateFilterMode === "dia" ? " del " + formatPeruDate(selectedDate) : "")}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/10 font-mono">
+                    {historyApps.length}
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+                  {historyApps.map((app) => {
+                    const meta = APP_HISTORY_LABEL[app.status] || { label: app.status, cls: "bg-white/5 text-gray-400 border border-white/10" };
+                    return (
+                      <div key={app.id} className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-black/30 border border-white/5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-mono font-bold text-xs text-gray-200">{app.plate}</span>
+                          <span className="text-[10px] text-gray-500 truncate">{app.client_name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] font-mono text-gray-500">{formatPeruDateTime(app.scheduled_date, false)}</span>
+                          <span className={"text-[9px] px-2 py-0.5 rounded-full font-black " + meta.cls}>{meta.label}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             </div>
             )}
           </div>

@@ -637,7 +637,7 @@ export interface Appointment {
   plate: string;
   service_type: string;
   scheduled_date: string;
-  status: "pendiente" | "confirmado" | "completado" | "cancelado";
+  status: "pendiente" | "confirmado" | "completado" | "cancelado" | "no_asistio";
   notes?: string;
   responsible?: string; // Responsable de la atención (ej: Kelly, Cristhel) desde la Tabla de Programación
 }
