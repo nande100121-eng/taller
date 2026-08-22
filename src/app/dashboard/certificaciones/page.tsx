@@ -1332,7 +1332,7 @@ export default function CertificacionesPage() {
                   required
                   value={manualForm.responsible}
                   onChange={(e) => setManualForm({ ...manualForm, responsible: e.target.value })}
-                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-bold focus:border-teal-400"
+                  className="w-full px-3 py-2 bg-white border border-white/10 rounded-xl text-black font-bold focus:border-teal-400"
                 >
                   <option value="" disabled>— Seleccione responsable —</option>
                   {certificationResponsibles.map((t) => (
