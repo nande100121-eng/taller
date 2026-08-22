@@ -83,6 +83,11 @@ const FULL_SYNC_MIN_INTERVAL = 30000;
 let lastOperationalSyncAt = 0;
 const OPERATIONAL_SYNC_MIN_INTERVAL = 5000;
 
+// Credenciales del ADMINISTRADOR (login único; se eliminaron los accesos rápidos demo).
+// Usuario: admin (o admin@reygas.com) + esta contraseña. Se puede cambiar aqui.
+export const ADMIN_EMAIL = "admin@reygas.com";
+export const ADMIN_PASSWORD = "ReyGas2026";
+
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
   "/dashboard/recepcion",
@@ -964,35 +969,27 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   login: async (email, pass) => {
     const identifier = String(email || "").trim();
     const password = String(pass || "");
-    const demo = identifier.toLowerCase();
-    // Acceso rapido de prueba (botones 1-clic de la pagina de login) — se conserva.
-    if (demo === "admin@reygas.com" || demo === "personal@reygas.com") {
-      const isAdmin = demo === "admin@reygas.com";
-      set({
-        isAuthenticated: true,
-        userRole: isAdmin ? "admin" : "personal",
-        currentUser: {
-          name: isAdmin ? "Administrador ReyGas" : "Operador de Taller (demo)",
-          email: identifier,
-          allowed_tabs: isAdmin ? undefined : ["/dashboard/porteria"],
-        },
-        isVisualEditing: isAdmin,
-      });
-      return true;
-    }
-    // ADMIN: por nombre/correo del administrador (comportamiento historico).
-    if (demo.includes("admin") || demo === "admin@reygas.com") {
+    const cleanId = identifier.toLowerCase();
+    const isAdminIdentifier = cleanId === "admin" || cleanId === ADMIN_EMAIL;
+
+    // ADMINISTRADOR: solo 'admin' / 'admin@reygas.com' + contraseña de administrador.
+    // (Se eliminaron los accesos rápidos demo y el match suelto por nombre con 'admin'.
+    // Primero Supabase Auth si admin@reygas.com fue provisionado; si no, credencial fija.)
+    if (isAdminIdentifier) {
+      const authCheck = await verifySupabaseAuthLogin(cleanId, password);
+      const passOk = authCheck.ok || password === ADMIN_PASSWORD;
+      if (!passOk) return false;
       set({
         isAuthenticated: true,
         userRole: "admin",
-        currentUser: { name: "Administrador ReyGas", email: identifier },
+        currentUser: { name: "Administrador ReyGas", email: cleanId },
         isVisualEditing: true,
       });
       return true;
     }
+
     // PERSONAL: primero SUPABASE AUTH (email = usuario@reygas.com + contraseña del
     // roster); si el auth user aún no está vinculado/confirmado, fallback al roster.
-    const cleanId = identifier.toLowerCase();
     const localPart = cleanId.includes("@") ? cleanId.split("@")[0] : cleanId;
     const authCheck = await verifySupabaseAuthLogin(identifier, password);
     const matchedTech = get().technicians.find(

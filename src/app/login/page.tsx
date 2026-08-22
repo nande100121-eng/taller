@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
 import { useAppStore } from "@/lib/store/app-store";
-import { Lock, Mail, KeyRound, ShieldCheck, ArrowRight, UserCheck } from "lucide-react";
+import { Mail, KeyRound, ArrowRight } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,22 +18,14 @@ export default function LoginPage() {
     e.preventDefault();
     const success = await login(email, password);
     if (success) {
-      if (email.includes("admin")) {
+      const id = email.trim().toLowerCase();
+      if (id === "admin" || id === "admin@reygas.com") {
         router.push("/dashboard/admin/cms");
       } else {
         router.push("/dashboard/porteria");
       }
     } else {
       setErrorMsg("Credenciales no válidas. Por favor verifique.");
-    }
-  };
-
-  const handleQuickLogin = async (roleEmail: string) => {
-    await login(roleEmail, "123456");
-    if (roleEmail.includes("admin")) {
-      router.push("/dashboard/admin/cms");
-    } else {
-      router.push("/dashboard/porteria");
     }
   };
 
@@ -107,36 +99,6 @@ export default function LoginPage() {
           </div>
         </form>
 
-        {/* Quick Demo Credentials */}
-        <div className="pt-6 border-t border-white/10 space-y-3">
-          <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block text-center">
-            Acceso Rápido de Prueba (1-Clic)
-          </span>
-
-          <div className="grid grid-cols-1 gap-2">
-            <button
-              onClick={() => handleQuickLogin("admin@reygas.com")}
-              className="w-full py-2 px-3 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center justify-between transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-reygas-red" />
-                <span>Ingresar como Administrador</span>
-              </div>
-              <span className="text-[10px] text-gray-400 font-mono">admin@reygas.com</span>
-            </button>
-
-            <button
-              onClick={() => handleQuickLogin("personal@reygas.com")}
-              className="w-full py-2 px-3 bg-reygas-surface hover:bg-gray-700 text-white text-xs font-bold rounded-xl border border-white/10 flex items-center justify-between transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-emerald-400" />
-                <span>Ingresar como Personal Taller</span>
-              </div>
-              <span className="text-[10px] text-gray-400 font-mono">personal@reygas.com</span>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
