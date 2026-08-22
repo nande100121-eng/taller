@@ -12,6 +12,7 @@ import {
   saveSupabaseInventoryItem,
   saveSupabaseWorkOrder,
   saveSupabaseVehicle,
+  fetchSupabaseVehicleByPlate,
   saveSupabaseAppointment,
   deleteSupabaseAppointment,
   saveSupabaseInvoice,
@@ -2180,22 +2181,63 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       };
     }),
 
-  updateVehicle: (plate, updates) =>
-    set((state) => {
-      logSystemEvent("info", "vehicle.update", {
-        plate,
-        campos: Object.keys(updates || {}),
-      }, "store:updateVehicle");
-      const updatedVehicles = state.vehicles.map((v) => {
-        if (v.plate.toUpperCase() === plate.toUpperCase()) {
+  updateVehicle: (plate, updates) => {
+    const plateKey = String(plate || "").toUpperCase().trim();
+    if (!plateKey) return;
+    const exists = get().vehicles.some((v) => String(v.plate || "").toUpperCase().trim() === plateKey);
+    logSystemEvent("info", "vehicle.update", {
+      plate,
+      campos: Object.keys(updates || {}),
+      inWindow: exists,
+    }, "store:updateVehicle");
+    if (exists) {
+      set((s) => ({
+        vehicles: s.vehicles.map((v) => {
+          if (String(v.plate || "").toUpperCase().trim() !== plateKey) return v;
           const updated = { ...v, ...updates };
           saveSupabaseVehicle(updated);
           return updated;
-        }
-        return v;
-      });
-      return { vehicles: updatedVehicles };
-    }),
+        }),
+      }));
+      return;
+    }
+    // FIX H2W-236 (22/08): el vehículo NO está en la ventana operativa (cap 400 por
+    // last_visit_date; H2W-236 tenía 2025-06-12 y 2.114 vehículos más recientes), por
+    // eso el select de combustible quedaba en GNV y el cambio no persistía. Se lee el
+    // registro REAL de la nube (para no pisar brand/model/color con vacíos), se aplica
+    // el cambio, se guarda en Supabase y se inyecta al store local (el merge por placa
+    // del sync operativo lo conserva aunque no esté entre los 400).
+    void (async () => {
+      try {
+        const full = await fetchSupabaseVehicleByPlate(plateKey);
+        const fallback: Vehicle = {
+          plate: plateKey,
+          brand: "",
+          model: "",
+          year: 0,
+          color: "",
+          fuel_type: "GNV",
+          owner_name: "",
+          owner_phone: "",
+          current_mileage: 0,
+          last_visit_date: new Date().toISOString(),
+        };
+        const merged: Vehicle = { ...(full || fallback), ...(updates as Partial<Vehicle>) };
+        await saveSupabaseVehicle(merged);
+        set((s) => {
+          const others = s.vehicles.filter((v) => String(v.plate || "").toUpperCase().trim() !== plateKey);
+          return { vehicles: [...others, merged] };
+        });
+        logSystemEvent("info", "vehicle.update.out_of_window", {
+          plate: plateKey,
+          fuel_type: merged.fuel_type,
+          fromDb: !!full,
+        }, "store:updateVehicle");
+      } catch (err) {
+        console.warn("store:updateVehicle (fuera de ventana):", err);
+      }
+    })();
+  },
 
   workOrders: [],
 

@@ -918,6 +918,21 @@ export async function saveSupabaseVehicle(v: Vehicle) {
   }
 }
 
+// Lee UN vehículo por placa desde la nube (para updateVehicle cuando el registro
+// quedó FUERA de la ventana operativa: el fetch operativo capa a 400 por
+// last_visit_date y una placa antigua no está en el store local).
+export async function fetchSupabaseVehicleByPlate(plate: string): Promise<Vehicle | null> {
+  try {
+    const { data } = await supabase.from("vehicles").select("*").eq("plate", plate).maybeSingle();
+    if (data) return data as Vehicle;
+    const r2 = await supabase.from("vehicles").select("*").ilike("plate", plate).limit(1);
+    return (r2.data && r2.data[0]) ? (r2.data[0] as Vehicle) : null;
+  } catch (err) {
+    console.warn("fetchSupabaseVehicleByPlate:", err);
+    return null;
+  }
+}
+
 async function safeQuery<T = any>(queryPromise: PromiseLike<{ data: T | null; error: any }> | any): Promise<{ data: T | null; error: any }> {
   try {
     return await queryPromise;
