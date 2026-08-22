@@ -2065,6 +2065,19 @@ export default function AdminTablesPage() {
                           <span>👨‍🔧 Resp. Mecánico</span>
                         </label>
 
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-950/40 border border-violet-500/40 text-violet-300 text-xs font-bold cursor-pointer hover:bg-violet-950/70 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!t.is_certification_responsible}
+                            onChange={(e) => {
+                              updateTechnician(t.id, { is_certification_responsible: e.target.checked });
+                            }}
+                            className="rounded border-violet-500 text-violet-600 focus:ring-violet-500"
+                            title="Habilitado como Responsable de Solicitud de Certificaciones (selector del modal de Certificaciones)"
+                          />
+                          <span>🪪 Resp. Certificaciones</span>
+                        </label>
+
                         <button
                           type="button"
                           onClick={() => {
