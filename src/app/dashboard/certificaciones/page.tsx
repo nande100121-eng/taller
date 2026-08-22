@@ -681,6 +681,11 @@ export default function CertificacionesPage() {
 
     notify("success", `¡Certificado para ${manualForm.vehicle_plate.toUpperCase()} registrado correctamente!`);
     setIsManualModalOpen(false);
+    // FIX "no aparece la card": el certificado manual nace "Vigente" (emitido) y el
+    // tab "Del Día / Hoy" solo muestra solicitudes PENDIENTES, por lo que la card
+    // nueva quedaba invisible (solo estaba en Emitidos/Todos). Al crear, cambiamos
+    // a "Emitidos" para que el usuario vea la card al instante (va primero: hoy).
+    setActiveTab("emitidos");
   };
 
   return (
