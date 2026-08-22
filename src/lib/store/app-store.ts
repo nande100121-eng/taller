@@ -946,6 +946,11 @@ function clearSessionWallet() {
   }
 }
 
+// Sesión leída AL IMPORTAR el módulo (solo cliente): el estado inicial del store ya nace
+// con isAuthenticated/userRole/currentUser, SIN depender del rehidratado del persist
+// (fix login que pedía credenciales en cada refresh). En SSR (sin window) queda vacía.
+const __initialSession = typeof window !== "undefined" ? readSessionWallet() : {};
+
 export const useAppStore = create<AppState>()(persist((set, get) => {
   // ===== LOG LOCAL DE CADA ACCIÓN DEL STORE (captura total, SIN OMITIR NADA) =====
   // Registra en el log interno (localStorage) CADA set() con TODAS las claves que
@@ -989,9 +994,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   },
   clearNotification: () => set({ notification: null }),
 
-  isAuthenticated: false,
-  userRole: null,
-  currentUser: null,
+  // Estado inicial con la SESIÓN persistida (se lee del wallet al importar el módulo):
+  // así un refresh mantiene el login aunque el rehidratado del persist falle.
+  isAuthenticated: (__initialSession as any)?.isAuthenticated === true,
+  userRole: ((__initialSession as any)?.userRole as any) || null,
+  currentUser: ((__initialSession as any)?.currentUser as any) || null,
 
   login: async (email, pass) => {
     const identifier = String(email || "").trim();
