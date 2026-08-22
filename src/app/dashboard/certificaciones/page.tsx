@@ -285,16 +285,11 @@ export default function CertificacionesPage() {
     invoices.forEach((inv) => {
       if (inv && inv.work_order_id) invoicesByWoId.set(inv.work_order_id, inv);
     });
-    // FECHA DE PAGO de la OT (factura pagada) = fecha de EMISION real de la card.
-    // Las certs de Taller se "emiten" cuando Caja cobra la OT; el issue_date de la
-    // cert es solo la fecha de SOLICITUD (si se creo hoy, no significa emitida hoy).
-    const paidDateByWoId = new Map<string, string>();
-    invoices.forEach((inv) => {
-      if (inv && inv.work_order_id && inv.payment_status === "pagado") {
-        const d = String(inv.paid_at || inv.issued_at || "").slice(0, 10);
-        if (d && !paidDateByWoId.has(inv.work_order_id)) paidDateByWoId.set(inv.work_order_id, d);
-      }
-    });
+    // Fecha de EMISION: las creadas DESDE CERTIFICACIONES (manuales, su OT nace con
+    // problem_description "solicitada desde Certificaciones") mantienen la fecha que
+    // se indico al crearlas (issue_date). Las creadas desde TALLER usan la fecha de
+    // su OT (entry_time), aunque la cert se haya creado otro dia.
+    const isManualCertOt = (wo: any) => String(wo?.problem_description || "").includes("solicitada desde Certificaciones");
     const isWoPaid = (wo: any) => {
       if (!wo) return false;
       const inv = invoicesByWoId.get(wo.id);
@@ -380,8 +375,10 @@ export default function CertificacionesPage() {
         // la fecha de ingreso de la OT (nunca caer a HOY: eso inflaba el filtro
         // "Del Día / Hoy" con registros sin fecha).
         issueDate: (c.issue_date || wo?.entry_time || "").slice(0, 10) || "",
-        // Fecha de EMISION: pago de la OT (Taller) o issue_date de la cert (manual).
-        emissionDate: (c.work_order_id ? (paidDateByWoId.get(c.work_order_id) || "") : "") || (c.issue_date || "").slice(0, 10) || "",
+        // Fecha de EMISION: manual -> fecha indicada al crear (issue_date); Taller -> fecha de su OT.
+        emissionDate: isManualCertOt(wo)
+          ? (c.issue_date || "").slice(0, 10) || ""
+          : (c.work_order_id ? String(wo?.entry_time || "").slice(0, 10) : "") || (c.issue_date || "").slice(0, 10) || "",
         expiryDate: fechaAnual,
         quinquennialDate: fechaQuinquenal,
         rawCert: c,
@@ -442,7 +439,7 @@ export default function CertificacionesPage() {
           // registrados (chip/quinquenal) son INFORMATIVAS y NO deben aparecer en
           // "Del Día / Hoy" (el usuario reportó 10 sin haber solicitado hoy).
           issueDate: (wo.requires_certification ? (wo.entry_time || "") : "").slice(0, 10) || "",
-          emissionDate: paidDateByWoId.get(wo.id) || "",
+          emissionDate: (wo.entry_time || "").slice(0, 10) || "",
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
           rawOrder: wo,
@@ -1433,6 +1430,16 @@ export default function CertificacionesPage() {
                 <p className="text-[10px] text-gray-500 mt-1">
                   Solo aparecen los habilitados como Resp. Certificaciones (Tabla Maestra → Roster y Permisos). Por defecto: el primero.
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">Fecha de Emisi\u00F3n (se muestra en la card)</label>
+                <input
+                  type="date"
+                  value={manualForm.issue_date}
+                  onChange={(e) => setManualForm({ ...manualForm, issue_date: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-reygas-surface border border-white/15 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400 focus:outline-none transition-all"
+                />
               </div>
 
               <div className="flex items-center justify-between">
