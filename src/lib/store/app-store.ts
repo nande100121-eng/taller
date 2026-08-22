@@ -1728,6 +1728,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
               can_receive_payment: et.can_receive_payment !== undefined ? !!et.can_receive_payment : (existing?.can_receive_payment !== undefined ? !!existing.can_receive_payment : false),
               is_debt_responsible: et.is_debt_responsible !== undefined ? !!et.is_debt_responsible : (existing?.is_debt_responsible !== undefined ? !!existing.is_debt_responsible : false),
               is_attention_responsible: et.is_attention_responsible !== undefined ? !!et.is_attention_responsible : (existing?.is_attention_responsible !== undefined ? !!existing.is_attention_responsible : false),
+              is_mechanic_responsible: et.is_mechanic_responsible !== undefined ? !!et.is_mechanic_responsible : (existing?.is_mechanic_responsible !== undefined ? !!existing.is_mechanic_responsible : false),
+              is_certification_responsible: et.is_certification_responsible !== undefined ? !!et.is_certification_responsible : (existing?.is_certification_responsible !== undefined ? !!existing.is_certification_responsible : false),
               payment_nickname: et.payment_nickname || existing?.payment_nickname || "",
               email: et.email || existing?.email || "",
               username: et.username || existing?.username || generateDefaultUsername(et.full_name),

@@ -226,6 +226,7 @@ export async function saveSupabaseTechnician(
       is_debt_responsible: !!tech.is_debt_responsible,
       is_attention_responsible: !!tech.is_attention_responsible,
       is_mechanic_responsible: !!tech.is_mechanic_responsible,
+      is_certification_responsible: !!tech.is_certification_responsible,
       email: tech.email || "",
       username: tech.username || "",
       password: tech.password || "",
@@ -2027,13 +2028,13 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, is_attention_responsible, is_mechanic_responsible, is_certification_responsible, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
 
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
     const fallbackTechs: any[] = [];
 
     if (contentRes.data) {
@@ -2050,6 +2051,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 is_mechanic_responsible: rawVal.is_mechanic_responsible !== undefined ? !!rawVal.is_mechanic_responsible : undefined,
+                is_certification_responsible: rawVal.is_certification_responsible !== undefined ? !!rawVal.is_certification_responsible : undefined,
                 payment_nickname: rawVal.payment_nickname || "",
                 email: rawVal.email || "",
                 username: rawVal.username || "",
@@ -2070,6 +2072,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 is_mechanic_responsible: rawVal.is_mechanic_responsible !== undefined ? !!rawVal.is_mechanic_responsible : undefined,
+                is_certification_responsible: rawVal.is_certification_responsible !== undefined ? !!rawVal.is_certification_responsible : undefined,
                 payment_nickname: rawVal.payment_nickname || "",
                 email: rawVal.email || "",
                 username: rawVal.username || "",
@@ -2122,6 +2125,9 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
           is_mechanic_responsible: (perm?.is_mechanic_responsible !== undefined
             ? !!perm.is_mechanic_responsible
             : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : false)),
+          is_certification_responsible: (perm?.is_certification_responsible !== undefined
+            ? !!perm.is_certification_responsible
+            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : false)),
           payment_nickname: perm?.payment_nickname || fbTech?.payment_nickname || (t as any).payment_nickname || "",
         };
       });
@@ -2568,7 +2574,7 @@ export async function fetchSupabaseErpData() {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, is_attention_responsible, is_mechanic_responsible, is_certification_responsible, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
       ),
       fetchAllSupabaseTable("inventory_items"),
       fetchCappedOperationalData(),
@@ -2597,8 +2603,8 @@ export async function fetchSupabaseErpData() {
     const vehicleData = (cappedData && cappedData.vehicles) || [];
 
     // Build permissions, certifications, and schedule records from site_content if any
-    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
-    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
+    const permsMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
+    const permsNameMap: Record<string, { allowed_tabs?: string[]; can_receive_payment?: boolean; is_debt_responsible?: boolean; is_attention_responsible?: boolean; is_mechanic_responsible?: boolean; is_certification_responsible?: boolean; payment_nickname?: string; email?: string; username?: string; password?: string }> = {};
     const fallbackCerts: any[] = [];
     const fallbackSched: any[] = [];
     const fallbackApps: any[] = [];
@@ -2635,6 +2641,7 @@ export async function fetchSupabaseErpData() {
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 is_mechanic_responsible: rawVal.is_mechanic_responsible !== undefined ? !!rawVal.is_mechanic_responsible : undefined,
+                is_certification_responsible: rawVal.is_certification_responsible !== undefined ? !!rawVal.is_certification_responsible : undefined,
                 payment_nickname: rawVal.payment_nickname || "",
                 email: rawVal.email || "",
                 username: rawVal.username || "",
@@ -2655,6 +2662,7 @@ export async function fetchSupabaseErpData() {
                 is_debt_responsible: rawVal.is_debt_responsible !== undefined ? !!rawVal.is_debt_responsible : undefined,
                 is_attention_responsible: rawVal.is_attention_responsible !== undefined ? !!rawVal.is_attention_responsible : undefined,
                 is_mechanic_responsible: rawVal.is_mechanic_responsible !== undefined ? !!rawVal.is_mechanic_responsible : undefined,
+                is_certification_responsible: rawVal.is_certification_responsible !== undefined ? !!rawVal.is_certification_responsible : undefined,
                 payment_nickname: rawVal.payment_nickname || "",
                 email: rawVal.email || "",
                 username: rawVal.username || "",
@@ -3085,6 +3093,9 @@ export async function fetchSupabaseErpData() {
           is_mechanic_responsible: (perm?.is_mechanic_responsible !== undefined
             ? !!perm.is_mechanic_responsible
             : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : false)),
+          is_certification_responsible: (perm?.is_certification_responsible !== undefined
+            ? !!perm.is_certification_responsible
+            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : false)),
           payment_nickname: perm?.payment_nickname || fbTech?.payment_nickname || (t as any).payment_nickname || "",
         };
       });
