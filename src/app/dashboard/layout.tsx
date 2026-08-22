@@ -35,7 +35,16 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, userRole, logout, isVisualEditing, toggleVisualEditing } = useAppStore();
+  const { currentUser, userRole, isAuthenticated, logout, isVisualEditing, toggleVisualEditing } = useAppStore();
+
+  // GUARD DE AUTENTICACIÓN: sin sesión activa el dashboard NUNCA se renderiza
+  // (un cambio de URL o recarga no debe dejar entrar sin usuario, ni mostrar
+  // 'Administrador ReyGas' por fallback). La sesión persiste en el store.
+  React.useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, router]);
 
   // Log interno de procesos: captura errores globales, registra la sesión/build y
   // setea la PÁGINA ACTIVA para que cada evento del log indique de qué pantalla vino.
@@ -242,7 +251,7 @@ export default function DashboardLayout({
               </div>
               <div className="overflow-hidden">
                 <span className="text-xs font-extrabold text-white block truncate">
-                  {currentUser?.name || "Administrador ReyGas"}
+                  {currentUser?.name || "Sesión sin perfil"}
                 </span>
                 <span className="text-[10px] text-emerald-400 font-mono font-bold block uppercase">
                   ● Sesión ERP Activa ({userRole || "Admin"})

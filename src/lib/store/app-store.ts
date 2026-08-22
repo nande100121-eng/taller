@@ -5130,6 +5130,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       if (v !== undefined) slimSiteContent[k] = v;
     }
     return {
+      // SESIÓN: el login persiste entre recargas/cambios de URL. Sin esto, al recargar
+      // el store se hidrataba SIN sesión (currentUser null -> badge 'Administrador ReyGas'
+      // y pestañas por defecto = acceso como si fuera admin).
+      isAuthenticated: state.isAuthenticated,
+      userRole: state.userRole,
+      currentUser: state.currentUser,
+      isVisualEditing: state.isVisualEditing,
       siteContent: slimSiteContent,
       technicians: state.technicians,
       inventoryItems: state.inventoryItems,
