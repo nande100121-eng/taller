@@ -47,7 +47,7 @@ import {
   fetchSupabaseInventory,
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
-import { getPeruDateString, toPeruAnchoredISO } from "@/lib/utils/date-utils";
+import { getPeruDateString, toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 import { parseCorrelative, matchesReceiptSeries, RECEIPT_SERIES } from "@/lib/utils/receipt-utils";
 import { logSystemEvent, logTiming } from "@/lib/system-log";
 
@@ -1043,6 +1043,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     };
 
     const effectiveDate = targetDate || getPeruDateString();
+    // Regla 21/08: la secuencia continúa desde los ÚLTIMOS correlativos del día
+    // anterior y del día actual (Perú). Los folios históricos/heredados del CSV
+    // (ej. 6803/4218/2658 de meses atrás) ya NO dominan la secuencia.
+    const todayKey = getPeruDateString();
+    const yesterdayKey = getPeruDateString(new Date(Date.now() - 86400000));
     const allInvoices = state.invoices || [];
 
     // Scan existing invoices in the database/store to find the maximum existing number for this receipt type
@@ -1050,6 +1055,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     allInvoices.forEach((inv) => {
       const numStr = (inv.receipt_number || "").trim();
       if (!numStr) return;
+      // Solo cuentan los comprobantes emitidos ayer o hoy (Perú): los de días más
+      // antiguos ya quedaron en correlativeConfig (último real de la nube).
+      const invDay = toPeruDateKey(inv.issued_at || inv.paid_at);
+      if (invDay !== todayKey && invDay !== yesterdayKey) return;
 
       const upper = numStr.toUpperCase();
       // FIX CORRELATIVOS (solicitud 20/08): el correlativo debe pertenecer a la SERIE
@@ -1080,6 +1089,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       const rec = WORKSHOP_CSV_LOOKUP[key];
       const numStr = String(rec.receiptNumber || "").trim();
       if (!numStr || numStr === "0") continue;
+      // Regla 21/08: solo registros del día anterior o actual (Perú). Los folios
+      // heredados del histórico (6803/4218/2658...) ya no inflan la secuencia.
+      const recDay = String(rec.dateISO || "").slice(0, 10);
+      if (recDay !== todayKey && recDay !== yesterdayKey) continue;
       const recTypeUpper = String(rec.receiptType || "").toUpperCase();
       const matchesType =
         (type === "Factura" && recTypeUpper.includes("FACTURA")) ||
@@ -1144,12 +1157,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   },
 
   // Sincroniza el ÚLTIMO correlativo real de cada serie (TK01/B001/F001/FC01) desde
-  // Supabase (últimos 7 días) hacia correlativeConfig: eleva los lastNumbers locales
-  // si la nube tiene folios mayores, para que los nuevos comprobantes continúen la
-  // secuencia real (último usado + 1) y no reusen números ya emitidos en otra tablet.
+  // Supabase hacia correlativeConfig: eleva los lastNumbers locales si la nube tiene
+  // folios mayores. Regla 21/08 (usuario): continuar desde los últimos correlativos
+  // del día anterior/actual = máximo real de la nube; nunca reusar un folio emitido.
   syncReceiptMaximaFromCloud: async () => {
     try {
-      const maxima = await fetchLatestReceiptMaxima(7);
+      const maxima = await fetchLatestReceiptMaxima();
       const cur = get().correlativeConfig;
       if (!cur) return;
       const next: CorrelativeConfig = { ...cur };

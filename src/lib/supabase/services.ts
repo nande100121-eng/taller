@@ -1790,18 +1790,21 @@ async function resolveUniqueReceiptNumber(
 }
 
 // Busca el ÚLTIMO correlativo real (folio) de cada serie (TK01 ticket, B001 boleta,
-// F001 factura, FC01 nota de crédito) dentro de los últimos N días en Supabase.
-// Es la fuente de verdad: el store local solo tiene una ventana operativa, por eso
-// aquí se consulta la nube para que los nuevos comprobantes continúen la secuencia
-// real (el último folio usado + 1) y nunca reusen un número ya emitido.
-export async function fetchLatestReceiptMaxima(days = 7): Promise<{
+// F001 factura, FC01 nota de crédito) en Supabase (fuente de verdad). Regla 21/08
+// (usuario): los nuevos comprobantes continúan la secuencia desde los ÚLTIMOS
+// correlativos del día anterior y del día actual (Perú). Como los folios de la nube
+// son secuenciales, el máximo total de cada serie ES ese último correlativo real;
+// tomarlo además evita reusar folios ya emitidos (p.ej. config local en 4600 pero la
+// nube ya llegó a 4620). El CSV histórico con folios heredados (6803/4218/2658) NO
+// participa aquí: era lo que inflaba el preview del abono. Filas con fecha ilegible
+// se descartan (no aportan a la secuencia).
+export async function fetchLatestReceiptMaxima(): Promise<{
   ticket: number;
   boleta: number;
   factura: number;
   notaCredito: number;
 }> {
   const result = { ticket: 0, boleta: 0, factura: 0, notaCredito: 0 };
-  const sinceMs = Date.now() - Math.max(1, days) * 24 * 60 * 60 * 1000;
   const series: Array<{ prefix: string; key: keyof typeof result }> = [
     { prefix: "TK01-", key: "ticket" },
     { prefix: "B001-", key: "boleta" },
@@ -1811,27 +1814,19 @@ export async function fetchLatestReceiptMaxima(days = 7): Promise<{
   await Promise.all(
     series.map(async ({ prefix, key }) => {
       try {
-        // Trae los comprobantes de la serie con su fecha de emisión (issued_at) para
-        // filtrar SOLO los de los últimos N días. Algunos issued_at pueden venir como
-        // texto/ISO: se parsea con Date para comparar por tiempo real.
+        // NOTA: NO incluir columnas inexistentes (created_at rompía la query y el
+        // sync moría en silencio). issued_at = fecha de emisión; paid_at = respaldo.
         const { data } = await supabase
           .from("invoices")
-          .select("receipt_number, issued_at, paid_at, created_at")
+          .select("receipt_number, issued_at, paid_at")
           .like("receipt_number", prefix + "%")
           .limit(5000);
         let max = 0;
         (data || []).forEach((inv: any) => {
           const raw = String(inv.receipt_number || "").trim();
           if (!raw) return;
-          const issuedStr = inv.issued_at || inv.paid_at || inv.created_at || "";
-          let issuedMs = 0;
-          if (issuedStr) {
-            const t = new Date(String(issuedStr).replace(" ", "T"));
-            issuedMs = isNaN(t.getTime()) ? 0 : t.getTime();
-          }
-          // Solo dentro de la ventana (si la fecha no se puede leer, se asume dentro
-          // para no perder un folio real por un formato de fecha raro).
-          if (issuedMs && issuedMs < sinceMs) return;
+          const dateKey = toPeruDateKey(inv.issued_at || inv.paid_at);
+          if (!dateKey) return; // fecha ilegible: no aporta a la secuencia
           const { folio } = parseCorrelative(raw);
           if (folio > 0 && folio > max && folio < 999999) max = folio;
         });
