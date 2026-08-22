@@ -1185,7 +1185,22 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         next.notaCreditoLastNumber = maxima.notaCredito;
         changed = true;
       }
-      if (!changed) return;
+      if (!changed) {
+        // CORRECCIÓN DE LIBERACIÓN (fix 22/08): si la config quedó por ENCIMA del
+        // máximo real de la nube (comprobantes liberados a "Sin Comprobante" que el
+        // sync anterior solo eleva), se recalcula con el piso local (facturas locales
+        // con comprobante) y BAJA al último folio real. Se auto-corrige en cada sync
+        // aunque las facturas ya estén limpias (no requiere re-editar).
+        const curNum = {
+          ticket: Number(cur.ticketLastNumber) || 0,
+          boleta: Number(cur.boletaLastNumber) || 0,
+          factura: Number(cur.facturaLastNumber) || 0,
+        };
+        if (curNum.ticket > maxima.ticket || curNum.boleta > maxima.boleta || curNum.factura > maxima.factura) {
+          void get().recomputeReceiptMaximaAfterClear();
+        }
+        return;
+      }
       next.lastUpdateDate = getPeruDateString();
       set({ correlativeConfig: next });
       logSystemEvent("info", "correlative.sync.max_from_cloud", {
@@ -3947,8 +3962,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         ...({ __respectManualReceipt: true } as any),
       };
       saveSupabaseInvoice(updated);
-      if (updates.receipt_number === "" && current.receipt_number && String(current.receipt_number).trim()) {
-        clearedReceipt = String(current.receipt_number);
+      // El N° liberado puede vivir en el REGISTRO del historial O en la factura misma
+      // (el historial reconstruido desde el snapshot inv_payhistory_ a veces no lo trae;
+      // el log 22/08 03:58 mostró que la factura se limpiaba pero NO disparaba la
+      // liberación porque current.receipt_number venía vacío).
+      const freedReceipt = String(current.receipt_number || targetInvoice.receipt_number || "").trim();
+      if (updates.receipt_number === "" && freedReceipt) {
+        clearedReceipt = freedReceipt;
       }
       logSystemEvent("info", "payment.record_update.ok", {
         invoiceId: String(targetInvoice.id).slice(0, 26),
