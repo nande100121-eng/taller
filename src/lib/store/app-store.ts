@@ -5118,11 +5118,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         certification_type: (cert.certification_type as any) || "Anual GNV",
         certification_price: price,
         certification_id: certId,
+        certification_issued: true, // Enviar a cobrar = certificación EMITIDA
         responsible: cert.responsible || undefined,
       };
       saveSupabaseWorkOrder(newOrder);
-      // Enlazar la certificación a la nueva OT y persistir (responsable incluido).
-      const updatedCert: Certification = { ...cert, work_order_id: woId };
+      // Enlazar la certificación a la nueva OT, marcarla como EMITIDA (status Vigente +
+      // is_ready) y persistir (responsable incluido). Así la card sale de "Del Día / Hoy"
+      // y del filtro de pendientes (ya fue emitida y va a Caja a cobrarse).
+      const updatedCert: Certification = {
+        ...cert,
+        work_order_id: woId,
+        status: "Vigente",
+        is_ready: true,
+      };
       saveSupabaseCertification(updatedCert);
       broadcastRealtimeChange("certification_updated");
       logSystemEvent("info", "certificaciones.enviar_a_cobrar", {

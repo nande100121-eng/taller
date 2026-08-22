@@ -393,7 +393,9 @@ export default function CertificacionesPage() {
     let emitidos = 0;
 
     allCards.forEach((c) => {
-      if (c.issueDate === hoyStr) hoy++;
+      // "Del Día / Hoy": SOLO las que aún NO fueron emitidas (solicitudes del día).
+      // Al marcar Emitir (o enviar a cobrar desde manual) la card sale de Hoy.
+      if (c.issueDate === hoyStr && (c.status === "Solicitado" || !c.isReady)) hoy++;
       if (c.status === "Solicitado" || !c.isReady) pendientes++;
       if (c.status === "Vigente" || c.status === "Por Vencer") emitidos++;
 
@@ -437,7 +439,9 @@ export default function CertificacionesPage() {
 
       // 1. Tab Filter
       if (activeTab === "hoy") {
+        // Del Día / Hoy: SOLO solicitudes del día aún NO emitidas (al emitir sale).
         if (c.issueDate !== queryDate) return false;
+        if (c.status !== "Solicitado" && c.isReady) return false;
       } else if (activeTab === "pendientes") {
         if (c.status !== "Solicitado" && c.isReady) return false;
       } else if (activeTab === "vencidos") {
@@ -977,10 +981,30 @@ export default function CertificacionesPage() {
                           : "📜 Certificado emitido y vigente"}
                     </span>
 
-                    {/* Boton Enviar a Cobrar: SOLO en certificaciones MANUALES (creadas con
-                        + Emitir Nuevo Certificado Manual, sin OT de Taller). Crea la OT y la
-                        manda a Caja. Las de Taller (con workOrderId) son informativas. */}
+                    {/* Boton Emitir: SOLO en certificaciones que vienen de TALLER (con OT
+                        vinculada) y siguen pendientes. Marca la certificacion como EMITIDA
+                        (Vigente + is_ready) y la OT certification_issued, asi ya no aparece
+                        en Del Dia / Hoy ni en pendientes. */}
                     <div className="flex items-center gap-2">
+                      {card.certId && isPending && (card.workOrderId || card.rawCert?.work_order_id) && (
+                        <button
+                          onClick={() => {
+                            if (!card.certId) return;
+                            updateCertification(card.certId, { status: "Vigente", is_ready: true });
+                            const woId = card.workOrderId || card.rawCert?.work_order_id;
+                            if (woId) updateWorkOrder(woId, { certification_issued: true });
+                            notify("success", `Certificación de ${card.plate} marcada como EMITIDA ✓`);
+                          }}
+                          className="px-3.5 py-1.5 bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 text-xs font-bold rounded-xl border border-cyan-500/40 flex items-center gap-1.5 transition-colors"
+                          title="Marcar la certificación como emitida (deja de ser solicitud pendiente)"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Emitir</span>
+                        </button>
+                      )}
+                      {/* Boton Enviar a Cobrar: SOLO en certificaciones MANUALES (creadas con
+                          + Emitir Nuevo Certificado Manual, sin OT de Taller). Crea la OT y la
+                          manda a Caja. Las de Taller (con workOrderId) son informativas. */}
                       {card.certId && !card.workOrderId && !card.rawCert?.work_order_id && (
                         <button
                           onClick={() => {

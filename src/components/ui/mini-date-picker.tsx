@@ -35,21 +35,29 @@ export default function MiniDatePicker({
   const popupRef = useRef<HTMLDivElement>(null);
   const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Normaliza el valor: si llega ISO completo con hora (2026-08-22T15:00:00.000Z),
+  // se queda SOLO con la fecha YYYY-MM-DD para no mostrar la hora ni la "T" en la card.
+  const cleanValue = (() => {
+    const v = value || "";
+    const isoMatch = v.match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/);
+    return isoMatch ? isoMatch[0] : v;
+  })();
+
   // Parse current value or default today
-  const selectedDate = value ? new Date(value + "T00:00:00") : new Date();
+  const selectedDate = cleanValue ? new Date(cleanValue + "T00:00:00") : new Date();
   const [viewYear, setViewYear] = useState(selectedDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(selectedDate.getMonth());
 
   // Sync view when value changes from external navigation
   useEffect(() => {
-    if (value) {
-      const d = new Date(value + "T00:00:00");
+    if (cleanValue) {
+      const d = new Date(cleanValue + "T00:00:00");
       if (!isNaN(d.getTime())) {
         setViewYear(d.getFullYear());
         setViewMonth(d.getMonth());
       }
     }
-  }, [value]);
+  }, [cleanValue]);
 
   // Calcula la posición del popup en PANTALLA (viewport). Se renderiza con createPortal
   // al body para: (1) escapar de contenedores overflow-hidden (bug Portería: el popup
@@ -169,14 +177,14 @@ export default function MiniDatePicker({
   };
 
   const formattedDisplay = React.useMemo(() => {
-    if (!value) return "Seleccionar fecha";
-    const d = new Date(value + "T00:00:00");
-    if (isNaN(d.getTime())) return value;
+    if (!cleanValue) return "Seleccionar fecha";
+    const d = new Date(cleanValue + "T00:00:00");
+    if (isNaN(d.getTime())) return cleanValue;
     const day = d.getDate().toString().padStart(2, "0");
     const month = (d.getMonth() + 1).toString().padStart(2, "0");
     const year = d.getFullYear();
     return day + "/" + month + "/" + year;
-  }, [value]);
+  }, [cleanValue]);
 
   const isFullWidth = className.includes("w-full");
 
@@ -239,7 +247,7 @@ export default function MiniDatePicker({
               const m = (viewMonth + 1).toString().padStart(2, "0");
               const d = day.toString().padStart(2, "0");
               const dateStr = viewYear + "-" + m + "-" + d;
-              const isSelected = dateStr === value;
+              const isSelected = dateStr === cleanValue;
               const isToday = dateStr === todayStr;
               return (
                 <button
