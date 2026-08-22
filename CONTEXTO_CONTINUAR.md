@@ -1,7 +1,7 @@
 # REYGAS — CONTEXTO PARA CONTINUAR (ACTUALIZADO)
 
 > Exportado: 22/08/2026 - sesion de fixes: reporte redirect, ticket por pagar, auditoria/limpieza DB, destinos, edicion de pagos mixtos, Abonar Saldo, correlativos, credito (BUD-647), nube = fuente de verdad (H2W-236).
-> Ultimo commit en main (origin): 59494da - produccion: https://taller-two-gamma.vercel.app
+> Ultimo commit en main (origin): 89a9676 - produccion: https://taller-two-gamma.vercel.app
 > BUILD: el auto-updater (BuildAutoRefresh, /api/build-info) refresca solo; si el usuario ve build viejo: Ctrl+F5 una vez.
 > **MODO AHORRO ACTIVADO**: respuestas compactas, tsc 1x por lote, 1 commit+push+deploy por lote, lecturas quirúrgicas (grep + solo zona a editar), sin verificación redundante.
 
@@ -131,6 +131,7 @@ Vive en wo_mod_<id>; el sync lo reconstruye. Al abonar, el cajero asigna el desc
 42. CAJA - FECHA DEL PAGO EN 'CONFIRMAR (SIN COSTO)' (22/08, commit de este lote): al confirmar una atencion de monto 0 (sin costo, sin comprobante) el modal de cobro ahora permite SELECCIONAR LA FECHA de ese pago (MiniDatePicker 'Fecha del Pago' al inicio del modal, default hoy, editable; badge 'S/ 0 · Sin Comprobante' cuando total 0). El paid_at se construye con buildPeruISOString(paymentDate, hora actual) y se pasa como paidAt a confirmInvoicePayment (nuevo param en store) y registerInvoicePayment. Antes el pago 0 quedaba con new Date().toISOString() (hoy UTC) sin poder fecharse en otro dia. El modal sigue respetando 'Sin Comprobante' por defecto en monto 0 (no consume correlativo) con la opcion explicita de Ticket/Boleta/Factura.
 43. TALLER - AUTO-COLLAPSE AL ENVIAR A COBRAR (22/08, commit de este lote): tras confirmar 'Enviar a Caja' (por_cobrar), la card que se estaba trabajando se COLAPSA automaticamente (setExpandedOrders elimina su id) y la vista pasa al filtro '5. Enviar a Cobrar' (setStatusFilter por_cobrar) donde la card queda visible CERCADA. Antes quedaba expandida y con scroll al nuevo estado.
 44. CAJA - FILTRO 'PENDIENTES DE LA SEMANA' (22/08, commit de este lote): nuevo filtro '⏳ Pendientes de la Semana (N)' en la barra de Caja (despues de Pendientes del Dia/Hoy): sin pagar, registrados (ingreso al taller) entre LUNES y DOMINGO de la semana actual (Peru), excluyendo vehiculos aun en taller (no son credito). weekWindow (useMemo lunes a domingo) + pendingWeekCount + rama activeStatusFilter 'pendientesSemana' en filteredCajaOrders + boton con conteo.
+45. CERTIFICACIONES - CARDS SOLO INFORMATIVAS (22/08, commit de este lote): se elimino el boton 'Emitir & Notificar Listo a Caja' de cada card de Certificaciones (las cards son SOLO informativas). Las cards pendientes muestran solo el aviso 'Requerir emision oficial'; las emitidas conservan 'Imprimir Ficha'. El modal de emision (handleOpenEmitModal) queda sin acceso desde las cards (se mantiene el flujo manual '+ Emitir Nuevo Certificado Manual').
 
 ### Estado de la base (21/08 — limpieza hecha)
 - 118,082 facturas auditadas: 0 tickets absurdos, 0 correlativos duplicados con serie, 0 facturas fantasma en la tabla. (Los 7,926 duplicados restantes son folios históricos SIN serie de CSVs — NO tocar.)

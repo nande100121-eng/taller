@@ -842,16 +842,9 @@ export default function CertificacionesPage() {
                           : "📜 Certificado emitido y vigente"}
                     </span>
 
+                    {/* Cards SOLO informativas (22/08): se elimino el boton 'Emitir & Notificar Listo a Caja'. */}
                     <div className="flex items-center gap-2">
-                      {isPending ? (
-                        <button
-                          onClick={() => handleOpenEmitModal(card)}
-                          className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-transform hover:scale-105"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Emitir & Notificar Listo a Caja</span>
-                        </button>
-                      ) : (
+                      {!isPending && (
                         <button
                           onClick={() => window.print()}
                           className="px-3.5 py-1.5 bg-reygas-surface hover:bg-white/10 text-gray-200 text-xs font-bold rounded-xl border border-white/10 flex items-center gap-1.5 transition-colors"
