@@ -540,8 +540,9 @@ export default function PorteriaPage() {
       const cleanPlate = plate.toUpperCase().replace(/[^A-Z0-9]/g, "");
       const activeOrder = (workOrders || []).find((wo) => {
         if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
-        if (wo.status === "finalizado") return false;
-        if (wo.status === "pagado_autorizado") return false; // pagado/listo: puede volver a ingresar
+        // Solo bloquea si el vehículo AÚN está en proceso (ingreso/diagnóstico/repuestos/
+        // servicio). Por Pagar (crédito), Pagado/Listo o Finalizado NO bloquean.
+        if (!PORTERIA_BLOCK_STATUSES.has(wo.status || "")) return false;
         return wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanPlate;
       });
       if (activeOrder) {
@@ -719,6 +720,12 @@ export default function PorteriaPage() {
       return true;
     });
   }, [appointments, dateFilterMode, selectedDate]);
+
+  // Estados que significan que el vehículo AÚN está siendo atendido en el taller:
+  // SOLO estos bloquean un ingreso duplicado. "Por Pagar" (por_cobrar/pendiente_pago,
+  // puede ser crédito), "Pagado / Listo para Entregar" y "Finalizado" NO bloquean —
+  // el vehículo puede volver a ingresar (fix 22/08).
+  const PORTERIA_BLOCK_STATUSES = new Set(["ingresado", "en_diagnostico", "esperando_repuestos", "en_servicio"]);
 
   // Etiquetas legibles del estado de una OT (aviso del campo placa).
   const plateOrderStatusLabel = (status?: string): string => {
@@ -1146,9 +1153,24 @@ export default function PorteriaPage() {
                         </span>
                       </div>
                     )}
-                    {plateActiveWorkOrder && (plateActiveWorkOrder.status === "pagado_autorizado" ? (
-                      // Ingreso anterior YA PAGADO / LISTO PARA ENTREGAR: solo informativo,
-                      // NO bloquea — el vehículo puede volver a ingresar (fix 22/08).
+                    {plateActiveWorkOrder && (PORTERIA_BLOCK_STATUSES.has(plateActiveWorkOrder.status || "") ? (
+                      // OT EN PROCESO (ingreso/diagnóstico/repuestos/servicio): bloquea duplicado.
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/15 border border-red-500/50 text-red-200 text-[11px] font-bold leading-snug">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px text-red-400" />
+                        <span>
+                          ⚠️ <strong>YA REGISTRADO</strong>: esta placa tiene un ingreso en Taller del{" "}
+                          <span className="text-white font-mono">
+                            {formatPeruDateTime(plateActiveWorkOrder.entry_time)}
+                          </span>
+                          :{" "}
+                          <span className="text-white uppercase">
+                            {plateOrderStatusLabel(plateActiveWorkOrder.status)}
+                          </span>{" "}
+                          — en proceso de atención. No se registrará otro ingreso duplicado.
+                        </span>
+                      </div>
+                    ) : plateActiveWorkOrder.status === "pagado_autorizado" ? (
+                      // Pagado / Listo para Entregar: informativo VERDE, NO bloquea.
                       <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold leading-snug">
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-px text-emerald-400" />
                         <span>
@@ -1164,23 +1186,19 @@ export default function PorteriaPage() {
                         </span>
                       </div>
                     ) : (
-                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/15 border border-red-500/50 text-red-200 text-[11px] font-bold leading-snug">
-                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px text-red-400" />
+                      // Por Pagar / crédito: informativo ÁMBAR, NO bloquea (fix 22/08).
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-300 text-[11px] font-semibold leading-snug">
+                        <Clock className="w-3.5 h-3.5 shrink-0 mt-px text-amber-400" />
                         <span>
-                          ⚠️ <strong>YA REGISTRADO</strong>: esta placa tiene un ingreso en Taller del{" "}
+                          🕓 Ingreso anterior del{" "}
                           <span className="text-white font-mono">
                             {formatPeruDateTime(plateActiveWorkOrder.entry_time)}
                           </span>
                           :{" "}
                           <span className="text-white uppercase">
                             {plateOrderStatusLabel(plateActiveWorkOrder.status)}
-                          </span>
-                          {plateActiveWorkOrder.status === "por_cobrar" || plateActiveWorkOrder.status === "pendiente_pago" ? (
-                            <> — pendiente de cobro en Caja</>
-                          ) : (
-                            <> — en proceso de atención</>
-                          )}
-                          . No se registrará otro ingreso duplicado.
+                          </span>{" "}
+                          — pendiente de cobro en Caja (puede ser crédito). Puede registrar un nuevo ingreso.
                         </span>
                       </div>
                     ))}
