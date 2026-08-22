@@ -847,6 +847,7 @@ interface AppState {
     customerAddress?: string;
     paymentBreakdown?: PaymentSplit[];
     resources?: PaymentResource[]; // Recursos cubiertos por este pago (vínculo directo con la card)
+    paidAt?: string; // Fecha/hora del pago (default: ahora Perú)
   }) => void;
   registerDirectWorkshopPayment: (data: {
     vehicle_plate: string;
@@ -4310,6 +4311,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     customerAddress,
     paymentBreakdown,
     resources,
+    paidAt,
   }) => {
     set((state) => {
       let targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
@@ -4320,7 +4322,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       const effectiveWorkOrderId = workOrderId || targetInvoice?.work_order_id;
       const targetOrder = effectiveWorkOrderId ? state.workOrders.find((o) => o.id === effectiveWorkOrderId) : undefined;
       const vehicle = targetOrder ? state.vehicles.find((v) => v.plate === targetOrder.vehicle_plate) : undefined;
-      const nowISO = nowPeruISO();
+      // Fecha seleccionada por el cajero (pago 0 / sin costo): se respeta para paid_at.
+      const nowISO = paidAt || nowPeruISO();
       let updatedInvoices = [...state.invoices];
       let updatedCorrelativeConfig = state.correlativeConfig;
 

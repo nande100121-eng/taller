@@ -206,6 +206,7 @@ export default function CajaPage() {
     // Modo SOLO VINCULAR: abierto desde una card YA PAGADA para asignar recursos a un
     // pago existente sin re-cobrar (no crea nuevo pago en el historial ni cambia saldos).
     linkOnly?: boolean;
+    paymentDate: string; // Fecha del pago (por defecto hoy, editable — ej. pago 0 sin costo)
   } | null>(null);
 
   // Modal State for Partial / Installment Payment (Abonos sobre saldo pendiente por placa)
@@ -1509,6 +1510,7 @@ export default function CajaPage() {
       customerAddress: inv?.customer_address || "-",
       observations: inv?.observations || wo.observations || "",
       isSearchingRuc: false,
+      paymentDate: getPeruDateString(),
     });
   };
 
@@ -1720,6 +1722,8 @@ export default function CajaPage() {
     if (isPartialSplit) {
       // Abono parcial desde el modal de cobro: registrar el pago recibido y dejar
       // la diferencia como SALDO PENDIENTE (crédito) en la factura.
+      const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+      const paymentDateTime = buildPeruISOString(paymentModal.paymentDate || getPeruDateString(), payTimeNow);
       registerInvoicePayment({
         invoiceId: paymentModal.invoice?.id,
         workOrderId: paymentModal.workOrder?.id,
@@ -1730,10 +1734,14 @@ export default function CajaPage() {
         receiptType: finalReceiptType,
         paymentBreakdown: paymentBreakdown,
         resources: selectedResources.length > 0 ? selectedResources : undefined,
+        paidAt: paymentDateTime,
         observation: paymentModal.observations || undefined,
       });
       notify("success", `¡Abono parcial de S/ ${paidSplitAmount.toFixed(2)} registrado con ${paymentModal.receiptType} ${assignedReceiptNum}! Saldo pendiente: S/ ${pendingSplitBalance.toFixed(2)}`);
     } else {
+      // Fecha del pago (default hoy; editable en el modal — ej. pago 0 / sin costo).
+      const payTimeNow = new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+      const paymentDateTime = buildPeruISOString(paymentModal.paymentDate || getPeruDateString(), payTimeNow);
       confirmInvoicePayment({
         invoiceId: paymentModal.invoice?.id,
         workOrderId: paymentModal.workOrder?.id,
@@ -1746,6 +1754,7 @@ export default function CajaPage() {
         customerAddress: paymentModal.customerAddress,
         paymentBreakdown: paymentBreakdown,
         resources: selectedResources.length > 0 ? selectedResources : undefined,
+        paidAt: paymentDateTime,
       });
 
       notify("success", isZeroAmount
@@ -4205,6 +4214,22 @@ export default function CajaPage() {
             </div>
 
             <form onSubmit={handleConfirmPaymentSubmit} className="space-y-4">
+              {/* FECHA DEL PAGO (editable — el pago S/ 0 sin costo puede fecharse en otro día) */}
+              <div className="flex items-center justify-between gap-3 p-2.5 bg-black/30 rounded-xl border border-white/10">
+                <div className="flex items-center gap-2 text-xs font-bold text-gray-300">
+                  <Calendar className="w-4 h-4 text-amber-400" />
+                  <span>Fecha del Pago</span>
+                  {paymentModal.grandTotal <= 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">S/ 0 · Sin Comprobante</span>
+                  )}
+                </div>
+                <MiniDatePicker
+                  value={paymentModal.paymentDate || getPeruDateString()}
+                  onChange={(d) => setPaymentModal({ ...paymentModal, paymentDate: d })}
+                  variant="compact"
+                  label="Pago"
+                />
+              </div>
               {/* Service & Items Breakdown Table */}
               <div className="p-3.5 bg-black/40 rounded-2xl border border-white/10 space-y-2">
                 <div className="flex justify-between items-center border-b border-white/10 pb-1.5 text-[11px] font-bold text-amber-400 uppercase">
