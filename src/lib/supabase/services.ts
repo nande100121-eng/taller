@@ -3174,7 +3174,24 @@ export async function saveSupabaseAttendanceLogs(logs: AttendanceLog[]) {
 // ---------------------------------------------------------------------
 // INVOICES SUPABASE SYNC
 // ---------------------------------------------------------------------
+// COLAs de guardado de facturas (fix 22/08 'se duplica correlativo'):
+// resolveUniqueReceiptNumber hace check-and-upsert NO atómico -> con N facturas
+// guardadas en PARALELO (ráfaga de saves) todas resolvían el MISMO siguiente número
+// y el ticket se duplicaba en la nube (log: TK01-00004650/652/653/660/661/662 x2).
+// Se serializan TODOS los saveSupabaseInvoice: cada guardado resuelve y ocupa su
+// correlativo ANTES de que el siguiente comience.
+let invoiceSaveChain: Promise<unknown> = Promise.resolve();
+function enqueueInvoiceSave<T>(task: () => Promise<T>): Promise<T> {
+  const run = invoiceSaveChain.then(task, task);
+  invoiceSaveChain = run.catch(() => {});
+  return run;
+}
+
 export async function saveSupabaseInvoice(inv: Invoice) {
+  return enqueueInvoiceSave(() => saveSupabaseInvoiceInner(inv));
+}
+
+async function saveSupabaseInvoiceInner(inv: Invoice) {
   const invSaveStart = Date.now();
   try {
     markLocalMutation("invoices");
