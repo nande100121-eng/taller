@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
 import { Toast } from "@/components/ui/toast";
+import BuildAutoRefresh from "@/components/BuildAutoRefresh";
 import { useAppStore } from "@/lib/store/app-store";
 import { initGlobalErrorLogger, logSystemEvent, setCurrentLogPage } from "@/lib/system-log";
 import {
@@ -389,6 +390,7 @@ export default function DashboardLayout({
         )}
       </main>
       <Toast />
+      <BuildAutoRefresh />
     </div>
   );
 }
