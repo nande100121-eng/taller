@@ -110,6 +110,8 @@ export default function CertificacionesPage() {
   const [activeTab, setActiveTab] = useState<"hoy" | "pendientes" | "vencidos" | "esta_semana" | "este_mes" | "emitidos" | "todos">("hoy");
   const [queryDate, setQueryDate] = useState<string>(getPeruDateString());
   const [searchQuery, setSearchQuery] = useState("");
+  // Subfiltro "Hoy" dentro del tab Emitidos (muestra solo los emitidos hoy).
+  const [emitidosHoyOnly, setEmitidosHoyOnly] = useState(false);
 
   // Custom Month & Year Selector for Expiry Lookahead
   const today = new Date();
@@ -283,6 +285,16 @@ export default function CertificacionesPage() {
     invoices.forEach((inv) => {
       if (inv && inv.work_order_id) invoicesByWoId.set(inv.work_order_id, inv);
     });
+    // FECHA DE PAGO de la OT (factura pagada) = fecha de EMISION real de la card.
+    // Las certs de Taller se "emiten" cuando Caja cobra la OT; el issue_date de la
+    // cert es solo la fecha de SOLICITUD (si se creo hoy, no significa emitida hoy).
+    const paidDateByWoId = new Map<string, string>();
+    invoices.forEach((inv) => {
+      if (inv && inv.work_order_id && inv.payment_status === "pagado") {
+        const d = String(inv.paid_at || inv.issued_at || "").slice(0, 10);
+        if (d && !paidDateByWoId.has(inv.work_order_id)) paidDateByWoId.set(inv.work_order_id, d);
+      }
+    });
     const isWoPaid = (wo: any) => {
       if (!wo) return false;
       const inv = invoicesByWoId.get(wo.id);
@@ -305,6 +317,7 @@ export default function CertificacionesPage() {
       status: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido";
       isReady: boolean;
       issueDate: string;
+      emissionDate: string; // Fecha de EMISION real (pago de la OT para Taller)
       expiryDate: string; // Fecha de Chip / Anual
       quinquennialDate: string; // Fecha de Quinquenal
       rawCert?: Certification;
@@ -367,6 +380,8 @@ export default function CertificacionesPage() {
         // la fecha de ingreso de la OT (nunca caer a HOY: eso inflaba el filtro
         // "Del Día / Hoy" con registros sin fecha).
         issueDate: (c.issue_date || wo?.entry_time || "").slice(0, 10) || "",
+        // Fecha de EMISION: pago de la OT (Taller) o issue_date de la cert (manual).
+        emissionDate: (c.work_order_id ? (paidDateByWoId.get(c.work_order_id) || "") : "") || (c.issue_date || "").slice(0, 10) || "",
         expiryDate: fechaAnual,
         quinquennialDate: fechaQuinquenal,
         rawCert: c,
@@ -427,6 +442,7 @@ export default function CertificacionesPage() {
           // registrados (chip/quinquenal) son INFORMATIVAS y NO deben aparecer en
           // "Del Día / Hoy" (el usuario reportó 10 sin haber solicitado hoy).
           issueDate: (wo.requires_certification ? (wo.entry_time || "") : "").slice(0, 10) || "",
+          emissionDate: paidDateByWoId.get(wo.id) || "",
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
           rawOrder: wo,
@@ -436,13 +452,13 @@ export default function CertificacionesPage() {
       }
     });
 
-    // Sort por fecha de solicitud DESCENDENTE; las cards sin fecha (informativas)
-    // van al final (evita NaN con "" -> new Date("") es Invalid Date).
-    return list.sort((a, b) => {
-      const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
-      const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
-      return tb - ta;
-    });
+    // Sort DESCENDENTE por la fecha relevante: solicitud (pendientes) o EMISION
+    // (emitidos). Las cards sin fecha (informativas) van al final.
+    const sortKey = (c: any) => {
+      const d = c.status === "Solicitado" || !c.isReady ? c.issueDate : (c.emissionDate || c.issueDate);
+      return d ? new Date(d).getTime() : 0;
+    };
+    return list.sort((a, b) => sortKey(b) - sortKey(a));
   }, [certifications, workOrders, vehiclesMap, invoices]);
 
   // Expiry Date Calculations for Filters (This Week & This Month & Expired)
@@ -466,13 +482,19 @@ export default function CertificacionesPage() {
     let estaSemana = 0;
     let esteMes = 0;
     let emitidos = 0;
+    let emitidosHoy = 0;
 
     allCards.forEach((c) => {
       // "Del Día / Hoy": SOLO las que aún NO fueron emitidas (solicitudes del día).
       // Al marcar Emitir (o enviar a cobrar desde manual) la card sale de Hoy.
       if (c.issueDate === hoyStr && (c.status === "Solicitado" || !c.isReady)) hoy++;
       if (c.status === "Solicitado" || !c.isReady) pendientes++;
-      if (c.status === "Vigente" || c.status === "Por Vencer") emitidos++;
+      const isEmittedCard = c.status !== "Solicitado" && c.isReady;
+      if (isEmittedCard) {
+        emitidos++;
+        // Emitidos HOY: fecha de emision (pago de OT / cert manual) = hoy.
+        if (c.emissionDate === getPeruDateString()) emitidosHoy++;
+      }
 
       // Check expiry of Fecha de Chip / Anual or Fecha de Quinquenal
       const dAnual = parseFlexibleDate(c.expiryDate);
@@ -502,6 +524,7 @@ export default function CertificacionesPage() {
       estaSemana,
       esteMes,
       emitidos,
+      emitidosHoy,
       todos: allCards.length,
     };
   }, [allCards, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, todayStart, now]);
@@ -530,6 +553,8 @@ export default function CertificacionesPage() {
         if (!inMonth(dAnual) && !inMonth(dQuinquenal)) return false;
       } else if (activeTab === "emitidos") {
         if (c.status === "Solicitado" || !c.isReady) return false;
+        // Subfiltro HOY: solo los emitidos hoy (fecha de emision = hoy).
+        if (emitidosHoyOnly && c.emissionDate !== getPeruDateString()) return false;
       }
 
       // 2. Search query filter
@@ -545,7 +570,7 @@ export default function CertificacionesPage() {
 
       return true;
     });
-  }, [allCards, activeTab, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, todayStart, searchQuery]);
+  }, [allCards, activeTab, emitidosHoyOnly, queryDate, selectedMonth, selectedYear, currentWeekStart, currentWeekEnd, todayStart, searchQuery]);
 
   // Handle Save Edited Price in Real Time
   const handleSavePrice = (card: typeof allCards[0]) => {
@@ -860,6 +885,19 @@ export default function CertificacionesPage() {
                 }}
               />
             )}
+            {activeTab === "emitidos" && (
+              <button
+                onClick={() => setEmitidosHoyOnly((v) => !v)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all ${emitidosHoyOnly
+                  ? "bg-emerald-500 text-black shadow-lg shadow-emerald-500/30 scale-[1.02]"
+                  : "bg-reygas-surface text-gray-300 hover:text-white border border-white/10"
+                  }`}
+                title="Mostrar solo los emitidos hoy (fecha de emision = pago de la OT)"
+              >
+                <CalendarIcon className="w-3.5 h-3.5" />
+                <span>Emitidos Hoy ({counts.emitidosHoy})</span>
+              </button>
+            )}
 
             {/* Search Input */}
             <div className="relative flex-1 sm:flex-none">
@@ -1013,14 +1051,16 @@ export default function CertificacionesPage() {
                     )}
                   </div>
 
-                  {/* Fecha de Solicitud de la Certificación (para saber CUÁNDO se solicitó) */}
+                  {/* Fecha de SOLICITUD (pendientes) o de EMISION (emitidas: pago de la OT) */}
                   <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
                     <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
                       <CalendarDays className="w-3 h-3 text-cyan-400" />
-                      <span>Fecha de Solicitud:</span>
+                      <span>{card.status === "Solicitado" || !card.isReady ? "Fecha de Solicitud:" : "Fecha de Emisi\u00F3n:"}</span>
                     </span>
-                    <p className="font-mono font-black text-sm text-cyan-300">
-                      {card.issueDate ? formatSolicitudDate(card.issueDate) : "—"}
+                    <p className={`font-mono font-black text-sm ${card.status === "Solicitado" || !card.isReady ? "text-cyan-300" : "text-emerald-300"}`}>
+                      {card.status === "Solicitado" || !card.isReady
+                        ? (card.issueDate ? formatSolicitudDate(card.issueDate) : "—")
+                        : (card.emissionDate ? formatSolicitudDate(card.emissionDate) : (card.issueDate ? formatSolicitudDate(card.issueDate) : "—"))}
                     </p>
                   </div>
 
