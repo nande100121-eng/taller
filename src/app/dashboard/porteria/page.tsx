@@ -531,15 +531,17 @@ export default function PorteriaPage() {
       return;
     }
 
-    // BLOQUEO DE INGRESO DUPLICADO (A3Z-265): si la placa ya tiene una OT ACTIVA
-    // (no finalizada/entregada) en el store, NO se registra otro ingreso. El portero
-    // debe atender la OT existente primero. Muestra el estado y la fecha para que
-    // verifique en Taller/Caja.
+    // BLOQUEO DE INGRESO DUPLICADO (A3Z-265): si la placa ya tiene una OT EN PROCESO
+    // (no finalizada ni pagada/listo para entregar) en el store, NO se registra otro
+    // ingreso. El portero debe atender la OT existente primero. Una OT "pagado_autorizado"
+    // (Pagado / Listo para Entregar — autorizado a salir) NO bloquea: el vehículo ya
+    // terminó y puede volver a ingresar (fix 22/08, placa con ingreso del 07/08).
     if (!isVentaDirecta && plate) {
       const cleanPlate = plate.toUpperCase().replace(/[^A-Z0-9]/g, "");
       const activeOrder = (workOrders || []).find((wo) => {
         if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
         if (wo.status === "finalizado") return false;
+        if (wo.status === "pagado_autorizado") return false; // pagado/listo: puede volver a ingresar
         return wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanPlate;
       });
       if (activeOrder) {
@@ -1144,7 +1146,24 @@ export default function PorteriaPage() {
                         </span>
                       </div>
                     )}
-                    {plateActiveWorkOrder && (
+                    {plateActiveWorkOrder && (plateActiveWorkOrder.status === "pagado_autorizado" ? (
+                      // Ingreso anterior YA PAGADO / LISTO PARA ENTREGAR: solo informativo,
+                      // NO bloquea — el vehículo puede volver a ingresar (fix 22/08).
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold leading-snug">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-px text-emerald-400" />
+                        <span>
+                          ✅ Ingreso anterior del{" "}
+                          <span className="text-white font-mono">
+                            {formatPeruDateTime(plateActiveWorkOrder.entry_time)}
+                          </span>
+                          :{" "}
+                          <span className="text-white uppercase">
+                            {plateOrderStatusLabel(plateActiveWorkOrder.status)}
+                          </span>{" "}
+                          — autorizado a salir (Semáforo Verde). Puede registrar un nuevo ingreso.
+                        </span>
+                      </div>
+                    ) : (
                       <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-500/15 border border-red-500/50 text-red-200 text-[11px] font-bold leading-snug">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px text-red-400" />
                         <span>
@@ -1158,15 +1177,13 @@ export default function PorteriaPage() {
                           </span>
                           {plateActiveWorkOrder.status === "por_cobrar" || plateActiveWorkOrder.status === "pendiente_pago" ? (
                             <> — pendiente de cobro en Caja</>
-                          ) : plateActiveWorkOrder.status === "pagado_autorizado" ? (
-                            <> — autorizado a salir (Semáforo Verde)</>
                           ) : (
                             <> — en proceso de atención</>
                           )}
                           . No se registrará otro ingreso duplicado.
                         </span>
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   <div>
