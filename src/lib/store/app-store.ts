@@ -1356,6 +1356,28 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       (next as any).boletaLastNumber = Math.max(localMax.boleta, cloud.boleta);
       (next as any).facturaLastNumber = Math.max(localMax.factura, cloud.factura);
       (next as any).notaCreditoLastNumber = cloud.notaCredito;
+      // FIX TORMENTA REALTIME (22/08): si NADA cambió, no se re-escribe ni se re-programa
+      // el re-check de 8s (antes el setTimeout se re-scheduleaba SIEMPRE -> bucle infinito
+      // de set + POST site_content correlativeConfig cada ~9s que disparaba syncs de 4-6s
+      // en TODAS las pestañas y congelaba Taller al pedir repuestos).
+      const curNum = {
+        ticket: Number(cur.ticketLastNumber) || 0,
+        boleta: Number(cur.boletaLastNumber) || 0,
+        factura: Number(cur.facturaLastNumber) || 0,
+        notaCredito: Number(cur.notaCreditoLastNumber) || 0,
+      };
+      const nextNum = {
+        ticket: Number((next as any).ticketLastNumber) || 0,
+        boleta: Number((next as any).boletaLastNumber) || 0,
+        factura: Number((next as any).facturaLastNumber) || 0,
+        notaCredito: Number((next as any).notaCreditoLastNumber) || 0,
+      };
+      const changed =
+        curNum.ticket !== nextNum.ticket ||
+        curNum.boleta !== nextNum.boleta ||
+        curNum.factura !== nextNum.factura ||
+        curNum.notaCredito !== nextNum.notaCredito;
+      if (!changed) return; // nada que liberar: no escribe, no vuelve a programarse
       next.lastUpdateDate = getPeruDateString();
       set({ correlativeConfig: next });
       logSystemEvent("info", "correlative.release.after_clear", {
@@ -1785,6 +1807,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
             const droppedLocalOnly: string[] = [];
             mergedInvoices.forEach((inv: any, k: string) => {
               if (remoteInvKeys.has(k)) return;
+              // SOLO se descartan CASCARA-FANTASMA (id inv-<woId>, o sin historial y sin
+              // comprobante y total 0). Una factura REAL (con pagos/comprobante/monto) se
+              // CONSERVA: puede estar fuera de la ventana del fetch (cap 400) o el fetch
+              // vino parcial bajo carga (log 22/08: Almacen 228 vs 988 -> se borraban 765
+              // facturas reales y las cards quedaban en 0).
+              const phantomShell =
+                (!!inv?.id && !!inv?.work_order_id && inv.id === "inv-" + inv.work_order_id) ||
+                ((!Array.isArray(inv?.payment_history) || (inv.payment_history || []).length === 0) &&
+                !(inv?.receipt_number && String(inv.receipt_number).trim() && String(inv.receipt_number) !== "0") &&
+                !(Number(inv?.grand_total) > 0));
+              if (!phantomShell) return;
               droppedLocalOnly.push(String(k).slice(0, 26) + "|" + (inv?.vehicle_plate || "") + "|" + String(inv?.id || "").slice(0, 26));
               mergedInvoices.delete(k);
             });
@@ -1900,10 +1933,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
               // recién editados en ESTA tablet y aún no sincronizados).
               const itemKey = (it: any) =>
                 it && it.id ? it.id : `noid_${String(it.description || '').trim().toLowerCase()}_${Number(it.unit_price) || Number(it.subtotal) || 0}`;
+              // FIX 22/08 'pedir repuesto se vuelve 0': si ESTA tablet acaba de agregar un
+              // ítem (save async aún no aterriza), el fetch remoto puede NO traerlo y el
+              // merge autoritativo lo BORRABA de la card (total 0). Con mutación local
+              // reciente (<5s) se hace merge CONSERVADOR: se conservan los ítems locales
+              // y el remoto solo sobreescribe los que coinciden.
+              const localMutated = hasRecentLocalMutation("workOrders", 5000);
               const remoteKeys = new Set<string>(remoteItems.map((it: any) => (it ? itemKey(it) : "")));
-              const localItems: any[] = (Array.isArray(local.items) ? local.items : []).filter(
-                (it: any) => it && remoteKeys.has(itemKey(it))
-              );
+              const allLocalItems: any[] = Array.isArray(local.items) ? local.items : [];
+              const localItems: any[] = localMutated
+                ? allLocalItems
+                : allLocalItems.filter((it: any) => it && remoteKeys.has(itemKey(it)));
               const itemsMap = new Map<string, any>();
               localItems.forEach((it: any) => { if (it) itemsMap.set(itemKey(it), it); });
               remoteItems.forEach((it: any) => {
@@ -1977,6 +2017,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
           const droppedLocalOnly: string[] = [];
           mergedInvoices.forEach((inv: any, k: string) => {
             if (remoteInvKeys.has(k)) return;
+            // SOLO se descartan CASCARA-FANTASMA (id inv-<woId>, o sin historial y sin
+            // comprobante y total 0). Una factura REAL (con pagos/comprobante/monto) se
+            // CONSERVA: puede estar fuera de la ventana del fetch (cap 400) o el fetch
+            // vino parcial bajo carga (log 22/08: Almacen 228 vs 988 -> se borraban 765
+            // facturas reales y las cards quedaban en 0).
+            const phantomShell =
+              (!!inv?.id && !!inv?.work_order_id && inv.id === "inv-" + inv.work_order_id) ||
+              ((!Array.isArray(inv?.payment_history) || (inv.payment_history || []).length === 0) &&
+              !(inv?.receipt_number && String(inv.receipt_number).trim() && String(inv.receipt_number) !== "0") &&
+              !(Number(inv?.grand_total) > 0));
+            if (!phantomShell) return;
             droppedLocalOnly.push(String(k).slice(0, 26) + "|" + (inv?.vehicle_plate || "") + "|" + String(inv?.id || "").slice(0, 26));
             mergedInvoices.delete(k);
           });

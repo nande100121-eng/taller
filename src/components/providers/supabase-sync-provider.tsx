@@ -130,6 +130,9 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         eventType: msg.payload?.eventType || "",
       };
       const eventType = msg.payload?.eventType || "";
+      // correlativeConfig: config ligera que NO afecta workOrders/invoices/vehicles;
+      // ignorarla evita que el bucle de Caja dispare syncs de 4-6s en todas las pestañas.
+      if (eventType.includes("correlative")) return;
       if (eventType.includes("work_order_deleted")) {
         // BORRADO EN TIEMPO REAL: quita la card inmediatamente en esta tablet/pestaña
         // (refuerzo del postgres_changes DELETE; llega por WebSocket a TODOS).
@@ -178,6 +181,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (msg.senderId === CLIENT_SESSION_ID) return;
         if (Date.now() - getLastLocalMutationTime() < 800) return;
         const et = String(msg.eventType || "");
+        if (et.includes("correlative")) return;
         if (et.includes("work_order_deleted")) {
           const ids = Array.isArray(msg.deletedIds) ? msg.deletedIds : [];
           (ids as string[]).forEach((oid) => useAppStore.getState().removeDeletedWorkOrderLocal(oid));
