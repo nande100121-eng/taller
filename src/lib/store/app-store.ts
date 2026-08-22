@@ -5154,16 +5154,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         status: "por_cobrar",
         entry_time: nowPeruISO(),
         problem_description: `Certificación ${cert.certification_type || "Anual GNV"} (solicitada desde Certificaciones)`,
-        items: [
-          {
-            id: `item-${Date.now()}`,
-            item_type: "servicio",
-            description: `Certificación ${cert.certification_type || "Anual GNV"}`,
-            quantity: 1,
-            unit_price: price,
-            subtotal: price,
-          },
-        ],
+        // FIX DOBLE COBRO: la certificación NO va como ítem (items=[]); Caja suma el
+        // fee desde certification_price como línea "CERTIFICACIÓN" (patrón Taller).
+        // Antes llevaba AMBOS (ítem S/80 + certification_price S/80) y el total salía 160.
+        items: [],
         requires_certification: true,
         certification_type: (cert.certification_type as any) || "Anual GNV",
         certification_price: price,

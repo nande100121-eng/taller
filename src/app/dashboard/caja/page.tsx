@@ -4072,7 +4072,7 @@ export default function CajaPage() {
                           <div className="p-2.5 rounded-xl bg-reygas-dark/40 border border-white/5 text-[11px] text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-1">
                             <span>OT #{wo.id}</span>
                             <span>•</span>
-                            <span>{wo.items.length} ítem(s)</span>
+                            <span>{wo.items.length + (wo.requires_certification && Number(wo.certification_price) > 0 ? 1 : 0)} ítem(s)</span>
                             {settledInfo?.hasCredit || (invoice?.credit_amount || 0) > 0 || (!isPaid && grandTotal > 0) ? (
                               <>
                                 <span>•</span>
