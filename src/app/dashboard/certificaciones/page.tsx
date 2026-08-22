@@ -69,6 +69,16 @@ function parseFlexibleDate(dateStr?: string): Date | null {
   return null;
 }
 
+// Muestra una fecha YYYY-MM-DD (o flexible) como DD/MM/YYYY para la card.
+function formatSolicitudDate(d?: string): string {
+  if (!d || d === "-" || d === "0") return "-";
+  const str = String(d).trim();
+  const iso = str.match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})/);
+  if (iso) return iso[3] + "/" + iso[2] + "/" + iso[1];
+  if (/^[0-9]{2}[-\/][0-9]{2}[-\/][0-9]{4}/.test(str)) return str.slice(0, 10);
+  return str.slice(0, 10);
+}
+
 export default function CertificacionesPage() {
   const {
     certifications,
@@ -202,7 +212,10 @@ export default function CertificacionesPage() {
         price: typeof c.price === "number" && !isNaN(c.price) ? c.price : 80,
         status: cardStatus,
         isReady: c.is_ready ?? (c.status !== "Solicitado"),
-        issueDate: (c.issue_date || "").slice(0, 10) || getPeruDateString(),
+        // Fecha de SOLICITUD real: issue_date de la certificación; si no existe,
+        // la fecha de ingreso de la OT (nunca caer a HOY: eso inflaba el filtro
+        // "Del Día / Hoy" con registros sin fecha).
+        issueDate: (c.issue_date || wo?.entry_time || "").slice(0, 10) || "",
         expiryDate: fechaAnual,
         quinquennialDate: fechaQuinquenal,
         rawCert: c,
@@ -254,7 +267,11 @@ export default function CertificacionesPage() {
           price: wo.certification_price || 80,
           status: cardStatus,
           isReady: !wo.requires_certification || !!wo.certification_issued,
-          issueDate: (wo.entry_time || "").slice(0, 10) || getPeruDateString(),
+          // Fecha de SOLICITUD: SOLO las OTs con solicitud explícita (requires_certification)
+          // tienen fecha de solicitud (su ingreso). Las OTs que solo tienen vencimientos
+          // registrados (chip/quinquenal) son INFORMATIVAS y NO deben aparecer en
+          // "Del Día / Hoy" (el usuario reportó 10 sin haber solicitado hoy).
+          issueDate: (wo.requires_certification ? (wo.entry_time || "") : "").slice(0, 10) || "",
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
           rawOrder: wo,
@@ -264,7 +281,13 @@ export default function CertificacionesPage() {
       }
     });
 
-    return list.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+    // Sort por fecha de solicitud DESCENDENTE; las cards sin fecha (informativas)
+    // van al final (evita NaN con "" -> new Date("") es Invalid Date).
+    return list.sort((a, b) => {
+      const ta = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+      const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+      return tb - ta;
+    });
   }, [certifications, workOrders, vehiclesMap]);
 
   // Expiry Date Calculations for Filters (This Week & This Month & Expired)
@@ -801,6 +824,17 @@ export default function CertificacionesPage() {
                         <span>{card.clientPhone}</span>
                       </p>
                     )}
+                  </div>
+
+                  {/* Fecha de Solicitud de la Certificación (para saber CUÁNDO se solicitó) */}
+                  <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
+                    <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
+                      <CalendarDays className="w-3 h-3 text-cyan-400" />
+                      <span>Fecha de Solicitud:</span>
+                    </span>
+                    <p className="font-mono font-black text-sm text-cyan-300">
+                      {card.issueDate ? formatSolicitudDate(card.issueDate) : "—"}
+                    </p>
                   </div>
 
                   {/* Vencimientos: Fecha de Anual / Chip & Fecha de Quinquenal from Registro Taller */}

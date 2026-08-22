@@ -234,8 +234,39 @@ export default function PorteriaPage() {
   };
 
   /**
+   * Copia un texto al portapapeles (con fallback para tablets/navegadores sin
+   * permisos del Clipboard API). Nunca interrumpe el flujo si falla.
+   */
+  const copyToClipboard = (text: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        });
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    } catch {
+      // noop: el copy jamás debe romper el flujo
+    }
+  };
+
+  /**
    * Abre la Consulta Vehicular oficial de SUNARP en una pestaña nueva con la
    * placa ingresada, para ver la información registral de dicho vehículo.
+   * ANTES de abrir la web COPIA la placa al portapapeles para poder pegarla
+   * directamente en el campo de búsqueda de SUNARP (la web no siempre
+   * autocompleta el parámetro ?placa=).
    */
   const handleOpenSunarpConsult = (targetPlate?: string) => {
     const rawPlate = targetPlate || entryForm.plate;
@@ -244,9 +275,10 @@ export default function PorteriaPage() {
       notify("warning", "Por favor ingrese o escanee una placa válida primero para consultarla en SUNARP.");
       return;
     }
+    copyToClipboard(clean);
     const url = `https://consultavehicular.sunarp.gob.pe/consulta-vehicular/inicio?placa=${encodeURIComponent(clean)}`;
     window.open(url, "_blank", "noopener,noreferrer");
-    notify("info", `Abriendo Consulta Vehicular SUNARP para la placa ${clean}...`);
+    notify("info", `Placa ${clean} copiada al portapapeles. Abriendo Consulta Vehicular SUNARP...`);
   };
 
   // Date Navigator Helpers
