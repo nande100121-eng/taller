@@ -1,9 +1,10 @@
 # REYGAS — CONTEXTO PARA CONTINUAR (ACTUALIZADO)
 
-> Exportado: 22/08/2026 - sesion de fixes: reporte redirect, ticket por pagar, auditoria/limpieza DB, destinos, edicion de pagos mixtos, Abonar Saldo, correlativos, credito (BUD-647), nube = fuente de verdad (H2W-236).
-> Ultimo commit en main (origin): 89a9676 - produccion: https://taller-two-gamma.vercel.app
+> Exportado: 22/08/2026 (tarde) - sesion completa: correlativos (secuencia, liberacion, race fix serializado), stock repuestos, login persistente + auth, sync realtime (tormenta corregida), prefijos pre-17.08 limpios, filtros de Caja, auto-collapse Taller, Certificaciones informativas.
+> Ultimo commit en main (origin): 9117e23 - produccion: https://taller-two-gamma.vercel.app
 > BUILD: el auto-updater (BuildAutoRefresh, /api/build-info) refresca solo; si el usuario ve build viejo: Ctrl+F5 una vez.
 > **MODO AHORRO ACTIVADO**: respuestas compactas, tsc 1x por lote, 1 commit+push+deploy por lote, lecturas quirúrgicas (grep + solo zona a editar), sin verificación redundante.
+> **CHECKPOINT (22/08 tarde) - TODO EN PROD (9117e23)**: (40) correlativo duplicado corregido - cola que SERIALIZA saveSupabaseInvoice (race condition); (41) prefijos TK01/B001/F001 eliminados de TODAS las facturas pre-17.08 (23) + limpieza de duplicados legacy (1 por placa+folio, 51 eliminadas); (42) Caja 'Confirmar (Sin Costo)' permite elegir la FECHA del pago 0 (paidAt editable); (43) Taller auto-colapsa la card al Enviar a Cobrar; (44) Caja filtro 'Pendientes de la Semana' (lunes-domingo Peru); (45) Certificaciones cards solo informativas (sin boton Emitir).
 
 ---
 
@@ -144,11 +145,12 @@ Vive en wo_mod_<id>; el sync lo reconstruye. Al abonar, el cajero asigna el desc
 
 ## 5. PENDIENTES / PRÓXIMOS PASOS
 
-- **VERIFICAR deploy de 687fa20 (y 25628cc) en prod**: Vercel no desplegó automático. Ctrl+F5; si sigue viejo → deploy manual del usuario o empty commit re-trigger.
-- El usuario sigue probando Caja (editar comprobantes, abonos, pagos mixtos, reporte 18/08) — corregir inconsistencias (modo ahorro).
-- Eliminar la factura de prueba de BEF-098: con 256b354, pulsar "Borrar todos" en la card ya elimina la factura completa aunque el historial sea reconstruido. (Alternativa manual: borrar el pago REAL pay-bef098-1000-1808 — cascada.)
-- Pago mixto con destinos distintos (Efectivo→CAJA + Yape→FRANCO en un solo comprobante): YA se soporta — cada método guarda monto+destino; la matriz YAPES muestra el yape en su destino; el destino del comprobante es único (mayor monto).
-- Mejora pendiente (mencionada antes): Almacén reducir carga inicial de inventario completo.
+- **CONTINUAR sesión (22/08 tarde)**: el usuario sigue probando Caja/Reportes/Taller; corregir inconsistencias si reporta (modo ahorro: 1 tsc + 1 commit+push+deploy por lote).
+- **Supabase Auth (opcional, pendiente del usuario)**: desactivar 'Confirm email' en Supabase Dashboard (Authentication -> Sign In/Up -> Email) para que el login por auth.users (usuario@reygas.com) funcione SIN confirmación. Hasta ahora el login funciona por fallback del roster (usuario+contraseña en nube).
+- **Duplicados post-17.08**: la limpieza pre-17.08 (item 41) resolvió los duplicados 4650-4664; el fix de la cola (item 40) evita nuevos. Si aparecen, limpiar con el mismo patrón (1 por placa+folio).
+- **Vercel deploy**: si un push no despliega (límite diario), empty commit re-trigger o Redeploy manual del último commit en el dashboard.
+- **NO tocar**: CSVs (registro taller*, DEUDA 17.08.26.csv), scripts/_*.ps1, scripts/*.mjs, iniciar-dsh-web.bat; los 7,926 folios históricos SIN serie legacy (duplicados) no se tocan (regla del usuario).
+- **Sync operativo** sigue pesado (4-6s por 580 OTs + 988 facturas): ya no se dispara en bucle (item 37); siguiente mejora opcional: reducir carga de facturas.
 
 ---
 
