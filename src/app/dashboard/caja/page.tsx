@@ -81,6 +81,7 @@ export default function CajaPage() {
     correlativeConfig,
     updateCorrelativeConfig,
     getAndIncrementReceiptNumber,
+    syncReceiptMaximaFromCloud,
     createInvoiceForOrder,
     togglePayInvoice,
     toggleOrderPayment,
@@ -1351,6 +1352,9 @@ export default function CajaPage() {
 
   // Handle open payment confirmation modal
   const handleOpenPaymentModal = (wo: any, inv?: any, total: number = 0, linkOnly: boolean = false) => {
+    // Refresca el último correlativo real de cada serie desde la nube (7 días) para
+    // que el preview y el N° del comprobante continúen la secuencia real.
+    void syncReceiptMaximaFromCloud();
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
 
     // Build itemized breakdown
@@ -1991,6 +1995,8 @@ export default function CajaPage() {
 
   // Open Partial / Installment Payment Modal (Abono sobre saldo pendiente por placa)
   const handleOpenPartialPaymentModal = (wo: any, inv?: any) => {
+    // Refresca el último correlativo real de cada serie desde la nube (7 días).
+    void syncReceiptMaximaFromCloud();
     const vehicle = vehiclesByPlate.get(wo.vehicle_plate?.toUpperCase().trim());
     const totalDue = computeOrderNetTotal(wo, inv);
     const paidSoFar = invoicePaidSoFar(inv);

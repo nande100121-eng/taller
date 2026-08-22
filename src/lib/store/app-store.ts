@@ -19,6 +19,7 @@ import {
   emitCloudSavedToast,
   fetchSupabaseErpData,
   fetchCappedOperationalData,
+  fetchLatestReceiptMaxima,
   deleteSupabaseInventoryItem,
   deleteMultipleSupabaseInventoryItems,
   clearSupabaseInventory,
@@ -808,6 +809,7 @@ interface AppState {
   correlativeConfig: CorrelativeConfig;
   updateCorrelativeConfig: (config: Partial<CorrelativeConfig>) => void;
   getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura", targetDate?: string) => string;
+  syncReceiptMaximaFromCloud: () => Promise<void>;
 
   invoices: Invoice[];
   createInvoice: (invoice: Omit<Invoice, "id">) => void;
@@ -1138,7 +1140,54 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     });
 
     const padded = nextNum.toString().padStart(8, "0");
-    return `${series}-${padded}`;
+    return series + "-" + padded;
+  },
+
+  // Sincroniza el ÚLTIMO correlativo real de cada serie (TK01/B001/F001/FC01) desde
+  // Supabase (últimos 7 días) hacia correlativeConfig: eleva los lastNumbers locales
+  // si la nube tiene folios mayores, para que los nuevos comprobantes continúen la
+  // secuencia real (último usado + 1) y no reusen números ya emitidos en otra tablet.
+  syncReceiptMaximaFromCloud: async () => {
+    try {
+      const maxima = await fetchLatestReceiptMaxima(7);
+      const cur = get().correlativeConfig;
+      if (!cur) return;
+      const next: CorrelativeConfig = { ...cur };
+      let changed = false;
+      if (maxima.ticket > (Number(cur.ticketLastNumber) || 0)) {
+        next.ticketLastNumber = maxima.ticket;
+        changed = true;
+      }
+      if (maxima.boleta > (Number(cur.boletaLastNumber) || 0)) {
+        next.boletaLastNumber = maxima.boleta;
+        changed = true;
+      }
+      if (maxima.factura > (Number(cur.facturaLastNumber) || 0)) {
+        next.facturaLastNumber = maxima.factura;
+        changed = true;
+      }
+      if (maxima.notaCredito > (Number(cur.notaCreditoLastNumber) || 0)) {
+        next.notaCreditoLastNumber = maxima.notaCredito;
+        changed = true;
+      }
+      if (!changed) return;
+      next.lastUpdateDate = getPeruDateString();
+      set({ correlativeConfig: next });
+      logSystemEvent("info", "correlative.sync.max_from_cloud", {
+        ticket: next.ticketLastNumber,
+        boleta: next.boletaLastNumber,
+        factura: next.facturaLastNumber,
+        notaCredito: next.notaCreditoLastNumber || 0,
+      }, "store:syncReceiptMaximaFromCloud");
+      saveSupabaseSiteContent("correlativeConfig", next).then((res) => {
+        if (!res.success) {
+          console.error("syncReceiptMaximaFromCloud rollback:", res.error);
+          set({ correlativeConfig: cur });
+        }
+      });
+    } catch (err) {
+      console.warn("syncReceiptMaximaFromCloud:", err);
+    }
   },
 
   workshopServices: [],
@@ -1570,6 +1619,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         // vehicles) se aplican en un solo set, pero el procesamiento de formateo ya
         // quedó en fetchSupabaseErpData; aquí solo asignamos referencias.
         set(updates);
+        // Refresca el último correlativo real de cada serie desde la nube (7 días)
+        // para que los nuevos comprobantes continúen la secuencia real.
+        void get().syncReceiptMaximaFromCloud();
       }
     } catch (err) {
       console.warn("Supabase sync warning:", err);
@@ -1719,6 +1771,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       logTiming("sync.operational.store.duration", syncStart, {
         orders: capped.workOrders?.length || 0,
       }, "store:syncOperationalOnly");
+      // Refresca el último correlativo real de cada serie desde la nube (7 días):
+      // así los nuevos comprobantes continúan la secuencia aunque otra tablet haya
+      // emitido folios más altos (TK01/B001/F001/FC01).
+      void get().syncReceiptMaximaFromCloud();
     } catch (err) {
       logTiming("sync.operational.store.error.duration", syncStart, {
         err: err instanceof Error ? err.message : String(err),
