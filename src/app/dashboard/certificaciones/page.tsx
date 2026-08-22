@@ -166,6 +166,23 @@ export default function CertificacionesPage() {
     client_phone: "",
   });
 
+  // Cada apertura del modal manual inicia los campos VACIOS (placa, cliente, telefono)
+  // para que una nueva emision NO herede los datos de la anterior (decision del usuario).
+  const resetManualForm = () =>
+    setManualForm({
+      vehicle_plate: "",
+      client_name: "",
+      chip_code: `CHIP-${Math.floor(100000 + Math.random() * 900000)}`,
+      cylinder_serial: `CIL-${Math.floor(10000 + Math.random() * 90000)}`,
+      certification_type: "Certificado Anual GNV" as any,
+      price: 80,
+      issue_date: getPeruDateString(),
+      expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
+      quinquennial_date: "-",
+      responsible: "",
+      client_phone: "",
+    });
+
   // Consulta a INFOGAS (chip/quinquenal por placa) - mismo API público que usa Taller.
   const [consultInfogasPlate, setConsultInfogasPlate] = useState<string | null>(null);
   const handleConsultInfogas = async (card: any) => {
@@ -777,7 +794,10 @@ export default function CertificacionesPage() {
         </div>
 
         <button
-          onClick={() => setIsManualModalOpen(true)}
+          onClick={() => {
+            resetManualForm();
+            setIsManualModalOpen(true);
+          }}
           className="px-4 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-black text-xs rounded-xl shadow-lg shadow-cyan-600/30 flex items-center gap-2 transition-transform hover:scale-105"
         >
           <Plus className="w-4 h-4" />
