@@ -971,7 +971,11 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       set({
         isAuthenticated: true,
         userRole: isAdmin ? "admin" : "personal",
-        currentUser: { name: isAdmin ? "Administrador ReyGas" : "Operador de Taller", email: identifier },
+        currentUser: {
+          name: isAdmin ? "Administrador ReyGas" : "Operador de Taller (demo)",
+          email: identifier,
+          allowed_tabs: isAdmin ? undefined : ["/dashboard/porteria"],
+        },
         isVisualEditing: isAdmin,
       });
       return true;
