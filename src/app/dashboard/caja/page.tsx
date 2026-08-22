@@ -103,7 +103,7 @@ export default function CajaPage() {
   const allowEditReceiptNumber = correlativeConfig?.allowEditReceiptNumber !== false;
 
   const [activeMainTab, setActiveMainTab] = useState<"caja" | "consultas">("caja");
-  const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientesHoy" | "pendientes" | "pagados" | "todos">("hoy");
+  const [activeStatusFilter, setActiveStatusFilter] = useState<"hoy" | "pendientesHoy" | "pendientesSemana" | "pendientes" | "pagados" | "todos">("hoy");
   const [receiptTypeFilter, setReceiptTypeFilter] = useState<"TODOS" | "Ticket" | "Boleta" | "Factura">("TODOS");
 
   // Search Filters
@@ -819,6 +819,24 @@ export default function CajaPage() {
     }).length;
   }, [allBillingWorkOrders, invoicesByWorkOrderId, queryDate, isOrderPaid]);
 
+  // Ventana de la SEMANA (lunes a domingo, Perú) para el filtro 'Pendientes de la Semana'.
+  const weekWindow = React.useMemo(() => {
+    const today = getPeruDateString();
+    const d = new Date(today + "T12:00:00");
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // retrocede al LUNES
+    const start = d.toISOString().slice(0, 10);
+    const end = new Date(d.getTime() + 6 * 86400000).toISOString().slice(0, 10);
+    return { start, end };
+  }, []);
+
+  const pendingWeekCount = React.useMemo(() => {
+    return allBillingWorkOrders.filter((wo) => {
+      const inv = invoicesByWorkOrderId.get(wo.id);
+      const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+      return !isOrderPaid(wo, inv) && orderDateStr >= weekWindow.start && orderDateStr <= weekWindow.end && !isInWorkshopNotCredit(wo, inv);
+    }).length;
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, isOrderPaid, weekWindow]);
+
   const pendingCount = React.useMemo(() => {
     return allBillingWorkOrders.filter((wo) => {
       const inv = invoicesByWorkOrderId.get(wo.id);
@@ -1047,6 +1065,11 @@ export default function CajaPage() {
         // Se excluyen los vehículos que AÚN están en taller (no son crédito).
         const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
         matchStatus = !isPaid && orderDateStr === targetDate && !isInWorkshopNotCredit(wo, inv);
+      } else if (activeStatusFilter === "pendientesSemana") {
+        // Pendientes de la SEMANA: sin pagar y registrados (ingreso al taller) entre el
+        // lunes y domingo de la semana actual (Perú). Excluye vehículos aún en taller.
+        const orderDateStr = wo.entry_time ? toPeruDateKey(wo.entry_time) : "";
+        matchStatus = !isPaid && orderDateStr >= weekWindow.start && orderDateStr <= weekWindow.end && !isInWorkshopNotCredit(wo, inv);
       } else if (activeStatusFilter === "pendientes") {
         // Pendientes totales (histórico): cuentas por cobrar reales (sin pagar en cualquier
         // fecha), excluyendo vehículos que aún están en taller (no son crédito).
@@ -1090,7 +1113,7 @@ export default function CajaPage() {
       const timeB = b.entry_time || "";
       return timeB.localeCompare(timeA);
     });
-  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, receiptTypeFilter, isOrderPaid, queryDate]);
+  }, [allBillingWorkOrders, invoicesByWorkOrderId, deferredSearchPlate, activeStatusFilter, receiptTypeFilter, isOrderPaid, queryDate, weekWindow]);
 
   // =========================================================================
   // BÚSQUEDA BAJO DEMANDA EN TODA LA BASE (historial completo por placa)
@@ -3488,6 +3511,17 @@ export default function CajaPage() {
                 }`}
             >
               <span>⏳ Pendientes del Día / Hoy ({pendingCountToday})</span>
+            </button>
+
+            {/* 2b. Pendientes de la Semana (lunes a domingo, Perú) */}
+            <button
+              onClick={() => setActiveStatusFilter("pendientesSemana")}
+              className={`px-3 py-1.5 rounded-lg transition-all ${activeStatusFilter === "pendientesSemana"
+                ? "bg-amber-500 text-black font-extrabold shadow-lg shadow-amber-500/20 scale-[1.02]"
+                : "text-gray-400 hover:text-white"
+                }`}
+            >
+              <span>⏳ Pendientes de la Semana ({pendingWeekCount})</span>
             </button>
 
             {/* 3. Pendientes Totales */}
