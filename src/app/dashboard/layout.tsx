@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReyGasLogo } from "@/components/brand/logo";
 import { Toast } from "@/components/ui/toast";
 import BuildAutoRefresh from "@/components/BuildAutoRefresh";
-import { useAppStore } from "@/lib/store/app-store";
+import { useAppStore, ALL_ERP_STATIONS_DEFAULT } from "@/lib/store/app-store";
 import { initGlobalErrorLogger, logSystemEvent, setCurrentLogPage } from "@/lib/system-log";
 import {
   Globe,
@@ -193,17 +193,19 @@ export default function DashboardLayout({
   // Permission checking
   const isAdmin = userRole === "admin";
   const allowedTabs = currentUser?.allowed_tabs || [];
+  // SIN BYPASS: si el personal no tiene pestañas configuradas usa el set por defecto
+  // (ALL_ERP_STATIONS_DEFAULT); NUNCA "todas". El guard 403 aplica a rutas no
+  // autorizadas (acceso por enlace directo).
+  const effectiveAllowedTabs = allowedTabs.length > 0 ? allowedTabs : ALL_ERP_STATIONS_DEFAULT;
 
   const visibleSidebarItems = sidebarItems.filter((item) => {
     if (isAdmin) return true;
-    if (!allowedTabs || allowedTabs.length === 0) return true;
-    return allowedTabs.includes(item.href);
+    return effectiveAllowedTabs.includes(item.href);
   });
 
   const isCurrentPathAllowed = () => {
     if (isAdmin) return true;
-    if (!allowedTabs || allowedTabs.length === 0) return true;
-    return allowedTabs.some((tab) => pathname === tab || pathname.startsWith(`${tab}/`));
+    return effectiveAllowedTabs.some((tab) => pathname === tab || pathname.startsWith(tab + "/"));
   };
 
   const isAuthorized = isCurrentPathAllowed();

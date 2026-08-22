@@ -48,6 +48,12 @@ import {
   fetchSupabaseInventory,
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
+import {
+  composeAuthEmail,
+  verifySupabaseAuthLogin,
+  signOutSupabaseAuth,
+  provisionSupabaseAuthUser,
+} from "@/lib/supabase/auth";
 import { getPeruDateString, toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 import { parseCorrelative, matchesReceiptSeries, RECEIPT_SERIES } from "@/lib/utils/receipt-utils";
 import { logSystemEvent, logTiming } from "@/lib/system-log";
@@ -699,7 +705,7 @@ interface AppState {
   isAuthenticated: boolean;
   userRole: "admin" | "personal" | null;
   currentUser: { name: string; email: string; username?: string; technician_id?: string; allowed_tabs?: string[] } | null;
-  login: (email: string, pass: string) => boolean;
+  login: (email: string, pass: string) => Promise<boolean>;
   logout: () => void;
 
   // Visual Editing Toggle
@@ -955,7 +961,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   userRole: null,
   currentUser: null,
 
-  login: (email, pass) => {
+  login: async (email, pass) => {
     const identifier = String(email || "").trim();
     const password = String(pass || "");
     const demo = identifier.toLowerCase();
@@ -980,16 +986,48 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       });
       return true;
     }
-    // PERSONAL: el USUARIO del roster es la identidad (username, correo, nombre o
-    // usuario generado) y se VALIDA la contrasena del roster/cambiar-clave.
+    // PERSONAL: primero SUPABASE AUTH (email = usuario@reygas.com + contraseña del
+    // roster); si el auth user aún no está vinculado/confirmado, fallback al roster.
     const cleanId = identifier.toLowerCase();
+    const localPart = cleanId.includes("@") ? cleanId.split("@")[0] : cleanId;
+    const authCheck = await verifySupabaseAuthLogin(identifier, password);
     const matchedTech = get().technicians.find(
       (t) =>
         (t.username && t.username.toLowerCase() === cleanId) ||
+        (t.username && t.username.toLowerCase() === localPart) ||
         (t.email && t.email.toLowerCase() === cleanId) ||
         (t.full_name && t.full_name.toLowerCase() === cleanId) ||
-        (generateDefaultUsername(t.full_name).toLowerCase() === cleanId)
+        (t.full_name && t.full_name.toLowerCase() === localPart) ||
+        (generateDefaultUsername(t.full_name).toLowerCase() === cleanId) ||
+        (generateDefaultUsername(t.full_name).toLowerCase() === localPart)
     );
+    if (authCheck.ok) {
+      // Supabase Auth validó las credenciales: perfil desde el roster si existe.
+      if (matchedTech) {
+        set({
+          isAuthenticated: true,
+          userRole: "personal",
+          currentUser: {
+            name: matchedTech.full_name,
+            email: authCheck.email || composeAuthEmail(identifier),
+            username: matchedTech.username || "",
+            technician_id: matchedTech.id,
+            allowed_tabs: matchedTech.allowed_tabs,
+          },
+          isVisualEditing: false,
+        });
+        return true;
+      }
+      // Usuario de auth sin perfil en el roster: personal con estaciones por defecto.
+      set({
+        isAuthenticated: true,
+        userRole: "personal",
+        currentUser: { name: localPart || identifier, email: authCheck.email || composeAuthEmail(identifier) },
+        isVisualEditing: false,
+      });
+      return true;
+    }
+    // Fallback roster (personal aún no vinculado a auth, o auth sin confirmar).
     if (!matchedTech) return false;
     const expectedPass = (matchedTech.password && String(matchedTech.password).trim()) || generateDefaultUsername(matchedTech.full_name);
     if (!password || password.trim() !== expectedPass) return false;
@@ -1008,13 +1046,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     return true;
   },
 
-  logout: () =>
+
+  logout: () => {
+    void signOutSupabaseAuth();
     set({
       isAuthenticated: false,
       userRole: null,
       currentUser: null,
       isVisualEditing: false,
-    }),
+    });
+  },
 
   isVisualEditing: false,
   toggleVisualEditing: () => set((state) => ({ isVisualEditing: !state.isVisualEditing })),
@@ -2211,6 +2252,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     const res = await saveSupabaseTechnician(newTech, updatedTechs);
     if (res.success) {
       get().notify("success", `Personal "${newTech.full_name}" registrado y guardado en la nube.`);
+      // VINCULA con Supabase Auth: email = usuario@reygas.com + contraseña del roster.
+      const authRes = await provisionSupabaseAuthUser(newTech);
+      if (authRes.status === "created") {
+        get().notify("info", `Usuario "${newTech.username}" creado en Supabase Auth (${composeAuthEmail(newTech.username || "")}).`);
+      } else if (authRes.status === "password_mismatch") {
+        get().notify("warning", `"${newTech.username}@reygas.com" ya existe en Supabase Auth con otra contraseña.`);
+      }
     } else {
       get().notify("error", `No se pudo guardar a "${newTech.full_name}" en Supabase: ${res.error || "Error desconocido"}`);
     }
@@ -2240,6 +2288,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         return res;
       }
       get().notify("info", `${targetTech.full_name} actualizado y guardado en la nube.`);
+      // Si cambiaron USUARIO o CONTRASEÑA, se re-vincula con Supabase Auth (@reygas.com).
+      const userChanged = String(targetTech.username || "") !== String(prevTarget?.username || "");
+      const passChanged = String(targetTech.password || "") !== String(prevTarget?.password || "");
+      if (userChanged || passChanged) {
+        const authRes = await provisionSupabaseAuthUser(targetTech);
+        if (authRes.status === "password_mismatch") {
+          get().notify("warning", `"${targetTech.username}@reygas.com" ya existe en Supabase Auth con otra contraseña (ajustar en el dashboard de Supabase).`);
+        } else if (authRes.status === "created") {
+          get().notify("info", `Supabase Auth actualizado: ${composeAuthEmail(targetTech.username || "")}.`);
+        }
+      }
       return res;
     }
     return { success: false, error: "Técnico no encontrado" };
@@ -2273,6 +2332,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     const updatedTechs = techList.map((t) => (t.id === target.id ? updatedTech : t));
     saveSupabaseTechnician(updatedTech, updatedTechs);
     set({ technicians: updatedTechs });
+
+    // Sincroniza la nueva contraseña con Supabase Auth (usuario@reygas.com).
+    void provisionSupabaseAuthUser(updatedTech).then((authRes) => {
+      if (authRes.status === "password_mismatch") {
+        get().notify("warning", `"${updatedTech.username}@reygas.com" ya existe en Supabase Auth con otra contraseña (ajustar en el dashboard de Supabase).`);
+      }
+    });
 
     return {
       success: true,

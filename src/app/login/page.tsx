@@ -14,9 +14,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = login(email, password);
+    const success = await login(email, password);
     if (success) {
       if (email.includes("admin")) {
         router.push("/dashboard/admin/cms");
@@ -28,8 +28,8 @@ export default function LoginPage() {
     }
   };
 
-  const handleQuickLogin = (roleEmail: string) => {
-    login(roleEmail, "123456");
+  const handleQuickLogin = async (roleEmail: string) => {
+    await login(roleEmail, "123456");
     if (roleEmail.includes("admin")) {
       router.push("/dashboard/admin/cms");
     } else {
@@ -66,7 +66,7 @@ export default function LoginPage() {
               <input
                 type="text"
                 required
-                placeholder="usuario o correo"
+                placeholder="usuario@reygas.com o usuario"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-reygas-red"
