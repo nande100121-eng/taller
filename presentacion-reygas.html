@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReyGas ERP Web - Presentacion a Gerencia</title>
+<style>
+  :root {
+    --bg: #0B0F17;
+    --surface: rgba(255,255,255,0.04);
+    --border: rgba(255,255,255,0.12);
+    --amber: #f59e0b;
+    --cyan: #22d3ee;
+    --emerald: #10b981;
+    --red: #ef4444;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    overflow: hidden;
+  }
+  #deck { height: 100vh; position: relative; }
+  .slide {
+    position: absolute; inset: 0;
+    display: none;
+    padding: 5vh 6vw;
+    overflow-y: auto;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3vh;
+  }
+  .slide.active { display: flex; }
+  .kicker {
+    text-transform: uppercase; letter-spacing: 0.25em;
+    font-size: 0.75rem; font-weight: 800; color: var(--amber);
+  }
+  h1 { font-size: clamp(1.8rem, 4.5vw, 3.4rem); font-weight: 900; color: #fff; line-height: 1.1; }
+  h2 { font-size: clamp(1.4rem, 3vw, 2.3rem); font-weight: 900; color: #fff; }
+  h3 { font-size: 1.05rem; font-weight: 800; color: var(--cyan); }
+  p, li { font-size: clamp(0.95rem, 1.4vw, 1.15rem); line-height: 1.6; color: var(--text); }
+  .muted { color: var(--muted); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 1.4rem 1.6rem;
+    backdrop-filter: blur(8px);
+  }
+  .grid { display: grid; gap: 1rem; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .g4 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .badge {
+    display: inline-block; padding: 0.3rem 0.8rem; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .b-amber { background: rgba(245,158,11,0.18); color: var(--amber); border: 1px solid rgba(245,158,11,0.4); }
+  .b-cyan { background: rgba(34,211,238,0.15); color: var(--cyan); border: 1px solid rgba(34,211,238,0.4); }
+  .b-green { background: rgba(16,185,129,0.15); color: var(--emerald); border: 1px solid rgba(16,185,129,0.4); }
+  .b-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.4); }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  .flow .step {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.7rem 1.1rem; font-weight: 700; font-size: 0.9rem;
+  }
+  .flow .arrow { color: var(--amber); font-weight: 900; font-size: 1.1rem; }
+  .check { color: var(--emerald); font-weight: 900; }
+  .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 2rem; height: 2rem; border-radius: 50%;
+    background: rgba(245,158,11,0.2); color: var(--amber);
+    font-weight: 900; font-size: 0.9rem; flex-shrink: 0;
+  }
+  ul.tight { list-style: none; }
+  ul.tight li { display: flex; gap: 0.7rem; margin-bottom: 0.55rem; align-items: flex-start; }
+  .big { font-size: clamp(2rem, 5vw, 3.6rem); font-weight: 900; color: var(--amber); line-height: 1; }
+  .stat { text-align: center; }
+  .stat .label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+  .logo-row { display: flex; align-items: center; gap: 1rem; }
+  .logo-box {
+    width: 56px; height: 56px; border-radius: 16px; flex-shrink: 0;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; color: #0B0F17; font-size: 1.5rem;
+  }
+  #nav {
+    position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 0.9rem; z-index: 50;
+    background: rgba(11,15,23,0.85); border: 1px solid var(--border);
+    padding: 0.5rem 0.9rem; border-radius: 999px; backdrop-filter: blur(8px);
+  }
+  #nav button {
+    background: var(--surface); color: #fff; border: 1px solid var(--border);
+    border-radius: 999px; width: 2.2rem; height: 2.2rem; cursor: pointer;
+    font-size: 1rem; font-weight: 900; transition: all 0.15s;
+  }
+  #nav button:hover { background: rgba(245,158,11,0.25); border-color: var(--amber); }
+  #nav .dots { display: flex; gap: 0.35rem; }
+  #nav .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); cursor: pointer;
+  }
+  #nav .dot.on { background: var(--amber); }
+  #counter { font-size: 0.75rem; color: var(--muted); font-weight: 700; }
+  .foot {
+    margin-top: auto; padding-top: 1rem; font-size: 0.7rem; color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .section-title { display: flex; align-items: center; gap: 0.8rem; }
+  @media print {
+    body { overflow: visible; }
+    .slide { position: relative; display: flex !important; page-break-after: always; min-height: 100vh; }
+    #nav { display: none; }
+    .slide { padding: 4vh 4vw; }
+  }
+</style>
+</head>
+<body>
+<div id="deck">
+
+  <section class="slide active">
+    <div class="logo-row">
+      <div class="logo-box">R</div>
+      <div>
+        <div class="kicker">Presentacion a Gerencia</div>
+        <h1>ReyGas ERP Web</h1>
+        <p class="muted">Sistema de gestion integral para el taller GNV - Control en tiempo real de Porteria, Taller, Almacen, Caja y Certificaciones</p>
+      </div>
+    </div>
+    <div class="grid g4">
+      <div class="card stat"><div class="big">100%</div><div class="label">Datos en la nube</div></div>
+      <div class="card stat"><div class="big">11</div><div class="label">Estaciones conectadas</div></div>
+      <div class="card stat"><div class="big">RT</div><div class="label">Tiempo real entre equipos</div></div>
+      <div class="card stat"><div class="big">1</div><div class="label">Fuente unica de verdad</div></div>
+    </div>
+    <div class="foot">Documento preparado para la implementacion del sistema en el taller - [Fecha]</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-amber">Que es</span>
+      <h2>ReyGas ERP Web</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Un solo sistema para todo el taller</h3>
+        <p>ReyGas es una plataforma web que reemplaza el cuaderno y el papel por un registro digital centralizado: cada ingreso, repuesto, servicio, cobro y certificacion queda guardado al instante en la nube y es visible desde cualquier tablet del taller.</p>
+      </div>
+      <div class="card">
+        <h3>Hecho a la medida del taller</h3>
+        <p>Desarrollado segun el flujo real de trabajo: Porteria recibe, Taller repara, Almacen despacha repuestos, Caja cobra y Certificaciones emite. Cada estacion ve solo lo que le corresponde, con permisos por usuario.</p>
+      </div>
+      <div class="card">
+        <h3>Funciona sin instalacion</h3>
+        <p>Se abre en el navegador de cualquier tablet, celular o computadora con internet. No requiere servidores locales ni mantenimiento de equipos especializados.</p>
+      </div>
+      <div class="card">
+        <h3>Seguro y respaldado</h3>
+        <p>Toda la informacion se respalda automaticamente en la nube. Aunque una tablet se pierda o se malogre, los datos del taller estan a salvo y accesibles desde cualquier equipo.</p>
+      </div>
+    </div>
+    <div class="foot">Que es ReyGas ERP Web - Vision general</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-cyan">Como funciona</span>
+      <h2>Arquitectura: nube + tiempo real</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Nube central (Supabase)</h3>
+        <p>La base de datos vive en la nube. Cada estacion lee y escribe sobre la misma informacion: no hay copias desactualizadas ni conflictos entre equipos.</p>
+      </div>
+      <div class="card">
+        <h3>Tiempo real entre estaciones</h3>
+        <p>Cuando Porteria registra un ingreso, la card aparece al instante en Taller. Cuando Caja cobra, Almacen y Taller lo ven al momento. Sin necesidad de actualizar ni recargar.</p>
+      </div>
+      <div class="card">
+        <h3>Tablets y hardware del taller</h3>
+        <p>Funciona optimizado para la Tablet Industrial Chainway P80 y el lector de codigos SEISA: respuesta tactil inmediata, pensada para manos con grasa y jornadas largas.</p>
+      </div>
+      <div class="card">
+        <h3>Respaldo automatico (triple seguro)</h3>
+        <p>Cada registro se guarda en la tabla principal, en una copia de seguridad por entidad y se sincroniza en tiempo real. La informacion del taller nunca se pierde.</p>
+      </div>
+    </div>
+    <div class="flow" style="margin-top:1rem">
+      <span class="step">Tablets</span><span class="arrow">→</span>
+      <span class="step">Internet / WiFi</span><span class="arrow">→</span>
+      <span class="step">Nube ReyGas</span><span class="arrow">→</span>
+      <span class="step">Sincronizacion en tiempo real</span><span class="arrow">→</span>
+      <span class="step">Todas las estaciones</span>
+    </div>
+    <div class="foot">Como funciona - Arquitectura del sistema</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-green">Modulos</span>
+      <h2>Las 11 estaciones del sistema</h2>
+    </div>
+    <div class="grid g3">
+      <div class="card"><h3>1. Porteria</h3><p class="muted">Registro de ingreso de vehiculos, placas, patios y citas del dia.</p></div>
+      <div class="card"><h3>2. Recepcion</h3><p class="muted">Agenda de citas, confirmaciones y coordinacion con el cliente.</p></div>
+      <div class="card"><h3>3. Taller</h3><p class="muted">Ordenes de trabajo, asignacion de mecanicos, servicios y repuestos.</p></div>
+      <div class="card"><h3>4. Almacen</h3><p class="muted">Inventario de repuestos, despacho a las OTs y reposicion.</p></div>
+      <div class="card"><h3>5. Caja</h3><p class="muted">Cobros, abonos, saldos, comprobantes (ticket/boleta/factura).</p></div>
+      <div class="card"><h3>6. Certificaciones</h3><p class="muted">Inspeccion GNV, chip/quinquenal, emision oficial y envio a caja.</p></div>
+      <div class="card"><h3>7. Asistencia</h3><p class="muted">Registro de entrada/salida del personal.</p></div>
+      <div class="card"><h3>8. Consultas</h3><p class="muted">Busqueda rapida por placa, fecha o cliente en el historial.</p></div>
+      <div class="card"><h3>9. Reportes</h3><p class="muted">Indicadores del dia, del mes, ventas y productividad.</p></div>
+      <div class="card"><h3>10. Tabla Maestra</h3><p class="muted">Personal y permisos, servicios, precios, inventario base.</p></div>
+      <div class="card"><h3>11. Configuracion</h3><p class="muted">Ajustes del taller, correlativos de comprobantes y log del sistema.</p></div>
+      <div class="card"><h3>Usuarios y permisos</h3><p class="muted">Cada trabajador ve solo las estaciones de su rol (cajero, mecanico, certificador...).</p></div>
+    </div>
+    <div class="foot">Modulos del sistema - 11 estaciones</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-amber">Flujo</span>
+      <h2>Flujo operativo completo del taller</h2>
+    </div>
+    <div class="card">
+      <div class="flow">
+        <span class="step">1. Porteria<br><span class="muted" style="font-size:0.75rem">Ingresa el vehiculo (placa, cliente)</span></span><span class="arrow">→</span>
+        <span class="step">2. Recepcion<br><span class="muted" style="font-size:0.75rem">Cita confirmada / diagnostico</span></span><span class="arrow">→</span>
+        <span class="step">3. Taller<br><span class="muted" style="font-size:0.75rem">OT abierta, mecanico asignado</span></span><span class="arrow">→</span>
+        <span class="step">4. Almacen<br><span class="muted" style="font-size:0.75rem">Despacha repuestos de la OT</span></span><span class="arrow">→</span>
+        <span class="step">5. Caja<br><span class="muted" style="font-size:0.75rem">Cobra / comprobante</span></span><span class="arrow">→</span>
+        <span class="step">6. Certificaciones<br><span class="muted" style="font-size:0.75rem">Inspeccion y emision GNV</span></span><span class="arrow">→</span>
+        <span class="step">7. Entrega<br><span class="muted" style="font-size:0.75rem">Salida registrada</span></span>
+      </div>
+    </div>
+    <div class="grid g3">
+      <div class="card"><span class="check">✓</span> <strong>Todo queda registrado</strong><br><span class="muted">Cada paso genera su card y su historial.</span></div>
+      <div class="card"><span class="check">✓</span> <strong>Nada se pierde</strong><br><span class="muted">El vehiculo no puede salir sin cobrar o sin su certificacion.</span></div>
+      <div class="card"><span class="check">✓</span> <strong>Todo se ve en tiempo real</strong><br><span class="muted">El estado avanza de estacion en estacion al instante.</span></div>
+    </div>
+    <div class="foot">Flujo operativo - De la entrada a la entrega</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-cyan">Dia a dia</span>
+      <h2>Ejemplo: una atencion tipica</h2>
+    </div>
+    <ul class="tight">
+      <li><span class="num">1</span><div><strong>Porteria:</strong> llega un vehiculo; se digita la placa en la tablet y se abre la card del dia. Si tiene cita, aparece sola.</div></li>
+      <li><span class="num">2</span><div><strong>Taller:</strong> el mecanico ve la card al instante, abre la orden de trabajo, marca el servicio (ej. Conversion o Anual GNV) y los repuestos necesarios.</div></li>
+      <li><span class="num">3</span><div><strong>Almacen:</strong> ve la solicitud de repuestos, despacha y confirma stock. Si falta algo, se registra la falta para reposicion.</div></li>
+      <li><span class="num">4</span><div><strong>Caja:</strong> cuando el trabajo termina, la OT llega a Caja con su total; el cajero cobra (contado, tarjeta o credito) y emite el comprobante.</div></li>
+      <li><span class="num">5</span><div><strong>Certificaciones:</strong> si el servicio fue Anual GNV, la certificacion se emite y queda vigente; se envia a Caja para su cobro si aplica.</div></li>
+      <li><span class="num">6</span><div><strong>Entrega:</strong> con pago registrado, el vehiculo sale y el historial queda listo para la proxima visita del cliente.</div></li>
+    </ul>
+    <div class="foot">Escenario dia a dia - Sin papeles, sin dobles registros</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-green">Beneficios</span>
+      <h2>Por que implementar ReyGas en el taller</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Orden y control total</h3><p class="muted">Todo vehiculo tiene su card: que entro, que se hizo, cuanto costo y cuando salio. Nada se queda en la memoria.</p></div>
+      <div class="card"><h3>Menos errores y perdidas</h3><p class="muted">El cobro es automatico segun servicios y repuestos. Se eliminan los precios olvidados, las facturas sin registrar y las salidas sin pagar.</p></div>
+      <div class="card"><h3>Informacion al instante</h3><p class="muted">Gerencia puede ver en cualquier momento cuantos vehiculos hay, cuanto se ha facturado hoy y que certificaciones estan pendientes.</p></div>
+      <div class="card"><h3>Historial del cliente</h3><p class="muted">Con la placa se recupera todo el historial: servicios, repuestos, saldos y vencimientos de chip/quinquenal. El cliente se siente atendido.</p></div>
+      <div class="card"><h3>Responsabilidades claras</h3><p class="muted">Cada estacion y cada trabajador tiene su rol y sus permisos. Se sabe quien hizo cada cosa y cuando.</p></div>
+      <div class="card"><h3>Respaldo y continuidad</h3><p class="muted">La informacion esta en la nube: se puede consultar desde cualquier equipo y no depende de una sola computadora.</p></div>
+    </div>
+    <div class="foot">Beneficios para gerencia - Control, orden y datos</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-amber">Mejoras administrativas</span>
+      <h2>Recomendaciones para mejor rendimiento</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Responsables por estacion</h3><p class="muted">Definir un encargado por area (portero, jefe de taller, almacenero, cajero, certificador). El sistema ya soporta los permisos por persona.</p></div>
+      <div class="card"><h3>Procedimiento estandar</h3><p class="muted">Establecer el paso a paso de recepcion y entrega: toda salida requiere pago o autorizacion registrada en el sistema.</p></div>
+      <div class="card"><h3>Politica de creditos</h3><p class="muted">Definir montos maximos, plazos y responsables de cobranza. El sistema registra saldos pendientes por cliente y placa.</p></div>
+      <div class="card"><h3>Inventario con conteo ciclico</h3><p class="muted">Contar y validar el stock de repuestos cada semana (o quincena) contra lo registrado, para detectar faltantes a tiempo.</p></div>
+      <div class="card"><h3>Capacitacion del personal</h3><p class="muted">Una sesion practica de 1 hora por estacion con el encargado, mas una semana de acompanamiento al inicio.</p></div>
+      <div class="card"><h3>Indicadores semanales</h3><p class="muted">Revisar en gerencia: vehiculos atendidos, facturacion, certificaciones emitidas y saldos pendientes, usando los reportes del sistema.</p></div>
+      <div class="card"><h3>Manual de procesos impreso</h3><p class="muted">Tener en cada estacion una hoja con los 4 pasos clave del flujo, para consulta rapida del personal.</p></div>
+      <div class="card"><h3>Stock minimo y reposicion</h3><p class="muted">Marcar repuestos criticos (bujias, filtros, sensores) con stock minimo para pedirlos antes de que falten.</p></div>
+    </div>
+    <div class="foot">Mejoras administrativas - Procesos y organizacion</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-cyan">Mejoras fisicas</span>
+      <h2>Infraestructura recomendada</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Red WiFi industrial</h3><p class="muted">Router principal con repetidores en patio, taller, almacen, caja y certificaciones. Es la base para el tiempo real. (Prioridad #1)</p></div>
+      <div class="card"><h3>Una tablet por estacion</h3><p class="muted">Tablet industrial Chainway P80 con soporte de pared en cada area. Resistente a grasa y golpes, tactil de respuesta inmediata.</p></div>
+      <div class="card"><h3>Lector de codigos</h3><p class="muted">Lector de barras SEISA en Almacen y Caja para escanear repuestos y agilizar el despacho y el cobro.</p></div>
+      <div class="card"><h3>Impresora termica</h3><p class="muted">Impresora de comprobantes en Caja para ticket, boleta y factura sin depender de papel continuo.</p></div>
+      <div class="card"><h3>UPS / estabilizador</h3><p class="muted">Proteger router, tabletas y caja contra cortes de luz: el taller no se detiene por un apagon.</p></div>
+      <div class="card"><h3>Ordenamiento 5S</h3><p class="muted">Estanterias numeradas, repuestos etiquetados y zonas delimitadas. Un almacen ordenado agiliza el despacho y reduce errores.</p></div>
+      <div class="card"><h3>Señalizacion y parqueo</h3><p class="muted">Zonas de parqueo numeradas y rotuladas para ubicar cada vehiculo al instante, y area identificada para certificaciones.</p></div>
+      <div class="card"><h3>Punto de carga y seguridad</h3><p class="muted">Cargadores dedicados por estacion y camaras en areas de dinero y almacen como respaldo de control.</p></div>
+    </div>
+    <div class="foot">Mejoras fisicas - Infraestructura y orden del local</div>
+  </section>
+
+  <section class="slide">
+    <div class="section-title">
+      <span class="badge b-green">Plan</span>
+      <h2>Plan de implementacion sugerido</h2>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>Fase 1 - Preparacion (Semana 1)</h3>
+        <ul class="tight">
+          <li><span class="check">✓</span><div>Verificar internet y red WiFi del taller</div></li>
+          <li><span class="check">✓</span><div>Instalar tabletas y lector de codigos</div></li>
+          <li><span class="check">✓</span><div>Definir personal, permisos y servicios</div></li>
+          <li><span class="check">✓</span><div>Capacitacion inicial por estacion</div></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Fase 2 - Puesta en marcha (Semanas 2-3)</h3>
+        <ul class="tight">
+          <li><span class="check">✓</span><div>Iniciar Porteria y Taller en paralelo</div></li>
+          <li><span class="check">✓</span><div>Sumar Almacen y Caja</div></li>
+          <li><span class="check">✓</span><div>Activar Certificaciones y Asistencia</div></li>
+          <li><span class="check">✓</span><div>Acompanamiento en sitio en horario punta</div></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Fase 3 - Estabilizacion (Semanas 4-6)</h3>
+        <ul class="tight">
+          <li><span class="check">✓</span><div>Resolver dudas y ajustar permisos</div></li>
+          <li><span class="check">✓</span><div>Revisar saldos e inventario contra sistema</div></li>
+          <li><span class="check">✓</span><div>Confirmar comprobantes y correlativos</div></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Fase 4 - Gestion (En adelante)</h3>
+        <ul class="tight">
+          <li><span class="check">✓</span><div>Reunion semanal de indicadores</div></li>
+          <li><span class="check">✓</span><div>Reportes de facturacion y pendientes</div></li>
+          <li><span class="check">✓</span><div>Mejora continua de procesos</div></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot">Plan de implementacion - 4 fases</div>
+  </section>
+
+  <section class="slide">
+    <div class="logo-row">
+      <div class="logo-box">R</div>
+      <div>
+        <div class="kicker">Cierre</div>
+        <h1>ReyGas: listo para el taller</h1>
+      </div>
+    </div>
+    <p>El sistema ya es <strong>funcional de punta a punta</strong>: registro, trabajo, despacho, cobro y certificacion en tiempo real y con respaldo en la nube. Con las mejoras administrativas y fisicas propuestas, el taller gana orden, control y datos para decidir.</p>
+    <div class="grid g3">
+      <div class="card"><h3>Hoy</h3><p class="muted">Sistema operativo y probado en el dia a dia.</p></div>
+      <div class="card"><h3>Esta semana</h3><p class="muted">Red WiFi y tabletas por estacion.</p></div>
+      <div class="card"><h3>Primer mes</h3><p class="muted">Personal capacitado, inventario al dia, indicadores semanales.</p></div>
+    </div>
+    <div class="foot">ReyGas ERP Web - Presentacion para gerencia - Gracias</div>
+  </section>
+
+</div>
+
+<div id="nav">
+  <button id="prev" title="Anterior">&#8249;</button>
+  <div class="dots" id="dots"></div>
+  <button id="next" title="Siguiente">&#8250;</button>
+  <span id="counter">1 / 11</span>
+</div>
+
+<script>
+  var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var current = 0;
+  var dotsWrap = document.getElementById("dots");
+  var counter = document.getElementById("counter");
+  slides.forEach(function (s, i) {
+    var d = document.createElement("span");
+    d.className = "dot";
+    d.addEventListener("click", function () { go(i); });
+    dotsWrap.appendChild(d);
+  });
+  var dots = Array.prototype.slice.call(dotsWrap.children);
+  function go(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach(function (s, k) { s.classList.toggle("active", k === current); });
+    dots.forEach(function (d, k) { d.classList.toggle("on", k === current); });
+    counter.textContent = (current + 1) + " / " + slides.length;
+    window.scrollTo(0, 0);
+  }
+  document.getElementById("next").addEventListener("click", function () { go(current + 1); });
+  document.getElementById("prev").addEventListener("click", function () { go(current - 1); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); go(current + 1); }
+    else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); go(current - 1); }
+    else if (e.key === "Home") { go(0); }
+    else if (e.key === "End") { go(slides.length - 1); }
+  });
+  go(0);
+</script>
+</body>
+</html>
