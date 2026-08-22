@@ -59,14 +59,14 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-300 mb-1">
-              Correo Electrónico / Usuario
+              Usuario / Correo Electrónico
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
-                type="email"
+                type="text"
                 required
-                placeholder="usuario@reygas.com"
+                placeholder="usuario o correo"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 bg-reygas-dark border border-white/10 rounded-xl text-sm text-white focus:border-reygas-red"

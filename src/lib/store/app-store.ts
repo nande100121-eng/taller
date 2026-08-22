@@ -698,7 +698,7 @@ interface AppState {
   // Authentication State
   isAuthenticated: boolean;
   userRole: "admin" | "personal" | null;
-  currentUser: { name: string; email: string; technician_id?: string; allowed_tabs?: string[] } | null;
+  currentUser: { name: string; email: string; username?: string; technician_id?: string; allowed_tabs?: string[] } | null;
   login: (email: string, pass: string) => boolean;
   logout: () => void;
 
@@ -956,33 +956,56 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   currentUser: null,
 
   login: (email, pass) => {
-    if (email.toLowerCase().includes("admin") || email === "admin@reygas.com") {
+    const identifier = String(email || "").trim();
+    const password = String(pass || "");
+    const demo = identifier.toLowerCase();
+    // Acceso rapido de prueba (botones 1-clic de la pagina de login) — se conserva.
+    if (demo === "admin@reygas.com" || demo === "personal@reygas.com") {
+      const isAdmin = demo === "admin@reygas.com";
       set({
         isAuthenticated: true,
-        userRole: "admin",
-        currentUser: { name: "Administrador ReyGas", email },
-        isVisualEditing: true,
-      });
-      return true;
-    } else if (email || pass) {
-      // Find matching technician
-      const matchedTech = get().technicians.find(
-        (t) => t.full_name.toLowerCase() === email.toLowerCase() || t.id === pass
-      );
-      set({
-        isAuthenticated: true,
-        userRole: "personal",
-        currentUser: {
-          name: matchedTech ? matchedTech.full_name : "Operador de Taller",
-          email,
-          technician_id: matchedTech?.id,
-          allowed_tabs: matchedTech?.allowed_tabs,
-        },
-        isVisualEditing: false,
+        userRole: isAdmin ? "admin" : "personal",
+        currentUser: { name: isAdmin ? "Administrador ReyGas" : "Operador de Taller", email: identifier },
+        isVisualEditing: isAdmin,
       });
       return true;
     }
-    return false;
+    // ADMIN: por nombre/correo del administrador (comportamiento historico).
+    if (demo.includes("admin") || demo === "admin@reygas.com") {
+      set({
+        isAuthenticated: true,
+        userRole: "admin",
+        currentUser: { name: "Administrador ReyGas", email: identifier },
+        isVisualEditing: true,
+      });
+      return true;
+    }
+    // PERSONAL: el USUARIO del roster es la identidad (username, correo, nombre o
+    // usuario generado) y se VALIDA la contrasena del roster/cambiar-clave.
+    const cleanId = identifier.toLowerCase();
+    const matchedTech = get().technicians.find(
+      (t) =>
+        (t.username && t.username.toLowerCase() === cleanId) ||
+        (t.email && t.email.toLowerCase() === cleanId) ||
+        (t.full_name && t.full_name.toLowerCase() === cleanId) ||
+        (generateDefaultUsername(t.full_name).toLowerCase() === cleanId)
+    );
+    if (!matchedTech) return false;
+    const expectedPass = (matchedTech.password && String(matchedTech.password).trim()) || generateDefaultUsername(matchedTech.full_name);
+    if (!password || password.trim() !== expectedPass) return false;
+    set({
+      isAuthenticated: true,
+      userRole: "personal",
+      currentUser: {
+        name: matchedTech.full_name,
+        email: identifier,
+        username: matchedTech.username || "",
+        technician_id: matchedTech.id,
+        allowed_tabs: matchedTech.allowed_tabs,
+      },
+      isVisualEditing: false,
+    });
+    return true;
   },
 
   logout: () =>
