@@ -19,6 +19,8 @@ import {
   CalendarDays,
   CalendarRange,
   AlertTriangle,
+  Loader2,
+  Send,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -84,8 +86,13 @@ export default function CertificacionesPage() {
     certifications,
     addCertification,
     updateCertificationPrice,
+    updateCertification,
+    updateWorkOrder,
+    sendCertificationToCashier,
     vehicles,
     workOrders,
+    invoices,
+    technicians,
     syncFromSupabase,
     notify,
   } = useAppStore();
@@ -133,7 +140,54 @@ export default function CertificacionesPage() {
     issue_date: getPeruDateString(),
     expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
     quinquennial_date: "-",
+    responsible: "",
   });
+
+  // Consulta a INFOGAS (chip/quinquenal por placa) - mismo API público que usa Taller.
+  const [consultInfogasPlate, setConsultInfogasPlate] = useState<string | null>(null);
+  const handleConsultInfogas = async (card: any) => {
+    const plate = (card.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!plate) {
+      notify("warning", "La certificación no tiene placa para consultar.");
+      return;
+    }
+    setConsultInfogasPlate(plate);
+    try {
+      const form = new URLSearchParams();
+      form.append("plate", plate);
+      const res = await fetch("https://apivh.infogas.com.pe/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: form.toString(),
+      });
+      const data = await res.json();
+      setConsultInfogasPlate(null);
+      if (data?.status === "Success" && data.data) {
+        const d = data.data;
+        const qDate = d.ProximoVencCilindro ? String(d.ProximoVencCilindro).slice(0, 10) : "";
+        const cDate = d.ProximaRevAnual ? String(d.ProximaRevAnual).slice(0, 10) : "";
+        // Guardar en la certificación (si existe) y en la OT vinculada (si existe).
+        if (card.certId) {
+          const updates: any = {};
+          if (qDate) updates.quinquennial_date = qDate;
+          if (cDate) updates.expiry_date = cDate;
+          if (Object.keys(updates).length > 0) updateCertification(card.certId, updates);
+        }
+        if (card.workOrderId) {
+          const woUpdates: any = {};
+          if (qDate) woUpdates.quinquennial_date = qDate;
+          if (cDate) woUpdates.chip_expiry_date = cDate;
+          if (Object.keys(woUpdates).length > 0) updateWorkOrder(card.workOrderId, woUpdates);
+        }
+        notify("success", `Infogas ${plate}: Quinquenal ${qDate || "—"} · Chip ${cDate || "—"}`);
+      } else {
+        notify("warning", data?.message || `La placa ${plate} no fue encontrada en Infogas.`);
+      }
+    } catch (err) {
+      setConsultInfogasPlate(null);
+      notify("error", "No se pudo conectar con el consultor de Infogas.");
+    }
+  };
 
 
   // Vehicles Map
@@ -147,6 +201,23 @@ export default function CertificacionesPage() {
 
   // Combine Certifications from store + All Historical WorkOrders with Chip/Quinquennial data
   const allCards = useMemo(() => {
+    // Mapa factura -> OT: para saber si una OT/placa YA FUE PAGADA en Caja y NO
+    // mostrarla como "Solicitado"/pendiente (el usuario reportó cards pagadas
+    // que seguían apareciendo como pendientes).
+    const invoicesByWoId = new Map<string, any>();
+    invoices.forEach((inv) => {
+      if (inv && inv.work_order_id) invoicesByWoId.set(inv.work_order_id, inv);
+    });
+    const isWoPaid = (wo: any) => {
+      if (!wo) return false;
+      const inv = invoicesByWoId.get(wo.id);
+      return (
+        inv?.payment_status === "pagado" ||
+        wo?.status === "pagado_autorizado" ||
+        wo?.status === "finalizado"
+      );
+    };
+
     const list: Array<{
       id: string;
       certId?: string;
@@ -193,7 +264,12 @@ export default function CertificacionesPage() {
       const dQuinquenal = parseFlexibleDate(fechaQuinquenal);
 
       let cardStatus: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido" = "Vigente";
-      if (c.status === "Solicitado" || c.is_ready === false) {
+      // SI LA OT YA FUE PAGADA: la certificación no es una solicitud pendiente
+      // (fue cobrada en Caja) -> no mostrarla como "Solicitado".
+      const certWoPaid = c.work_order_id ? isWoPaid(workOrders.find((w) => w.id === c.work_order_id)) : false;
+      if (certWoPaid) {
+        cardStatus = "Vigente";
+      } else if (c.status === "Solicitado" || c.is_ready === false) {
         cardStatus = "Solicitado";
       } else if ((dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart)) {
         cardStatus = "Vencido";
@@ -249,7 +325,11 @@ export default function CertificacionesPage() {
         const dQuinquenal = parseFlexibleDate(fechaQuinquenal);
 
         let cardStatus: "Solicitado" | "Vigente" | "Por Vencer" | "Vencido" = "Vigente";
-        if (wo.requires_certification && !wo.certification_issued) {
+        // SI LA OT YA FUE PAGADA en Caja: la certificación fue cobrada, no es una
+        // solicitud pendiente -> no mostrarla como "Solicitado".
+        if (isWoPaid(wo)) {
+          cardStatus = "Vigente";
+        } else if (wo.requires_certification && !wo.certification_issued) {
           cardStatus = "Solicitado";
         } else if ((dAnual && dAnual < todayStart) || (dQuinquenal && dQuinquenal < todayStart)) {
           cardStatus = "Vencido";
@@ -288,7 +368,7 @@ export default function CertificacionesPage() {
       const tb = b.issueDate ? new Date(b.issueDate).getTime() : 0;
       return tb - ta;
     });
-  }, [certifications, workOrders, vehiclesMap]);
+  }, [certifications, workOrders, vehiclesMap, invoices]);
 
   // Expiry Date Calculations for Filters (This Week & This Month & Expired)
   const now = new Date();
@@ -514,6 +594,7 @@ export default function CertificacionesPage() {
       price: manualForm.price,
       status: "Vigente",
       is_ready: true,
+      responsible: manualForm.responsible.trim() || undefined,
     });
 
     notify("success", `¡Certificado para ${manualForm.vehicle_plate.toUpperCase()} registrado correctamente!`);
@@ -837,32 +918,52 @@ export default function CertificacionesPage() {
                     </p>
                   </div>
 
-                  {/* Vencimientos: Fecha de Anual / Chip & Fecha de Quinquenal from Registro Taller */}
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Fecha de Anual / Chip */}
-                    <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
-                          <CalendarIcon className="w-3 h-3 text-cyan-400" />
-                          <span>Fecha Chip / Anual:</span>
-                        </span>
-                      </div>
-                      <p className="font-mono font-black text-sm text-cyan-300">
-                        {card.expiryDate || "-"}
-                      </p>
+                  {/* SECCIÓN INFOGAS: consulta automática + edición inline de fechas
+                      (misma sección que la card de Taller: Quinquenal y Chip Anual). */}
+                  <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1.5">
+                        <CalendarIcon className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Fechas de Inspección (Quinquenal / Chip)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleConsultInfogas(card)}
+                        disabled={consultInfogasPlate === (card.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
+                        className="px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                        title="Consultar chip/quinquenal en Infogas por placa y autocompletar"
+                      >
+                        {consultInfogasPlate === (card.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <Search className="w-3 h-3" />}
+                        <span>{consultInfogasPlate === (card.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") ? "Consultando..." : "Consultar Infogas"}</span>
+                      </button>
                     </div>
-
-                    {/* Fecha de Quinquenal */}
-                    <div className="p-3 bg-reygas-dark/90 rounded-xl border border-white/10 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-gray-400 uppercase font-bold flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-purple-400" />
-                          <span>Fecha de Quinquenal:</span>
-                        </span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-black/40 border border-purple-500/20">
+                        <span className="text-[10px] text-gray-400 block font-semibold mb-1">📅 Fecha Quinquenal:</span>
+                        <MiniDatePicker
+                          value={card.quinquennialDate || ""}
+                          onChange={(d) => {
+                            if (card.certId) updateCertification(card.certId, { quinquennial_date: d || undefined });
+                            if (card.workOrderId) updateWorkOrder(card.workOrderId, { quinquennial_date: d || undefined });
+                          }}
+                          variant="compact"
+                          label="Quinquenal"
+                        />
                       </div>
-                      <p className="font-mono font-black text-sm text-purple-300">
-                        {card.quinquennialDate || "-"}
-                      </p>
+                      <div className="p-2 rounded-lg bg-black/40 border border-cyan-500/20">
+                        <span className="text-[10px] text-gray-400 block font-semibold mb-1">📅 Fecha Chip Anual:</span>
+                        <MiniDatePicker
+                          value={card.expiryDate || ""}
+                          onChange={(d) => {
+                            if (card.certId) updateCertification(card.certId, { expiry_date: d || undefined });
+                            if (card.workOrderId) updateWorkOrder(card.workOrderId, { chip_expiry_date: d || undefined });
+                          }}
+                          variant="compact"
+                          label="Chip"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -876,8 +977,24 @@ export default function CertificacionesPage() {
                           : "📜 Certificado emitido y vigente"}
                     </span>
 
-                    {/* Cards SOLO informativas (22/08): se elimino el boton 'Emitir & Notificar Listo a Caja'. */}
+                    {/* Boton Enviar a Cobrar: SOLO en certificaciones MANUALES (creadas con
+                        + Emitir Nuevo Certificado Manual, sin OT de Taller). Crea la OT y la
+                        manda a Caja. Las de Taller (con workOrderId) son informativas. */}
                     <div className="flex items-center gap-2">
+                      {card.certId && !card.workOrderId && !card.rawCert?.work_order_id && (
+                        <button
+                          onClick={() => {
+                            if (!card.certId) return;
+                            sendCertificationToCashier(card.certId);
+                            notify("success", `Certificación de ${card.plate} enviada a Caja para cobro ✓`);
+                          }}
+                          className="px-3.5 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 text-xs font-bold rounded-xl border border-emerald-500/40 flex items-center gap-1.5 transition-colors"
+                          title="Crear la orden y enviarla a Caja para su cobro"
+                        >
+                          <Send className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Enviar a Cobrar</span>
+                        </button>
+                      )}
                       {!isPending && (
                         <button
                           onClick={() => window.print()}
@@ -1075,6 +1192,28 @@ export default function CertificacionesPage() {
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold focus:border-teal-400"
                   />
                 </div>
+              </div>
+
+              {/* Responsable de la SOLICITUD (permiso del roster: Resp. Certificaciones) */}
+              <div>
+                <label className="block text-gray-300 font-bold mb-1">Responsable de Solicitud</label>
+                <select
+                  value={manualForm.responsible}
+                  onChange={(e) => setManualForm({ ...manualForm, responsible: e.target.value })}
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-bold focus:border-teal-400"
+                >
+                  <option value="">— Sin responsable —</option>
+                  {technicians
+                    .filter((t) => t.is_active !== false && !!t.is_certification_responsible)
+                    .map((t) => (
+                      <option key={t.id} value={t.full_name}>
+                        {t.full_name}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Solo aparecen los habilitados como Resp. Certificaciones (Tabla Maestra → Roster y Permisos).
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

@@ -137,6 +137,7 @@ export async function saveAllTechnicianPermissions(technicians: Technician[]): P
         is_debt_responsible: !!tech.is_debt_responsible,
         is_attention_responsible: !!tech.is_attention_responsible,
         is_mechanic_responsible: !!tech.is_mechanic_responsible,
+        is_certification_responsible: !!tech.is_certification_responsible,
         payment_nickname: tech.payment_nickname || "",
         email: tech.email || "",
         username: tech.username || "",
@@ -2026,7 +2027,7 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, is_attention_responsible, is_mechanic_responsible, is_certification_responsible, email, username, password, created_at")
       ),
       safeQuery<any[]>(supabase.from("site_content").select("*")),
     ]);
@@ -2567,7 +2568,7 @@ export async function fetchSupabaseErpData() {
       safeQuery<any[]>(
         supabase
           .from("technicians")
-          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, email, username, password, created_at")
+          .select("id, full_name, specialty, phone, is_active, allowed_tabs, can_receive_payment, is_debt_responsible, is_attention_responsible, is_mechanic_responsible, is_certification_responsible, email, username, password, created_at")
       ),
       fetchAllSupabaseTable("inventory_items"),
       fetchCappedOperationalData(),

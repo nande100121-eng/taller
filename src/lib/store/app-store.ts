@@ -357,6 +357,7 @@ export interface Technician {
   is_debt_responsible?: boolean; // Habilitado como RESPONSABLE del saldo pendiente (aparece en selectores de deuda)
   is_attention_responsible?: boolean; // Habilitado como RESPONSABLE DE LA ATENCIÓN (aparece en el selector de citas de Recepción)
   is_mechanic_responsible?: boolean; // Habilitado como MECÁNICO ASIGNADO RESPONSABLE (aparece en el selector de Taller)
+  is_certification_responsible?: boolean; // Habilitado como RESPONSABLE DE SOLICITUD DE CERTIFICACIÓN (aparece en el selector de Certificaciones)
   payment_nickname?: string; // SOBRENOMBRE usado como Destino de Pago (Tabla Maestra → Roster y Permisos)
 }
 
@@ -435,6 +436,8 @@ export interface WorkOrder {
   // saveSupabaseWorkOrder NO los vuelva a conservar desde la DB - fix: eliminar
   // un repuesto entregado en Taller lo volvía a re-agregar).
   removedItemIds?: string[];
+  // Responsable de la SOLICITUD de certificación (roster: Resp. Certificaciones).
+  responsible?: string;
 }
 
 // ===== INSTALACIONES: rebalanceo de la MANO DE OBRA del paquete =====
@@ -673,6 +676,7 @@ export interface Certification {
   status: "Vigente" | "Vencido" | "Por Vencer" | "Solicitado" | string;
   price?: number;
   is_ready?: boolean;
+  responsible?: string; // Responsable de la SOLICITUD (roster: Resp. Certificaciones)
 }
 
 export interface ScheduleRecord {
@@ -913,6 +917,8 @@ interface AppState {
 
   certifications: Certification[];
   addCertification: (cert: Omit<Certification, "id">) => void;
+  // Crea la OT de una certificación MANUAL y la envía a cobrar (aparece en Caja).
+  sendCertificationToCashier: (certId: string) => void;
   updateCertificationPrice: (id: string, price: number) => void;
   updateCertification: (id: string, updates: Partial<Certification>) => void;
 
@@ -5080,6 +5086,58 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     set((state) => ({
       certifications: [newCert, ...state.certifications],
     }));
+  },
+
+  // Enviar a Cobrar desde Certificaciones: crea la OT de una certificación MANUAL
+  // (sin OT previa de Taller) y la deja en "por_cobrar" para que aparezca en Caja
+  // con su total (misma card que las demás). El responsable de la solicitud se
+  // guarda en la OT (responsible) y en la certificación (responsible).
+  sendCertificationToCashier: (certId) => {
+    set((state) => {
+      const cert = state.certifications.find((c) => c.id === certId);
+      if (!cert) return state;
+      const woId = generateUUID();
+      const price = Number(cert.price) || 80;
+      const newOrder: WorkOrder = {
+        id: woId,
+        vehicle_plate: cert.vehicle_plate,
+        status: "por_cobrar",
+        entry_time: nowPeruISO(),
+        problem_description: `Certificación ${cert.certification_type || "Anual GNV"} (solicitada desde Certificaciones)`,
+        items: [
+          {
+            id: `item-${Date.now()}`,
+            item_type: "servicio",
+            description: `Certificación ${cert.certification_type || "Anual GNV"}`,
+            quantity: 1,
+            unit_price: price,
+            subtotal: price,
+          },
+        ],
+        requires_certification: true,
+        certification_type: (cert.certification_type as any) || "Anual GNV",
+        certification_price: price,
+        certification_id: certId,
+        responsible: cert.responsible || undefined,
+      };
+      saveSupabaseWorkOrder(newOrder);
+      // Enlazar la certificación a la nueva OT y persistir (responsable incluido).
+      const updatedCert: Certification = { ...cert, work_order_id: woId };
+      saveSupabaseCertification(updatedCert);
+      broadcastRealtimeChange("certification_updated");
+      logSystemEvent("info", "certificaciones.enviar_a_cobrar", {
+        certId: String(certId).slice(0, 8),
+        woId: woId.slice(0, 8),
+        plate: cert.vehicle_plate,
+        price,
+        responsible: cert.responsible || "",
+      }, "store:sendCertificationToCashier");
+      emitCloudSavedToast("Certificación enviada a Caja ✓");
+      return {
+        workOrders: [...state.workOrders, newOrder],
+        certifications: state.certifications.map((c) => (c.id === certId ? updatedCert : c)),
+      };
+    });
   },
 
   updateCertificationPrice: (id, price) => {

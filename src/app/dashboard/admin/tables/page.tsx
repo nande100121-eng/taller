@@ -349,6 +349,7 @@ export default function AdminTablesPage() {
     is_debt_responsible: false,
     is_attention_responsible: false,
     is_mechanic_responsible: false,
+    is_certification_responsible: false,
     payment_nickname: "",
   });
 
@@ -374,6 +375,7 @@ export default function AdminTablesPage() {
     is_debt_responsible: false,
     is_attention_responsible: false,
     is_mechanic_responsible: false,
+    is_certification_responsible: false,
     payment_nickname: "",
     is_active: true,
   });
@@ -405,6 +407,7 @@ export default function AdminTablesPage() {
       is_debt_responsible: !!tech.is_debt_responsible,
       is_attention_responsible: !!tech.is_attention_responsible,
       is_mechanic_responsible: !!tech.is_mechanic_responsible,
+      is_certification_responsible: !!tech.is_certification_responsible,
       payment_nickname: tech.payment_nickname || "",
       is_active: tech.is_active !== false,
     });
@@ -431,6 +434,7 @@ export default function AdminTablesPage() {
       is_debt_responsible: techEditForm.is_debt_responsible,
       is_attention_responsible: techEditForm.is_attention_responsible,
       is_mechanic_responsible: techEditForm.is_mechanic_responsible,
+      is_certification_responsible: techEditForm.is_certification_responsible,
       payment_nickname: techEditForm.payment_nickname.trim(),
       is_active: techEditForm.is_active,
     });
@@ -695,6 +699,7 @@ export default function AdminTablesPage() {
       is_debt_responsible: techForm.is_debt_responsible,
       is_attention_responsible: techForm.is_attention_responsible,
       is_mechanic_responsible: techForm.is_mechanic_responsible,
+      is_certification_responsible: techForm.is_certification_responsible,
       payment_nickname: techForm.payment_nickname.trim(),
     });
     setTechForm({
@@ -707,6 +712,7 @@ export default function AdminTablesPage() {
       is_debt_responsible: false,
       is_attention_responsible: false,
       is_mechanic_responsible: false,
+      is_certification_responsible: false,
       payment_nickname: "",
     });
   };
@@ -1896,6 +1902,16 @@ export default function AdminTablesPage() {
                   className="rounded border-amber-500 text-amber-600 focus:ring-amber-500 cursor-pointer"
                 />
                 <span>👨‍🔧 Mecánico Asignado Responsable (aparece en el selector de Mecánico de Taller)</span>
+              </label>
+
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-violet-950/40 border border-violet-500/40 text-violet-300 text-xs font-bold cursor-pointer hover:bg-violet-950/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={techForm.is_certification_responsible}
+                  onChange={(e) => setTechForm({ ...techForm, is_certification_responsible: e.target.checked })}
+                  className="rounded border-violet-500 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                />
+                <span>🪪 Resp. Certificaciones (aparece en el selector de Responsable de Solicitud de Certificaciones)</span>
               </label>
 
               <div className="p-2.5 rounded-xl bg-blue-950/40 border border-blue-500/40">
