@@ -45,6 +45,7 @@ import {
   fetchSupabaseFuelTypes,
   fetchSupabaseCertifications,
   fetchSupabaseScheduleRecords,
+  fetchSupabaseAppointments,
   fetchSupabaseInventory,
   fetchSupabaseTechnicians,
 } from "@/lib/supabase/services";
@@ -749,6 +750,7 @@ interface AppState {
   syncInventoryOnly: () => Promise<void>;
   syncTechniciansOnly: () => Promise<void>;
   syncScheduleOnly: () => Promise<void>;
+  syncAppointmentsOnly: () => Promise<void>;
   saveAllToSupabase: () => Promise<boolean>;
 
   siteContent: SiteContent;
@@ -795,6 +797,8 @@ interface AppState {
   applyRemoteWorkOrderLocal: (wo: any) => void;
   applyRemoteInvoiceLocal: (inv: any) => void;
   applyRemoteVehicleLocal: (v: any) => void;
+  applyRemoteAppointmentLocal: (app: any) => void;
+  removeDeletedAppointmentLocal: (appointmentId: string) => void;
   deleteMultipleWorkOrders: (ids: string[]) => void;
   clearAllWorkOrders: () => void;
   requestCertificationForWorkOrder: (
@@ -1595,6 +1599,28 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       if (Array.isArray(records) && records.length > 0) {
         set((state) => ({ scheduleRecords: records }));
       }
+    } catch { }
+  },
+
+  // Sync LIGERO de citas (Portería): se dispara al recibir el broadcast
+  // "appointment_updated" desde otra tablet/dispositivo (sin esperar el sync
+  // completo). Merge por id conservando el estado local (patrón roster).
+  syncAppointmentsOnly: async () => {
+    try {
+      if (hasRecentLocalMutation("appointments")) return;
+      const remoteApps = await fetchSupabaseAppointments();
+      if (!Array.isArray(remoteApps) || remoteApps.length === 0) return;
+      set((state) => {
+        const mergedApps = new Map<string, any>();
+        state.appointments.forEach((app) => mergedApps.set(app.id, app));
+        remoteApps.forEach((app) => {
+          if (app && app.id) {
+            const local = mergedApps.get(app.id);
+            mergedApps.set(app.id, local ? { ...local, ...app } : app);
+          }
+        });
+        return { appointments: Array.from(mergedApps.values()) };
+      });
     } catch { }
   },
 
@@ -3396,6 +3422,30 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         : [...state.vehicles, merged];
       return { vehicles: updated };
     });
+  },
+
+  // Realtime CROSS-DEVICE: fila de appointments que llega por postgres_changes desde
+  // OTRA tablet (Portería). Se aplica directo con merge por id (<100ms, sin refresh).
+  applyRemoteAppointmentLocal: (app) => {
+    if (!app || !app.id) return;
+    set((state) => {
+      if (hasRecentLocalMutation("appointments", 800)) return state;
+      const existing = state.appointments.find((a) => a.id === app.id);
+      const merged = existing ? { ...existing, ...app } : app;
+      const updated = existing
+        ? state.appointments.map((a) => (a.id === app.id ? merged : a))
+        : [...state.appointments, merged];
+      return { appointments: updated };
+    });
+  },
+
+  // Realtime CROSS-DEVICE: reserva ELIMINADA desde otra tablet → quitarla del store
+  // local al instante (sin refresh). Refuerzo del broadcast "appointment_deleted".
+  removeDeletedAppointmentLocal: (appointmentId) => {
+    if (!appointmentId) return;
+    set((state) => ({
+      appointments: state.appointments.filter((a) => a.id !== appointmentId),
+    }));
   },
 
   deleteMultipleWorkOrders: (ids) => {

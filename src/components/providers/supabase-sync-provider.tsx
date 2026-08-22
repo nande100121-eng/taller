@@ -20,6 +20,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const syncInventoryOnly = useAppStore((state) => state.syncInventoryOnly);
   const syncTechniciansOnly = useAppStore((state) => state.syncTechniciansOnly);
   const syncScheduleOnly = useAppStore((state) => state.syncScheduleOnly);
+  const syncAppointmentsOnly = useAppStore((state) => state.syncAppointmentsOnly);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -150,6 +151,17 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         syncTechniciansOnly();
       } else if (eventType.includes("schedule")) {
         syncScheduleOnly();
+      } else if (eventType.includes("appointment")) {
+        // Citas (Portería) CROSS-DEVICE: la señal llega por broadcast desde otra
+        // tablet. appointment_deleted trae el id → se quita local al instante.
+        // appointment_updated dispara el sync ligero de citas (merge por id) sin
+        // esperar el sync completo. Refuerzo del postgres_changes de appointments.
+        if (eventType.includes("appointment_deleted")) {
+          const deletedId = (msg.payload as any)?.deletedId;
+          if (deletedId) useAppStore.getState().removeDeletedAppointmentLocal(deletedId);
+        } else {
+          syncAppointmentsOnly();
+        }
       } else if (eventType.includes("tool_loans")) {
         debouncedFullSync();
       } else if (eventType.includes("attendance")) {
@@ -193,6 +205,11 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         else if (et.includes("inventory")) syncInventoryOnly();
         else if (et.includes("technician")) syncTechniciansOnly();
         else if (et.includes("schedule")) syncScheduleOnly();
+        else if (et.includes("appointment_deleted")) {
+          const deletedId = String(msg.deletedId || "");
+          if (deletedId) useAppStore.getState().removeDeletedAppointmentLocal(deletedId);
+        }
+        else if (et.includes("appointment")) syncAppointmentsOnly();
         else if (et.includes("tool_loans")) debouncedFullSync();
         else if (et.includes("attendance")) debouncedFullSync();
         // Operativo (work_orders/invoices/vehicles): NO refetch (el postgres_changes del
@@ -277,6 +294,17 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (hasRecentLocalMutation("attendanceLogs")) return;
         debouncedFullSync();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, (payload: any) => {
+        // Citas (Portería) CROSS-DEVICE: la fila llega por WebSocket y se aplica
+        // DIRECTA al store (<100ms, sin refresh). DELETE quita la reserva local
+        // inmediatamente; INSERT/UPDATE hace merge por id.
+        if (payload?.eventType === "DELETE") {
+          const oldId = payload?.old?.id;
+          if (oldId) useAppStore.getState().removeDeletedAppointmentLocal(oldId);
+        } else if (payload?.new?.id) {
+          useAppStore.getState().applyRemoteAppointmentLocal(payload.new);
+        }
+      })
       .subscribe((status) => {
         if (status === "CLOSED" || status === "CHANNEL_ERROR") {
           // Canal postgres_changes perdido (corte WiFi / tablet hibernada).
@@ -306,7 +334,7 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (opTimerRef.current) clearTimeout(opTimerRef.current);
       supabase.removeChannel(dbChannel);
     };
-  }, [syncFromSupabase, syncOperationalOnly, syncServicesOnly, syncCertificationsOnly, syncInventoryOnly, syncTechniciansOnly, syncScheduleOnly]);
+  }, [syncFromSupabase, syncOperationalOnly, syncServicesOnly, syncCertificationsOnly, syncInventoryOnly, syncTechniciansOnly, syncScheduleOnly, syncAppointmentsOnly]);
 
   return <>{children}</>;
 };

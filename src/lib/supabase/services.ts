@@ -1994,6 +1994,21 @@ export async function fetchSupabaseScheduleRecords(): Promise<ScheduleRecord[] |
   }
 }
 
+// Ultra-fast granular fetch for Appointments (~25ms): tabla appointments como fuente
+// principal (el sync completo trae el merge con snapshots appt_* de site_content).
+// Se usa para el sync LIGERO de citas al recibir broadcast "appointment_updated"
+// (sin esperar el sync completo de 30s).
+export async function fetchSupabaseAppointments(): Promise<Appointment[] | null> {
+  try {
+    const res = await queryAppointmentsWithMissingGuard();
+    const baseApps = (res.data && res.data.length > 0) ? [...res.data] : [];
+    if (baseApps.length === 0) return null;
+    return baseApps;
+  } catch {
+    return null;
+  }
+}
+
 // Ultra-fast granular fetch for Inventory (~30ms)
 export async function fetchSupabaseInventory(): Promise<InventoryItem[] | null> {
   try {
@@ -3141,6 +3156,10 @@ export async function saveSupabaseAppointment(app: Appointment) {
   try {
     // La tabla appointments puede no existir aún en la base; siempre respaldar en site_content.
     await saveSupabaseSiteContent(`appt_${app.id}`, app, "appointments");
+    // REALTIME CROSS-DEVICE: señal a TODAS las tablets/dispositivos para que la cita
+    // aparezca/actualice al instante (sin refresh). El provider escucha "appointment"
+    // y dispara el sync ligero + aplica la fila directa por postgres_changes.
+    broadcastRealtimeChange("appointment_updated");
     if (appointmentsTableMissing) return;
     const { error } = await supabase.from("appointments").upsert({
       id: app.id,
@@ -3162,6 +3181,10 @@ export async function saveSupabaseAppointment(app: Appointment) {
 export async function deleteSupabaseAppointment(id: string) {
   try {
     await supabase.from("site_content").delete().eq("section_key", `appt_${id}`);
+    // REALTIME CROSS-DEVICE: señal de BORRADO a TODAS las tablets/dispositivos para
+    // que la reserva desaparezca al instante (sin refresh). El provider escucha
+    // "appointment_deleted" y la quita del store local + postgres_changes DELETE.
+    broadcastRealtimeChange("appointment_deleted", { deletedId: id });
     if (appointmentsTableMissing) return;
     const { error } = await supabase.from("appointments").delete().eq("id", id);
     if (error) console.warn("Supabase appointment delete warning:", error.message);
