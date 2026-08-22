@@ -2130,6 +2130,26 @@ export default function CajaPage() {
     });
   };
 
+  // TICKET DE CRÉDITO (BUD-647): un clic pone TODOS los métodos en S/ 0.00 y desmarca
+  // los recursos — el comprobante se emite (correlativo) sin cobrar y el total queda
+  // como pendiente/crédito. El usuario elige el tipo (Ticket) y el N° después.
+  const handleCreditTicketMode = () => {
+    setPartialPaymentModal((prev: any) => {
+      if (!prev) return prev;
+      const paymentSplits = (prev.paymentSplits || []).map((sp: any) => ({
+        ...sp,
+        amount: 0,
+        splitResources: Array.isArray(sp.splitResources)
+          ? sp.splitResources.map((r: any) => ({ ...r, selected: false, payAmount: 0 }))
+          : sp.splitResources,
+      }));
+      return { ...prev, paymentSplits, amount: 0 };
+    });
+    logSystemEvent("info", "abono.mode_credito", {
+      plate: partialPaymentModal?.workOrder?.vehicle_plate || "",
+    }, "Caja:modal-abono");
+  };
+
   // Submit partial / installment payment (abono)
   const handleConfirmPartialPaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2158,14 +2178,13 @@ export default function CajaPage() {
     // real de los montos editados manualmente en el desglose (evita que el monto global
     // desincronizado bloquee el submit cuando el usuario ajusta un método a mano).
     const totalSplitsSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    // El monto del abono SIEMPRE es lo que está en el desglose (splits) o en los
-    // recursos marcados. NO caer al valor inicial del modal (balance) cuando el cajero
-    // puso 0: es el caso del TICKET DE CRÉDITO (BUD-647: emitir correlativo con monto 0
-    // y que el total quede como pendiente). Sin esto, splits 0 + modal.amount 150 =>
-    // bloqueo "suma de abonos parciales 0.00 vs monto a abonar 150.00".
-    const amount = selectedSum > 0
-      ? Number(selectedSum.toFixed(2))
-      : Number(totalSplitsSum.toFixed(2));
+    // El monto del abono SIEMPRE es la SUMA DE LOS MÉTODOS (splits): los recursos
+    // vienen PRESELECCIONADOS con su saldo (p. ej. 150) y NO deben dominar el monto.
+    // TICKET DE CRÉDITO (BUD-647): el cajero pone el método en 0 (no cobra ahora) =>
+    // amount 0 => se emite el correlativo y el total queda como pendiente. Si el monto
+    // saliera de los recursos preseleccionados (150) con splits en 0, el bloqueo
+    // "suma de abonos parciales 0.00 vs monto a abonar 150.00" reaparecía.
+    const amount = Number(totalSplitsSum.toFixed(2));
     // Monto 0 (gratuito) o "Sin Comprobante": no se consume correlativo; al editar se
     // LIBERA el N° que tenía (el store lo borra de la factura y del historial).
     // Monto 0: default "Sin Comprobante" al abrir, pero una selección EXPLÍCITA de
@@ -2304,7 +2323,9 @@ export default function CajaPage() {
     // SUS propios recursos (splitResources) con su N° de comprobante; en Pago Único
     // se usa la selección global. Cada recurso va con el comprobante que lo cubre.
     const abonoResources: PaymentResource[] = [];
-    if (partialPaymentModal.isSplitPayment && Array.isArray(partialPaymentModal.paymentSplits)) {
+    // TICKET DE CRÉDITO (monto 0): no se vinculan recursos — el abono 0 no distribuye
+    // nada; solo se emite el correlativo y el total queda como pendiente.
+    if (amount > 0 && partialPaymentModal.isSplitPayment && Array.isArray(partialPaymentModal.paymentSplits)) {
       (partialPaymentModal.paymentSplits as any[]).forEach((sp) => {
         const recNum = (sp as any).receipt_number || assignedReceiptNum || undefined;
         const recType = (sp as any).receipt_type || finalReceiptType || undefined;
@@ -2321,7 +2342,7 @@ export default function CajaPage() {
             });
           });
       });
-    } else {
+    } else if (amount > 0) {
       (partialPaymentModal.resourceSelection || [])
         .filter((r) => r.selected && (Number(r.payAmount) || 0) > 0)
         .forEach((r) => {
@@ -5952,6 +5973,14 @@ export default function CajaPage() {
                       );
                     })}
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleCreditTicketMode}
+                    className="mt-2 w-full px-3 py-2 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-300 text-xs font-bold hover:bg-rose-950/70 transition-all flex items-center justify-center gap-1.5"
+                    title="Emitir el comprobante SIN cobrar: el monto queda en S/ 0.00, el total pasa a pendiente/crédito (ej. BUD-647)"
+                  >
+                    💳 Crédito — emitir comprobante sin cobrar (S/ 0.00)
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
