@@ -1661,6 +1661,34 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
             phantomKeys.forEach((k) => mergedInvoices.delete(k));
           }
 
+          // NUBE = FUENTE DE VERDAD (fix 22/08 H2W-236): las facturas LOCALES que no
+          // existen en Supabase son cache obsoleto / fantasmas (ej. un pago que nunca
+          // persistio o fue borrado en cascada: la card lo mostraba pero el reporte
+          // diario -construido 100% desde la nube- no podia incluirlo). Se DROPEAN
+          // del store para que la card deje de mostrar pagos que la nube no reconoce.
+          // Excepcion: si hubo una mutacion local de facturas en los ultimos segundos,
+          // el upsert async aun no llego a la nube (se protege el guardado en vuelo y
+          // el proximo sync reconcilia).
+          const remoteInvKeys = new Set<string>();
+          remoteInvoices.forEach((inv: any) => {
+            const rk = inv?.work_order_id || inv?.id;
+            if (rk) remoteInvKeys.add(rk);
+          });
+          if (!hasRecentLocalMutation("invoices", 8000)) {
+            const droppedLocalOnly: string[] = [];
+            mergedInvoices.forEach((inv: any, k: string) => {
+              if (remoteInvKeys.has(k)) return;
+              droppedLocalOnly.push(String(k).slice(0, 26) + "|" + (inv?.vehicle_plate || "") + "|" + String(inv?.id || "").slice(0, 26));
+              mergedInvoices.delete(k);
+            });
+            if (droppedLocalOnly.length > 0) {
+              logSystemEvent("warn", "invoice.local_only_descartada", {
+                count: droppedLocalOnly.length,
+                ejemplos: droppedLocalOnly.slice(0, 5),
+              }, "store:syncFromSupabase");
+            }
+          }
+
           updates.invoices = Array.from(mergedInvoices.values());
         }
         if (Array.isArray(erpData?.appointments)) {
@@ -1827,6 +1855,31 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
             });
           }
         });
+        // NUBE = FUENTE DE VERDAD (fix 22/08 H2W-236): mismas reglas que syncFromSupabase.
+        // Se DROPEAN del store las facturas locales que Supabase ya no tiene (el reporte
+        // diario se construye SOLO desde la nube y no podia mostrar esos pagos: ej. el
+        // abono del 19.08 de H2W-236 visible en la card pero ausente del reporte).
+        // Se protege el guardado en vuelo (mutacion local de facturas < 8s) para no
+        // borrar un pago cuyo upsert async aun no aterriza; el proximo sync reconcilia.
+        const remoteInvKeys = new Set<string>();
+        remoteInvoices.forEach((inv: any) => {
+          const rk = inv?.work_order_id || inv?.id;
+          if (rk) remoteInvKeys.add(rk);
+        });
+        if (!hasRecentLocalMutation("invoices", 8000)) {
+          const droppedLocalOnly: string[] = [];
+          mergedInvoices.forEach((inv: any, k: string) => {
+            if (remoteInvKeys.has(k)) return;
+            droppedLocalOnly.push(String(k).slice(0, 26) + "|" + (inv?.vehicle_plate || "") + "|" + String(inv?.id || "").slice(0, 26));
+            mergedInvoices.delete(k);
+          });
+          if (droppedLocalOnly.length > 0) {
+            logSystemEvent("warn", "invoice.local_only_descartada", {
+              count: droppedLocalOnly.length,
+              ejemplos: droppedLocalOnly.slice(0, 5),
+            }, "store:syncOperationalOnly");
+          }
+        }
         updates.invoices = Array.from(mergedInvoices.values());
       }
 
