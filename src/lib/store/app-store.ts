@@ -1248,6 +1248,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
           set({ correlativeConfig: cur });
         }
       });
+      // Re-verificación corta: si la nube aún no refleja el N° liberado (el save es
+      // async y la consulta puede leer antes), se reintenta una vez pasados unos
+      // segundos para que la liberación complete (config baja al último folio real).
+      setTimeout(() => {
+        try {
+          if (get().correlativeConfig) void get().recomputeReceiptMaximaAfterClear();
+        } catch { /* noop */ }
+      }, 8000);
     } catch (err) {
       console.warn("recomputeReceiptMaximaAfterClear:", err);
     }
@@ -3923,8 +3931,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         payment_breakdown: (Array.isArray((updates as any).payment_breakdown) && (updates as any).payment_breakdown.length > 0)
           ? (updates as any).payment_breakdown
           : (history.length > 0 ? rebuildBreakdownFromHistory(history) : undefined),
-        receipt_number: history.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : "",
-        receipt_type: history.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : "",
+        // LIBERACIÓN DE CORRELATIVO: si la edición puso "Sin Comprobante" (""), la
+        // factura NO debe arrastrar el N° viejo (antes caía en el fallback
+        // targetInvoice.receipt_number porque "" es falsy -> TK01-4622 seguía vivo).
+        receipt_number: (updates.receipt_number !== undefined && String(updates.receipt_number) === "")
+          ? ""
+          : (history.length > 0 ? (lastRec?.receipt_number || targetInvoice.receipt_number || "") : ""),
+        receipt_type: (updates.receipt_type !== undefined && String(updates.receipt_type) === "")
+          ? ""
+          : (history.length > 0 ? (lastRec?.receipt_type || targetInvoice.receipt_type || "") : ""),
         paid_at: history.length > 0 ? (lastRec?.date || targetInvoice.paid_at) : undefined,
         debt_observation: history.length > 0 ? targetInvoice.debt_observation : undefined,
         debt_responsible: history.length > 0 ? targetInvoice.debt_responsible : undefined,
