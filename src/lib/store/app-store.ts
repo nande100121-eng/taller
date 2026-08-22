@@ -919,6 +919,33 @@ interface AppState {
   addAttendanceLogs: (logs: Omit<AttendanceLog, "id">[]) => void;
 }
 
+// CARTERA DE SESIÓN (key diminuta + escritura SINCRÓNICA): garantiza que el login
+// persista entre recargas aunque el caché grande falle por cuota o por debounce.
+const SESSION_WALLET_KEY = "reygas-session-wallet-v1";
+function readSessionWallet(): { isAuthenticated?: boolean; userRole?: string | null; currentUser?: any; isVisualEditing?: boolean } {
+  try {
+    const raw = localStorage.getItem(SESSION_WALLET_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+function writeSessionWallet(s: { isAuthenticated?: boolean; userRole?: string | null; currentUser?: any; isVisualEditing?: boolean }) {
+  try {
+    localStorage.setItem(SESSION_WALLET_KEY, JSON.stringify(s));
+  } catch {
+    /* ignora (modo privado / cuota) */
+  }
+}
+function clearSessionWallet() {
+  try {
+    localStorage.removeItem(SESSION_WALLET_KEY);
+  } catch {
+    /* ignora */
+  }
+}
+
 export const useAppStore = create<AppState>()(persist((set, get) => {
   // ===== LOG LOCAL DE CADA ACCIÓN DEL STORE (captura total, SIN OMITIR NADA) =====
   // Registra en el log interno (localStorage) CADA set() con TODAS las claves que
@@ -985,6 +1012,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         currentUser: { name: "Administrador ReyGas", email: cleanId },
         isVisualEditing: true,
       });
+      writeSessionWallet({ isAuthenticated: true, userRole: "admin", currentUser: { name: "Administrador ReyGas", email: cleanId }, isVisualEditing: true });
       return true;
     }
 
@@ -1017,6 +1045,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
           },
           isVisualEditing: false,
         });
+        writeSessionWallet({
+          isAuthenticated: true,
+          userRole: "personal",
+          currentUser: { name: matchedTech.full_name, email: authCheck.email || composeAuthEmail(identifier), username: matchedTech.username || "", technician_id: matchedTech.id, allowed_tabs: matchedTech.allowed_tabs },
+          isVisualEditing: false,
+        });
         return true;
       }
       // Usuario de auth sin perfil en el roster: personal con estaciones por defecto.
@@ -1026,6 +1060,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         currentUser: { name: localPart || identifier, email: authCheck.email || composeAuthEmail(identifier) },
         isVisualEditing: false,
       });
+      writeSessionWallet({ isAuthenticated: true, userRole: "personal", currentUser: { name: localPart || identifier, email: authCheck.email || composeAuthEmail(identifier) }, isVisualEditing: false });
       return true;
     }
     // Fallback roster (personal aún no vinculado a auth, o auth sin confirmar).
@@ -1044,12 +1079,19 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       },
       isVisualEditing: false,
     });
+    writeSessionWallet({
+      isAuthenticated: true,
+      userRole: "personal",
+      currentUser: { name: matchedTech.full_name, email: identifier, username: matchedTech.username || "", technician_id: matchedTech.id, allowed_tabs: matchedTech.allowed_tabs },
+      isVisualEditing: false,
+    });
     return true;
   },
 
 
   logout: () => {
     void signOutSupabaseAuth();
+    clearSessionWallet();
     set({
       isAuthenticated: false,
       userRole: null,
@@ -5061,7 +5103,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
           // contener OTs con items como STRING (guardadas desde fetchCappedOperationalData
           // sin normalizar). Al hidratar se normalizan SIEMPRE a array para que ninguna
           // card (Taller/Caja/Almacén) crashee con (wo.items || []).map.
-          const state = parsed?.state as any;
+          let state = parsed?.state as any;
+          // CARTERA DE SESIÓN: la sesión guardada de forma síncrona al hacer login
+          // SIEMPRE gana sobre el caché (aunque el caché grande no se haya escrito).
+          const wallet = readSessionWallet();
+          if (wallet && wallet.isAuthenticated !== undefined) {
+            if (!state) {
+              state = { isAuthenticated: false } as any;
+              parsed.state = state as any;
+            }
+            state.isAuthenticated = wallet.isAuthenticated;
+            state.userRole = wallet.userRole;
+            state.currentUser = wallet.currentUser;
+            state.isVisualEditing = wallet.isVisualEditing;
+          }
           if (state && Array.isArray(state.workOrders)) {
             state.workOrders = state.workOrders.map((wo: any) => {
               if (!wo || Array.isArray(wo.items)) return wo;
@@ -5081,15 +5136,30 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         if (writeTimer) return;
         writeTimer = setTimeout(() => {
           writeTimer = null;
-          if (pendingValue) {
+          if (!pendingValue) return;
+          const pv = pendingValue;
+          pendingValue = null;
+          try {
+            localStorage.setItem(pv.name, JSON.stringify(pv.value));
+          } catch {
+            // Cuota llena o modo privado: se persiste SOLO la SESIÓN para que el login
+            // no se pierda al recargar (el caché completo se rearma con el sync).
             try {
-              localStorage.setItem(pendingValue.name, JSON.stringify(pendingValue.value));
+              const st = (pv.value.state || {}) as any;
+              localStorage.setItem(pv.name, JSON.stringify({
+                ...pv.value,
+                state: {
+                  isAuthenticated: !!st.isAuthenticated,
+                  userRole: st.userRole || null,
+                  currentUser: st.currentUser || null,
+                  isVisualEditing: !!st.isVisualEditing,
+                },
+              }));
             } catch {
-              // Cuota llena o modo privado: se ignora el caché (el sync de arranque es la red de seguridad)
+              /* ignora */
             }
-            pendingValue = null;
           }
-        }, 3000);
+        }, 1000);
       },
       removeItem: (name: string) => {
         try { localStorage.removeItem(name); } catch { /* ignore */ }
