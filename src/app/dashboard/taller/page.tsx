@@ -1437,6 +1437,7 @@ export default function WorkshopOperationsPage() {
                               • <span className="text-amber-400 font-bold">Pago parcial · Saldo S/ {creditAmt.toFixed(2)}</span>
                             </>
                           )}
+                          {" "}• <span className="text-cyan-300/90">📅 Registro: {formatPeruDateTime(wo.entry_time)}</span>
                         </div>
                       )}
                     </div>

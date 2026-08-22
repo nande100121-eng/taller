@@ -1120,7 +1120,11 @@ export default function PorteriaPage() {
                       <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 text-[11px] font-bold leading-snug">
                         <Wrench className="w-3.5 h-3.5 shrink-0 mt-px text-cyan-400" />
                         <span>
-                          Esta placa tiene un ingreso en Taller:{" "}
+                          Esta placa tiene un ingreso en Taller del{" "}
+                          <span className="text-white font-mono">
+                            {formatPeruDateTime(plateActiveWorkOrder.entry_time)}
+                          </span>
+                          :{" "}
                           <span className="text-white uppercase">
                             {plateOrderStatusLabel(plateActiveWorkOrder.status)}
                           </span>
