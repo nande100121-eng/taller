@@ -690,9 +690,25 @@ export default function PorteriaPage() {
     });
   }, [appointments, dateFilterMode, selectedDate]);
 
-  // Aviso en el campo PLACA: si la placa digitada ya tiene una cita/reserva programada
-  // (pendiente o confirmada) para la fecha seleccionada del ingreso, se muestra un
-  // mensaje debajo del campo para que el portero lo sepa antes de registrar.
+  // Etiquetas legibles del estado de una OT (aviso del campo placa).
+  const plateOrderStatusLabel = (status?: string): string => {
+    const map: Record<string, string> = {
+      ingresado: "Ingreso",
+      en_diagnostico: "Diagnóstico",
+      esperando_repuestos: "Esperando Repuestos",
+      en_servicio: "En Servicio",
+      por_cobrar: "Por Pagar",
+      pendiente_pago: "Por Pagar (abonos)",
+      pagado_autorizado: "Pagado / Listo para Entregar",
+      finalizado: "Finalizado",
+    };
+    return map[status || ""] || (status ? String(status).replace(/_/g, " ") : "");
+  };
+
+  // Aviso en el campo PLACA: (a) si la placa digitada ya tiene una cita/reserva
+  // programada (pendiente o confirmada) para la fecha seleccionada del ingreso, y
+  // (b) si la placa tiene un INGRESO EN TALLER vigente, mostrando en qué estado está
+  // (ingreso, diagnóstico, repuestos, servicio o por pagar) antes de registrar.
   const plateHasAppointmentOnDate = useMemo(() => {
     const clean = (entryForm.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!clean) return false;
@@ -705,6 +721,21 @@ export default function PorteriaPage() {
       return (app.scheduled_date || "").slice(0, 10) === targetDate;
     });
   }, [appointments, entryForm.plate, entryDate, selectedDate]);
+
+  // OT MÁS RECIENTE de la placa que sigue en el taller o pendiente de entrega:
+  // se excluye "finalizado" (ya entregado) y se ignora la fila "GASTO".
+  const plateActiveWorkOrder = useMemo(() => {
+    const clean = (entryForm.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!clean) return undefined;
+    const actives = (workOrders || [])
+      .filter((wo) => {
+        if ((wo.vehicle_plate || "").toUpperCase() === "GASTO") return false;
+        if (wo.status === "finalizado") return false;
+        return wo.vehicle_plate && wo.vehicle_plate.toUpperCase().replace(/[^A-Z0-9]/g, "") === clean;
+      })
+      .sort((a, b) => new Date(b.entry_time || 0).getTime() - new Date(a.entry_time || 0).getTime());
+    return actives[0];
+  }, [workOrders, entryForm.plate]);
 
   // Filtered Work Orders for Gate Traffic
   const filteredWorkOrders = useMemo(() => {
@@ -1074,13 +1105,33 @@ export default function PorteriaPage() {
                       />
                       <Search className="w-4 h-4 text-gray-400 absolute right-3 top-3" />
                     </div>
-                    {/* Aviso: la placa digitada YA tiene una cita/reserva programada para la
-                        fecha seleccionada del ingreso (pendiente o confirmada). */}
+                    {/* Aviso: la placa digitada ya tiene una cita/reserva programada para la
+                        fecha seleccionada del ingreso (pendiente o confirmada) y/o tiene un
+                        INGRESO EN TALLER vigente mostrando su estado actual. */}
                     {plateHasAppointmentOnDate && (
                       <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-300 text-[11px] font-bold leading-snug">
                         <Calendar className="w-3.5 h-3.5 shrink-0 mt-px text-amber-400" />
                         <span>
                           Esta placa ya tiene una cita programada para el {formatPeruDate(entryDate || selectedDate)}. Puede confirmar su llegada desde la sección de Citas arriba.
+                        </span>
+                      </div>
+                    )}
+                    {plateActiveWorkOrder && (
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/40 text-cyan-300 text-[11px] font-bold leading-snug">
+                        <Wrench className="w-3.5 h-3.5 shrink-0 mt-px text-cyan-400" />
+                        <span>
+                          Esta placa tiene un ingreso en Taller:{" "}
+                          <span className="text-white uppercase">
+                            {plateOrderStatusLabel(plateActiveWorkOrder.status)}
+                          </span>
+                          {plateActiveWorkOrder.status === "por_cobrar" || plateActiveWorkOrder.status === "pendiente_pago" ? (
+                            <> — pendiente de cobro en Caja</>
+                          ) : plateActiveWorkOrder.status === "pagado_autorizado" ? (
+                            <> — autorizado a salir (Semáforo Verde)</>
+                          ) : (
+                            <> — en proceso de atención</>
+                          )}
+                          .
                         </span>
                       </div>
                     )}
