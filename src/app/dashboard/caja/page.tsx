@@ -1550,7 +1550,10 @@ export default function CajaPage() {
     if (!paymentModal) return;
 
     const isZeroAmount = (paymentModal.grandTotal || 0) === 0;
-    const isSinComprobante = paymentModal.receiptType === "Sin Comprobante" || isZeroAmount;
+    // Monto 0: el DEFAULT al abrir es "Sin Comprobante", pero si el cajero elige
+    // EXPLÍCITAMENTE Ticket/Boleta/Factura se respeta (ticket de crédito/pendiente,
+    // ej. BUD-647 necesitaba emitir el correlativo con monto 0).
+    const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
     // Modo SOLO VINCULAR: no exige método/destino/comprobante (no se cobra de nuevo).
     if (!paymentModal.linkOnly) {
     if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
@@ -2160,7 +2163,9 @@ export default function CajaPage() {
       : (totalSplitsSum > 0 ? Number(totalSplitsSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0));
     // Monto 0 (gratuito) o "Sin Comprobante": no se consume correlativo; al editar se
     // LIBERA el N° que tenía (el store lo borra de la factura y del historial).
-    const isSinCompAbono = partialPaymentModal.receiptType === "Sin Comprobante" || amount <= 0;
+    // Monto 0: default "Sin Comprobante" al abrir, pero una selección EXPLÍCITA de
+    // Ticket/Boleta/Factura se respeta (emitir correlativo para un crédito/pendiente).
+    const isSinCompAbono = partialPaymentModal.receiptType === "Sin Comprobante";
     // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
     const invForBalance = partialPaymentModal.invoice;
@@ -2184,7 +2189,10 @@ export default function CajaPage() {
       ? (Number(partialPaymentModal.editingRecordAmount) || 0)
       : 0;
     const balance = Math.max(0, partialPaymentModal.totalDue - Math.max(0, paidSoFarReal - editingExcluded));
-    if (amount <= 0 && !isEditingRecord) {
+    // Bloquea abono de monto 0 SOLO si no se eligió comprobante (Sin Comprobante):
+    // si el cajero eligió Ticket/Boleta/Factura con monto 0, se permite emitir el
+    // correlativo (ticket de crédito/pendiente, ej. BUD-647 -> TK01-4639).
+    if (amount <= 0 && !isEditingRecord && isSinCompAbono) {
       logSystemEvent("warn", "abono.submit.blocked", { reason: "sin_monto", amount, balance }, "caja:abono-submit");
       notify("warning", "Marque al menos un recurso con monto a pagar para registrar el abono.");
       return;
@@ -2322,7 +2330,7 @@ export default function CajaPage() {
           });
         });
     }
-    if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0 && !(isEditingRecord && amount <= 0)) {
+    if (partialPaymentModal.resourceSelection && partialPaymentModal.resourceSelection.length > 0 && abonoResources.length === 0 && !(amount <= 0)) {
       notify("warning", "Marque al menos un recurso (servicio, repuesto o certificación) que cubra este abono.");
       return;
     }
@@ -2893,7 +2901,7 @@ export default function CajaPage() {
 
     const newDateTimeISO = buildPeruISOString(manualPaymentModal.entryDate, manualPaymentModal.entryTime || "08:30");
     const isZeroAmount = (manualPaymentModal.price || 0) === 0;
-    const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante" || isZeroAmount;
+    const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
 
     if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
       notify("warning", "Debe seleccionar un Método de Pago.");
