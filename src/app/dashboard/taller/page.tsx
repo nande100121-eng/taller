@@ -3207,6 +3207,15 @@ export default function WorkshopOperationsPage() {
                     return;
                   }
                   updateWorkOrderStatus(sendToCashierConfirm.id, "por_cobrar");
+                  // UX (22/08): tras confirmar el envio a Caja, la card que se estaba
+                  // trabajando se COLAPSA automaticamente y la vista pasa a la columna
+                  // '5. Enviar a Cobrar' (por_cobrar) donde la card queda visible cerrada.
+                  setExpandedOrders((prev) => {
+                    const next = new Set(prev);
+                    next.delete(sendToCashierConfirm.id);
+                    return next;
+                  });
+                  setStatusFilter("por_cobrar");
                   const sentPlate = sendToCashierConfirm.plate;
                   setSendToCashierConfirm(null);
                   notify("success", `✅ ${sentPlate} enviada a Caja para el cobro.`);
