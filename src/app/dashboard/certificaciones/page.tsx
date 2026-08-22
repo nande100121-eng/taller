@@ -464,7 +464,12 @@ export default function CertificacionesPage() {
           // registrados (chip/quinquenal) son INFORMATIVAS y NO deben aparecer en
           // "Del Día / Hoy" (el usuario reportó 10 sin haber solicitado hoy).
           issueDate: (wo.requires_certification ? (wo.entry_time || "") : "").slice(0, 10) || "",
-          emissionDate: String(certOtByPlate.get(cleanPlate)?.entry_time || wo.entry_time || "").slice(0, 10) || "",
+          // Fecha de EMISION: la OT de certificacion de la placa (Anual GNV/GLP) si
+          // existe; si NO existe, se pone hace 7 dias para que la card NO cuente como
+          // emitida HOY (solo tiene fechas chip/quinquenal, no es una certificacion).
+          emissionDate: certOtByPlate.has(cleanPlate)
+            ? String(certOtByPlate.get(cleanPlate)?.entry_time || "").slice(0, 10) || ""
+            : getPeruDateString(new Date(Date.now() - 7 * 86400000)),
           certOtId: certOtByPlate.get(cleanPlate)?.id || wo.id,
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
