@@ -2158,9 +2158,14 @@ export default function CajaPage() {
     // real de los montos editados manualmente en el desglose (evita que el monto global
     // desincronizado bloquee el submit cuando el usuario ajusta un método a mano).
     const totalSplitsSum = (partialPaymentModal.paymentSplits || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    // El monto del abono SIEMPRE es lo que está en el desglose (splits) o en los
+    // recursos marcados. NO caer al valor inicial del modal (balance) cuando el cajero
+    // puso 0: es el caso del TICKET DE CRÉDITO (BUD-647: emitir correlativo con monto 0
+    // y que el total quede como pendiente). Sin esto, splits 0 + modal.amount 150 =>
+    // bloqueo "suma de abonos parciales 0.00 vs monto a abonar 150.00".
     const amount = selectedSum > 0
       ? Number(selectedSum.toFixed(2))
-      : (totalSplitsSum > 0 ? Number(totalSplitsSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0));
+      : Number(totalSplitsSum.toFixed(2));
     // Monto 0 (gratuito) o "Sin Comprobante": no se consume correlativo; al editar se
     // LIBERA el N° que tenía (el store lo borra de la factura y del historial).
     // Monto 0: default "Sin Comprobante" al abrir, pero una selección EXPLÍCITA de
