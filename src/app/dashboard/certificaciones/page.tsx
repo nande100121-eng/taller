@@ -674,18 +674,19 @@ export default function CertificacionesPage() {
       expiry_date: manualForm.expiry_date,
       quinquennial_date: manualForm.quinquennial_date,
       price: manualForm.price,
-      status: "Vigente",
-      is_ready: true,
+      // Nace como SOLICITUD PENDIENTE (aparece en "Del Día / Hoy" y "Pendientes"
+      // con su botón "Enviar a Cobrar"). Solo al ENVIAR A COBRAR pasa a "Vigente"
+      // (emitida) y la card se mueve a "Emitidos" (decisión del usuario).
+      status: "Solicitado",
+      is_ready: false,
       responsible: manualForm.responsible.trim() || undefined,
     });
 
     notify("success", `¡Certificado para ${manualForm.vehicle_plate.toUpperCase()} registrado correctamente!`);
     setIsManualModalOpen(false);
-    // FIX "no aparece la card": el certificado manual nace "Vigente" (emitido) y el
-    // tab "Del Día / Hoy" solo muestra solicitudes PENDIENTES, por lo que la card
-    // nueva quedaba invisible (solo estaba en Emitidos/Todos). Al crear, cambiamos
-    // a "Emitidos" para que el usuario vea la card al instante (va primero: hoy).
-    setActiveTab("emitidos");
+    // La card manual nace PENDIENTE (Solicitado): cambiamos a "Pendientes" para que
+    // el usuario vea la card nueva al instante. Al "Enviar a Cobrar" pasará a Emitidos.
+    setActiveTab("pendientes");
   };
 
   return (
