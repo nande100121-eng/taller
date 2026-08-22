@@ -667,6 +667,7 @@ export interface Certification {
   work_order_id?: string;
   vehicle_plate: string;
   client_name: string;
+  client_phone?: string; // Teléfono del cliente (certificaciones manuales)
   chip_code: string;
   cylinder_serial: string;
   certification_type: "Anual GNV" | "Anual GLP" | "Prueba Hidrostática" | string;

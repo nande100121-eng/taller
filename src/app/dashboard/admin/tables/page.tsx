@@ -3088,6 +3088,16 @@ export default function AdminTablesPage() {
                   <span>👨‍🔧 Mecánico Asignado Responsable (selector de Taller)</span>
                 </label>
 
+                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-violet-950/40 border border-violet-500/40 text-violet-200 text-xs font-bold cursor-pointer hover:bg-violet-950/60 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={!!techEditForm.is_certification_responsible}
+                    onChange={(e) => setTechEditForm({ ...techEditForm, is_certification_responsible: e.target.checked })}
+                    className="rounded border-violet-500 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                  />
+                  <span>🪪 Resp. Certificaciones (selector de Certificaciones)</span>
+                </label>
+
                 <label className="flex items-center gap-2 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 text-indigo-200 text-xs font-bold cursor-pointer hover:bg-indigo-950/60 transition-colors">
                   <input
                     type="checkbox"

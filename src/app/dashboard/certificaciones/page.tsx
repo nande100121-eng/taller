@@ -27,6 +27,7 @@ import DateNavigator from "@/components/ui/date-navigator";
 import { saveSupabaseCertification, saveSupabaseWorkOrder } from "@/lib/supabase/services";
 import { getPeruDateString } from "@/lib/utils/date-utils";
 import { formatPlate, titleCase } from "@/lib/utils/text-format";
+import { isCertificationService } from "@/lib/utils/service-catalog";
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -93,6 +94,7 @@ export default function CertificacionesPage() {
     workOrders,
     invoices,
     technicians,
+    workshopServices,
     syncFromSupabase,
     notify,
   } = useAppStore();
@@ -141,6 +143,7 @@ export default function CertificacionesPage() {
     expiry_date: getPeruDateString(new Date(Date.now() + 365 * 86400000)),
     quinquennial_date: "-",
     responsible: "",
+    client_phone: "",
   });
 
   // Consulta a INFOGAS (chip/quinquenal por placa) - mismo API público que usa Taller.
@@ -189,6 +192,60 @@ export default function CertificacionesPage() {
     }
   };
 
+  // Consulta Infogas DESDE EL MODAL MANUAL: completa las fechas del form (Quinquenal/Chip)
+  // con la placa digitada, sin salir del modal.
+  const handleConsultInfogasManual = async () => {
+    const plate = (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!plate) {
+      notify("warning", "Ingrese la placa primero para consultar Infogas.");
+      return;
+    }
+    setConsultInfogasPlate(plate);
+    try {
+      const form = new URLSearchParams();
+      form.append("plate", plate);
+      const res = await fetch("https://apivh.infogas.com.pe/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: form.toString(),
+      });
+      const data = await res.json();
+      setConsultInfogasPlate(null);
+      if (data?.status === "Success" && data.data) {
+        const d = data.data;
+        const qDate = d.ProximoVencCilindro ? String(d.ProximoVencCilindro).slice(0, 10) : "";
+        const cDate = d.ProximaRevAnual ? String(d.ProximaRevAnual).slice(0, 10) : "";
+        setManualForm((prev) => ({
+          ...prev,
+          quinquennial_date: qDate || prev.quinquennial_date,
+          expiry_date: cDate || prev.expiry_date,
+        }));
+        notify("success", `Infogas ${plate}: Quinquenal ${qDate || "—"} · Chip ${cDate || "—"}`);
+      } else {
+        notify("warning", data?.message || `La placa ${plate} no fue encontrada en Infogas.`);
+      }
+    } catch (err) {
+      setConsultInfogasPlate(null);
+      notify("error", "No se pudo conectar con el consultor de Infogas.");
+    }
+  };
+
+
+  // Responsables habilitados para CERTIFICACIONES (roster: Resp. Certificaciones).
+  const certificationResponsibles = useMemo(
+    () => technicians.filter((t) => t.is_active !== false && !!t.is_certification_responsible),
+    [technicians]
+  );
+
+  // Al abrir el modal manual, preseleccionar la PRIMERA opción de responsable por defecto.
+  useEffect(() => {
+    if (isManualModalOpen && certificationResponsibles.length > 0) {
+      setManualForm((prev) => ({
+        ...prev,
+        responsible: prev.responsible || certificationResponsibles[0].full_name,
+      }));
+    }
+  }, [isManualModalOpen, certificationResponsibles]);
 
   // Vehicles Map
   const vehiclesMap = useMemo(() => {
@@ -283,7 +340,7 @@ export default function CertificacionesPage() {
         workOrderId: c.work_order_id,
         plate: cleanPlate,
         clientName: c.client_name || veh?.owner_name || "Cliente Taller",
-        clientPhone: veh?.owner_phone,
+        clientPhone: c.client_phone || veh?.owner_phone,
         certificationType: c.certification_type || "Certificado Anual GNV",
         price: typeof c.price === "number" && !isNaN(c.price) ? c.price : 80,
         status: cardStatus,
@@ -581,14 +638,38 @@ export default function CertificacionesPage() {
   // Create manual cert
   const handleCreateManualCert = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualForm.vehicle_plate.trim()) {
+    // TODOS los campos obligatorios EXCEPTO las fechas (Anual/Quinquenal):
+    // placa, cliente, teléfono, tipo, precio y responsable.
+    const plate = manualForm.vehicle_plate.trim();
+    if (!plate) {
       notify("warning", "Ingrese una placa válida.");
+      return;
+    }
+    if (!manualForm.client_name.trim()) {
+      notify("warning", "Ingrese el nombre del cliente.");
+      return;
+    }
+    if (!manualForm.client_phone.trim()) {
+      notify("warning", "Ingrese el teléfono del cliente.");
+      return;
+    }
+    if (!manualForm.certification_type) {
+      notify("warning", "Seleccione el tipo de certificación.");
+      return;
+    }
+    if (!(manualForm.price > 0)) {
+      notify("warning", "Ingrese el precio cobrado (mayor a 0).");
+      return;
+    }
+    if (!manualForm.responsible) {
+      notify("warning", "Seleccione el responsable de la solicitud.");
       return;
     }
 
     addCertification({
       vehicle_plate: manualForm.vehicle_plate.toUpperCase().trim(),
       client_name: manualForm.client_name.trim() || "Cliente Particular",
+      client_phone: manualForm.client_phone.trim() || undefined,
       chip_code: manualForm.chip_code,
       cylinder_serial: manualForm.cylinder_serial,
       certification_type: manualForm.certification_type,
@@ -1182,23 +1263,40 @@ export default function CertificacionesPage() {
                 <div>
                   <label className="block text-gray-300 font-bold mb-1">Tipo de Certificación *</label>
                   <select
+                    required
                     value={manualForm.certification_type}
-                    onChange={(e) => setManualForm({ ...manualForm, certification_type: e.target.value as any })}
+                    onChange={(e) => {
+                      const srv = workshopServices.find((s) => s.name === e.target.value);
+                      setManualForm({
+                        ...manualForm,
+                        certification_type: e.target.value as any,
+                        // Si el servicio del catálogo tiene precio, lo toma automáticamente.
+                        price: srv && typeof srv.price === "number" ? srv.price : manualForm.price,
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-bold focus:border-teal-400"
                   >
-                    <option value="Certificado Anual GNV">Certificado Anual GNV (S/ 80.00)</option>
-                    <option value="Certificado Anual GLP">Certificado Anual GLP (S/ 80.00)</option>
-                    <option value="Prueba Hidrostática de Cilindro GNV">Prueba Hidrostática (5 Años) (S/ 180.00)</option>
-                    <option value="Desbloqueo de Chip GNV">Desbloqueo de Chip (S/ 25.00)</option>
+                    {/* Opciones del CATÁLOGO DE SERVICIOS (solo categoría Certificación) */}
+                    {workshopServices.filter((s) => isCertificationService(s)).map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name} (S/ {Number(s.price).toFixed(2)})
+                      </option>
+                    ))}
                   </select>
+                  {workshopServices.filter((s) => isCertificationService(s)).length === 0 && (
+                    <p className="text-[10px] text-amber-400 mt-1">
+                      No hay servicios de certificación en el catálogo (Tabla Maestra → Servicios). Verifica la categoría.
+                    </p>
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Propietario / Cliente</label>
+                  <label className="block text-gray-300 font-bold mb-1">Propietario / Cliente *</label>
                   <input
                     type="text"
+                    required
                     placeholder="Nombre del cliente"
                     value={manualForm.client_name}
                     onChange={(e) => setManualForm({ ...manualForm, client_name: titleCase(e.target.value) })}
@@ -1206,40 +1304,67 @@ export default function CertificacionesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Precio Cobrado (S/) *</label>
+                  <label className="block text-gray-300 font-bold mb-1">Teléfono *</label>
                   <input
-                    type="number"
-                    min={0}
-                    step="0.1"
-                    value={manualForm.price}
-                    onChange={(e) => setManualForm({ ...manualForm, price: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold focus:border-teal-400"
+                    type="tel"
+                    required
+                    placeholder="Ej. 987654321"
+                    value={manualForm.client_phone}
+                    onChange={(e) => setManualForm({ ...manualForm, client_phone: e.target.value.replace(/[^0-9+]/g, "") })}
+                    className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
                   />
                 </div>
               </div>
 
+              <div>
+                <label className="block text-gray-300 font-bold mb-1">Precio Cobrado (S/) *</label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  step="0.1"
+                  value={manualForm.price}
+                  onChange={(e) => setManualForm({ ...manualForm, price: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono font-bold focus:border-teal-400"
+                />
+              </div>
+
               {/* Responsable de la SOLICITUD (permiso del roster: Resp. Certificaciones) */}
               <div>
-                <label className="block text-gray-300 font-bold mb-1">Responsable de Solicitud</label>
+                <label className="block text-gray-300 font-bold mb-1">Responsable de Solicitud *</label>
                 <select
+                  required
                   value={manualForm.responsible}
                   onChange={(e) => setManualForm({ ...manualForm, responsible: e.target.value })}
                   className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-bold focus:border-teal-400"
                 >
-                  <option value="">— Sin responsable —</option>
-                  {technicians
-                    .filter((t) => t.is_active !== false && !!t.is_certification_responsible)
-                    .map((t) => (
-                      <option key={t.id} value={t.full_name}>
-                        {t.full_name}
-                      </option>
-                    ))}
+                  <option value="" disabled>— Seleccione responsable —</option>
+                  {certificationResponsibles.map((t) => (
+                    <option key={t.id} value={t.full_name}>
+                      {t.full_name}
+                    </option>
+                  ))}
                 </select>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  Solo aparecen los habilitados como Resp. Certificaciones (Tabla Maestra → Roster y Permisos).
+                  Solo aparecen los habilitados como Resp. Certificaciones (Tabla Maestra → Roster y Permisos). Por defecto: el primero.
                 </p>
               </div>
 
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-400 uppercase font-bold">📅 Fechas de Inspección</span>
+                <button
+                  type="button"
+                  onClick={handleConsultInfogasManual}
+                  disabled={consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")}
+                  className="px-2 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-[10px] font-bold border border-cyan-500/30 flex items-center gap-1 transition-colors disabled:opacity-60 disabled:cursor-wait"
+                  title="Consultar chip/quinquenal en Infogas por placa y autocompletar las fechas"
+                >
+                  {consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : <Search className="w-3 h-3" />}
+                  <span>{consultInfogasPlate === (manualForm.vehicle_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "") ? "Consultando..." : "Consultar Infogas"}</span>
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-300 font-bold mb-1">Fecha de Anual (Vencimiento)</label>
