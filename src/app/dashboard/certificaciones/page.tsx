@@ -290,6 +290,25 @@ export default function CertificacionesPage() {
     // se indico al crearlas (issue_date). Las creadas desde TALLER usan la fecha de
     // su OT (entry_time), aunque la cert se haya creado otro dia.
     const isManualCertOt = (wo: any) => String(wo?.problem_description || "").includes("solicitada desde Certificaciones");
+
+    // OT DE CERTIFICACION por placa: la OT cuyo servicio es Anual GNV/GLP o similar
+    // (items con ANUAL/CERTIFIC/QUINQUENAL/CHIP/CILINDRO...). Las OTs recientes de hoy
+    // (revision/calibracion/bujias con fechas chip consultadas en Infogas) NO son la
+    // certificacion real: la fecha de emision sale de la OT con servicio Anual GNV
+    // (misma busqueda que se hace en el registro del taller, por placa).
+    const certLike = (wo: any) => {
+      if (wo?.requires_certification || wo?.certification_type) return true;
+      return (wo?.items || []).some((it: any) =>
+        /CERTIFIC|ANUAL|QUINQUENAL|CHIP|CILINDRO|CONVERSI|HIDROST/.test(String(it?.description || "").toUpperCase())
+      );
+    };
+    const certOtByPlate = new Map<string, any>();
+    workOrders.forEach((wo) => {
+      const p = String(wo?.vehicle_plate || "").toUpperCase().trim();
+      if (!p || !certLike(wo)) return;
+      const cur = certOtByPlate.get(p);
+      if (!cur || new Date(wo.entry_time || 0) > new Date(cur.entry_time || 0)) certOtByPlate.set(p, wo);
+    });
     const isWoPaid = (wo: any) => {
       if (!wo) return false;
       const inv = invoicesByWoId.get(wo.id);
@@ -313,6 +332,7 @@ export default function CertificacionesPage() {
       isReady: boolean;
       issueDate: string;
       emissionDate: string; // Fecha de EMISION real (pago de la OT para Taller)
+      certOtId?: string; // OT de certificacion real (Anual GNV/GLP) para mostrar
       expiryDate: string; // Fecha de Chip / Anual
       quinquennialDate: string; // Fecha de Quinquenal
       rawCert?: Certification;
@@ -375,10 +395,15 @@ export default function CertificacionesPage() {
         // la fecha de ingreso de la OT (nunca caer a HOY: eso inflaba el filtro
         // "Del Día / Hoy" con registros sin fecha).
         issueDate: (c.issue_date || wo?.entry_time || "").slice(0, 10) || "",
-        // Fecha de EMISION: manual -> fecha indicada al crear (issue_date); Taller -> fecha de su OT.
+        // Fecha de EMISION: manual -> fecha indicada al crear (issue_date). Taller ->
+        // la OT VINCULADA de la cert (aprobada: F9H-016 usa su OT pagada 20.08) con
+        // respaldo a la OT de certificacion de la placa (Anual GNV/GLP) y a issue_date.
         emissionDate: isManualCertOt(wo)
           ? (c.issue_date || "").slice(0, 10) || ""
-          : (c.work_order_id ? String(wo?.entry_time || "").slice(0, 10) : "") || (c.issue_date || "").slice(0, 10) || "",
+          : String(wo?.entry_time || certOtByPlate.get(cleanPlate)?.entry_time || c.issue_date || "").slice(0, 10) || "",
+        certOtId: isManualCertOt(wo)
+          ? (c.work_order_id || undefined)
+          : (wo?.id || certOtByPlate.get(cleanPlate)?.id || undefined),
         expiryDate: fechaAnual,
         quinquennialDate: fechaQuinquenal,
         rawCert: c,
@@ -439,7 +464,8 @@ export default function CertificacionesPage() {
           // registrados (chip/quinquenal) son INFORMATIVAS y NO deben aparecer en
           // "Del Día / Hoy" (el usuario reportó 10 sin haber solicitado hoy).
           issueDate: (wo.requires_certification ? (wo.entry_time || "") : "").slice(0, 10) || "",
-          emissionDate: (wo.entry_time || "").slice(0, 10) || "",
+          emissionDate: String(certOtByPlate.get(cleanPlate)?.entry_time || wo.entry_time || "").slice(0, 10) || "",
+          certOtId: certOtByPlate.get(cleanPlate)?.id || wo.id,
           expiryDate: fechaAnual,
           quinquennialDate: fechaQuinquenal,
           rawOrder: wo,
@@ -932,6 +958,8 @@ export default function CertificacionesPage() {
               const isPending = card.status === "Solicitado" || !card.isReady;
               const isExpired = card.status === "Vencido";
               const isEditingPrice = editingPrices[card.id] !== undefined;
+              // OT mostrada: la de certificacion real (Anual GNV/GLP) si existe.
+              const otId = card.certOtId || card.workOrderId || "";
 
               return (
                 <div
@@ -974,11 +1002,11 @@ export default function CertificacionesPage() {
                         <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
                         <span>{card.certificationType}</span>
                       </h3>
-                      {card.workOrderId && (
+                      {otId && (
                         <p className="text-[11px] text-gray-400 font-mono font-bold flex items-center gap-1.5 pt-1">
                           <span className="text-gray-500">OT #</span>
                           <span className="text-white/90 tracking-wide">
-                            {card.workOrderId.length > 13 ? card.workOrderId.slice(0, 8) : card.workOrderId}
+                            {otId.length > 13 ? otId.slice(0, 8) : otId}
                           </span>
                         </p>
                       )}
