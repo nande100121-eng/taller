@@ -2119,15 +2119,18 @@ export async function fetchSupabaseTechnicians(): Promise<Technician[] | null> {
               : (perm?.is_debt_responsible !== undefined
                 ? !!perm.is_debt_responsible
                 : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
+          // Los flags de permisos devuelven UNDEFINED cuando el snapshot no los define:
+          // el merge del store conserva el valor LOCAL recién marcado (fix race condition
+          // Resp. Certificaciones: no pisar con false un flag que la nube aún no trae).
           is_attention_responsible: (perm?.is_attention_responsible !== undefined
             ? !!perm.is_attention_responsible
-            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : false)),
+            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : undefined)),
           is_mechanic_responsible: (perm?.is_mechanic_responsible !== undefined
             ? !!perm.is_mechanic_responsible
-            : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : false)),
+            : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : undefined)),
           is_certification_responsible: (perm?.is_certification_responsible !== undefined
             ? !!perm.is_certification_responsible
-            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : false)),
+            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : undefined)),
           payment_nickname: perm?.payment_nickname || fbTech?.payment_nickname || (t as any).payment_nickname || "",
         };
       });
@@ -3087,15 +3090,18 @@ export async function fetchSupabaseErpData() {
               : (perm?.is_debt_responsible !== undefined
                 ? !!perm.is_debt_responsible
                 : (fbTech?.is_debt_responsible !== undefined ? !!fbTech.is_debt_responsible : false)),
+          // Los flags de permisos devuelven UNDEFINED cuando el snapshot no los define:
+          // el merge del store conserva el valor LOCAL recién marcado (fix race condition
+          // Resp. Certificaciones: no pisar con false un flag que la nube aún no trae).
           is_attention_responsible: (perm?.is_attention_responsible !== undefined
             ? !!perm.is_attention_responsible
-            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : false)),
+            : (fbTech?.is_attention_responsible !== undefined ? !!fbTech.is_attention_responsible : undefined)),
           is_mechanic_responsible: (perm?.is_mechanic_responsible !== undefined
             ? !!perm.is_mechanic_responsible
-            : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : false)),
+            : (fbTech?.is_mechanic_responsible !== undefined ? !!fbTech.is_mechanic_responsible : undefined)),
           is_certification_responsible: (perm?.is_certification_responsible !== undefined
             ? !!perm.is_certification_responsible
-            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : false)),
+            : (fbTech?.is_certification_responsible !== undefined ? !!fbTech.is_certification_responsible : undefined)),
           payment_nickname: perm?.payment_nickname || fbTech?.payment_nickname || (t as any).payment_nickname || "",
         };
       });

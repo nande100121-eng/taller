@@ -1586,14 +1586,32 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       if (hasRecentLocalMutation("technicians")) return;
       const techs = await fetchSupabaseTechnicians();
       if (Array.isArray(techs) && techs.length > 0) {
-        set((state) => ({
-          technicians: techs.map((t) => ({
-            ...t,
-            username: t.username || generateDefaultUsername(t.full_name),
-            password: t.password || generateDefaultUsername(t.full_name),
-            can_receive_payment: !!t.can_receive_payment,
-          })),
-        }));
+        // MERGE POR ID (nunca reemplazo ciego): conserva los flags/permisos locales
+        // que el remoto aún no trae. FIX race condition Resp. Certificaciones: al marcar
+        // el checkbox, el broadcast dispara este sync ANTES de que el snapshot nuevo
+        // (con is_certification_responsible) aterrice en la nube; si el remoto trae
+        // undefined/false, el valor local recién marcado se pisaba y el checkbox
+        // "no se guardaba". Con merge, lo local gana hasta que la nube confirme.
+        set((state) => {
+          const localMap = new Map(state.technicians.map((t) => [t.id, t]));
+          const merged = techs.map((t) => {
+            const local = localMap.get(t.id);
+            return {
+              ...t,
+              ...local, // lo local conserva campos que el remoto no trae (flags de permisos)
+              // El remoto CONFIRMADO gana en los campos base; lo local conserva flags
+              // solo cuando el remoto no los define (undefined).
+              username: t.username || local?.username || generateDefaultUsername(t.full_name),
+              password: t.password || local?.password || generateDefaultUsername(t.full_name),
+              can_receive_payment: t.can_receive_payment !== undefined ? !!t.can_receive_payment : !!local?.can_receive_payment,
+              is_debt_responsible: t.is_debt_responsible !== undefined ? !!t.is_debt_responsible : !!local?.is_debt_responsible,
+              is_attention_responsible: t.is_attention_responsible !== undefined ? !!t.is_attention_responsible : !!local?.is_attention_responsible,
+              is_mechanic_responsible: t.is_mechanic_responsible !== undefined ? !!t.is_mechanic_responsible : !!local?.is_mechanic_responsible,
+              is_certification_responsible: t.is_certification_responsible !== undefined ? !!t.is_certification_responsible : !!local?.is_certification_responsible,
+            };
+          });
+          return { technicians: merged };
+        });
       }
     } catch { }
   },
