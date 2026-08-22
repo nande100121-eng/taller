@@ -690,6 +690,22 @@ export default function PorteriaPage() {
     });
   }, [appointments, dateFilterMode, selectedDate]);
 
+  // Aviso en el campo PLACA: si la placa digitada ya tiene una cita/reserva programada
+  // (pendiente o confirmada) para la fecha seleccionada del ingreso, se muestra un
+  // mensaje debajo del campo para que el portero lo sepa antes de registrar.
+  const plateHasAppointmentOnDate = useMemo(() => {
+    const clean = (entryForm.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!clean) return false;
+    const targetDate = entryDate || selectedDate;
+    if (!targetDate) return false;
+    return appointments.some((app) => {
+      if (app.status === "cancelado" || app.status === "completado") return false;
+      const appPlate = (app.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (!appPlate || appPlate !== clean) return false;
+      return (app.scheduled_date || "").slice(0, 10) === targetDate;
+    });
+  }, [appointments, entryForm.plate, entryDate, selectedDate]);
+
   // Filtered Work Orders for Gate Traffic
   const filteredWorkOrders = useMemo(() => {
     return workOrders
@@ -781,6 +797,127 @@ export default function PorteriaPage() {
       {/* Cards apiladas de Portería (cada una debajo de la otra, expandibles/colapsables) */}
       <div className="space-y-6">
 
+          {/* 2. Citas & Reservas Programadas — card colapsable */}
+          <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => togglePorteriaCard("citas")}
+                className="flex items-center gap-2 flex-1 text-left"
+              >
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white">Citas & Reservas Programadas</h2>
+                  <p className="text-[11px] text-gray-400">Confirmación de llegada de clientes agendados.</p>
+                </div>
+              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Filter mode toggle */}
+                <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setDateFilterMode("dia")}
+                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "dia"
+                      ? "bg-amber-500 text-black font-black"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    Del Día ({filteredAppointments.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDateFilterMode("todos")}
+                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "todos"
+                      ? "bg-amber-500 text-black font-black"
+                      : "text-gray-400 hover:text-white"
+                      }`}
+                  >
+                    Todas las Pendientes
+                  </button>
+                </div>
+
+                {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
+                <button
+                  type="button"
+                  onClick={() => togglePorteriaCard("citas")}
+                  className={`p-1.5 rounded-lg border transition-all shrink-0 ${porteriaCards.citas
+                    ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
+                    : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
+                    }`}
+                  title={porteriaCards.citas ? "Contraer tarjeta" : "Expandir tarjeta"}
+                >
+                  {porteriaCards.citas ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {porteriaCards.citas && (
+            <div className="p-6 pt-4">
+            {/* Appointments List */}
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {filteredAppointments.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-xs italic bg-black/20 rounded-2xl border border-dashed border-white/10">
+                  No hay citas agendadas pendientes para {dateFilterMode === "dia" ? formatPeruDate(selectedDate) : "la fecha actual"}.
+                </div>
+              ) : (
+                filteredAppointments.map((app) => (
+                  <div
+                    key={app.id}
+                    className="p-4 rounded-2xl bg-black/40 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-amber-500/40 transition-colors"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-black text-base text-cyan-300 bg-cyan-950/40 px-2.5 py-0.5 rounded-lg border border-cyan-500/30">
+                          {app.plate}
+                        </span>
+                        <span className="text-xs font-bold text-white">{app.client_name}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                          CONFIRMADO
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-300 font-medium">
+                        {app.service_type} • <span className="text-amber-300 font-mono">{formatPeruDateTime(app.scheduled_date, false)}</span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleConfirmAttendance(app)}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-transform hover:scale-105 active:scale-95"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Confirmar Asistencia</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenReschedule(app)}
+                        className="p-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl border border-white/10 transition-colors"
+                        title="Reprogramar Cita"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCancelAppointmentPrompt(app)}
+                        className="p-2 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-xl border border-red-500/20 transition-colors"
+                        title="Anular Cita"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            </div>
+            )}
+          </div>
         {/* 1. Registrar Ingreso de Vehículo — card colapsable */}
         <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between gap-3 p-6 pb-4">
@@ -937,6 +1074,16 @@ export default function PorteriaPage() {
                       />
                       <Search className="w-4 h-4 text-gray-400 absolute right-3 top-3" />
                     </div>
+                    {/* Aviso: la placa digitada YA tiene una cita/reserva programada para la
+                        fecha seleccionada del ingreso (pendiente o confirmada). */}
+                    {plateHasAppointmentOnDate && (
+                      <div className="mt-1.5 flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-300 text-[11px] font-bold leading-snug">
+                        <Calendar className="w-3.5 h-3.5 shrink-0 mt-px text-amber-400" />
+                        <span>
+                          Esta placa ya tiene una cita programada para el {formatPeruDate(entryDate || selectedDate)}. Puede confirmar su llegada desde la sección de Citas arriba.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -1127,130 +1274,9 @@ export default function PorteriaPage() {
           )}
         </div>
 
-        {/* 2 y 3. Citas & Reservas Programadas + Semáforo de Salida e Inspección de Garita */}
+        {/* 3. Semáforo de Salida e Inspección de Garita — card colapsable (las Citas
+            & Reservas Programadas se movieron arriba, sobre Registrar Ingreso) */}
         <div className="space-y-6">
-
-          {/* 2. Citas & Reservas Programadas — card colapsable */}
-          <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-white/10">
-              <button
-                type="button"
-                onClick={() => togglePorteriaCard("citas")}
-                className="flex items-center gap-2 flex-1 text-left"
-              >
-                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-white">Citas & Reservas Programadas</h2>
-                  <p className="text-[11px] text-gray-400">Confirmación de llegada de clientes agendados.</p>
-                </div>
-              </button>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Filter mode toggle */}
-                <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/10 text-[11px] font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setDateFilterMode("dia")}
-                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "dia"
-                      ? "bg-amber-500 text-black font-black"
-                      : "text-gray-400 hover:text-white"
-                      }`}
-                  >
-                    Del Día ({filteredAppointments.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDateFilterMode("todos")}
-                    className={`px-3 py-1 rounded-lg transition-all ${dateFilterMode === "todos"
-                      ? "bg-amber-500 text-black font-black"
-                      : "text-gray-400 hover:text-white"
-                      }`}
-                  >
-                    Todas las Pendientes
-                  </button>
-                </div>
-
-                {/* Botón expandir/colapsar — SIEMPRE al extremo derecho */}
-                <button
-                  type="button"
-                  onClick={() => togglePorteriaCard("citas")}
-                  className={`p-1.5 rounded-lg border transition-all shrink-0 ${porteriaCards.citas
-                    ? "bg-amber-600/20 text-amber-300 border-amber-500/40"
-                    : "bg-white/5 text-gray-400 hover:text-white border-white/10 hover:border-white/30"
-                    }`}
-                  title={porteriaCards.citas ? "Contraer tarjeta" : "Expandir tarjeta"}
-                >
-                  {porteriaCards.citas ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {porteriaCards.citas && (
-            <div className="p-6 pt-4">
-            {/* Appointments List */}
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-              {filteredAppointments.length === 0 ? (
-                <div className="py-8 text-center text-gray-400 text-xs italic bg-black/20 rounded-2xl border border-dashed border-white/10">
-                  No hay citas agendadas pendientes para {dateFilterMode === "dia" ? formatPeruDate(selectedDate) : "la fecha actual"}.
-                </div>
-              ) : (
-                filteredAppointments.map((app) => (
-                  <div
-                    key={app.id}
-                    className="p-4 rounded-2xl bg-black/40 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-amber-500/40 transition-colors"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono font-black text-base text-cyan-300 bg-cyan-950/40 px-2.5 py-0.5 rounded-lg border border-cyan-500/30">
-                          {app.plate}
-                        </span>
-                        <span className="text-xs font-bold text-white">{app.client_name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                          CONFIRMADO
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-300 font-medium">
-                        {app.service_type} • <span className="text-amber-300 font-mono">{formatPeruDateTime(app.scheduled_date, false)}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleConfirmAttendance(app)}
-                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-1.5 transition-transform hover:scale-105 active:scale-95"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Confirmar Asistencia</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenReschedule(app)}
-                        className="p-2 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white rounded-xl border border-white/10 transition-colors"
-                        title="Reprogramar Cita"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleCancelAppointmentPrompt(app)}
-                        className="p-2 bg-red-950/40 hover:bg-red-900/60 text-red-400 rounded-xl border border-red-500/20 transition-colors"
-                        title="Anular Cita"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            </div>
-            )}
-          </div>
 
           {/* 3. Semáforo de Salida e Inspección de Garita — card colapsable */}
           <div className="glass-panel rounded-3xl border border-white/10 shadow-2xl overflow-hidden">
