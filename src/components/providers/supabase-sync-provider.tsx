@@ -9,7 +9,7 @@ import {
   getLastLocalMutationTime,
   hasRecentLocalMutation,
 } from "@/lib/supabase/services";
-import { logTiming, initGlobalLogging } from "@/lib/system-log";
+import { logTiming, initGlobalLogging, logSystemEvent } from "@/lib/system-log";
 
 export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const syncFromSupabase = useAppStore((state) => state.syncFromSupabase);
@@ -277,7 +277,17 @@ export const SupabaseSyncProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (hasRecentLocalMutation("attendanceLogs")) return;
         debouncedFullSync();
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+          // Canal postgres_changes perdido (corte WiFi / tablet hibernada).
+          // NO se destruye el canal: el heartbeat de 5min + el sync operativo
+          // reconcilian; el cleanup del useEffect (removeChannel) sigue siendo
+          // seguro si el canal ya no existe. Se fuerza un sync operativo para
+          // no perder las filas directas que dejaron de llegar.
+          logSystemEvent("warn", "realtime.db_changes.channel_lost", { status }, "realtime");
+          debouncedOperationalSync();
+        }
+      });
 
     // 6. Background safety heartbeat sync (every 5 min) for resilient tablet networking.
     // El ERP tiene 41k+ órdenes y 118k+ facturas: re-descargar todo cada 90s satura la

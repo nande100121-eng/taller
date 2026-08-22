@@ -284,3 +284,46 @@ ALTER TABLE public.schedule_records ADD COLUMN IF NOT EXISTS created_at TIMESTAM
 ALTER TABLE public.schedule_records ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Lectura y escritura publica schedule_records" ON public.schedule_records;
 CREATE POLICY "Lectura y escritura publica schedule_records" ON public.schedule_records FOR ALL USING (true);
+-- =========================================================================
+-- ÍNDICES DE RENDIMIENTO (22/08/2026)
+-- Optimizan las consultas operativas más frecuentes (filtro por fecha,
+-- placa, status) que antes hacían full table scan en 41k+ filas.
+-- Son 100% aditivos: no cambian datos ni estructura de tablas.
+-- =========================================================================
+
+-- Work Orders: filtro por fecha (Taller, Caja, Reportes, Consultas)
+CREATE INDEX IF NOT EXISTS idx_work_orders_entry_time
+  ON public.work_orders (entry_time DESC);
+
+-- Work Orders: búsqueda por placa (Portería, Recepción, Consultas)
+CREATE INDEX IF NOT EXISTS idx_work_orders_vehicle_plate
+  ON public.work_orders (vehicle_plate);
+
+-- Work Orders: filtro Kanban por status (Taller, Almacén)
+CREATE INDEX IF NOT EXISTS idx_work_orders_status
+  ON public.work_orders (status);
+
+-- Invoices: filtro por fecha de emisión (Caja, Reportes)
+CREATE INDEX IF NOT EXISTS idx_invoices_issued_at
+  ON public.invoices (issued_at DESC);
+
+-- Invoices: join con work_orders (Caja, Reportes, Tabla Maestra)
+CREATE INDEX IF NOT EXISTS idx_invoices_work_order_id
+  ON public.invoices (work_order_id);
+
+-- Invoices: búsqueda por placa (Consultas)
+CREATE INDEX IF NOT EXISTS idx_invoices_vehicle_plate
+  ON public.invoices (vehicle_plate);
+
+-- Vehicles: orden por última visita (fetch operativo capado)
+CREATE INDEX IF NOT EXISTS idx_vehicles_last_visit_date
+  ON public.vehicles (last_visit_date DESC);
+
+-- Site Content: filtro por categoría (sync selectivo)
+CREATE INDEX IF NOT EXISTS idx_site_content_category
+  ON public.site_content (category);
+
+-- Site Content: búsqueda por prefijo de section_key (wo_mod_, inv_full_, etc.)
+CREATE INDEX IF NOT EXISTS idx_site_content_section_key
+  ON public.site_content (section_key);
+

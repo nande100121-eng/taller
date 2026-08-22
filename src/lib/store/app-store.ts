@@ -84,9 +84,14 @@ let lastOperationalSyncAt = 0;
 const OPERATIONAL_SYNC_MIN_INTERVAL = 5000;
 
 // Credenciales del ADMINISTRADOR (login único; se eliminaron los accesos rápidos demo).
-// Usuario: admin (o admin@reygas.com) + esta contraseña. Se puede cambiar aqui.
+// Usuario: admin (o admin@reygas.com) + contraseña.
+// La contraseña REAL se lee de site_content("admin_credentials") si existe (se puede
+// cambiar desde la web sin redeploy), con fallback a ADMIN_PASSWORD_FALLBACK para la
+// primera ejecución / retrocompatibilidad (nunca eliminar el fallback).
 export const ADMIN_EMAIL = "admin@reygas.com";
-export const ADMIN_PASSWORD = "ReyGas2026";
+export const ADMIN_PASSWORD_FALLBACK = "ReyGas2026";
+// Alias retrocompatible (si algún otro módulo importa ADMIN_PASSWORD).
+export const ADMIN_PASSWORD = ADMIN_PASSWORD_FALLBACK;
 
 export const ALL_ERP_STATIONS_DEFAULT = [
   "/dashboard/porteria",
@@ -1012,7 +1017,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
     // Primero Supabase Auth si admin@reygas.com fue provisionado; si no, credencial fija.)
     if (isAdminIdentifier) {
       const authCheck = await verifySupabaseAuthLogin(cleanId, password);
-      const passOk = authCheck.ok || password === ADMIN_PASSWORD;
+      // Contraseña admin configurable: site_content("admin_credentials") si existe
+      // (Configuración → Cambiar Clave Admin), con fallback a la constante para la
+      // primera ejecución / retrocompatibilidad (nunca romper el acceso admin).
+      const adminCreds = (get().siteContent as any)?.admin_credentials;
+      const adminPass =
+        adminCreds && typeof adminCreds === "object" && typeof (adminCreds as any).password === "string" && (adminCreds as any).password
+          ? (adminCreds as any).password
+          : ADMIN_PASSWORD_FALLBACK;
+      const passOk = authCheck.ok || password === adminPass;
       if (!passOk) return false;
       set({
         isAuthenticated: true,
@@ -3326,11 +3339,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   applyRemoteInvoiceLocal: (inv) => {
     if (!inv || !inv.id) return;
     set((state) => {
-      // Protección ampliada (3s): si el usuario acaba de ELIMINAR un pago localmente y llega
-      // un postgres_changes tardío del toggle "Desmarcar Pago" anterior (que conserva el
-      // historial), NO revivir el pago eliminado en la card (bug: toast eliminado pero el
-      // pago seguía visible por un save viejo que llegó después).
-      if (hasRecentLocalMutation("invoices", 3000)) return state;
+      // Guard anti-eco reducido a 800ms (era 3000ms). El guard de 3s descartaba eventos
+      // de facturas de OTRA tablet si este dispositivo había mutado invoices recientemente
+      // (ej. cajero A cobra factura X y cajero B cobra factura Y en <3s → B no veía el
+      // cambio de A por 5 minutos). 800ms es suficiente para filtrar el eco del propio
+      // postgres_changes (misma región, ~100-300ms) sin bloquear eventos de otros
+      // dispositivos; el syncOperationalOnly de 5s cubre el peor caso de red lenta.
+      if (hasRecentLocalMutation("invoices", 800)) return state;
       const existing = state.invoices.find((i) => i.id === inv.id);
       if (!existing) {
         // Factura nueva desde otra tablet: se agrega directo (el sync operativo

@@ -210,6 +210,16 @@ export function logFlow(level: LogLevel, action: string, details?: Record<string
   logSystemEvent(level, action, details, source);
 }
 
+/** Log de estado del canal Realtime (para diagnóstico desde Configuración → Ver Log) */
+export function logRealtimeStatus(status: string, detail?: Record<string, unknown>) {
+  logSystemEvent(
+    status === "SUBSCRIBED" ? "info" : "warn",
+    "realtime.channel.status",
+    { status, ...detail },
+    "realtime"
+  );
+}
+
 // =====================================================================
 // CAPTURA TOTAL LOCAL ("que el log capte TODO, cada acción y cada respuesta").
 // TODO queda en localStorage del dispositivo — NUNCA se sube a la nube.

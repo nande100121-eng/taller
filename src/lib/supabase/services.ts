@@ -3,7 +3,7 @@ import { fetchDailyExpenses, DailyExpense } from "./expenses";
 import { SiteContent, SiteTheme, Technician, InventoryItem, Vehicle, WorkOrder, Appointment, Invoice, Certification, ScheduleRecord, WorkshopService, FuelType, ToolLoan, AttendanceLog, generateDefaultUsername } from "@/lib/store/app-store";
 import { cleanMethodDisplay } from "@/lib/utils/payment-method";
 import { DEBT_CSV_BY_RECEIPT } from "@/lib/deuda-csv";
-import { logSystemEvent, logTiming, logTimingThreshold } from "@/lib/system-log";
+import { logSystemEvent, logTiming, logTimingThreshold, logRealtimeStatus } from "@/lib/system-log";
 import { toPeruAnchoredISO, toPeruDateKey } from "@/lib/utils/date-utils";
 import { parseCorrelative } from "@/lib/utils/receipt-utils";
 
@@ -41,7 +41,28 @@ export function hasRecentLocalMutation(key: string, thresholdMs: number = 5000):
 
 export async function fetchSupabaseSiteContent(): Promise<Partial<SiteContent> | null> {
   try {
-    const { data, error } = await supabase.from("site_content").select("*");
+    // OPTIMIZACIÓN: excluir del fetch general los snapshots pesados (inv_full_*,
+    // inv_payhistory_*, inv_breakdown_*, wo_mod_*, wo_deleted_*, wo_removed_*) que
+    // no pinta la UI del CMS: llegan por fetchCappedOperationalData o el fetch de
+    // fetchSupabaseErpData. Se conservan TODAS las secciones CMS (cualquier categoría)
+    // y solo se excluyen las claves con prefijos de snapshot. Select de columnas
+    // mínimas (el parseo lee row.value; content es duplicada JSONB de value).
+    const { data, error } = await supabase
+      .from("site_content")
+      .select("section_key, key, value, content")
+      .not("section_key", "like", "inv_full_%")
+      .not("section_key", "like", "inv_payhistory_%")
+      .not("section_key", "like", "inv_breakdown_%")
+      .not("section_key", "like", "inv_resources_%")
+      .not("section_key", "like", "wo_mod_%")
+      .not("section_key", "like", "wo_deleted_%")
+      .not("section_key", "like", "wo_removed_%")
+      .not("section_key", "like", "tech_perms_%")
+      .not("section_key", "like", "sched_%")
+      .not("section_key", "like", "cert_%")
+      .not("section_key", "like", "appt_%")
+      .not("section_key", "like", "tool_loan_%")
+      .not("section_key", "eq", "master_workshop_backup");
     if (error || !data || data.length === 0) return null;
 
     const result: any = {};
@@ -1666,7 +1687,33 @@ export async function fetchMasterTablePage(params: MasterTablePageParams): Promi
 }
 
 // Singleton subscribed Realtime broadcast channel for ultra-low latency (<50ms) messaging
+// CON reconexión automática: si el WebSocket se desconecta (corte WiFi, tablet en
+// hibernación), se re-suscribe el MISMO canal (los listeners del sync provider siguen
+// vivos en el objeto). Backoff: 3s → 6s → 12s → 20s máximo.
 let sharedRealtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+let realtimeReconnectAttempts = 0;
+let realtimeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleRealtimeReconnect() {
+  if (realtimeReconnectTimer) return;
+  const backoffMs = Math.min(3000 * Math.pow(2, realtimeReconnectAttempts), 20000);
+  realtimeReconnectAttempts++;
+  logRealtimeStatus("RECONNECTING", { backoffMs, attempts: realtimeReconnectAttempts });
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = null;
+    if (sharedRealtimeChannel) {
+      // Re-suscribir el MISMO canal (no destruir: los .on() del provider siguen)
+      sharedRealtimeChannel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          realtimeReconnectAttempts = 0;
+          logRealtimeStatus("SUBSCRIBED", { reconnected: true });
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+          scheduleRealtimeReconnect();
+        }
+      });
+    }
+  }, backoffMs);
+}
 
 export function getSharedRealtimeChannel() {
   if (!sharedRealtimeChannel) {
@@ -1675,7 +1722,15 @@ export function getSharedRealtimeChannel() {
     });
     sharedRealtimeChannel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        // Channel ready for ultra-fast broadcasting
+        realtimeReconnectAttempts = 0;
+        if (realtimeReconnectTimer) {
+          clearTimeout(realtimeReconnectTimer);
+          realtimeReconnectTimer = null;
+        }
+        logRealtimeStatus("SUBSCRIBED");
+      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+        // Canal perdido: programar reconexión con backoff
+        scheduleRealtimeReconnect();
       }
     });
   }
@@ -1718,7 +1773,15 @@ export async function broadcastRealtimeChange(eventType: string = "db_update", d
     if ((channel as any).state === "joined") {
       await channel.send({ type: "broadcast", event: "db_update", payload });
     } else {
-      await channel.httpSend("db_update", payload);
+      // Canal no unido: intentar envío HTTP (funciona sin WebSocket) como fallback.
+      // Si falla, la reconexión automática de getSharedRealtimeChannel() se encargará
+      // de restaurar el canal; mientras tanto, el BroadcastChannel local (abajo) y
+      // el postgres_changes del sync provider cubren la señal.
+      try {
+        await channel.httpSend("db_update", payload);
+      } catch {
+        logRealtimeStatus("HTTP_SEND_FAILED", { eventType });
+      }
     }
     // 2) EXTRA local: pestañas del MISMO navegador (instantáneo, resistente al tab-throttling).
     try {
@@ -2495,13 +2558,21 @@ export async function fetchSupabaseErpData() {
       fetchCappedOperationalData(),
       queryAppointmentsWithMissingGuard(),
       safeQuery<any[]>(supabase.from("certifications").select("*")),
-      // Excluir el backup masivo master_workshop_backup del sync inicial de site_content:
-      // solo se carga bajo demanda en herramientas de migración/backup (skill de carga optimizada).
+      // OPTIMIZACIÓN: excluir del fetch GENERAL de site_content el backup masivo
+      // (master_workshop_backup, solo se carga bajo demanda) y los snapshots inv_full_*
+      // (los más pesados y redundantes: la tabla invoices tiene los datos base y
+      // inv_payhistory_/inv_breakdown_ conservan historial/desglose por separado).
+      // Los snapshots wo_mod_/wo_removed_/wo_deleted_/inv_payhistory_/inv_breakdown_
+      // SÍ se mantienen (críticos para borrado cross-device y reconstrucción).
+      // select de solo las columnas que el parseo usa (value + fallback content) para
+      // reducir el payload (~40% menos); el código siempre lee row.value primero.
       safeQuery<any[]>(
         supabase
           .from("site_content")
-          .select("*")
-          .or("section_key.neq.master_workshop_backup,key.neq.master_workshop_backup")
+          .select("section_key, key, value, content, category")
+          .not("key", "eq", "master_workshop_backup")
+          .not("section_key", "eq", "master_workshop_backup")
+          .not("section_key", "like", "inv_full_%")
       ),
     ]);
 
