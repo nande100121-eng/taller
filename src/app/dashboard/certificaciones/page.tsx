@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Loader2,
   Send,
+  Trash2,
 } from "lucide-react";
 import MiniDatePicker from "@/components/ui/mini-date-picker";
 import DateNavigator from "@/components/ui/date-navigator";
@@ -90,6 +91,7 @@ export default function CertificacionesPage() {
     updateCertification,
     updateWorkOrder,
     sendCertificationToCashier,
+    deleteCertificationCard,
     vehicles,
     workOrders,
     invoices,
@@ -129,6 +131,22 @@ export default function CertificacionesPage() {
     expiryDate: string;
     notes?: string;
   } | null>(null);
+
+  // Modal de confirmacion para ELIMINAR una card con todo su vinculado.
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    plate: string;
+    clientName: string;
+    certId?: string;
+    workOrderId?: string;
+  } | null>(null);
+
+  // Ejecuta el borrado completo (certificacion + OT + facturas + respaldos).
+  const handleDeleteCertCard = () => {
+    if (!deleteConfirm) return;
+    deleteCertificationCard(deleteConfirm.certId, deleteConfirm.workOrderId);
+    notify("success", `Card de ${deleteConfirm.plate} eliminada con todo su vinculado.`);
+    setDeleteConfirm(null);
+  };
 
   // Modal State for Creating a Manual Certificate from Scratch
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -1112,6 +1130,23 @@ export default function CertificacionesPage() {
                           <span>Imprimir Ficha</span>
                         </button>
                       )}
+                      {/* Boton ELIMINAR: borra la card con TODO su vinculado (certificacion,
+                          OT si existe, facturas y respaldos en la nube). Pide confirmacion. */}
+                      <button
+                        onClick={() =>
+                          setDeleteConfirm({
+                            plate: card.plate,
+                            clientName: card.clientName,
+                            certId: card.certId,
+                            workOrderId: card.workOrderId,
+                          })
+                        }
+                        className="px-3.5 py-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-300 text-xs font-bold rounded-xl border border-red-500/40 flex items-center gap-1.5 transition-colors"
+                        title="Eliminar la card con todo su vinculado (certificacion, OT, facturas)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        <span>Eliminar</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1406,6 +1441,58 @@ export default function CertificacionesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR ELIMINACION DE CARD CON TODO SU VINCULADO */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="glass-panel bg-reygas-dark/95 border border-white/15 max-w-md w-full rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl shadow-black/90">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-600/20 text-red-400 rounded-2xl border border-red-500/30">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Eliminar certificación</h3>
+                  <p className="text-xs text-gray-400">
+                    <span className="font-mono font-bold text-white">{deleteConfirm.plate}</span>
+                    {" · "}
+                    {deleteConfirm.clientName || "Cliente"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-300 leading-relaxed">
+              Se eliminará la card y{" "}
+              <strong className="text-white">todo su vinculado</strong>: la certificación, la orden
+              de trabajo (si existe), sus facturas y todos los respaldos en la nube.
+              Esta acción no se puede deshacer.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white font-bold text-xs border border-white/10 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteCertCard}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs shadow-lg shadow-red-600/30 flex items-center gap-2 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sí, Eliminar Todo</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

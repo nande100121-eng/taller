@@ -794,6 +794,8 @@ interface AppState {
   updateDiagnosticAndObservations: (orderId: string, notes: string, observations?: string) => void;
   toggleAllowModificationsInWorkshop: (orderId: string) => void;
   deleteWorkOrder: (id: string) => void;
+  // Elimina una card de CERTIFICACIONES con TODO su vinculado (cert + OT + facturas).
+  deleteCertificationCard: (certId?: string, workOrderId?: string) => void;
   removeDeletedWorkOrderLocal: (orderId: string) => void;
   removeDeletedInvoiceLocal: (invoiceId: string) => void;
   // Realtime CROSS-DEVICE: aplica directo al store la fila que llega por postgres_changes
@@ -3270,6 +3272,33 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       workOrders: state.workOrders.filter((o) => o.id !== id),
       invoices: state.invoices.filter((i) => i.work_order_id !== id),
     }));
+  },
+
+  // Elimina una card de CERTIFICACIONES con TODO su vinculado: la certificación,
+  // su OT (si existe), las facturas de la OT y todos los respaldos/tombstones en
+  // la nube (deleteSupabaseWorkOrder hace la cascada: OT + facturas + snapshots +
+  // certificaciones vinculadas + wo_deleted_<id>). En local se quita al instante
+  // para que la card desaparezca de TODOS los tabs (Hoy/Pendientes/Emitidos/Todos).
+  deleteCertificationCard: (certId?: string, workOrderId?: string) => {
+    set((state) => {
+      if (workOrderId) {
+        deleteSupabaseWorkOrder(workOrderId);
+      } else if (certId) {
+        deleteSupabaseCertification(certId);
+      }
+      const removeCerts = new Set<string>();
+      if (certId) removeCerts.add(certId);
+      if (workOrderId) {
+        state.certifications.forEach((c) => {
+          if (c.work_order_id === workOrderId) removeCerts.add(c.id);
+        });
+      }
+      return {
+        certifications: state.certifications.filter((c) => !removeCerts.has(c.id)),
+        workOrders: workOrderId ? state.workOrders.filter((o) => o.id !== workOrderId) : state.workOrders,
+        invoices: workOrderId ? state.invoices.filter((i) => i.work_order_id !== workOrderId) : state.invoices,
+      };
+    });
   },
 
   // Eliminación LOCAL pura (sin tocar la nube): usada cuando llega un evento realtime
