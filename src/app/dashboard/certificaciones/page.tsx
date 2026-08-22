@@ -649,10 +649,7 @@ export default function CertificacionesPage() {
       notify("warning", "Ingrese el nombre del cliente.");
       return;
     }
-    if (!manualForm.client_phone.trim()) {
-      notify("warning", "Ingrese el teléfono del cliente.");
-      return;
-    }
+    // Teléfono OPCIONAL: no se valida.
     if (!manualForm.certification_type) {
       notify("warning", "Seleccione el tipo de certificación.");
       return;
@@ -1304,11 +1301,10 @@ export default function CertificacionesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-300 font-bold mb-1">Teléfono *</label>
+                  <label className="block text-gray-300 font-bold mb-1">Teléfono</label>
                   <input
                     type="tel"
-                    required
-                    placeholder="Ej. 987654321"
+                    placeholder="Ej. 987654321 (opcional)"
                     value={manualForm.client_phone}
                     onChange={(e) => setManualForm({ ...manualForm, client_phone: e.target.value.replace(/[^0-9+]/g, "") })}
                     className="w-full px-3 py-2 bg-reygas-surface border border-white/10 rounded-xl text-white font-mono focus:border-teal-400"
