@@ -1550,7 +1550,7 @@ export default function CajaPage() {
     if (!paymentModal) return;
 
     const isZeroAmount = (paymentModal.grandTotal || 0) === 0;
-    const isSinComprobante = paymentModal.receiptType === "Sin Comprobante";
+    const isSinComprobante = paymentModal.receiptType === "Sin Comprobante" || isZeroAmount;
     // Modo SOLO VINCULAR: no exige método/destino/comprobante (no se cobra de nuevo).
     if (!paymentModal.linkOnly) {
     if (!isZeroAmount && !paymentModal.isSplitPayment && !paymentModal.paymentMethod && paymentModal.paymentMethod !== "Sin Método") {
@@ -2023,10 +2023,14 @@ export default function CajaPage() {
       status: wo?.status || "",
     }, "Caja:modal-abono");
 
-    const initialType = "Ticket" as "Ticket" | "Boleta" | "Factura";
-    const previewNum = inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
-      ? inv.receipt_number
-      : getCorrelativePreview(initialType);
+    // Monto 0 (gratuito): por defecto SIN COMPROBANTE — nunca consumir un correlativo.
+    const isZeroOpen = totalDue <= 0.01;
+    const initialType = (isZeroOpen ? "Sin Comprobante" : "Ticket") as "Ticket" | "Boleta" | "Factura" | "Sin Comprobante";
+    const previewNum = isZeroOpen
+      ? ""
+      : (inv?.receipt_number && inv.receipt_number !== "0" && inv.receipt_number.toLowerCase() !== "s/n"
+          ? inv.receipt_number
+          : getCorrelativePreview(initialType as any));
 
     // Recursos disponibles para vincular en este abono (solo desde 17/08/2026).
     // Se incrustan en CADA split del desglose: cada método/comprobante lleva su
@@ -2154,6 +2158,9 @@ export default function CajaPage() {
     const amount = selectedSum > 0
       ? Number(selectedSum.toFixed(2))
       : (totalSplitsSum > 0 ? Number(totalSplitsSum.toFixed(2)) : (Number(partialPaymentModal.amount) || 0));
+    // Monto 0 (gratuito) o "Sin Comprobante": no se consume correlativo; al editar se
+    // LIBERA el N° que tenía (el store lo borra de la factura y del historial).
+    const isSinCompAbono = partialPaymentModal.receiptType === "Sin Comprobante" || amount <= 0;
     // Recalcula el saldo real con el pago implícito (adelanto) para que al abonar el saldo
     // total el crédito quede en 0 (fix BBF-936: antes quedaba total - abono como falso saldo).
     const invForBalance = partialPaymentModal.invoice;
@@ -2218,7 +2225,7 @@ export default function CajaPage() {
         notify("warning", `La suma de los abonos parciales (S/ ${totalSplits.toFixed(2)}) debe coincidir con el monto a abonar (S/ ${amount.toFixed(2)}).`);
         return;
       }
-      if (partialPaymentModal.splitTicketMode === "perMethod" && partialPaymentModal.receiptType !== "Sin Comprobante") {
+      if (partialPaymentModal.splitTicketMode === "perMethod" && !isSinCompAbono) {
         // Pago mixto multi-ticket: cada método lleva su propio TIPO (Ticket/Boleta/Factura) y N° de comprobante
         splits = splits.map((s) => {
           const st = (s.receipt_type === "Boleta" || s.receipt_type === "Factura"
@@ -2251,7 +2258,7 @@ export default function CajaPage() {
 
     // Auto-advance correlative sequence
     let assignedReceiptNum = "";
-    if (partialPaymentModal.receiptType !== "Sin Comprobante" && (partialPaymentModal.receiptType === "Ticket" || partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura")) {
+    if (!isSinCompAbono && (partialPaymentModal.receiptType === "Ticket" || partialPaymentModal.receiptType === "Boleta" || partialPaymentModal.receiptType === "Factura")) {
       if (partialPaymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0) {
         // Pago mixto multi-ticket: el N° principal del comprobante es el primer ticket del desglose
         assignedReceiptNum = paymentBreakdown[0].receipt_number || partialPaymentModal.receiptNumber || "";
@@ -2273,7 +2280,7 @@ export default function CajaPage() {
       }
     }
 
-    const finalReceiptType = partialPaymentModal.receiptType === "Sin Comprobante"
+    const finalReceiptType = isSinCompAbono
       ? ""
       : (partialPaymentModal.splitTicketMode === "perMethod" && paymentBreakdown && paymentBreakdown.length > 0
           ? (paymentBreakdown[0].receipt_type || partialPaymentModal.receiptType)
@@ -2344,8 +2351,8 @@ export default function CajaPage() {
         date: paymentDateTime,
         method: sanitizeMethod(finalMethod, amount) || "Efectivo",
         destination: finalDest || "EMPRESA",
-        receipt_type: finalReceiptType || undefined,
-        receipt_number: assignedReceiptNum || undefined,
+        receipt_type: isSinCompAbono ? "" : (finalReceiptType || undefined),
+        receipt_number: isSinCompAbono ? "" : (assignedReceiptNum || undefined),
         observation: partialPaymentModal.observation || undefined,
         responsible: partialPaymentModal.responsible || undefined,
         resources: abonoResources.length > 0 ? abonoResources : undefined,
@@ -2886,7 +2893,7 @@ export default function CajaPage() {
 
     const newDateTimeISO = buildPeruISOString(manualPaymentModal.entryDate, manualPaymentModal.entryTime || "08:30");
     const isZeroAmount = (manualPaymentModal.price || 0) === 0;
-    const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante";
+    const isSinComprobante = manualPaymentModal.receiptType === "Sin Comprobante" || isZeroAmount;
 
     if (!isZeroAmount && !manualPaymentModal.isSplitPayment && !manualPaymentModal.paymentMethod && manualPaymentModal.paymentMethod !== "Sin Método") {
       notify("warning", "Debe seleccionar un Método de Pago.");

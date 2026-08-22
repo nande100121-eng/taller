@@ -811,6 +811,7 @@ interface AppState {
   updateCorrelativeConfig: (config: Partial<CorrelativeConfig>) => void;
   getAndIncrementReceiptNumber: (type: "Ticket" | "Boleta" | "Factura", targetDate?: string) => string;
   syncReceiptMaximaFromCloud: () => Promise<void>;
+  recomputeReceiptMaximaAfterClear: () => Promise<void>;
 
   invoices: Invoice[];
   createInvoice: (invoice: Omit<Invoice, "id">) => void;
@@ -1201,6 +1202,54 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       });
     } catch (err) {
       console.warn("syncReceiptMaximaFromCloud:", err);
+    }
+  },
+
+  // LIBERACIÓN DE CORRELATIVO (fix 22/08): tras editar un comprobante a "Sin Comprobante"
+  // (o monto 0) o borrar una factura, recalcula los lastNumbers de correlativeConfig al
+  // ÚLTIMO folio REAL (nube + facturas locales). A diferencia de syncReceiptMaximaFromCloud
+  // (que solo ELEVA), aquí SÍ puede BAJAR: el N° liberado vuelve a estar disponible para
+  // el siguiente comprobante. Se llama DESPUÉS de que el guardado/borrado ya se ejecutó,
+  // así la consulta a la nube refleja el N° liberado.
+  recomputeReceiptMaximaAfterClear: async () => {
+    try {
+      const localMax = { ticket: 0, boleta: 0, factura: 0 };
+      (get().invoices || []).forEach((inv: any) => {
+        const raw = String(inv.receipt_number || "").trim();
+        if (!raw) return;
+        const rt = String(inv.receipt_type || "").toLowerCase();
+        let kind: "ticket" | "boleta" | "factura" | null = null;
+        if (rt.includes("factura")) kind = "factura";
+        else if (rt.includes("boleta")) kind = "boleta";
+        else if (rt.includes("ticket")) kind = "ticket";
+        if (!kind) return;
+        const { folio } = parseCorrelative(raw);
+        if (folio > 0 && folio < 999999 && folio > localMax[kind]) localMax[kind] = folio;
+      });
+      const cloud = await fetchLatestReceiptMaxima();
+      const cur = get().correlativeConfig;
+      if (!cur) return;
+      const next: CorrelativeConfig = { ...cur };
+      (next as any).ticketLastNumber = Math.max(localMax.ticket, cloud.ticket);
+      (next as any).boletaLastNumber = Math.max(localMax.boleta, cloud.boleta);
+      (next as any).facturaLastNumber = Math.max(localMax.factura, cloud.factura);
+      (next as any).notaCreditoLastNumber = cloud.notaCredito;
+      next.lastUpdateDate = getPeruDateString();
+      set({ correlativeConfig: next });
+      logSystemEvent("info", "correlative.release.after_clear", {
+        ticket: (next as any).ticketLastNumber,
+        boleta: (next as any).boletaLastNumber,
+        factura: (next as any).facturaLastNumber,
+        notaCredito: (next as any).notaCreditoLastNumber || 0,
+      }, "store:recomputeReceiptMaximaAfterClear");
+      saveSupabaseSiteContent("correlativeConfig", next).then((res) => {
+        if (!res.success) {
+          console.error("recomputeReceiptMaximaAfterClear rollback:", res.error);
+          set({ correlativeConfig: cur });
+        }
+      });
+    } catch (err) {
+      console.warn("recomputeReceiptMaximaAfterClear:", err);
     }
   },
 
@@ -3795,6 +3844,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   // Edita UN registro del historial de pagos (monto, método, fecha, comprobante) y recalcula
   // el estado de la factura igual que al eliminar: saldo, estado y método/destino/desglose.
   updatePaymentRecord: (invoiceId, recordId, updates) => {
+    let clearedReceipt = "";
     set((state) => {
       const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
       if (!targetInvoice || !recordId) {
@@ -3844,6 +3894,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         ...updates,
         id: current.id,
         date: updates.date || current.date,
+        // LIBERACIÓN DE CORRELATIVO: si el cajero puso "Sin Comprobante" (o monto 0),
+        // el registro deja de llevar comprobante -> el N° vuelve a estar libre.
+        receipt_number: updates.receipt_number !== undefined ? (String(updates.receipt_number) || "") : current.receipt_number,
+        receipt_type: updates.receipt_type !== undefined ? (String(updates.receipt_type) || "") : current.receipt_type,
       };
       const prevPaid = history.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const totalDue = Number(targetInvoice.grand_total) || 0;
@@ -3878,6 +3932,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         ...({ __respectManualReceipt: true } as any),
       };
       saveSupabaseInvoice(updated);
+      if (updates.receipt_number === "" && current.receipt_number && String(current.receipt_number).trim()) {
+        clearedReceipt = String(current.receipt_number);
+      }
       logSystemEvent("info", "payment.record_update.ok", {
         invoiceId: String(targetInvoice.id).slice(0, 26),
         woId: String(targetInvoice.work_order_id || "").slice(0, 8),
@@ -3901,6 +3958,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
       });
       return { invoices: updatedInvoices, workOrders: updatedOrders };
     });
+    // LIBERACIÓN DE CORRELATIVO: tras editar a "Sin Comprobante" se borró el N° de la
+    // factura/historial; se recalcula el último correlativo REAL (puede BAJAR: el N°
+    // liberado vuelve a estar disponible para el siguiente comprobante).
+    if (clearedReceipt) {
+      logSystemEvent("info", "payment.record_update.receipt_liberado", {
+        invoiceId: String(invoiceId || "").slice(0, 26),
+        recordId: String(recordId || "").slice(0, 20),
+        liberado: clearedReceipt,
+      }, "store:updatePaymentRecord");
+      void get().recomputeReceiptMaximaAfterClear();
+    }
   },
 
   // Elimina TODOS los pagos/abonos de la factura y ELIMINA la factura completa en
@@ -3909,6 +3977,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
   // historial (pagos reconstruidos rp-/bd-) retornaba SIN hacer nada; la factura de
   // prueba seguía en el caché y el modal de abono jala los datos de la factura borrada.
   clearInvoicePayments: (invoiceId) => {
+    const clearedReceiptPrev = (() => {
+      const t = invoiceId ? get().invoices.find((i) => i.id === invoiceId) : undefined;
+      return (t && t.receipt_number && String(t.receipt_number).trim()) ? String(t.receipt_number) : "";
+    })();
     set((state) => {
       const targetInvoice = invoiceId ? state.invoices.find((i) => i.id === invoiceId) : undefined;
       if (!targetInvoice) return state;
@@ -3938,6 +4010,14 @@ export const useAppStore = create<AppState>()(persist((set, get) => {
         workOrders: updatedOrdersNoInv,
       };
     });
+    // La factura eliminada llevaba un N° de comprobante: queda LIBRE (recalcula el último real).
+    if (clearedReceiptPrev) {
+      logSystemEvent("info", "payment.clear_all.receipt_liberado", {
+        invoiceId: String(invoiceId || "").slice(0, 26),
+        liberado: clearedReceiptPrev,
+      }, "store:clearInvoicePayments");
+      void get().recomputeReceiptMaximaAfterClear();
+    }
   },
 
   confirmInvoicePayment: ({
