@@ -248,29 +248,31 @@ export async function deleteSupabaseTechnician(id: string, allTechs?: Technician
 // Los campos extra (counted_status, initial_stock, entries, exits, serial_number) se
 // serializan en `notes` bajo `__meta__:` y se recuperan en la lectura.
 function buildInventoryDbPayload(item: InventoryItem): Record<string, any> {
-  const meta: Record<string, any> = {};
-  if (item.serial_number) meta.serial_number = item.serial_number;
-  if (typeof item.initial_stock === "number") meta.initial_stock = item.initial_stock;
-  if (typeof item.entries === "number") meta.entries = item.entries;
-  if (typeof item.exits === "number") meta.exits = item.exits;
-  if (typeof item.counted_stock === "number") meta.counted_stock = item.counted_stock;
-  if (item.counted_status) meta.counted_status = item.counted_status;
-  const extra = Object.keys(meta).length > 0 ? `__meta__:${JSON.stringify(meta)}` : "";
-  const notes = [((item as any).notes || "").trim(), extra].filter(Boolean).join("\n") || null;
+  // FIX 22/08 (stock 0 en el modal de repuestos): el payload mandaba columnas que NO
+  // existen en inventory_items (stock, min_stock, sale_price, cost_price, location,
+  // notes) -> TODOS los upserts fallaban con 400 y el stock nunca se persistió en la
+  // nube (682 items en 0; los syncs pisaban el stock real del cache local). Columnas
+  // REALES verificadas en la base: id, sku_barcode, name, category, stock_quantity,
+  // unit_price, min_stock_alert, created_at, brand, serial_number, initial_stock,
+  // entries, exits, counted_stock, counted_status.
   const anyItem = item as any;
-  return {
+  const payload: Record<string, any> = {
     id: item.id,
     sku_barcode: item.sku_barcode,
     name: item.name,
-    brand: item.brand || null,
+    brand: anyItem.brand || null,
     category: item.category || "Repuestos",
-    stock: typeof item.stock_quantity === "number" ? item.stock_quantity : (typeof anyItem.stock === "number" ? anyItem.stock : 0),
-    min_stock: typeof item.min_stock_alert === "number" ? item.min_stock_alert : (typeof anyItem.min_stock === "number" ? anyItem.min_stock : 2),
-    sale_price: typeof item.unit_price === "number" ? item.unit_price : (typeof anyItem.sale_price === "number" ? anyItem.sale_price : 0),
-    cost_price: typeof anyItem.cost_price === "number" ? anyItem.cost_price : null,
-    location: anyItem.location || null,
-    notes,
+    stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : (typeof anyItem.stock === "number" ? anyItem.stock : 0),
+    unit_price: typeof item.unit_price === "number" ? item.unit_price : (typeof anyItem.sale_price === "number" ? anyItem.sale_price : 0),
+    min_stock_alert: typeof item.min_stock_alert === "number" ? item.min_stock_alert : (typeof anyItem.min_stock === "number" ? anyItem.min_stock : 2),
   };
+  if (anyItem.serial_number) payload.serial_number = anyItem.serial_number;
+  if (typeof anyItem.initial_stock === "number") payload.initial_stock = anyItem.initial_stock;
+  if (typeof anyItem.entries === "number") payload.entries = anyItem.entries;
+  if (typeof anyItem.exits === "number") payload.exits = anyItem.exits;
+  if (typeof anyItem.counted_stock === "number") payload.counted_stock = anyItem.counted_stock;
+  if (anyItem.counted_status) payload.counted_status = anyItem.counted_status;
+  return payload;
 }
 
 function normalizeDbInventoryItem(dbRow: any): InventoryItem {
