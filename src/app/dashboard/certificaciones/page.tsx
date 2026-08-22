@@ -977,6 +977,14 @@ export default function CertificacionesPage() {
                         <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" />
                         <span>{card.certificationType}</span>
                       </h3>
+                      {card.workOrderId && (
+                        <p className="text-[11px] text-gray-400 font-mono font-bold flex items-center gap-1.5 pt-1">
+                          <span className="text-gray-500">OT #</span>
+                          <span className="text-white/90 tracking-wide">
+                            {card.workOrderId.length > 13 ? card.workOrderId.slice(0, 8) : card.workOrderId}
+                          </span>
+                        </p>
+                      )}
                     </div>
 
                     {/* Editable Price Widget */}
